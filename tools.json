@@ -1,0 +1,13 @@
+{
+    "Tools": [
+      {
+        "Repository": "github.com/golang/protobuf/protoc-gen-go",
+        "Commit": "b5d812f8a3706043e23a9cd5babf2e5423744d30"
+      },
+      {
+        "Repository": "golang.org/x/tools/cmd/goimports",
+        "Commit": "04b5d21e00f1f47bd824a6ade581e7189bacde87"
+      }
+    ],
+    "RetoolVersion": "1.3.7"
+}
