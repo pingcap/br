@@ -93,6 +93,7 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 }
 
 // GetGCSaftPoint returns the current gc safe point.
+// TODO: Some cluster may not enable distributed GC.
 func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
 	safePoint, err := backer.pdClient.UpdateGCSafePoint(backer.ctx, 0)
 	println(safePoint)
@@ -111,4 +112,8 @@ func decodeTs(ts uint64) Timestamp {
 		Physical: physical,
 		Logical:  int64(logical),
 	}
+}
+
+func encodeTs(tp Timestamp) uint64 {
+	return uint64((tp.Physical << physicalShiftBits) + tp.Logical)
 }
