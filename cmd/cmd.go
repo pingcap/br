@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/overvenus/br/backup"
-	pdcmd "github.com/pingcap/pd/tools/pd-ctl/pdctl/command"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +39,19 @@ func NewMetaCommand() *cobra.Command {
 		Use:   "meta <subcommand>",
 		Short: "show meta data of a cluster",
 	}
-	meta.AddCommand(pdcmd.NewShowClusterVersionCommand())
+	meta.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "show cluster version",
+		Run: func(cmd *cobra.Command, _ []string) {
+			backer := GetDefaultBacker()
+			v, err := backer.GetClusterVersion()
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			cmd.Println(v)
+		},
+	})
 	meta.AddCommand(&cobra.Command{
 		Use:   "safepoint",
 		Short: "show the current GC safepoint of cluster",
@@ -51,7 +62,8 @@ func NewMetaCommand() *cobra.Command {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			cmd.Println(sp)
+			cmd.Printf("Timestamp { Physical: %d, Logical: %d }\n",
+				sp.Physical, sp.Logical)
 		},
 	})
 	return meta
