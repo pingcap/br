@@ -2,6 +2,9 @@ PROTOC ?= $(shell which protoc)
 PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD := $(shell pwd)
 
+build:
+	GO111MODULE=on go build
+
 pb: tools
 	@PATH=$(CWD)/_tools/bin:$$PATH && for p in $(PROTOS); do { \
       dir=`dirname $$p`; \
