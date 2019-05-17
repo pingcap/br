@@ -9,17 +9,17 @@ import (
 )
 
 const (
-	// GCDefaultLifeTime is the default GC interval.
-	GCDefaultLifeTime = time.Minute * 10
-	// BackupDefaultInterval is the default backup interval.
-	BackupDefaultInterval = GCDefaultLifeTime / 10
+	// DefaultGCLifeTime is the default GC interval.
+	DefaultGCLifeTime = time.Minute * 10
+	// DefaultBackupInterval is the default backup interval.
+	DefaultBackupInterval = DefaultGCLifeTime / 10
 )
 
 // Backup backups a TiDB/TiKV cluster.
 func (backer *Backer) Backup(interval time.Duration) error {
-	if interval >= GCDefaultLifeTime {
+	if interval >= DefaultGCLifeTime {
 		return errors.Errorf("Backup interval is too large %v, must <= %v",
-			interval, GCDefaultLifeTime)
+			interval, DefaultGCLifeTime)
 	}
 
 	round := 0

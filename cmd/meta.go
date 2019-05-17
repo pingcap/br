@@ -12,6 +12,14 @@ func NewMetaCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "meta <subcommand>",
 		Short: "show meta data of a cluster",
+		PersistentPreRunE: func(cmd *cobra.Command, arg []string) error {
+			addr, err := cmd.InheritedFlags().GetString(FlagPD)
+			if err != nil {
+				return err
+			}
+			InitDefaultBacker(addr)
+			return nil
+		},
 	}
 	meta.AddCommand(&cobra.Command{
 		Use:   "version",

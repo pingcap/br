@@ -11,14 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CommandFlags are flags that used in all Commands
-type CommandFlags struct {
-	URL      string
-	CAPath   string
-	CertPath string
-	KeyPath  string
-}
-
 func main() {
 	gCtx := context.Background()
 	ctx, cancel := context.WithCancel(gCtx)
@@ -43,19 +35,19 @@ func main() {
 		}
 	}()
 
-	commandFlags := CommandFlags{}
 	rootCmd := &cobra.Command{
-		Use:   "br",
-		Short: "br is a TiDB/TiKV cluster backup tool.",
+		Use:              "br",
+		Short:            "br is a TiDB/TiKV cluster backup tool.",
+		TraverseChildren: true,
 	}
-	rootCmd.PersistentFlags().StringVarP(&commandFlags.URL, "pd", "u", "http://127.0.0.1:2379", "pd address")
+	cmd.AddFlags(rootCmd)
 	rootCmd.AddCommand(cmd.NewMetaCommand())
+	rootCmd.AddCommand(cmd.NewBackupCommand())
 	if err := rootCmd.ParseFlags(os.Args[1:]); err != nil {
 		rootCmd.Println(err)
 	}
-	// TODO: support https
 
-	cmd.SetDefaultBacker(ctx, commandFlags.URL)
+	cmd.InitDefaultContext(ctx)
 	if err := rootCmd.Execute(); err != nil {
 		rootCmd.Println(rootCmd.UsageString())
 	}
