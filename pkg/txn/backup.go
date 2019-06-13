@@ -1,10 +1,11 @@
-package backup
+package txn
 
 import (
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/overvenus/br/pkg/meta"
 	"github.com/pingcap/errors"
 )
 
@@ -16,14 +17,14 @@ const (
 )
 
 // Backup backups a TiDB/TiKV cluster.
-func (backer *Backer) Backup(interval time.Duration) error {
+func Backup(backer *meta.Backer, interval time.Duration) error {
 	if interval >= DefaultGCLifeTime {
 		return errors.Errorf("Backup interval is too large %v, must <= %v",
 			interval, DefaultGCLifeTime)
 	}
 
 	round := 0
-	backMeta := BackupMeta{}
+	backMeta := meta.BackupMeta{}
 	version, err := backer.GetClusterVersion()
 	if err != nil {
 		return errors.Trace(err)
@@ -32,7 +33,7 @@ func (backer *Backer) Backup(interval time.Duration) error {
 
 	for {
 		// Check point
-		cps, err := backer.DoCheckpoint()
+		cps, err := DoCheckpoint(backer)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -45,8 +46,8 @@ func (backer *Backer) Backup(interval time.Duration) error {
 		}
 		backMeta.SafePoint = &sp
 
-		if encodeTs(sp) >= encodeTs(*cps[0].CheckPoint) {
-			fmt.Printf("GC safe point(%d) >= check point(%d)", encodeTs(sp), encodeTs(*cps[0].CheckPoint))
+		if meta.EncodeTs(sp) >= meta.EncodeTs(*cps[0].CheckPoint) {
+			fmt.Printf("GC safe point(%d) >= check point(%d)", meta.EncodeTs(sp), meta.EncodeTs(*cps[0].CheckPoint))
 			os.Exit(1)
 		}
 
@@ -55,7 +56,7 @@ func (backer *Backer) Backup(interval time.Duration) error {
 
 		timer := time.NewTimer(interval)
 		select {
-		case <-backer.ctx.Done():
+		case <-backer.Context().Done():
 			return nil
 		case <-timer.C:
 			return nil

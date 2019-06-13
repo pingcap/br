@@ -1,4 +1,4 @@
-package backup
+package meta
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv/oracle"
+	"github.com/pingcap/kvproto/pkg/backup"
 )
 
 // Backer backups a TiDB/TiKV cluster.
@@ -22,6 +23,7 @@ type Backer struct {
 		addrs []string
 		cli   *http.Client
 	}
+	kvClients  map[uint64]backup.BackupClient
 }
 
 // NewBacker creates a new Backer.
@@ -100,12 +102,16 @@ func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
 	if err != nil {
 		return Timestamp{}, errors.Trace(err)
 	}
-	return decodeTs(safePoint), nil
+	return DecodeTs(safePoint), nil
+}
+
+func (backer *Backer) Context() context.Context {
+	return backer.ctx
 }
 
 const physicalShiftBits = 18
 
-func decodeTs(ts uint64) Timestamp {
+func DecodeTs(ts uint64) Timestamp {
 	physical := oracle.ExtractPhysical(ts)
 	logical := ts - (uint64(physical) << physicalShiftBits)
 	return Timestamp{
@@ -114,6 +120,6 @@ func decodeTs(ts uint64) Timestamp {
 	}
 }
 
-func encodeTs(tp Timestamp) uint64 {
+func EncodeTs(tp Timestamp) uint64 {
 	return uint64((tp.Physical << physicalShiftBits) + tp.Logical)
 }

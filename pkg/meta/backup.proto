@@ -1,5 +1,5 @@
 syntax = "proto3";
-package backup;
+package meta;
 
 message Timestamp {
     int64 physical = 1;

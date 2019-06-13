@@ -6,13 +6,13 @@ import (
 	"os"
 	"sync"
 
-	"github.com/overvenus/br/backup"
+	"github.com/overvenus/br/pkg/meta"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 )
 
 var (
-	defaultBacker     *backup.Backer
+	defaultBacker     *meta.Backer
 	defaultBackerOnce = sync.Once{}
 
 	defaultContext     context.Context
@@ -52,7 +52,7 @@ func InitDefaultContext(ctx context.Context) {
 func InitDefaultBacker(pdAddrs string) {
 	defaultBackerOnce.Do(func() {
 		var err error
-		defaultBacker, err = backup.NewBacker(defaultContext, pdAddrs)
+		defaultBacker, err = meta.NewBacker(defaultContext, pdAddrs)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -61,6 +61,6 @@ func InitDefaultBacker(pdAddrs string) {
 }
 
 // GetDefaultBacker returns the default backer for command line usage.
-func GetDefaultBacker() *backup.Backer {
+func GetDefaultBacker() *meta.Backer {
 	return defaultBacker
 }

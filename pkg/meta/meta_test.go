@@ -1,4 +1,4 @@
-package backup
+package meta
 
 import (
 	"math/rand"
@@ -10,8 +10,8 @@ func TestTimestampEncodeDecode(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	for i := 0; i < 10; i++ {
 		ts := rand.Uint64()
-		tp := decodeTs(ts)
-		ts1 := encodeTs(tp)
+		tp := DecodeTs(ts)
+		ts1 := EncodeTs(tp)
 		if ts != ts1 {
 			t.Fatalf("%d != %d", ts, ts1)
 		}

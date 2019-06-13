@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	bp "github.com/overvenus/br/backup"
+	txn "github.com/overvenus/br/pkg/txn"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +31,7 @@ func NewBackupCommand() *cobra.Command {
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			err = backer.Backup(interval)
+			err = txn.Backup(backer, interval)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
@@ -39,6 +39,6 @@ func NewBackupCommand() *cobra.Command {
 		},
 	}
 	backup.Flags().Duration("interval",
-		bp.DefaultBackupInterval, "backup checkpoint interval")
+		txn.DefaultBackupInterval, "backup checkpoint interval")
 	return backup
 }
