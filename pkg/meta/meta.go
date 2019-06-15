@@ -10,9 +10,15 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/pd/client"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/kvproto/pkg/backup"
+	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/store/tikv/oracle"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+)
+
+const (
+	dialTimeout = 5 * time.Second
 )
 
 // Backer backups a TiDB/TiKV cluster.
@@ -23,7 +29,6 @@ type Backer struct {
 		addrs []string
 		cli   *http.Client
 	}
-	kvClients  map[uint64]backup.BackupClient
 }
 
 // NewBacker creates a new Backer.
@@ -105,8 +110,43 @@ func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
 	return DecodeTs(safePoint), nil
 }
 
+// Context returns Backer's context.
 func (backer *Backer) Context() context.Context {
 	return backer.ctx
+}
+
+// NewBackupClient creates a new backup client.
+func (backer *Backer) NewBackupClient(storeID uint64) (backup.BackupClient, error) {
+	store, err := backer.pdClient.GetStore(backer.ctx, storeID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	opt := grpc.WithInsecure()
+	ctx, cancel := context.WithTimeout(backer.ctx, dialTimeout)
+	keepAlive := 10
+	keepAliveTimeout := 3
+	conn, err := grpc.DialContext(
+		ctx,
+		store.GetAddress(),
+		opt,
+		grpc.WithBackoffMaxDelay(time.Second*3),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                time.Duration(keepAlive) * time.Second,
+			Timeout:             time.Duration(keepAliveTimeout) * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
+	cancel()
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	client := backup.NewBackupClient(conn)
+	return client, nil
+}
+
+// GetPDClient returns a pd client.
+func (backer *Backer) GetPDClient() pd.Client {
+	return backer.pdClient
 }
 
 const physicalShiftBits = 18
