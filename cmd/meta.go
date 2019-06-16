@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -12,40 +12,34 @@ func NewMetaCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "meta <subcommand>",
 		Short: "show meta data of a cluster",
-		PersistentPreRunE: func(cmd *cobra.Command, arg []string) error {
-			addr, err := cmd.InheritedFlags().GetString(FlagPD)
-			if err != nil {
-				return err
-			}
-			InitDefaultBacker(addr)
-			return nil
-		},
 	}
 	meta.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "show cluster version",
-		Run: func(cmd *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			backer := GetDefaultBacker()
 			v, err := backer.GetClusterVersion()
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				fmt.Println(errors.ErrorStack(err))
+				return err
 			}
 			cmd.Println(v)
+			return nil
 		},
 	})
 	meta.AddCommand(&cobra.Command{
 		Use:   "safepoint",
 		Short: "show the current GC safepoint of cluster",
-		Run: func(cmd *cobra.Command, _ []string) {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			backer := GetDefaultBacker()
 			sp, err := backer.GetGCSaftPoint()
 			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+				fmt.Println(errors.ErrorStack(err))
+				return err
 			}
 			cmd.Printf("Timestamp { Physical: %d, Logical: %d }\n",
 				sp.Physical, sp.Logical)
+			return nil
 		},
 	})
 	return meta

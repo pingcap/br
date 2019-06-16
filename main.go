@@ -8,10 +8,16 @@ import (
 	"syscall"
 
 	"github.com/overvenus/br/cmd"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 )
 
 func main() {
+	conf := &log.Config{Level: "info", File: log.FileLogConfig{}}
+	lg, p, _ := log.InitLogger(conf)
+	log.ReplaceGlobals(lg, p)
+
 	gCtx := context.Background()
 	ctx, cancel := context.WithCancel(gCtx)
 
@@ -39,16 +45,24 @@ func main() {
 		Use:              "br",
 		Short:            "br is a TiDB/TiKV cluster backup tool.",
 		TraverseChildren: true,
+		SilenceUsage:     true,
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			// c.DebugFlags()
+			return cmd.Init(ctx, c)
+		},
 	}
 	cmd.AddFlags(rootCmd)
-	rootCmd.AddCommand(cmd.NewMetaCommand())
-	rootCmd.AddCommand(cmd.NewBackupCommand())
-	if err := rootCmd.ParseFlags(os.Args[1:]); err != nil {
-		rootCmd.Println(err)
-	}
-
-	cmd.InitDefaultContext(ctx)
+	rootCmd.AddCommand(
+		cmd.NewMetaCommand(),
+		cmd.NewFullBackupCommand(),
+		cmd.NewRegionCommand(),
+		cmd.NewTxnCommand(),
+	)
+	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
-		rootCmd.Println(rootCmd.UsageString())
+		rootCmd.Println(errors.ErrorStack(err))
+		cancel()
+		os.Exit(1)
 	}
+	cancel()
 }

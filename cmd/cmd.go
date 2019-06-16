@@ -2,21 +2,19 @@ package cmd
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"sync"
 
 	"github.com/overvenus/br/pkg/meta"
+	"github.com/overvenus/br/pkg/raw"
+	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
-	flag "github.com/spf13/pflag"
 )
 
 var (
-	defaultBacker     *meta.Backer
-	defaultBackerOnce = sync.Once{}
-
-	defaultContext     context.Context
-	defaultContextOnce = sync.Once{}
+	initOnce         = sync.Once{}
+	defaultBacker    *meta.Backer
+	defaultContext   context.Context
+	defaultRawClient *raw.BackupClient
 )
 
 const (
@@ -28,39 +26,50 @@ const (
 	FlagCert = "cert"
 	// FlagKey is the name of key flag.
 	FlagKey = "key"
+	// FlagStore is the name of key flag.
+	FlagStore = "store"
 )
 
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
-	flags := flag.FlagSet{}
-	flags.StringP(FlagPD, "u", "127.0.0.1:2379", "PD address")
-	flags.String(FlagCA, "", "CA path")
-	flags.String(FlagCert, "", "Cert path")
-	flags.String(FlagKey, "", "Key path")
-	cmd.PersistentFlags().AddFlagSet(&flags)
+	cmd.PersistentFlags().StringP(FlagPD, "u", "127.0.0.1:2379", "PD address")
+	cmd.PersistentFlags().String(FlagCA, "", "CA path")
+	cmd.PersistentFlags().String(FlagCert, "", "Cert path")
+	cmd.PersistentFlags().String(FlagKey, "", "Key path")
+	cmd.PersistentFlags().Uint64P(FlagStore, "s", 0, "backup at the specific store")
+	cmd.MarkFlagRequired(FlagPD)
 }
 
-// InitDefaultContext sets the default backer for command line usage.
-func InitDefaultContext(ctx context.Context) {
-	defaultContextOnce.Do(func() {
+// Init ...
+func Init(ctx context.Context, cmd *cobra.Command) (err error) {
+	initOnce.Do(func() {
 		defaultContext = ctx
-	})
-}
-
-// InitDefaultBacker sets the default backer for command line usage.
-// TODO: support https
-func InitDefaultBacker(pdAddrs string) {
-	defaultBackerOnce.Do(func() {
-		var err error
-		defaultBacker, err = meta.NewBacker(defaultContext, pdAddrs)
+		var addr string
+		addr, err = cmd.Flags().GetString(FlagPD)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return
 		}
+		if addr == "" {
+			err = errors.Errorf("pd address can not be empty")
+			return
+		}
+		defaultBacker, err = meta.NewBacker(defaultContext, addr)
+		var storeID uint64
+		storeID, err = cmd.Flags().GetUint64("store")
+		if err != nil {
+			return
+		}
+		defaultRawClient, err = raw.NewBackupClient(defaultBacker, storeID)
 	})
+	return
 }
 
 // GetDefaultBacker returns the default backer for command line usage.
 func GetDefaultBacker() *meta.Backer {
 	return defaultBacker
+}
+
+// GetDefaultRawClient returns the default back client for command line usage.
+func GetDefaultRawClient() *raw.BackupClient {
+	return defaultRawClient
 }

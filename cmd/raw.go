@@ -1,33 +1,8 @@
 package cmd
 
 import (
-	"fmt"
-
-	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 )
-
-// NewRawCommand return a backup raw subcommand.
-func NewRawCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "raw",
-		Short: "backup a TiKV cluster",
-		PreRunE: func(cmd *cobra.Command, _ []string) error {
-			storeID, err := cmd.LocalFlags().GetUint64("store")
-			if err != nil {
-				fmt.Println(errors.ErrorStack(err))
-				return err
-			}
-			return InitDefaultRawClient(storeID)
-		},
-		Run: func(cmd *cobra.Command, args []string) {},
-	}
-	command.PersistentFlags().Uint64P("store", "s", 0, "backup at the specific store")
-	command.MarkFlagRequired("store")
-	command.AddCommand(NewRegionCommand())
-	command.AddCommand(NewFullBackupCommand())
-	return command
-}
 
 // NewFullBackupCommand return a full backup subcommand.
 func NewFullBackupCommand() *cobra.Command {
@@ -49,7 +24,7 @@ func NewRegionCommand() *cobra.Command {
 		Short: "backup specified regions",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			regionID, err := cmd.LocalFlags().GetUint64("region")
+			regionID, err := cmd.Flags().GetUint64("region")
 			if err != nil {
 				return err
 			}
@@ -61,7 +36,7 @@ func NewRegionCommand() *cobra.Command {
 			return client.BackupRegion(region)
 		},
 	}
-	command.LocalFlags().Uint64P("region", "r", 0, "backup the specific regions")
+	command.Flags().Uint64P("region", "r", 0, "backup the specific regions")
 	command.MarkFlagRequired("region")
 	return command
 }
