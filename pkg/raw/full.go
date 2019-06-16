@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// BackupClient is a client instructs TiKV how to do a backup.
 type BackupClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -26,17 +27,22 @@ type BackupClient struct {
 	pdClient  pd.Client
 }
 
+// NewBackupClient returns a new backup client
 func NewBackupClient(backer *meta.Backer, storeID uint64) (*BackupClient, error) {
 	client, err := backer.NewBackupClient(storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Info("new backup client", zap.Uint64("storeID", storeID))
 	ctx, cancel := context.WithCancel(backer.Context())
+	pdClient := backer.GetPDClient()
 	return &BackupClient{
-		ctx:      ctx,
-		cancel:   cancel,
-		client:   client,
-		pdClient: backer.GetPDClient(),
+		clusterID: pdClient.GetClusterID(ctx),
+		storeID:   storeID,
+		ctx:       ctx,
+		cancel:    cancel,
+		client:    client,
+		pdClient:  backer.GetPDClient(),
 	}, nil
 }
 
@@ -104,6 +110,7 @@ func (bc *BackupClient) FullBackup() error {
 
 // BackupRegion starts backup a region
 func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
+	log.Info("backup region", zap.Any("region", region))
 	// Try to find a backup peer.
 	var peer *metapb.Peer
 	for _, pr := range region.GetPeers() {
@@ -113,7 +120,8 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 		}
 	}
 	if peer == nil {
-		return errors.Errorf("no backup peer %+v", region)
+		return errors.Errorf("no backup peer in store %d %s",
+			bc.storeID, region.GetPeers())
 	}
 
 	reqCtx := &kvrpcpb.Context{
@@ -125,27 +133,35 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 		Context: reqCtx,
 	}
 
+	start := time.Now()
 	for retry := 0; retry < 3; retry++ {
 		resp, err := bc.client.BackupRegion(bc.ctx, req)
 		if err != nil {
+			backupRegionCounters.WithLabelValues("grpc_error").Inc()
 			return errors.Trace(err)
 		}
 		regionErr, err := handleBackupError(resp, backup.BackupState_StartFullBackup)
 		if err != nil {
-			log.Warn("gRPC error retry", zap.Error(err))
+			log.Warn("other error retry", zap.Error(err))
+			backupRegionCounters.WithLabelValues("other_retry").Inc()
 			// TODO: a better backoff
 			time.Sleep(time.Second * 3)
 			continue
 		} else if regionErr != nil {
 			log.Warn("region error retry", zap.Any("regioError", regionErr))
 			if regionErr.GetEpochNotMatch() != nil {
+				backupRegionCounters.WithLabelValues("epoch_error").Inc()
 				return errors.Errorf("%+v", regionErr)
 			}
+			backupRegionCounters.WithLabelValues("region_retry").Inc()
 			// TODO: a better backoff
 			time.Sleep(time.Second * 3)
 			continue
 		}
+		break
 	}
+	backupRegionCounters.WithLabelValues("ok").Inc()
+	backupRegionHistogram.Observe(time.Since(start).Seconds())
 	return nil
 }
 

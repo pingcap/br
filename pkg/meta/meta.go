@@ -11,8 +11,10 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv/oracle"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -38,6 +40,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Info("new backer", zap.String("pdAddrs", pdAddrs))
 	return &Backer{
 		ctx:      ctx,
 		pdClient: pdClient,
