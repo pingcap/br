@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 )
 
@@ -29,11 +30,23 @@ func NewRegionCommand() *cobra.Command {
 				return err
 			}
 			backer := GetDefaultBacker()
-			region, _, err := backer.GetPDClient().GetRegionByID(backer.Context(), regionID)
-			if err != nil {
-				return err
+			retryCount := 5
+			retryErr := errors.Errorf("exceed max retry %d", retryCount)
+			for i := 0; i < retryCount; i++ {
+				region, _, err := backer.GetPDClient().GetRegionByID(backer.Context(), regionID)
+				if err != nil {
+					return err
+				}
+				needRrtry, err := client.BackupRegion(region)
+				if err != nil {
+					return err
+				}
+				if !needRrtry {
+					retryErr = nil
+					break
+				}
 			}
-			return client.BackupRegion(region)
+			return retryErr
 		},
 	}
 	command.Flags().Uint64P("region", "r", 0, "backup the specific regions")

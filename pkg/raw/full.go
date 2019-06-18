@@ -2,7 +2,6 @@ package raw
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/overvenus/br/pkg/meta"
@@ -101,16 +100,25 @@ func (bc *BackupClient) FullBackup() error {
 		if err != nil {
 			return errors.Trace(err)
 		}
-		fmt.Println(region)
-		next = region.EndKey
+		needRetry, err := bc.BackupRegion(region)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if needRetry {
+			next = region.GetStartKey()
+		} else {
+			next = region.GetEndKey()
+		}
 		started = true
 	}
 	return nil
 }
 
 // BackupRegion starts backup a region
-func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
-	log.Info("backup region", zap.Any("region", region))
+// If it returns true with a nil error, caller needs to retry with the latest
+// region.
+func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
+	log.Info("start backup region", zap.Any("region", region))
 	// Try to find a backup peer.
 	var peer *metapb.Peer
 	for _, pr := range region.GetPeers() {
@@ -120,13 +128,13 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 		}
 	}
 	if peer == nil {
-		return errors.Errorf("no backup peer in store %d %s",
+		return false, errors.Errorf("no backup peer in store %d %s",
 			bc.storeID, region.GetPeers())
 	}
-
+	epoch := region.GetRegionEpoch()
 	reqCtx := &kvrpcpb.Context{
 		RegionId:    region.GetId(),
-		RegionEpoch: region.GetRegionEpoch(),
+		RegionEpoch: epoch,
 		Peer:        peer,
 	}
 	req := &backup.BackupRegionRequest{
@@ -138,7 +146,7 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 		resp, err := bc.client.BackupRegion(bc.ctx, req)
 		if err != nil {
 			backupRegionCounters.WithLabelValues("grpc_error").Inc()
-			return errors.Trace(err)
+			return false, errors.Trace(err)
 		}
 		regionErr, err := handleBackupError(resp, backup.BackupState_StartFullBackup)
 		if err != nil {
@@ -149,9 +157,17 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 			continue
 		} else if regionErr != nil {
 			log.Warn("region error retry", zap.Any("regioError", regionErr))
-			if regionErr.GetEpochNotMatch() != nil {
+			enm := regionErr.GetEpochNotMatch()
+			if enm != nil {
 				backupRegionCounters.WithLabelValues("epoch_error").Inc()
-				return errors.Errorf("%+v", regionErr)
+				for _, r := range enm.GetCurrentRegions() {
+					if r.GetId() == region.GetId() &&
+						r.GetRegionEpoch().GetVersion() != epoch.GetVersion() {
+						// Region's range has changed, caller need retry.
+						return true, nil
+					}
+				}
+				return false, errors.Errorf("%+v", regionErr)
 			}
 			backupRegionCounters.WithLabelValues("region_retry").Inc()
 			// TODO: a better backoff
@@ -160,9 +176,13 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) error {
 		}
 		break
 	}
+	dur := time.Since(start)
 	backupRegionCounters.WithLabelValues("ok").Inc()
-	backupRegionHistogram.Observe(time.Since(start).Seconds())
-	return nil
+	backupRegionHistogram.Observe(dur.Seconds())
+	log.Info("finish backup region",
+		zap.Any("regionID", region.GetId()),
+		zap.Duration("take", dur))
+	return false, nil
 }
 
 type getError interface {

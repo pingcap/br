@@ -22,3 +22,8 @@ var (
 			Buckets:   prometheus.ExponentialBuckets(0.05, 2, 16),
 		})
 )
+
+func init() {
+	prometheus.MustRegister(backupRegionCounters)
+	prometheus.MustRegister(backupRegionHistogram)
+}
