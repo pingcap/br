@@ -67,24 +67,24 @@ func (bc *BackupClient) Start() error {
 }
 
 // Stop starts backup.
-func (bc *BackupClient) Stop() error {
+func (bc *BackupClient) Stop() (*backup.BackupResponse, error) {
 	req := &backup.BackupRequest{
 		ClusterId: bc.clusterID,
 		State:     backup.BackupState_Stop,
 	}
 	resp, err := bc.client.Backup(bc.ctx, req)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	regionErr, err := handleBackupError(resp, backup.BackupState_Stop)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	if regionErr != nil {
-		return errors.Errorf("%+v", regionErr)
+		return nil, errors.Errorf("%+v", regionErr)
 	}
 	bc.cancel()
-	return nil
+	return resp, nil
 }
 
 // FullBackup make a full backup of a tikv cluster.
@@ -92,7 +92,8 @@ func (bc *BackupClient) FullBackup() error {
 	if err := bc.Start(); err != nil {
 		return errors.Trace(err)
 	}
-
+	log.Info("full backup started")
+	start := time.Now()
 	next := []byte("")
 	started := false
 	for len(next) != 0 || !started {
@@ -111,6 +112,13 @@ func (bc *BackupClient) FullBackup() error {
 		}
 		started = true
 	}
+	resp, err := bc.Stop()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Info("full backup finished",
+		zap.Duration("take", time.Since(start)),
+		zap.Uint64("dependence", resp.GetCurrentDependency()))
 	return nil
 }
 

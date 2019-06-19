@@ -54,8 +54,7 @@ func main() {
 	cmd.AddFlags(rootCmd)
 	rootCmd.AddCommand(
 		cmd.NewMetaCommand(),
-		cmd.NewFullBackupCommand(),
-		cmd.NewRegionCommand(),
+		cmd.NewBackupCommand(),
 		cmd.NewTxnCommand(),
 	)
 	rootCmd.SetArgs(os.Args[1:])

@@ -2,13 +2,29 @@ package cmd
 
 import (
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 )
 
-// NewFullBackupCommand return a full backup subcommand.
-func NewFullBackupCommand() *cobra.Command {
+// NewBackupCommand return a full backup subcommand.
+func NewBackupCommand() *cobra.Command {
+	bp := &cobra.Command{
+		Use:   "backup",
+		Short: "backup a TiKV cluster",
+	}
+	bp.AddCommand(
+		newFullBackupCommand(),
+		newRegionCommand(),
+		newStopBackupCommand(),
+	)
+	return bp
+}
+
+// newFullBackupCommand return a full backup subcommand.
+func newFullBackupCommand() *cobra.Command {
 	raw := &cobra.Command{
-		Use:   "full [flags]",
+		Use:   "full",
 		Short: "backup the whole TiKV cluster",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
@@ -18,8 +34,27 @@ func NewFullBackupCommand() *cobra.Command {
 	return raw
 }
 
-// NewRegionCommand return a backup region subcommand.
-func NewRegionCommand() *cobra.Command {
+// newStopBackupCommand return a full backup subcommand.
+func newStopBackupCommand() *cobra.Command {
+	raw := &cobra.Command{
+		Use:   "stop",
+		Short: "stop backup",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			client := GetDefaultRawClient()
+			resp, err := client.Stop()
+			if err != nil {
+				return err
+			}
+			log.Info("rotate backup",
+				zap.Uint64("dependence", resp.GetCurrentDependency()))
+			return nil
+		},
+	}
+	return raw
+}
+
+// newRegionCommand return a backup region subcommand.
+func newRegionCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "region [flags]",
 		Short: "backup specified regions",
