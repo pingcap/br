@@ -149,14 +149,22 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
 		Context: reqCtx,
 	}
 
+	var regionErr *errorpb.Error
+	var err error
 	start := time.Now()
-	for retry := 0; retry < 3; retry++ {
-		resp, err := bc.client.BackupRegion(bc.ctx, req)
+	for retry := 0; retry < 5; retry++ {
+		var resp *backup.BackupRegionResponse
+		resp, err = bc.client.BackupRegion(bc.ctx, req)
 		if err != nil {
 			backupRegionCounters.WithLabelValues("grpc_error").Inc()
-			return false, errors.Trace(err)
+			// TODO: handle region not found.
+			// Just retry blindly.
+			log.Warn("other error retry", zap.Error(err))
+			// TODO: a better backoff
+			time.Sleep(time.Second * 3)
+			continue
 		}
-		regionErr, err := handleBackupError(resp, backup.BackupState_StartFullBackup)
+		regionErr, err = handleBackupError(resp, backup.BackupState_StartFullBackup)
 		if err != nil {
 			log.Warn("other error retry", zap.Error(err))
 			backupRegionCounters.WithLabelValues("other_retry").Inc()
@@ -183,6 +191,12 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
 			continue
 		}
 		break
+	}
+	if err != nil {
+		return true, errors.Trace(err)
+	}
+	if regionErr != nil {
+		return true, errors.Errorf("%s", regionErr)
 	}
 	dur := time.Since(start)
 	backupRegionCounters.WithLabelValues("ok").Inc()
