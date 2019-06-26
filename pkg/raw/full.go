@@ -1,7 +1,9 @@
 package raw
 
 import (
+	"bytes"
 	"context"
+	"sync"
 	"time"
 
 	"github.com/overvenus/br/pkg/meta"
@@ -88,29 +90,82 @@ func (bc *BackupClient) Stop() (*backup.BackupResponse, error) {
 }
 
 // FullBackup make a full backup of a tikv cluster.
-func (bc *BackupClient) FullBackup() error {
+func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 	if err := bc.Start(); err != nil {
 		return errors.Trace(err)
 	}
 	log.Info("full backup started")
 	start := time.Now()
+
+	tasksCh := make(chan []*metapb.Region, concurrency)
+	errCh := make(chan error, concurrency)
+
+	wg := sync.WaitGroup{}
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range tasksCh {
+				for _, region := range task {
+					endKey := region.GetEndKey()
+					for {
+						needRetry, err := bc.BackupRegion(region)
+						if err != nil {
+							errCh <- err
+							return
+						}
+						if needRetry {
+							newRegion, _, err := bc.pdClient.GetRegion(bc.ctx, region.GetStartKey())
+							if err != nil {
+								errCh <- err
+								return
+							}
+							log.Info("region changed", zap.Any("region", region), zap.Any("newRegion", newRegion))
+							region = newRegion
+							continue
+						}
+						if bytes.Compare(region.GetEndKey(), endKey) < 0 {
+							newRegion, _, err := bc.pdClient.GetRegion(bc.ctx, region.GetEndKey())
+							if err != nil {
+								errCh <- err
+								return
+							}
+							log.Info("region splitted", zap.Any("region", region), zap.Any("newRegion", newRegion))
+							region = newRegion
+							continue
+						}
+						break
+					}
+				}
+			}
+		}()
+	}
+
 	next := []byte("")
 	started := false
 	for len(next) != 0 || !started {
-		region, _, err := bc.pdClient.GetRegion(bc.ctx, next)
+		regions, _, err := bc.ScanRegions(bc.ctx, next, batch)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		needRetry, err := bc.BackupRegion(region)
-		if err != nil {
-			return errors.Trace(err)
+		if len(regions) == 0 {
+			break
 		}
-		if needRetry {
-			next = region.GetStartKey()
-		} else {
-			next = region.GetEndKey()
-		}
+		tasksCh <- regions
+		next = regions[len(regions) - 1].GetEndKey()
 		started = true
+	}
+
+	close(tasksCh)
+	doneCh := make(chan bool, 1)
+	go func () {
+		wg.Wait()
+		doneCh <- true
+	}()
+	select {
+	case <-doneCh:
+	case err := <-errCh:
+		return err
 	}
 	resp, err := bc.Stop()
 	if err != nil {
@@ -205,6 +260,28 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
 		zap.Any("regionID", region.GetId()),
 		zap.Duration("take", dur))
 	return false, nil
+}
+
+// ScanRegions gets a list of regions, starts from the region that contains key.
+// Limit limits the maximum number of regions returned.
+func (bc *BackupClient) ScanRegions(
+	ctx context.Context, key []byte, limit int,
+) ([]*metapb.Region, []*metapb.Peer, error) {
+	regions := make([]*metapb.Region, 0, limit)
+	leaders := make([]*metapb.Peer, 0, limit)
+	for i := 0; i < limit; i++ {
+		region, leader, err := bc.pdClient.GetRegion(bc.ctx, key)
+		if err != nil {
+			return nil, nil, errors.Trace(err)
+		}
+		regions = append(regions, region)
+		leaders = append(leaders, leader)
+		key = region.GetEndKey()
+		if len(key) == 0 {
+			break
+		}
+	}
+	return regions, leaders, nil
 }
 
 type getError interface {

@@ -23,15 +23,25 @@ func NewBackupCommand() *cobra.Command {
 
 // newFullBackupCommand return a full backup subcommand.
 func newFullBackupCommand() *cobra.Command {
-	raw := &cobra.Command{
+	command := &cobra.Command{
 		Use:   "full",
 		Short: "backup the whole TiKV cluster",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(command *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			return client.FullBackup()
+			concurrency, err := command.Flags().GetInt("concurrency")
+			if err != nil {
+				return err
+			}
+			batch, err := command.Flags().GetInt("batch")
+			if err != nil {
+				return err
+			}
+			return client.FullBackup(concurrency, batch)
 		},
 	}
-	return raw
+	command.Flags().IntP("concurrency", "c", 20, "number of concurrent backup regions")
+	command.Flags().IntP("batch", "b", 4, "number of batched backup regions")
+	return command
 }
 
 // newStopBackupCommand return a full backup subcommand.
