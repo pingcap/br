@@ -47,50 +47,55 @@ func NewBackupClient(backer *meta.Backer, storeID uint64) (*BackupClient, error)
 	}, nil
 }
 
-// Start starts backup.
-func (bc *BackupClient) Start() error {
+// Start a full backup.
+func (bc *BackupClient) step(state backup.BackupState) (*backup.BackupResponse, error) {
 	req := &backup.BackupRequest{
 		ClusterId: bc.clusterID,
-		State:     backup.BackupState_StartFullBackup,
-	}
-	resp, err := bc.client.Backup(bc.ctx, req)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	regionErr, err :=
-		handleBackupError(resp, backup.BackupState_StartFullBackup)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if regionErr != nil {
-		return errors.Errorf("%+v", regionErr)
-	}
-	return nil
-}
-
-// Stop starts backup.
-func (bc *BackupClient) Stop() (*backup.BackupResponse, error) {
-	req := &backup.BackupRequest{
-		ClusterId: bc.clusterID,
-		State:     backup.BackupState_Stop,
+		State:     state,
 	}
 	resp, err := bc.client.Backup(bc.ctx, req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	regionErr, err := handleBackupError(resp, backup.BackupState_Stop)
+	regionErr, err :=
+		handleBackupError(resp, state)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	if regionErr != nil {
 		return nil, errors.Errorf("%+v", regionErr)
 	}
-	bc.cancel()
 	return resp, nil
 }
 
+// Start a full backup.
+func (bc *BackupClient) Start() error {
+	_, err := bc.step(backup.BackupState_Start)
+	return err
+}
+
+// Complete a full backup.
+func (bc *BackupClient) Complete() error {
+	_, err := bc.step(backup.BackupState_Complete)
+	return err
+}
+
+// Stop starts backup.
+func (bc *BackupClient) Stop() (*backup.BackupResponse, error) {
+	resp, err := bc.step(backup.BackupState_Stop)
+	if err == nil {
+		bc.cancel()
+	}
+	return resp, err
+}
+
 // FullBackup make a full backup of a tikv cluster.
+// A full backup needs following steps:
+//  1. Start, start a new full backup
+//  2. Complete, complete the full backup after all regions has been backuped.
+//  3. Stop, stop the full backup, if it has been completed.
 func (bc *BackupClient) FullBackup(concurrency, batch int) error {
+	// 1. Start
 	if err := bc.Start(); err != nil {
 		return errors.Trace(err)
 	}
@@ -152,13 +157,13 @@ func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 			break
 		}
 		tasksCh <- regions
-		next = regions[len(regions) - 1].GetEndKey()
+		next = regions[len(regions)-1].GetEndKey()
 		started = true
 	}
 
 	close(tasksCh)
 	doneCh := make(chan bool, 1)
-	go func () {
+	go func() {
 		wg.Wait()
 		doneCh <- true
 	}()
@@ -167,6 +172,14 @@ func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 	case err := <-errCh:
 		return err
 	}
+
+	// 2. Complete
+	err := bc.Complete()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// 3. Stop
 	resp, err := bc.Stop()
 	if err != nil {
 		return errors.Trace(err)
@@ -219,7 +232,7 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
 			time.Sleep(time.Second * 3)
 			continue
 		}
-		regionErr, err = handleBackupError(resp, backup.BackupState_StartFullBackup)
+		regionErr, err = handleBackupError(resp, backup.BackupState_Start)
 		if err != nil {
 			log.Warn("other error retry", zap.Error(err))
 			backupRegionCounters.WithLabelValues("other_retry").Inc()
