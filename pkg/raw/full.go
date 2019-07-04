@@ -156,7 +156,11 @@ func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 		if len(regions) == 0 {
 			break
 		}
-		tasksCh <- regions
+		select {
+		case tasksCh <- regions:
+		case err := <-errCh:
+			return errors.Trace(err)
+		}
 		next = regions[len(regions)-1].GetEndKey()
 		started = true
 	}
@@ -170,7 +174,7 @@ func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 	select {
 	case <-doneCh:
 	case err := <-errCh:
-		return err
+		return errors.Trace(err)
 	}
 
 	// 2. Complete
