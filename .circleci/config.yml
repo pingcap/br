@@ -1,0 +1,15 @@
+version: 2.1
+jobs:
+  tests:
+    docker:
+      - image: circleci/golang:1.12.6
+    steps:
+      - checkout
+      - run: make tools
+      - run: make all
+
+workflows:
+  version: 2
+  ci-test:
+      jobs:
+      - tests

@@ -154,6 +154,7 @@ func (backer *Backer) GetPDClient() pd.Client {
 
 const physicalShiftBits = 18
 
+// DecodeTs decodes Timestamp from a uint64
 func DecodeTs(ts uint64) Timestamp {
 	physical := oracle.ExtractPhysical(ts)
 	logical := ts - (uint64(physical) << physicalShiftBits)
@@ -163,6 +164,7 @@ func DecodeTs(ts uint64) Timestamp {
 	}
 }
 
+// EncodeTs encodes Timestamp into a uint64
 func EncodeTs(tp Timestamp) uint64 {
 	return uint64((tp.Physical << physicalShiftBits) + tp.Logical)
 }
