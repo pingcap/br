@@ -24,13 +24,13 @@ func (r *testRaw) TestHandleBackupError(c *C) {
 			Error: &backup.Error{
 				Detail: &backup.Error_StateStepError{
 					StateStepError: &backup.StateStepError{
-						Current: backup.BackupState_StartFullBackup,
-						Request: backup.BackupState_StartFullBackup,
+						Current: backup.BackupState_Start,
+						Request: backup.BackupState_Start,
 					},
 				},
 			},
 		},
-		backup.BackupState_StartFullBackup,
+		backup.BackupState_Start,
 	)
 	c.Assert(regionErr, IsNil)
 	c.Assert(err, IsNil)
@@ -40,13 +40,13 @@ func (r *testRaw) TestHandleBackupError(c *C) {
 			Error: &backup.Error{
 				Detail: &backup.Error_StateStepError{
 					StateStepError: &backup.StateStepError{
-						Current: backup.BackupState_StartFullBackup,
-						Request: backup.BackupState_FinishFullBackup,
+						Current: backup.BackupState_Start,
+						Request: backup.BackupState_Complete,
 					},
 				},
 			},
 		},
-		backup.BackupState_FinishFullBackup,
+		backup.BackupState_Complete,
 	)
 	c.Assert(regionErr, IsNil)
 	c.Assert(err, NotNil)
@@ -62,7 +62,7 @@ func (r *testRaw) TestHandleBackupError(c *C) {
 				},
 			},
 		},
-		backup.BackupState_FinishFullBackup,
+		backup.BackupState_Complete,
 	)
 	c.Assert(regionErr, NotNil)
 	c.Assert(err, IsNil)
@@ -76,7 +76,7 @@ func (r *testRaw) TestHandleBackupError(c *C) {
 				},
 			},
 		},
-		backup.BackupState_FinishFullBackup,
+		backup.BackupState_Complete,
 	)
 	c.Assert(regionErr, IsNil)
 	c.Assert(err, NotNil)

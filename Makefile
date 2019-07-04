@@ -5,6 +5,9 @@ CWD := $(shell pwd)
 build:
 	GO111MODULE=on go build
 
+test:
+	GO111MODULE=on go test ./...
+
 pb: tools
 	@PATH=$(CWD)/_tools/bin:$$PATH && for p in $(PROTOS); do { \
       dir=`dirname $$p`; \
