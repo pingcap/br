@@ -198,7 +198,6 @@ func (bc *BackupClient) FullBackup(concurrency, batch int) error {
 // If it returns true with a nil error, caller needs to retry with the latest
 // region.
 func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
-	log.Info("start backup region", zap.Any("region", region))
 	// Try to find a backup peer.
 	var peer *metapb.Peer
 	for _, pr := range region.GetPeers() {
@@ -225,6 +224,7 @@ func (bc *BackupClient) BackupRegion(region *metapb.Region) (bool, error) {
 	var err error
 	start := time.Now()
 	for retry := 0; retry < 5; retry++ {
+		log.Info("start backup region", zap.Any("region", region))
 		var resp *backup.BackupRegionResponse
 		resp, err = bc.client.BackupRegion(bc.ctx, req)
 		if err != nil {
