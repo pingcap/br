@@ -26,8 +26,8 @@ const (
 	FlagCert = "cert"
 	// FlagKey is the name of key flag.
 	FlagKey = "key"
-	// FlagStore is the name of key flag.
-	FlagStore = "store"
+	// FlagStorage is the name of key flag.
+	FlagStorage = "storage"
 )
 
 // AddFlags adds flags to the given cmd.
@@ -36,8 +36,10 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().String(FlagCA, "", "CA path")
 	cmd.PersistentFlags().String(FlagCert, "", "Cert path")
 	cmd.PersistentFlags().String(FlagKey, "", "Key path")
-	cmd.PersistentFlags().Uint64P(FlagStore, "s", 0, "backup at the specific store")
+	cmd.PersistentFlags().StringP(FlagStorage, "s", "",
+		`specify the url where backup storage, eg, "local:///path/to/save"`)
 	cmd.MarkFlagRequired(FlagPD)
+	cmd.MarkFlagRequired(FlagStorage)
 }
 
 // Init ...
@@ -54,12 +56,7 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			return
 		}
 		defaultBacker, err = meta.NewBacker(defaultContext, addr)
-		var storeID uint64
-		storeID, err = cmd.Flags().GetUint64("store")
-		if err != nil {
-			return
-		}
-		defaultRawClient, err = raw.NewBackupClient(defaultBacker, storeID)
+		defaultRawClient, err = raw.NewBackupClient(defaultBacker)
 	})
 	return
 }

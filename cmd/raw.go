@@ -2,9 +2,8 @@ package cmd
 
 import (
 	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 )
 
 // NewBackupCommand return a full backup subcommand.
@@ -15,8 +14,7 @@ func NewBackupCommand() *cobra.Command {
 	}
 	bp.AddCommand(
 		newFullBackupCommand(),
-		newRegionCommand(),
-		newStopBackupCommand(),
+		// newRegionCommand(),
 	)
 	return bp
 }
@@ -28,39 +26,17 @@ func newFullBackupCommand() *cobra.Command {
 		Short: "backup the whole TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			concurrency, err := command.Flags().GetInt("concurrency")
+			u, err := command.Flags().GetString("storage")
 			if err != nil {
 				return err
 			}
-			batch, err := command.Flags().GetInt("batch")
-			if err != nil {
-				return err
+			if u == "" {
+				return errors.New("empty backup store is not allowed")
 			}
-			return client.FullBackup(concurrency, batch)
+			return client.BackupRange([]byte(""), []byte(""), u)
 		},
 	}
-	command.Flags().IntP("concurrency", "c", 20, "number of concurrent backup regions")
-	command.Flags().IntP("batch", "b", 4, "number of batched backup regions")
 	return command
-}
-
-// newStopBackupCommand return a full backup subcommand.
-func newStopBackupCommand() *cobra.Command {
-	raw := &cobra.Command{
-		Use:   "stop",
-		Short: "stop backup",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
-			resp, err := client.Stop()
-			if err != nil {
-				return err
-			}
-			log.Info("rotate backup",
-				zap.Uint64("dependence", resp.GetCurrentDependency()))
-			return nil
-		},
-	}
-	return raw
 }
 
 // newRegionCommand return a backup region subcommand.
@@ -68,33 +44,47 @@ func newRegionCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "region [flags]",
 		Short: "backup specified regions",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(command *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			regionID, err := cmd.Flags().GetUint64("region")
+			regionID, err := command.Flags().GetUint64("region")
+			if err != nil {
+				return err
+			}
+			u, err := command.Flags().GetString("storage")
+			if err != nil {
+				return err
+			}
+			useRaw, err := command.Flags().GetBool("raw")
 			if err != nil {
 				return err
 			}
 			backer := GetDefaultBacker()
-			retryCount := 5
-			retryErr := errors.Errorf("exceed max retry %d", retryCount)
-			for i := 0; i < retryCount; i++ {
-				region, _, err := backer.GetPDClient().GetRegionByID(backer.Context(), regionID)
+			region, _, err := backer.GetPDClient().GetRegionByID(backer.Context(), regionID)
+			if err != nil {
+				return err
+			}
+			startKey := region.GetStartKey()
+			endKey := region.GetEndKey()
+			if !useRaw {
+				startKey, _, err = codec.DecodeBytes(startKey, nil)
 				if err != nil {
 					return err
 				}
-				needRrtry, err := client.BackupRegion(region)
+				endKey, _, err = codec.DecodeBytes(endKey, nil)
 				if err != nil {
 					return err
-				}
-				if !needRrtry {
-					retryErr = nil
-					break
 				}
 			}
-			return retryErr
+			err = client.BackupRange(startKey, endKey, u)
+			if err != nil {
+				return err
+			}
+			return nil
 		},
 	}
-	command.Flags().Uint64P("region", "r", 0, "backup the specific regions")
+	command.Flags().BoolP("raw", "raw", false,
+		"backup region with decode region keys")
+	command.Flags().Uint64P("region", "r", 0, "backup the specific region")
 	command.MarkFlagRequired("region")
 	return command
 }
