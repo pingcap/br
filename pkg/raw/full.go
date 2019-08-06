@@ -43,7 +43,9 @@ func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
 	path string,
 ) error {
-	log.Info("full backup started")
+	log.Info("backup started",
+		zap.Binary("StartKey", startKey),
+		zap.Binary("EndKey", endKey))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
@@ -70,10 +72,14 @@ func (bc *BackupClient) BackupRange(
 		Path:         path,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
-	if err := push.pushBackup(req, allStores...); err != nil {
+	results, err := push.pushBackup(req, allStores...)
+	if err != nil {
 		return err
 	}
-	log.Info("full backup finished",
+
+	// Find and backup remaining ranges.
+	_ = results
+	log.Info("backup finished",
 		zap.Duration("take", time.Since(start)))
 	return nil
 }

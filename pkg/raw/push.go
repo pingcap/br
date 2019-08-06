@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	// "github.com/pingcap/kvproto/pkg/errorpb"
-	"github.com/google/btree"
 	"github.com/overvenus/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -38,15 +37,13 @@ func newPushDown(ctx context.Context, backer *meta.Backer, cap int) *pushDown {
 func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
 	stores ...*metapb.Store,
-) error {
-	log.Info("full backup started")
-
+) (Result, error) {
 	// Push down backup tasks to all tikv instances.
 	wg := sync.WaitGroup{}
 	for _, s := range stores {
 		client, err := push.backer.NewBackupClient(s.GetId())
 		if err != nil {
-			return errors.Trace(err)
+			return newResult(), errors.Trace(err)
 		}
 		wg.Add(1)
 		go func() {
@@ -55,6 +52,7 @@ func (push *pushDown) pushBackup(
 			bcli, err := client.Backup(push.ctx, &req)
 			if err != nil {
 				push.errCh <- errors.Trace(err)
+				return
 			}
 			for {
 				resp, err := bcli.Recv()
@@ -63,15 +61,13 @@ func (push *pushDown) pushBackup(
 						break
 					}
 					push.errCh <- errors.Trace(err)
+					return
 				}
 				// TODO: handle errors in the resp.
 				log.Info("range backuped",
 					zap.Any("StartKey", resp.GetStartKey()),
 					zap.Any("EndKey", resp.GetEndKey()))
 				push.respCh <- resp
-			}
-			if err != nil {
-				push.errCh <- err
 			}
 		}()
 	}
@@ -81,18 +77,44 @@ func (push *pushDown) pushBackup(
 		wg.Wait()
 		doneCh <- true
 	}()
-	bmap := btree.New(64)
+
+	results := newResult()
 	for {
 		select {
 		case <-doneCh:
-			return nil
+			return results, nil
 		case resp := <-push.respCh:
 			// TODO: Insert resp into the bmap, we need to make sure backup
 			//       covers the whole range.
-			_ = resp
-			_ = bmap
+			if errPb := resp.GetError(); errPb != nil {
+				switch v := errPb.Detail.(type) {
+				case *backup.Error_KvError:
+					log.Error("backup occur kv error", zap.Reflect("error", v))
+					// TODO: put it to result.
+					results.putError(resp.GetStartKey(), resp.GetEndKey(),
+						resp.GetError())
+
+				case *backup.Error_RegionError:
+					log.Error("backup occur region error",
+						zap.Reflect("error", v))
+					results.putError(resp.GetStartKey(), resp.GetEndKey(),
+						resp.GetError())
+
+				case *backup.Error_ClusterIdError:
+					log.Error("backup occur cluster ID error",
+						zap.Reflect("error", v))
+					return results, errors.Errorf("%v", errPb)
+
+				default:
+					log.Error("backup occur unknown error",
+						zap.String("error", errPb.GetMsg()))
+					return results, errors.Errorf("%v", errPb)
+				}
+			}
+			results.putOk(resp.GetStartKey(), resp.GetEndKey(),
+				resp.GetFiles())
 		case err := <-push.errCh:
-			return errors.Trace(err)
+			return results, errors.Trace(err)
 		}
 	}
 }
