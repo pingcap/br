@@ -33,17 +33,22 @@ func newPushDown(ctx context.Context, backer *meta.Backer, cap int) *pushDown {
 	}
 }
 
+type result struct {
+	ok  RangeTree
+	err RangeTree
+}
+
 // FullBackup make a full backup of a tikv cluster.
 func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
 	stores ...*metapb.Store,
-) (Result, error) {
+) (result, error) {
 	// Push down backup tasks to all tikv instances.
 	wg := sync.WaitGroup{}
 	for _, s := range stores {
 		client, err := push.backer.NewBackupClient(s.GetId())
 		if err != nil {
-			return newResult(), errors.Trace(err)
+			return result{}, errors.Trace(err)
 		}
 		wg.Add(1)
 		go func() {
@@ -78,43 +83,43 @@ func (push *pushDown) pushBackup(
 		doneCh <- true
 	}()
 
-	results := newResult()
+	res := result{
+		ok:  newRangeTree(),
+		err: newRangeTree(),
+	}
 	for {
 		select {
 		case <-doneCh:
-			return results, nil
+			return res, nil
 		case resp := <-push.respCh:
-			// TODO: Insert resp into the bmap, we need to make sure backup
-			//       covers the whole range.
+			// TODO: we need to make sure backup covers the whole range.
 			if errPb := resp.GetError(); errPb != nil {
 				switch v := errPb.Detail.(type) {
 				case *backup.Error_KvError:
 					log.Error("backup occur kv error", zap.Reflect("error", v))
-					// TODO: put it to result.
-					results.putError(resp.GetStartKey(), resp.GetEndKey(),
+					res.err.putErr(resp.GetStartKey(), resp.GetEndKey(),
 						resp.GetError())
 
 				case *backup.Error_RegionError:
 					log.Error("backup occur region error",
 						zap.Reflect("error", v))
-					results.putError(resp.GetStartKey(), resp.GetEndKey(),
+					res.err.putErr(resp.GetStartKey(), resp.GetEndKey(),
 						resp.GetError())
 
 				case *backup.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error",
 						zap.Reflect("error", v))
-					return results, errors.Errorf("%v", errPb)
+					return res, errors.Errorf("%v", errPb)
 
 				default:
 					log.Error("backup occur unknown error",
 						zap.String("error", errPb.GetMsg()))
-					return results, errors.Errorf("%v", errPb)
+					return res, errors.Errorf("%v", errPb)
 				}
 			}
-			results.putOk(resp.GetStartKey(), resp.GetEndKey(),
-				resp.GetFiles())
+			res.ok.putOk(resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 		case err := <-push.errCh:
-			return results, errors.Trace(err)
+			return res, errors.Trace(err)
 		}
 	}
 }
