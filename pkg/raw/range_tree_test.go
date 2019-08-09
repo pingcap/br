@@ -112,25 +112,27 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	rangeD := newRange([]byte("d"), []byte(""))
 
 	rangeTree.update(rangeA)
+	c.Assert(rangeTree.len(), Equals, 1)
 	assertIncomplete([]byte("a"), []byte("b"), []Range{})
 	assertIncomplete([]byte(""), []byte(""),
 		[]Range{
-			Range{StartKey: []byte(""), EndKey: []byte("a")},
-			Range{StartKey: []byte("b"), EndKey: []byte("")},
+			{StartKey: []byte(""), EndKey: []byte("a")},
+			{StartKey: []byte("b"), EndKey: []byte("")},
 		})
 
 	rangeTree.update(rangeC)
+	c.Assert(rangeTree.len(), Equals, 2)
 	assertIncomplete([]byte("a"), []byte("c"), []Range{
-		Range{StartKey: []byte("b"), EndKey: []byte("c")},
+		{StartKey: []byte("b"), EndKey: []byte("c")},
 	})
 	assertIncomplete([]byte("b"), []byte("c"), []Range{
-		Range{StartKey: []byte("b"), EndKey: []byte("c")},
+		{StartKey: []byte("b"), EndKey: []byte("c")},
 	})
 	assertIncomplete([]byte(""), []byte(""),
 		[]Range{
-			Range{StartKey: []byte(""), EndKey: []byte("a")},
-			Range{StartKey: []byte("b"), EndKey: []byte("c")},
-			Range{StartKey: []byte("d"), EndKey: []byte("")},
+			{StartKey: []byte(""), EndKey: []byte("a")},
+			{StartKey: []byte("b"), EndKey: []byte("c")},
+			{StartKey: []byte("d"), EndKey: []byte("")},
 		})
 
 	c.Assert(search([]byte{}), IsNil)
@@ -140,34 +142,40 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	c.Assert(search([]byte("d")), IsNil)
 
 	rangeTree.update(rangeB)
+	c.Assert(rangeTree.len(), Equals, 3)
 	c.Assert(search([]byte("b")), Equals, rangeB)
 	assertIncomplete([]byte(""), []byte(""),
 		[]Range{
-			Range{StartKey: []byte(""), EndKey: []byte("a")},
-			Range{StartKey: []byte("d"), EndKey: []byte("")},
+			{StartKey: []byte(""), EndKey: []byte("a")},
+			{StartKey: []byte("d"), EndKey: []byte("")},
 		})
 
 	rangeTree.update(rangeD)
+	c.Assert(rangeTree.len(), Equals, 4)
 	c.Assert(search([]byte("d")), Equals, rangeD)
 	assertIncomplete([]byte(""), []byte(""), []Range{
-		Range{StartKey: []byte(""), EndKey: []byte("a")},
+		{StartKey: []byte(""), EndKey: []byte("a")},
 	})
 
 	// None incomplete for any range after insert range 0
 	rangeTree.update(range0)
+	c.Assert(rangeTree.len(), Equals, 5)
 
 	// Overwrite range B and C.
 	rangeBD := newRange([]byte("b"), []byte("d"))
 	rangeTree.update(rangeBD)
+	c.Assert(rangeTree.len(), Equals, 4)
 	assertAllComplete()
 
 	// Overwrite range BD, c-d should be empty
 	rangeTree.update(rangeB)
+	c.Assert(rangeTree.len(), Equals, 4)
 	assertIncomplete([]byte(""), []byte(""), []Range{
-		Range{StartKey: []byte("c"), EndKey: []byte("d")},
+		{StartKey: []byte("c"), EndKey: []byte("d")},
 	})
 
 	rangeTree.update(rangeC)
+	c.Assert(rangeTree.len(), Equals, 5)
 	assertAllComplete()
 }
 

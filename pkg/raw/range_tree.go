@@ -74,6 +74,10 @@ func newRangeTree() RangeTree {
 	}
 }
 
+func (rangeTree *RangeTree) len() int {
+	return rangeTree.tree.Len()
+}
+
 // find is a helper function to find an item that contains the range start
 // key.
 func (rangeTree *RangeTree) find(rg *Range) *Range {
