@@ -2,7 +2,6 @@ package raw
 
 import (
 	"context"
-	"io"
 	"sync"
 
 	// "github.com/pingcap/kvproto/pkg/errorpb"
@@ -46,41 +45,28 @@ func (push *pushDown) pushBackup(
 	// Push down backup tasks to all tikv instances.
 	wg := sync.WaitGroup{}
 	for _, s := range stores {
-		client, err := push.backer.NewBackupClient(s.GetId())
-		if err != nil {
-			return result{}, errors.Trace(err)
-		}
+		storeID := s.GetId()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			log.Info("try backup", zap.Any("backup request", req))
-			bcli, err := client.Backup(push.ctx, &req)
+			err := push.backer.SendBackup(
+				push.ctx, storeID, req,
+				func(resp *backup.BackupResponse) error {
+					// Forward all responses (including error).
+					push.respCh <- resp
+					return nil
+				})
 			if err != nil {
-				push.errCh <- errors.Trace(err)
+				push.errCh <- err
 				return
-			}
-			for {
-				resp, err := bcli.Recv()
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-					push.errCh <- errors.Trace(err)
-					return
-				}
-				// TODO: handle errors in the resp.
-				log.Info("range backuped",
-					zap.Any("StartKey", resp.GetStartKey()),
-					zap.Any("EndKey", resp.GetEndKey()))
-				push.respCh <- resp
 			}
 		}()
 	}
 
-	doneCh := make(chan bool, 1)
+	finish := make(chan struct{})
 	go func() {
 		wg.Wait()
-		doneCh <- true
+		close(finish)
 	}()
 
 	res := result{
@@ -89,11 +75,15 @@ func (push *pushDown) pushBackup(
 	}
 	for {
 		select {
-		case <-doneCh:
+		case <-finish:
 			return res, nil
 		case resp := <-push.respCh:
-			// TODO: we need to make sure backup covers the whole range.
-			if errPb := resp.GetError(); errPb != nil {
+			if resp.GetError() == nil {
+				// None error means range has been backuped successfully.
+				res.ok.putOk(
+					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
+			} else {
+				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
 				case *backup.Error_KvError:
 					log.Error("backup occur kv error", zap.Reflect("error", v))
@@ -117,7 +107,6 @@ func (push *pushDown) pushBackup(
 					return res, errors.Errorf("%v", errPb)
 				}
 			}
-			res.ok.putOk(resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 		case err := <-push.errCh:
 			return res, errors.Trace(err)
 		}

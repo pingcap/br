@@ -3,6 +3,7 @@ package meta
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -31,6 +33,7 @@ type Backer struct {
 		addrs []string
 		cli   *http.Client
 	}
+	tikvCli tikv.Storage
 }
 
 // NewBacker creates a new Backer.
@@ -41,6 +44,13 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 		return nil, errors.Trace(err)
 	}
 	log.Info("new backer", zap.String("pdAddrs", pdAddrs))
+	tikvCli, err := tikv.Driver{}.Open(
+		// Disable GC because TiDB enables GC already.
+		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	return &Backer{
 		ctx:      ctx,
 		pdClient: pdClient,
@@ -51,6 +61,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 			addrs: addrs,
 			cli:   &http.Client{Timeout: 30 * time.Second},
 		},
+		tikvCli: tikvCli.(tikv.Storage),
 	}, nil
 }
 
@@ -147,9 +158,53 @@ func (backer *Backer) NewBackupClient(storeID uint64) (backup.BackupClient, erro
 	return client, nil
 }
 
+// SendBackup send backup request to the given store.
+// Stop receiving response if respFn returns error.
+func (backer *Backer) SendBackup(
+	ctx context.Context,
+	storeID uint64,
+	req backup.BackupRequest,
+	respFn func(*backup.BackupResponse) error,
+) error {
+	log.Info("try backup", zap.Any("backup request", req))
+	client, err := backer.NewBackupClient(storeID)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bcli, err := client.Backup(ctx, &req)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for {
+		resp, err := bcli.Recv()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return errors.Trace(err)
+		}
+		// TODO: handle errors in the resp.
+		log.Debug("range backuped",
+			zap.Any("StartKey", resp.GetStartKey()),
+			zap.Any("EndKey", resp.GetEndKey()))
+		err = respFn(resp)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetPDClient returns a pd client.
 func (backer *Backer) GetPDClient() pd.Client {
 	return backer.pdClient
+}
+
+// GetLockResolver gets the LockResolver.
+func (backer *Backer) GetLockResolver() *tikv.LockResolver {
+	return backer.tikvCli.GetLockResolver()
 }
 
 const physicalShiftBits = 18
