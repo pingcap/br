@@ -207,6 +207,12 @@ func (backer *Backer) GetLockResolver() *tikv.LockResolver {
 	return backer.tikvCli.GetLockResolver()
 }
 
+// Timestamp is composed by a physical unix timestamp and a logical timestamp.
+type Timestamp struct {
+	Physical int64
+	Logical  int64
+}
+
 const physicalShiftBits = 18
 
 // DecodeTs decodes Timestamp from a uint64

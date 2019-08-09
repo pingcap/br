@@ -66,7 +66,7 @@ func main() {
 	rootCmd.AddCommand(
 		cmd.NewMetaCommand(),
 		cmd.NewBackupCommand(),
-		cmd.NewTxnCommand(),
+		// cmd.NewTxnCommand(),
 	)
 	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
