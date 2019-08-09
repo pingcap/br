@@ -8,7 +8,6 @@ require (
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
 	github.com/gogo/protobuf v1.2.1 // indirect
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
-	github.com/golang/protobuf v1.3.2
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/btree v1.0.0
 	github.com/gorilla/mux v1.7.3 // indirect
@@ -22,7 +21,7 @@ require (
 	github.com/pingcap/errcode v0.3.0 // indirect
 	github.com/pingcap/errors v0.11.4
 	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
-	github.com/pingcap/kvproto v0.0.0-20190806082958-c2174ab15162
+	github.com/pingcap/kvproto v0.0.0-20190806081149-e2cfbf881d52
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/pd v0.0.0-20190806095100-82f1dd11d823
 	github.com/pingcap/tidb v0.0.0-20190806074256-45790b5799d5
@@ -46,9 +45,8 @@ require (
 	golang.org/x/sys v0.0.0-20190804053845-51ab0e2deafa // indirect
 	golang.org/x/text v0.3.2 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
-	golang.org/x/tools v0.0.0-20190805222050-c5a2fd39b72a // indirect
+	golang.org/x/tools v0.0.0-20190808195139-e713427fea3f // indirect
+	google.golang.org/appengine v1.4.0 // indirect
 	google.golang.org/genproto v0.0.0-20190801165951-fa694d86fc64 // indirect
 	google.golang.org/grpc v1.22.1
 )
-
-replace github.com/pingcap/kvproto => /home/stn/kvproto
