@@ -166,29 +166,34 @@ func (bc *BackupClient) fineGrainedBackup(
 		}
 
 		// Dispatch rangs and wait
-		finish := make(chan struct{})
 		go func() {
 			for _, rg := range incomplete {
 				retry <- &rg
 			}
 			close(retry)
 			wg.Wait()
-			close(finish)
+			close(respCh)
 		}()
 
 	selectLoop:
 		for {
 			select {
-			case <-finish:
-				break selectLoop
 			case err := <-errCh:
 				// TODO: should we handle err here?
 				return err
-			case resp := <-respCh:
+			case resp, ok := <-respCh:
+				if !ok {
+					// Finished.
+					break selectLoop
+				}
 				if resp.Error != nil {
 					log.Fatal("unexpected backup error",
 						zap.Reflect("error", resp.Error))
 				}
+				log.Info("put fine grained range",
+					zap.Binary("StartKey", resp.StartKey),
+					zap.Binary("EndKey", resp.EndKey),
+				)
 				rangeTree.putOk(resp.StartKey, resp.EndKey, resp.Files)
 			}
 		}

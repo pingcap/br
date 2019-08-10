@@ -186,7 +186,7 @@ func (backer *Backer) SendBackup(
 			return errors.Trace(err)
 		}
 		// TODO: handle errors in the resp.
-		log.Debug("range backuped",
+		log.Info("range backuped",
 			zap.Any("StartKey", resp.GetStartKey()),
 			zap.Any("EndKey", resp.GetEndKey()))
 		err = respFn(resp)

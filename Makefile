@@ -8,10 +8,10 @@ GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 all: check build test
 
 build:
-	GO111MODULE=on go build
+	GO111MODULE=on go build -race
 
 test:
-	GO111MODULE=on go test ./...
+	GO111MODULE=on go test -race ./...
 
 pb: tools
 	@PATH=$(CWD)/_tools/bin:$$PATH && for p in $(PROTOS); do { \

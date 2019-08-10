@@ -63,10 +63,10 @@ func (push *pushDown) pushBackup(
 		}()
 	}
 
-	finish := make(chan struct{})
 	go func() {
 		wg.Wait()
-		close(finish)
+		// TODO: test concurrent receive response and close channel.
+		close(push.respCh)
 	}()
 
 	res := result{
@@ -75,9 +75,11 @@ func (push *pushDown) pushBackup(
 	}
 	for {
 		select {
-		case <-finish:
-			return res, nil
-		case resp := <-push.respCh:
+		case resp, ok := <-push.respCh:
+			if !ok {
+				// Finished.
+				return res, nil
+			}
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
 				res.ok.putOk(
