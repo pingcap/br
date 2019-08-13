@@ -135,7 +135,7 @@ func (bc *BackupClient) fineGrainedBackup(
 		// Step2, retry backup on incomplete range
 		respCh := make(chan *backup.BackupResponse, 4)
 		errCh := make(chan error, 4)
-		retry := make(chan *Range, 4)
+		retry := make(chan Range, 4)
 
 		max := &struct {
 			ms int
@@ -168,7 +168,7 @@ func (bc *BackupClient) fineGrainedBackup(
 		// Dispatch rangs and wait
 		go func() {
 			for _, rg := range incomplete {
-				retry <- &rg
+				retry <- rg
 			}
 			close(retry)
 			wg.Wait()
@@ -263,7 +263,7 @@ func onBackupResponse(
 
 func (bc *BackupClient) handleFineGrained(
 	bo *tikv.Backoffer,
-	rg *Range,
+	rg Range,
 	backupTS uint64,
 	path string,
 	respCh chan<- *backup.BackupResponse,
