@@ -1,3 +1,5 @@
 br
 bin/
 _tools/
+.idea/
+backupmeta

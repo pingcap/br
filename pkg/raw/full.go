@@ -2,6 +2,9 @@ package raw
 
 import (
 	"context"
+	"github.com/gogo/protobuf/proto"
+	"github.com/google/btree"
+	"io/ioutil"
 	"sync"
 	"time"
 
@@ -92,6 +95,22 @@ func (bc *BackupClient) BackupRange(
 	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, results.ok)
 	if err != nil {
 		return err
+	}
+
+	backupMeta := &backup.BackupMeta{}
+	results.ok.tree.Ascend(func(i btree.Item) bool {
+		r := i.(*Range)
+		backupMeta.Files = append(backupMeta.Files, r.Files...)
+		return true
+	})
+	backupMeta.Path = path
+	backupMetaData, err := proto.Marshal(backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = ioutil.WriteFile("backupmeta", backupMetaData, 0644)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	log.Info("backup finished",
