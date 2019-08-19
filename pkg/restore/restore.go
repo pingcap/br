@@ -3,6 +3,12 @@ package restore
 import (
 	"context"
 	"fmt"
+	"github.com/overvenus/br/pkg/meta"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
+	pd "github.com/pingcap/pd/client"
+	"go.uber.org/zap"
+	"strings"
 	"sync"
 
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -10,14 +16,37 @@ import (
 	"google.golang.org/grpc"
 )
 
-func Restore(ctx context.Context, concurrency int, importerAddr string, meta *backup.BackupMeta, table *Table, pdAddr string) {
-	fileCh := make(chan *backup.File)
-	tableIds, indexIds := getIdPairsFromTable(table)
+// FilePair wraps a default cf file & a write cf file
+type FilePair struct {
+	Default *backup.File
+	Write   *backup.File
+}
 
-	var wg *sync.WaitGroup
+// Start a restore task
+func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta, table *Table, pdAddrs string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	fileCh := make(chan *FilePair)
+	respCh := make(chan *import_kvpb.RestoreFileResponse)
+	tableIds, indexIds := getIDPairsFromTable(table)
+	addrs := strings.Split(pdAddrs, ",")
+	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
+	if err != nil {
+		panic(errors.Trace(err))
+	}
+	p, l, err := pdClient.GetTS(ctx)
+	if err != nil {
+		panic(errors.Trace(err))
+	}
+	ts := meta.Timestamp{
+		Physical: p,
+		Logical:  l,
+	}
+	restoreTS := meta.EncodeTs(ts)
+
+	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
-		go func(fileCh chan *backup.File) {
-			wg.Add(1)
+		wg.Add(1)
+		go func(fileCh chan *FilePair, respCh chan *import_kvpb.RestoreFileResponse) {
 			var conn *grpc.ClientConn
 			conn, err := grpc.Dial(importerAddr, grpc.WithInsecure())
 			if err != nil {
@@ -30,28 +59,61 @@ func Restore(ctx context.Context, concurrency int, importerAddr string, meta *ba
 				case <-ctx.Done():
 					wg.Done()
 					return
-				case file := <-fileCh:
-					req := &import_kvpb.ImportFileRequest{
-						File:     file,
-						Path:     meta.Path,
-						PdAddr:   pdAddr,
-						TableIds: tableIds,
-						IndexIds: indexIds,
+				case pair := <-fileCh:
+					req := &import_kvpb.RestoreFileRequest{
+						Default:   pair.Default,
+						Write:     pair.Write,
+						Path:      backupMeta.Path,
+						PdAddr:    addrs[0],
+						TableIds:  tableIds,
+						IndexIds:  indexIds,
+						RestoreTs: restoreTS,
 					}
-					var resp *import_kvpb.ImportFileResponse
-					resp, err = client.ImportFile(ctx, req)
+					resp, err := client.RestoreFile(ctx, req)
 					if err != nil || resp.Error != nil {
-						panic(fmt.Errorf("import file failed, err: %v, resp: %v", err, resp))
+						panic(fmt.Errorf("restore file failed, err: %v, resp: %v", err, resp))
 					}
+					log.Info("restore file", zap.Reflect("file", pair), zap.Uint64("restore_ts", restoreTS))
+					respCh <- resp
 				}
 			}
-		}(fileCh)
+		}(fileCh, respCh)
 	}
+
+	filePairs := make([]*FilePair, 0)
+	for _, file := range backupMeta.Files {
+		if strings.HasSuffix(file.Name, "write") {
+			var defaultFile *backup.File
+			defaultName := strings.TrimSuffix(file.Name, "write") + "default"
+			for _, f := range backupMeta.Files {
+				if f.Name == defaultName {
+					defaultFile = f
+				}
+			}
+			filePairs = append(filePairs, &FilePair{
+				Default: defaultFile,
+				Write:   file,
+			})
+		}
+	}
+
+	go func() {
+		for _, p := range filePairs {
+			fileCh <- p
+		}
+	}()
+
+	go func() {
+		for i := 0; i < len(filePairs); i++ {
+			_ = <-respCh
+		}
+		cancel()
+	}()
 
 	wg.Wait()
 }
 
-func getIdPairsFromTable(table *Table) ([]*import_kvpb.IdPair, []*import_kvpb.IdPair) {
+func getIDPairsFromTable(table *Table) ([]*import_kvpb.IdPair, []*import_kvpb.IdPair) {
 	tableIds := make([]*import_kvpb.IdPair, 0)
 	tableIds = append(tableIds, &import_kvpb.IdPair{
 		OldId: table.SrcSchema.ID,
@@ -69,5 +131,8 @@ func getIdPairsFromTable(table *Table) ([]*import_kvpb.IdPair, []*import_kvpb.Id
 			}
 		}
 	}
+
+	log.Info("get table ids", zap.Reflect("table_id", tableIds), zap.Reflect("index_id", indexIds))
+
 	return tableIds, indexIds
 }

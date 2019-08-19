@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
@@ -10,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// NewRestoreCommand return a restore command
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "restore",
@@ -48,27 +48,32 @@ func NewRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pdAddr, err := cmd.Flags().GetString("pd")
+			pdAddrs, err := cmd.Flags().GetString("pd")
 			if err != nil {
 				return err
 			}
-			table, err := restore.CreateTable(srcAddr, destAddr, tableName)
+			statusPort, err := cmd.Flags().GetInt("status-port")
 			if err != nil {
 				return err
 			}
-			ctx := context.Background()
-			restore.Restore(ctx, concurrency, importerAddr, meta, table, pdAddr)
+			table, err := restore.CreateTable(srcAddr, destAddr, tableName, statusPort)
+			if err != nil {
+				return err
+			}
+
+			restore.Restore(concurrency, importerAddr, meta, table, pdAddrs)
 
 			return nil
 		},
 	}
 
-	command.Flags().StringP("src", "s", "", "source tidb address, format: username:password@protocol(address)/dbname")
+	command.Flags().StringP("src", "r", "", "source tidb address, format: username:password@protocol(address)/dbname")
 	command.Flags().StringP("dest", "d", "", "destination tidb address, format: username:password@protocol(address)/dbname")
 	command.Flags().StringP("table", "t", "", "table name")
 	command.Flags().StringP("importer", "i", "", "importer address")
 	command.Flags().StringP("meta", "m", "", "meta file location")
-	command.Flags().IntP("concurrency", "c", 20, "number of concurrent restore files")
+	command.Flags().IntP("concurrency", "c", 8, "number of concurrent restore files")
+	command.Flags().IntP("status-port", "P", 10080, "tidb status port")
 
 	return command
 }

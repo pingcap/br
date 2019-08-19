@@ -114,7 +114,7 @@ func (bc *BackupClient) BackupRange(
 	}
 
 	log.Info("backup finished",
-		zap.Duration("take", time.Since(start)))
+		zap.Duration("take", time.Since(start)), zap.Reflect("meta", backupMeta))
 	return nil
 }
 
