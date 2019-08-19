@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/overvenus/br/pkg/meta"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"go.uber.org/zap"
@@ -22,12 +23,15 @@ type FilePair struct {
 	Write   *backup.File
 }
 
-// Start a restore task
+// Restore starts a restore task
 func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta, table *Table, pdAddrs string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	fileCh := make(chan *FilePair)
 	respCh := make(chan *import_kvpb.RestoreFileResponse)
+
 	tableIds, indexIds := getIDPairsFromTable(table)
+	log.Info("get table ids", zap.Reflect("table_id", tableIds), zap.Reflect("index_id", indexIds))
+
 	addrs := strings.Split(pdAddrs, ",")
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
@@ -42,6 +46,12 @@ func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta
 		Logical:  l,
 	}
 	restoreTS := meta.EncodeTs(ts)
+
+	err = switchClusterMode(ctx, importerAddr, addrs[0], import_sstpb.SwitchMode_Import)
+	if err != nil {
+		panic(fmt.Sprintf("switch mode err: %v", errors.Trace(err)))
+	}
+	log.Info("switch to import mode")
 
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
@@ -107,6 +117,13 @@ func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta
 		for i := 0; i < len(filePairs); i++ {
 			_ = <-respCh
 		}
+
+		err = switchClusterMode(ctx, importerAddr, addrs[0], import_sstpb.SwitchMode_Normal)
+		if err != nil {
+			panic(fmt.Sprintf("switch mode err: %v", errors.Trace(err)))
+		}
+		log.Info("switch to normal mode")
+
 		cancel()
 	}()
 
@@ -132,7 +149,21 @@ func getIDPairsFromTable(table *Table) ([]*import_kvpb.IdPair, []*import_kvpb.Id
 		}
 	}
 
-	log.Info("get table ids", zap.Reflect("table_id", tableIds), zap.Reflect("index_id", indexIds))
-
 	return tableIds, indexIds
+}
+
+func switchClusterMode(ctx context.Context, importerAddr string, pdAddr string, mode import_sstpb.SwitchMode) error {
+	conn, err := grpc.Dial(importerAddr, grpc.WithInsecure())
+	if err != nil {
+		return err
+	}
+	client := import_kvpb.NewImportKVClient(conn)
+	req := &import_kvpb.SwitchModeRequest{
+		PdAddr: pdAddr,
+		Request: &import_sstpb.SwitchModeRequest{
+			Mode: mode,
+		},
+	}
+	_, err = client.SwitchMode(ctx, req)
+	return err
 }
