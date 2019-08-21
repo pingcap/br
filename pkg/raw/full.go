@@ -15,6 +15,7 @@ import (
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 )
 
@@ -124,7 +125,7 @@ func (bc *BackupClient) BackupRange(
 func (bc *BackupClient) findRegionLeader(key []byte) (*metapb.Peer, error) {
 	// Keys are saved in encoded format in TiKV, so the key must be encoded
 	// in order to find the correct region.
-	key = EncodeBytes(key)
+	key = codec.EncodeBytes([]byte{}, key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
 		_, leader, err := bc.pdClient.GetRegion(bc.ctx, key)
