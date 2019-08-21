@@ -2,14 +2,12 @@ package raw
 
 import (
 	"context"
-	"github.com/gogo/protobuf/proto"
-	"github.com/google/btree"
 	"io/ioutil"
 	"sync"
 	"time"
 
-	// "github.com/pingcap/kvproto/pkg/errorpb"
-
+	"github.com/gogo/protobuf/proto"
+	"github.com/google/btree"
 	"github.com/overvenus/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -113,8 +111,13 @@ func (bc *BackupClient) BackupRange(
 		return errors.Trace(err)
 	}
 
+	// Check if there are duplicated files.
+	results.ok.checkDupFiles()
+
 	log.Info("backup finished",
-		zap.Duration("take", time.Since(start)), zap.Reflect("meta", backupMeta))
+		zap.Duration("take", time.Since(start)))
+	log.Info("backup meta",
+		zap.Reflect("meta", backupMeta))
 	return nil
 }
 

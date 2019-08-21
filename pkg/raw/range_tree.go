@@ -194,3 +194,24 @@ func (rangeTree *RangeTree) getIncompleteRange(
 	}
 	return incomplete
 }
+
+func (rangeTree *RangeTree) checkDupFiles() {
+	// Name -> CRC32
+	files := make(map[string]uint32)
+	rangeTree.tree.Ascend(func(i btree.Item) bool {
+		rg := i.(*Range)
+		for _, f := range rg.Files {
+			old, ok := files[f.Name]
+			if ok {
+				log.Error("dup file",
+					zap.String("Name", f.Name),
+					zap.Uint32("CRC32_1", old),
+					zap.Uint32("CRC32_2", f.Crc32),
+				)
+			} else {
+				files[f.Name] = f.Crc32
+			}
+		}
+		return true
+	})
+}
