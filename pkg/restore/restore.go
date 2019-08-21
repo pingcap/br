@@ -3,14 +3,15 @@ package restore
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
+
 	"github.com/overvenus/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"go.uber.org/zap"
-	"strings"
-	"sync"
 
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_kvpb"
@@ -58,7 +59,8 @@ func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta
 		wg.Add(1)
 		go func(fileCh chan *FilePair, respCh chan *import_kvpb.RestoreFileResponse) {
 			var conn *grpc.ClientConn
-			conn, err := grpc.Dial(importerAddr, grpc.WithInsecure())
+			var err error
+			conn, err = grpc.Dial(importerAddr, grpc.WithInsecure())
 			if err != nil {
 				panic(err)
 			}
