@@ -264,21 +264,20 @@ func onBackupResponse(
 				backoffMs = int(msBeforeExpired)
 			}
 			return nil, backoffMs, nil
-		} else {
-			// Backup should not meet error other than KeyLocked.
-			log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-			return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
 		}
+		// Backup should not meet error other than KeyLocked.
+		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
+		return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
+
 	case *backup.Error_RegionError:
 		regionErr := v.RegionError
 		// Ignore following errors.
-		if regionErr.EpochNotMatch != nil {
-		} else if regionErr.NotLeader != nil {
-		} else if regionErr.RegionNotFound != nil {
-		} else if regionErr.StaleCommand != nil {
-		} else if regionErr.ServerIsBusy != nil {
-		} else if regionErr.StoreNotMatch != nil {
-		} else {
+		if !(regionErr.EpochNotMatch != nil ||
+			regionErr.NotLeader != nil ||
+			regionErr.RegionNotFound != nil ||
+			regionErr.StaleCommand != nil ||
+			regionErr.ServerIsBusy != nil ||
+			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error",
 				zap.Reflect("RegionError", regionErr))
 			return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
