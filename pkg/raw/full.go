@@ -119,6 +119,9 @@ func (bc *BackupClient) BackupRange(
 }
 
 func (bc *BackupClient) findRegionLeader(key []byte) (*metapb.Peer, error) {
+	// Keys are saved in encoded format in TiKV, so the key must be encoded
+	// in order to find the correct region.
+	key = EncodeBytes(key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
 		_, leader, err := bc.pdClient.GetRegion(bc.ctx, key)
@@ -128,6 +131,8 @@ func (bc *BackupClient) findRegionLeader(key []byte) (*metapb.Peer, error) {
 			continue
 		}
 		if leader != nil {
+			log.Info("find region",
+				zap.Reflect("Leader", leader), zap.Binary("Key", key))
 			return leader, nil
 		}
 		log.Warn("no region found", zap.Binary("Key", key))
@@ -222,6 +227,7 @@ func (bc *BackupClient) fineGrainedBackup(
 		ms := max.ms
 		max.mu.Unlock()
 		if ms != 0 {
+			log.Info("handle fine grained", zap.Int("backoffMs", ms))
 			err := bo.BackoffWithMaxSleep(2, /* magic boTxnLockFast */
 				ms, errors.New("TODO: attach error"))
 			if err != nil {
@@ -236,6 +242,7 @@ func onBackupResponse(
 	lockResolver *tikv.LockResolver,
 	resp *backup.BackupResponse,
 ) (*backup.BackupResponse, int, error) {
+	log.Debug("onBackupResponse", zap.Reflect("resp", resp))
 	if resp.Error == nil {
 		return resp, 0, nil
 	}
@@ -244,7 +251,7 @@ func onBackupResponse(
 	case *backup.Error_KvError:
 		if lockErr := v.KvError.Locked; lockErr != nil {
 			// Try to resolve lock.
-			log.Info("backup occur kv error", zap.Reflect("error", v))
+			log.Warn("backup occur kv error", zap.Reflect("error", v))
 			msBeforeExpired, err1 := lockResolver.ResolveLocks(
 				bo, []*tikv.Lock{tikv.NewLock(lockErr)})
 			if err1 != nil {
@@ -253,19 +260,31 @@ func onBackupResponse(
 			if msBeforeExpired > 0 {
 				backoffMs = int(msBeforeExpired)
 			}
+			return nil, backoffMs, nil
 		} else {
 			// Backup should not meet error other than KeyLocked.
-			log.Fatal("unexpect kv error",
-				zap.Reflect("KvError", v.KvError))
+			log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
+			return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
 		}
 	case *backup.Error_RegionError:
-		log.Info("backup occur region error",
-			zap.Reflect("error", v))
-		if regionErr := v.RegionError; regionErr != nil {
-			// TODO: a better backoff.
-			backoffMs = 1000 /* 1s */
+		regionErr := v.RegionError
+		// Ignore following errors.
+		if regionErr.EpochNotMatch != nil {
+		} else if regionErr.NotLeader != nil {
+		} else if regionErr.RegionNotFound != nil {
+		} else if regionErr.StaleCommand != nil {
+		} else if regionErr.ServerIsBusy != nil {
+		} else if regionErr.StoreNotMatch != nil {
+		} else {
+			log.Error("unexpect region error",
+				zap.Reflect("RegionError", regionErr))
+			return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
 		}
-
+		log.Warn("backup occur region error",
+			zap.Reflect("RegionError", regionErr))
+		// TODO: a better backoff.
+		backoffMs = 1000 /* 1s */
+		return nil, backoffMs, nil
 	case *backup.Error_ClusterIdError:
 		log.Error("backup occur cluster ID error",
 			zap.Reflect("error", v))
@@ -277,7 +296,6 @@ func onBackupResponse(
 		err := errors.Errorf("%v", resp.Error)
 		return nil, 0, err
 	}
-	return nil, backoffMs, nil
 }
 
 func (bc *BackupClient) handleFineGrained(
@@ -305,7 +323,7 @@ func (bc *BackupClient) handleFineGrained(
 		bc.ctx, leader.GetStoreId(), req,
 		// Handle responses with the same backoffer.
 		func(resp *backup.BackupResponse) error {
-			resp, backoffMs, err :=
+			response, backoffMs, err :=
 				onBackupResponse(bo, lockResolver, resp)
 			if err != nil {
 				return err
@@ -313,8 +331,8 @@ func (bc *BackupClient) handleFineGrained(
 			if max < backoffMs {
 				max = backoffMs
 			}
-			if resp != nil {
-				respCh <- resp
+			if response != nil {
+				respCh <- response
 			}
 			return nil
 		})

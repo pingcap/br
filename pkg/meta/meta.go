@@ -169,18 +169,22 @@ func (backer *Backer) SendBackup(
 	log.Info("try backup", zap.Any("backup request", req))
 	client, err := backer.NewBackupClient(storeID)
 	if err != nil {
-		return errors.Trace(err)
+		log.Warn("fail to connect store", zap.Uint64("StoreID", storeID))
+		return nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
-		return errors.Trace(err)
+		log.Warn("fail to create backup", zap.Uint64("StoreID", storeID))
+		return nil
 	}
 	for {
 		resp, err := bcli.Recv()
 		if err != nil {
 			if err == io.EOF {
+				log.Info("backup streaming finish",
+					zap.Uint64("StoreID", storeID))
 				break
 			}
 			return errors.Trace(err)
