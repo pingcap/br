@@ -14,6 +14,7 @@ func NewBackupCommand() *cobra.Command {
 	}
 	bp.AddCommand(
 		newFullBackupCommand(),
+		newTableBackupCommand(),
 		// newRegionCommand(),
 	)
 	return bp
@@ -33,7 +34,15 @@ func newFullBackupCommand() *cobra.Command {
 			if u == "" {
 				return errors.New("empty backup store is not allowed")
 			}
-			return client.BackupRange([]byte(""), []byte(""), u)
+			backupTS, err := client.GetTS()
+			if err != nil {
+				return err
+			}
+			err = client.BackupRange([]byte(""), []byte(""), u, backupTS)
+			if err != nil {
+				return err
+			}
+			return client.SaveBackupMeta(u)
 		},
 	}
 	return command
@@ -75,16 +84,67 @@ func newRegionCommand() *cobra.Command {
 					return err
 				}
 			}
-			err = client.BackupRange(startKey, endKey, u)
+			backupTS, err := client.GetTS()
 			if err != nil {
 				return err
 			}
-			return nil
+			err = client.BackupRange(startKey, endKey, u, backupTS)
+			if err != nil {
+				return err
+			}
+			return client.SaveBackupMeta(u)
 		},
 	}
 	command.Flags().BoolP("raw", "raw", false,
 		"backup region with decode region keys")
 	command.Flags().Uint64P("region", "r", 0, "backup the specific region")
 	command.MarkFlagRequired("region")
+	return command
+}
+
+// newTableBackupCommand return a table backup subcommand.
+func newTableBackupCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "table",
+		Short: "backup a table",
+		RunE: func(command *cobra.Command, _ []string) error {
+			client := GetDefaultRawClient()
+			u, err := command.Flags().GetString("storage")
+			if err != nil {
+				return err
+			}
+			if u == "" {
+				return errors.New("empty backup store is not allowed")
+			}
+			db, err := command.Flags().GetString("db")
+			if err != nil {
+				return err
+			}
+			if len(db) == 0 {
+				return errors.Errorf("empty database name is not allowed")
+			}
+			table, err := command.Flags().GetString("table")
+			if err != nil {
+				return err
+			}
+			if len(table) == 0 {
+				return errors.Errorf("empty table name is not allowed")
+			}
+
+			backupTS, err := client.GetTS()
+			if err != nil {
+				return err
+			}
+			err = client.BackupTable(db, table, u, backupTS)
+			if err != nil {
+				return err
+			}
+			return client.SaveBackupMeta(u)
+		},
+	}
+	command.Flags().StringP("db", "", "", "backup a table in the specific db")
+	command.Flags().StringP("table", "t", "", "backup the specific table")
+	command.MarkFlagRequired("db")
+	command.MarkFlagRequired("table")
 	return command
 }

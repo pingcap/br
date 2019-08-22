@@ -32,16 +32,11 @@ func newPushDown(ctx context.Context, backer *meta.Backer, cap int) *pushDown {
 	}
 }
 
-type result struct {
-	ok  RangeTree
-	err RangeTree
-}
-
 // FullBackup make a full backup of a tikv cluster.
 func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
 	stores ...*metapb.Store,
-) (result, error) {
+) (RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
 	wg := sync.WaitGroup{}
 	for _, s := range stores {
@@ -69,10 +64,7 @@ func (push *pushDown) pushBackup(
 		close(push.respCh)
 	}()
 
-	res := result{
-		ok:  newRangeTree(),
-		err: newRangeTree(),
-	}
+	res := newRangeTree()
 	for {
 		select {
 		case resp, ok := <-push.respCh:
@@ -82,21 +74,17 @@ func (push *pushDown) pushBackup(
 			}
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
-				res.ok.putOk(
+				res.putOk(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
 				case *backup.Error_KvError:
 					log.Error("backup occur kv error", zap.Reflect("error", v))
-					res.err.putErr(resp.GetStartKey(), resp.GetEndKey(),
-						resp.GetError())
 
 				case *backup.Error_RegionError:
 					log.Error("backup occur region error",
 						zap.Reflect("error", v))
-					res.err.putErr(resp.GetStartKey(), resp.GetEndKey(),
-						resp.GetError())
 
 				case *backup.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error",

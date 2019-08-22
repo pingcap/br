@@ -2,6 +2,7 @@ package raw
 
 import (
 	"context"
+	"encoding/json"
 	"io/ioutil"
 	"sync"
 	"time"
@@ -13,8 +14,13 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 )
@@ -32,6 +38,8 @@ type BackupClient struct {
 	backer    *meta.Backer
 	clusterID uint64
 	pdClient  pd.Client
+
+	backupMeta backup.BackupMeta
 }
 
 // NewBackupClient returns a new backup client
@@ -48,10 +56,97 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 	}, nil
 }
 
+// GetTS returns the latest timestamp.
+func (bc *BackupClient) GetTS() (uint64, error) {
+	p, l, err := bc.pdClient.GetTS(bc.ctx)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
+	ts := meta.Timestamp{
+		Physical: p,
+		Logical:  l,
+	}
+	backupTS := meta.EncodeTs(ts)
+	log.Info("backup timestamp", zap.Uint64("BackupTS", backupTS))
+	return backupTS, nil
+}
+
+// SaveBackupMeta saves the current backup meta at the given path.
+func (bc *BackupClient) SaveBackupMeta(path string) error {
+	bc.backupMeta.Path = path
+	backupMetaData, err := proto.Marshal(&bc.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// TODO: save the file at the path.
+	log.Info("backup meta",
+		zap.Reflect("meta", bc.backupMeta))
+	log.Info("save backup meta", zap.String("path", path))
+	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
+}
+
+// BackupTable backup the given table.
+func (bc *BackupClient) BackupTable(
+	dbName, tableName string,
+	path string,
+	backupTS uint64,
+) error {
+	session, err := session.CreateSession(bc.backer.GetTiKV())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	do := domain.GetDomain(session.(sessionctx.Context))
+	info, err := do.GetSnapshotInfoSchema(backupTS)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	var dbInfo *model.DBInfo
+	var tableInfo *model.TableInfo
+	cDBName := model.NewCIStr(dbName)
+	dbInfo, exist := info.SchemaByName(cDBName)
+	if !exist {
+		return errors.Errorf("schema %s not found", dbName)
+	}
+	cTableName := model.NewCIStr(tableName)
+	table, err := info.TableByName(cDBName, cTableName)
+	tableInfo = table.Meta()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	dbData, err := json.Marshal(dbInfo)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	tableData, err := json.Marshal(tableInfo)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Save schema.
+	backupSchema := &backup.Schema{
+		Db:    dbData,
+		Table: tableData,
+	}
+	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+	log.Info("backup table meta",
+		zap.Reflect("Schema", dbInfo),
+		zap.Reflect("Table", tableInfo))
+
+	tableID := tableInfo.ID
+	startKey := tablecodec.GenTablePrefix(tableID)
+	endKey := tablecodec.GenTablePrefix(tableID + 1)
+
+	return bc.BackupRange(startKey, endKey, path, backupTS)
+}
+
 // BackupRange make a backup of the given key range.
 func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
 	path string,
+	backupTS uint64,
 ) error {
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
@@ -60,15 +155,6 @@ func (bc *BackupClient) BackupRange(
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
 
-	p, l, err := bc.pdClient.GetTS(ctx)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	ts := meta.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	backupTS := meta.EncodeTs(ts)
 	allStores, err := bc.pdClient.GetAllStores(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -86,39 +172,30 @@ func (bc *BackupClient) BackupRange(
 	if err != nil {
 		return err
 	}
-	log.Info("finish backup push down",
-		zap.Int("Ok", results.ok.len()), zap.Int("Error", results.err.len()))
+	log.Info("finish backup push down", zap.Int("Ok", results.len()))
 
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
-	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, results.ok)
+	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, results)
 	if err != nil {
 		return err
 	}
 
-	backupMeta := &backup.BackupMeta{}
-	results.ok.tree.Ascend(func(i btree.Item) bool {
+	timeRange := &backup.TimeRange{StartVersion: backupTS, EndVersion: backupTS}
+	bc.backupMeta.TimeRange = timeRange
+	log.Info("backup time range", zap.Reflect("TimeRange", timeRange))
+
+	results.tree.Ascend(func(i btree.Item) bool {
 		r := i.(*Range)
-		backupMeta.Files = append(backupMeta.Files, r.Files...)
+		bc.backupMeta.Files = append(bc.backupMeta.Files, r.Files...)
 		return true
 	})
-	backupMeta.Path = path
-	backupMetaData, err := proto.Marshal(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = ioutil.WriteFile("backupmeta", backupMetaData, 0644)
-	if err != nil {
-		return errors.Trace(err)
-	}
 
 	// Check if there are duplicated files.
-	results.ok.checkDupFiles()
+	results.checkDupFiles()
 
-	log.Info("backup finished",
+	log.Info("backup range finished",
 		zap.Duration("take", time.Since(start)))
-	log.Info("backup meta",
-		zap.Reflect("meta", backupMeta))
 	return nil
 }
 

@@ -206,6 +206,11 @@ func (backer *Backer) GetPDClient() pd.Client {
 	return backer.pdClient
 }
 
+// GetTiKV returns a tikv storage.
+func (backer *Backer) GetTiKV() tikv.Storage {
+	return backer.tikvCli
+}
+
 // GetLockResolver gets the LockResolver.
 func (backer *Backer) GetLockResolver() *tikv.LockResolver {
 	return backer.tikvCli.GetLockResolver()
