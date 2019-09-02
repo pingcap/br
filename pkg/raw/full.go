@@ -135,11 +135,73 @@ func (bc *BackupClient) BackupTable(
 		zap.Reflect("Schema", dbInfo),
 		zap.Reflect("Table", tableInfo))
 
-	tableID := tableInfo.ID
-	startKey := tablecodec.GenTablePrefix(tableID)
-	endKey := tablecodec.GenTablePrefix(tableID + 1)
+	ranges := buildTableRanges(tableInfo)
+	for _, r := range ranges {
+		start, end := r.Range()
+		err = bc.BackupRange(start, end, path, backupTS)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	return bc.BackupRange(startKey, endKey, path, backupTS)
+type tableRange struct {
+	startID, endID int64
+}
+
+func (tr tableRange) Range() ([]byte, []byte) {
+	startKey := tablecodec.GenTablePrefix(tr.startID)
+	endKey := tablecodec.GenTablePrefix(tr.endID)
+	return []byte(startKey), []byte(endKey)
+}
+
+func buildTableRanges(tbl *model.TableInfo) []tableRange {
+	pis := tbl.GetPartitionInfo()
+	if pis == nil {
+		// Short path, no partition.
+		tableID := tbl.ID
+		return []tableRange{{startID: tableID, endID: tableID + 1}}
+	}
+
+	// Try to find gap between partitions.
+	gaps := make([]int, 0, 1)
+	last := pis.Definitions[0].ID
+	for i, pi := range pis.Definitions[1:] {
+		if pi.ID != last+1 {
+			// Index starts from 1.
+			gaps = append(gaps, i+1)
+			last = pi.ID
+		} else {
+			last++
+		}
+	}
+	ranges := make([]tableRange, 0)
+	if len(gaps) == 0 {
+		// No gap.
+		ranges = append(ranges,
+			tableRange{
+				startID: pis.Definitions[0].ID,
+				endID:   pis.Definitions[len(pis.Definitions)-1].ID + 1,
+			})
+		return ranges
+	}
+
+	var next int
+	for _, idx := range gaps {
+		ranges = append(ranges,
+			tableRange{
+				startID: pis.Definitions[next].ID,
+				endID:   pis.Definitions[idx-1].ID + 1,
+			})
+		next = idx
+	}
+	ranges = append(ranges,
+		tableRange{
+			startID: pis.Definitions[next].ID,
+			endID:   pis.Definitions[len(pis.Definitions)-1].ID + 1,
+		})
+	return ranges
 }
 
 // BackupRange make a backup of the given key range.
