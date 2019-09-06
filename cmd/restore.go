@@ -1,79 +1,232 @@
 package cmd
 
 import (
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/overvenus/br/pkg/restore"
+	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/cobra"
+	flag "github.com/spf13/pflag"
 )
 
-// NewRestoreCommand return a restore command
 func NewRestoreCommand() *cobra.Command {
-	command := &cobra.Command{
+	bp := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
+	}
+	bp.AddCommand(
+		newFullRestoreCommand(),
+		newDbRestoreCommand(),
+		newTableRestoreCommand(),
+	)
+	return bp
+}
+
+// NewRestoreCommand return a restore subcommand
+func newFullRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "full",
+		Short: "restore all tables",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			concurrency, err := cmd.Flags().GetInt("concurrency")
+			pdAddr, err := cmd.Flags().GetString(FlagPD)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			srcAddr, err := cmd.Flags().GetString("src")
+			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			destAddr, err := cmd.Flags().GetString("dest")
+			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			tableName, err := cmd.Flags().GetString("table")
+			restoreTS, err := client.GetTS()
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			importerAddr, err := cmd.Flags().GetString("importer")
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Import)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			metaLocation, err := cmd.Flags().GetString("meta")
+			err = client.RestoreAll(restoreTS)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			metaData, err := ioutil.ReadFile(metaLocation)
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			meta := &backup.BackupMeta{}
-			err = proto.Unmarshal(metaData, meta)
-			if err != nil {
-				return err
-			}
-			pdAddrs, err := cmd.Flags().GetString("pd")
-			if err != nil {
-				return err
-			}
-			statusPort, err := cmd.Flags().GetInt("status-port")
-			if err != nil {
-				return err
-			}
-			table, err := restore.CreateTable(srcAddr, destAddr, tableName, statusPort)
-			if err != nil {
-				return err
-			}
-
-			restore.Restore(concurrency, importerAddr, meta, table, pdAddrs)
-
-			return nil
+			err = client.CompactCluster()
+			return errors.Trace(err)
 		},
 	}
 
-	command.Flags().StringP("src", "r", "", "source tidb address, format: username:password@protocol(address)/dbname")
-	command.Flags().StringP("dest", "d", "", "destination tidb address, format: username:password@protocol(address)/dbname")
-	command.Flags().StringP("table", "t", "", "table name")
-	command.Flags().StringP("importer", "i", "", "importer address")
-	command.Flags().StringP("meta", "m", "", "meta file location")
-	command.Flags().IntP("concurrency", "c", 8, "number of concurrent restore files")
-	command.Flags().IntP("status-port", "P", 10080, "tidb status port")
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
+	command.Flags().String("meta", "", "meta file location")
+	command.Flags().String("status", "", "the address to check tidb status, ip:port")
 
 	return command
+}
+
+func newDbRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "db",
+		Short: "restore tables in a database",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = initRestoreClient(client, cmd.Flags())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			restoreTS, err := client.GetTS()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Import)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			dbName, err := cmd.Flags().GetString("db")
+			if err != nil {
+				return errors.Trace(err)
+			}
+			db := client.GetDatabase(dbName)
+			err = client.RestoreDatabase(db, restoreTS)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.CompactCluster()
+			return errors.Trace(err)
+		},
+	}
+
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
+	command.Flags().String("meta", "", "meta file location")
+	command.Flags().String("status", "", "the address to check tidb status, ip:port")
+
+	command.Flags().String("db", "", "database name")
+
+	return command
+}
+
+func newTableRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "table",
+		Short: "restore a table",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = initRestoreClient(client, cmd.Flags())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			restoreTS, err := client.GetTS()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Import)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			dbName, err := cmd.Flags().GetString("db")
+			if err != nil {
+				return errors.Trace(err)
+			}
+			db := client.GetDatabase(dbName)
+			err = restore.CreateDatabase(db.Schema, client.GetDbDNS())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			tableName, err := cmd.Flags().GetString("table")
+			if err != nil {
+				return errors.Trace(err)
+			}
+			table := db.GetTable(tableName)
+			err = client.RestoreTable(table, restoreTS)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.CompactCluster()
+			return errors.Trace(err)
+		},
+	}
+
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
+	command.Flags().String("meta", "", "meta file location")
+	command.Flags().String("status", "", "the address to check tidb status, ip:port")
+
+	command.Flags().String("db", "", "database name")
+	command.Flags().String("table", "", "table name")
+
+	return command
+}
+
+func initRestoreClient(client *restore.RestoreClient, flagSet *flag.FlagSet) error {
+	importerAddr, err := flagSet.GetString("importer")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = client.InitImportKVClient(importerAddr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	metaPath, err := flagSet.GetString("meta")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	metaData, err := ioutil.ReadFile(metaPath)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	backupMeta := &backup.BackupMeta{}
+	err = proto.Unmarshal(metaData, backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = client.InitBackupMeta(backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	dns, err := flagSet.GetString("connect")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	client.SetDbDNS(dns)
+
+	statusAddr, err := flagSet.GetString("status")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	client.SetStatusAddr(statusAddr)
+
+	return nil
 }

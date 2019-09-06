@@ -2,7 +2,7 @@ PROTOC ?= $(shell which protoc)
 PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD := $(shell pwd)
 PACKAGES := go list ./...
-PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/overvenus\/br\/*//'
+PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 all: check build test

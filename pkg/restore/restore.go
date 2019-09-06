@@ -3,169 +3,301 @@ package restore
 import (
 	"context"
 	"fmt"
-	"strings"
-	"sync"
-
-	"github.com/overvenus/br/pkg/meta"
-	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"strings"
+
+	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"google.golang.org/grpc"
 )
 
-// FilePair wraps a default cf file & a write cf file
-type FilePair struct {
-	Default *backup.File
-	Write   *backup.File
+type RestoreClient struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	pdClient       pd.Client
+	pdAddr         string
+	importerClient import_kvpb.ImportKVClient
+
+	databases  map[string]*Database
+	dbDNS      string
+	statusAddr string
+	backupMeta *backup.BackupMeta
 }
 
-// Restore starts a restore task
-func Restore(concurrency int, importerAddr string, backupMeta *backup.BackupMeta, table *Table, pdAddrs string) {
-	ctx, cancel := context.WithCancel(context.Background())
-	fileCh := make(chan *FilePair)
-	respCh := make(chan *import_kvpb.RestoreFileResponse)
-
-	tableIds, indexIds := getIDPairsFromTable(table)
-	log.Info("get table ids", zap.Reflect("table_id", tableIds), zap.Reflect("index_id", indexIds))
-
+func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, error) {
+	_ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
-		panic(errors.Trace(err))
+		return nil, errors.Trace(err)
 	}
-	p, l, err := pdClient.GetTS(ctx)
+	log.Info("new region client", zap.String("pdAddrs", pdAddrs))
+	return &RestoreClient{
+		ctx:      _ctx,
+		cancel:   cancel,
+		pdClient: pdClient,
+		pdAddr:   addrs[0],
+	}, nil
+}
+
+func (rc *RestoreClient) InitImportKVClient(addr string) error {
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
-		panic(errors.Trace(err))
+		log.Error("connect to importer server failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+	rc.importerClient = import_kvpb.NewImportKVClient(conn)
+	return nil
+}
+
+func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta) error {
+	databases, err := LoadBackupTables(backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rc.databases = databases
+	rc.backupMeta = backupMeta
+	return nil
+}
+
+func (rc *RestoreClient) SetDbDNS(dbDns string) {
+	rc.dbDNS = dbDns
+}
+
+func (rc *RestoreClient) GetDbDNS() string {
+	return rc.dbDNS
+}
+
+func (rc *RestoreClient) SetStatusAddr(statusAddr string) {
+	rc.statusAddr = statusAddr
+}
+
+func (rc *RestoreClient) GetTS() (uint64, error) {
+	p, l, err := rc.pdClient.GetTS(rc.ctx)
+	if err != nil {
+		return 0, errors.Trace(err)
 	}
 	ts := meta.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
 	restoreTS := meta.EncodeTs(ts)
+	log.Info("restore timestamp", zap.Uint64("RestoreTS", restoreTS))
+	return restoreTS, nil
+}
 
-	err = switchClusterMode(ctx, importerAddr, addrs[0], import_sstpb.SwitchMode_Import)
-	if err != nil {
-		panic(fmt.Sprintf("switch mode err: %v", errors.Trace(err)))
+func (rc *RestoreClient) GetDatabase(name string) *Database {
+	return rc.databases[name]
+}
+
+func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
+	dns := fmt.Sprintf("%s/%s", rc.dbDNS, table.Db.Name.O)
+	returnErr := CreateTable(table, dns)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
 	}
-	log.Info("switch to import mode")
+	tableInfo, returnErr := FetchTableInfo(rc.statusAddr, table.Db.Name.O, table.Schema.Name.O)
+	tableIDs, indexIDs := GroupIDPairs(table.Schema, tableInfo)
 
-	var wg sync.WaitGroup
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func(fileCh chan *FilePair, respCh chan *import_kvpb.RestoreFileResponse) {
-			var conn *grpc.ClientConn
-			var err error
-			conn, err = grpc.Dial(importerAddr, grpc.WithInsecure())
-			if err != nil {
-				panic(err)
-			}
-			client := import_kvpb.NewImportKVClient(conn)
+	returnErr = rc.OpenEngine(table.Uuid)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
 
-			for {
-				select {
-				case <-ctx.Done():
-					wg.Done()
-					return
-				case pair := <-fileCh:
-					req := &import_kvpb.RestoreFileRequest{
-						Default:   pair.Default,
-						Write:     pair.Write,
-						Path:      backupMeta.Path,
-						PdAddr:    addrs[0],
-						TableIds:  tableIds,
-						IndexIds:  indexIds,
-						RestoreTs: restoreTS,
-					}
-					resp, err := client.RestoreFile(ctx, req)
-					if err != nil || resp.Error != nil {
-						panic(fmt.Errorf("restore file failed, err: %v, resp: %v", err, resp))
-					}
-					log.Info("restore file", zap.Reflect("file", pair), zap.Uint64("restore_ts", restoreTS))
-					respCh <- resp
+	errCh := make(chan error)
+	defer close(errCh)
+	for _, file := range table.Files {
+		select {
+		case <-rc.ctx.Done():
+			return nil
+		default:
+			go func() {
+				req := &import_kvpb.RestoreFileRequest{
+					Default:   file.Default,
+					Write:     file.Write,
+					Path:      rc.backupMeta.Path,
+					PdAddr:    rc.pdAddr,
+					TableIds:  tableIDs,
+					IndexIds:  indexIDs,
+					RestoreTs: restoreTS,
 				}
-			}
-		}(fileCh, respCh)
-	}
-
-	filePairs := make([]*FilePair, 0)
-	for _, file := range backupMeta.Files {
-		if strings.HasSuffix(file.Name, "write") {
-			var defaultFile *backup.File
-			defaultName := strings.TrimSuffix(file.Name, "write") + "default"
-			for _, f := range backupMeta.Files {
-				if f.Name == defaultName {
-					defaultFile = f
+				_, err := rc.importerClient.RestoreFile(rc.ctx, req)
+				if err != nil {
+					log.Error("restore file failed",
+						zap.Reflect("file", file),
+						zap.Uint64("restore_ts", restoreTS),
+						zap.String("table", table.Schema.Name.O),
+						zap.String("db", table.Db.Name.O),
+					)
+					errCh <- errors.Trace(err)
 				}
-			}
-			filePairs = append(filePairs, &FilePair{
-				Default: defaultFile,
-				Write:   file,
-			})
+				log.Debug("restore file",
+					zap.Reflect("file", file),
+					zap.Uint64("restore_ts", restoreTS),
+					zap.String("table", table.Schema.Name.O),
+				)
+				errCh <- nil
+			}()
 		}
 	}
 
-	go func() {
-		for _, p := range filePairs {
-			fileCh <- p
-		}
-	}()
-
-	go func() {
-		for i := 0; i < len(filePairs); i++ {
-			_ = <-respCh
-		}
-
-		err = switchClusterMode(ctx, importerAddr, addrs[0], import_sstpb.SwitchMode_Normal)
+	for i := 0; i < len(table.Files); i++ {
+		err := <-errCh
 		if err != nil {
-			panic(fmt.Sprintf("switch mode err: %v", errors.Trace(err)))
+			returnErr = err
 		}
-		log.Info("switch to normal mode")
+	}
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
 
-		cancel()
-	}()
+	returnErr = rc.CloseEngine(table.Uuid)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
+	returnErr = rc.ImportEngine(table.Uuid)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
 
-	wg.Wait()
+	log.Info("restore table finished",
+		zap.Uint64("restore_ts", restoreTS),
+		zap.String("table", table.Schema.Name.O),
+		zap.String("db", table.Db.Name.O),
+	)
+
+	returnErr = rc.CleanupEngine(table.Uuid)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
+	returnErr = AnalyzeTable(table, dns)
+
+	return errors.Trace(returnErr)
 }
 
-func getIDPairsFromTable(table *Table) ([]*import_kvpb.IdPair, []*import_kvpb.IdPair) {
-	tableIds := make([]*import_kvpb.IdPair, 0)
-	tableIds = append(tableIds, &import_kvpb.IdPair{
-		OldId: table.SrcSchema.ID,
-		NewId: table.DestSchema.ID,
-	})
+func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
+	returnErr := CreateDatabase(db.Schema, rc.dbDNS)
+	if returnErr != nil {
+		return returnErr
+	}
 
-	indexIds := make([]*import_kvpb.IdPair, 0)
-	for _, src := range table.SrcSchema.Indices {
-		for _, dest := range table.DestSchema.Indices {
-			if src.Name == dest.Name {
-				indexIds = append(indexIds, &import_kvpb.IdPair{
-					OldId: src.ID,
-					NewId: dest.ID,
-				})
-			}
+	errCh := make(chan error)
+	defer close(errCh)
+	for _, table := range db.Tables {
+		select {
+		case <-rc.ctx.Done():
+			return nil
+		default:
+			go func() {
+				err := rc.RestoreTable(table, restoreTS)
+				if err != nil {
+					errCh <- errors.Trace(err)
+				}
+				errCh <- nil
+			}()
 		}
 	}
 
-	return tableIds, indexIds
+	for i := 0; i < len(db.Tables); i++ {
+		err := <-errCh
+		if err != nil {
+			returnErr = err
+		}
+	}
+	if returnErr == nil {
+		log.Info("restore database finished",
+			zap.Uint64("restore_ts", restoreTS),
+			zap.String("db", db.Schema.Name.O),
+		)
+	}
+	return returnErr
 }
 
-func switchClusterMode(ctx context.Context, importerAddr string, pdAddr string, mode import_sstpb.SwitchMode) error {
-	conn, err := grpc.Dial(importerAddr, grpc.WithInsecure())
-	if err != nil {
-		return err
+func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
+	errCh := make(chan error)
+	defer close(errCh)
+	for _, db := range rc.databases {
+		select {
+		case <-rc.ctx.Done():
+			return nil
+		default:
+			go func() {
+				err := rc.RestoreDatabase(db, restoreTS)
+				if err != nil {
+					errCh <- errors.Trace(err)
+				}
+				errCh <- nil
+			}()
+		}
 	}
-	client := import_kvpb.NewImportKVClient(conn)
+
+	var returnErr error
+	for i := 0; i < len(rc.databases); i++ {
+		err := <-errCh
+		if err != nil {
+			returnErr = err
+		}
+	}
+	if returnErr == nil {
+		log.Info("restore all finished", zap.Uint64("restore_ts", restoreTS))
+	}
+	return returnErr
+}
+
+func (rc *RestoreClient) OpenEngine(uuid []byte) error {
+	req := &import_kvpb.OpenEngineRequest{
+		Uuid: uuid,
+	}
+	_, err := rc.importerClient.OpenEngine(rc.ctx, req)
+	return err
+}
+
+func (rc *RestoreClient) ImportEngine(uuid []byte) error {
+	req := &import_kvpb.ImportEngineRequest{
+		Uuid:   uuid,
+		PdAddr: rc.pdAddr,
+	}
+	_, err := rc.importerClient.ImportEngine(rc.ctx, req)
+	return err
+}
+
+func (rc *RestoreClient) CloseEngine(uuid []byte) error {
+	req := &import_kvpb.CloseEngineRequest{
+		Uuid: uuid,
+	}
+	_, err := rc.importerClient.CloseEngine(rc.ctx, req)
+	return err
+}
+
+func (rc *RestoreClient) CleanupEngine(uuid []byte) error {
+	req := &import_kvpb.CleanupEngineRequest{
+		Uuid: uuid,
+	}
+	_, err := rc.importerClient.CleanupEngine(rc.ctx, req)
+	return err
+}
+
+func (rc *RestoreClient) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 	req := &import_kvpb.SwitchModeRequest{
-		PdAddr: pdAddr,
+		PdAddr: rc.pdAddr,
 		Request: &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		},
 	}
-	_, err = client.SwitchMode(ctx, req)
+	_, err := rc.importerClient.SwitchMode(rc.ctx, req)
+	return err
+}
+
+func (rc *RestoreClient) CompactCluster() error {
+	req := &import_kvpb.CompactClusterRequest{
+		PdAddr: rc.pdAddr,
+	}
+	_, err := rc.importerClient.CompactCluster(rc.ctx, req)
 	return err
 }
