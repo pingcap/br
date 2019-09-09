@@ -81,6 +81,8 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			databases[table.Db.Name.O] = db
 		}
 		db.Tables = append(db.Tables, table)
+
+		log.Info("load table", zap.Reflect("table", table))
 	}
 
 	return databases, nil

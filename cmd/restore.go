@@ -1,13 +1,13 @@
 package cmd
 
 import (
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 )
@@ -69,6 +69,11 @@ func newFullRestoreCommand() *cobra.Command {
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
 
+	command.MarkFlagRequired("connect")
+	command.MarkFlagRequired("importer")
+	command.MarkFlagRequired("meta")
+	command.MarkFlagRequired("status")
+
 	return command
 }
 
@@ -121,6 +126,12 @@ func newDbRestoreCommand() *cobra.Command {
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
 
 	command.Flags().String("db", "", "database name")
+
+	command.MarkFlagRequired("connect")
+	command.MarkFlagRequired("importer")
+	command.MarkFlagRequired("meta")
+	command.MarkFlagRequired("status")
+	command.MarkFlagRequired("db")
 
 	return command
 }
@@ -184,6 +195,13 @@ func newTableRestoreCommand() *cobra.Command {
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
+
+	command.MarkFlagRequired("connect")
+	command.MarkFlagRequired("importer")
+	command.MarkFlagRequired("meta")
+	command.MarkFlagRequired("status")
+	command.MarkFlagRequired("db")
+	command.MarkFlagRequired("table")
 
 	return command
 }
