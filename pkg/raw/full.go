@@ -2,7 +2,9 @@ package raw
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"sync"
 	"time"
@@ -38,6 +40,8 @@ type BackupClient struct {
 	backer    *meta.Backer
 	clusterID uint64
 	pdClient  pd.Client
+	db        *sql.DB
+	gcTime    string
 
 	backupMeta backup.BackupMeta
 }
@@ -47,12 +51,14 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 	log.Info("new backup client")
 	ctx, cancel := context.WithCancel(backer.Context())
 	pdClient := backer.GetPDClient()
+	db := backer.GetDB()
 	return &BackupClient{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
 		ctx:       ctx,
 		cancel:    cancel,
 		pdClient:  backer.GetPDClient(),
+		db:        db,
 	}, nil
 }
 
@@ -83,6 +89,36 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 		zap.Reflect("meta", bc.backupMeta))
 	log.Info("save backup meta", zap.String("path", path))
 	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
+}
+
+// DisableGc disables MVCC Gc of TiDB
+func (bc *BackupClient) DisableGc() error {
+	selectGcTime := "select variable_value from mysql.tidb where variable_name='tikv_gc_life_time';"
+	updateGcTime := "update mysql.tidb set variable_value=? where variable_name='tikv_gc_life_time';"
+	rows, err := bc.db.Query(selectGcTime)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	var gcTime string
+	if rows.Next() {
+		err = rows.Scan(&gcTime)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	bc.gcTime = gcTime
+	_, err = bc.db.Exec(updateGcTime, "720h")
+	return errors.Trace(err)
+}
+
+// EnableGc enables MVCC Gc of TiDB from previously saved gc time
+func (bc *BackupClient) EnableGc() error {
+	if bc.gcTime == "" {
+		return errors.Trace(fmt.Errorf("uninitialized gc time"))
+	}
+	updateGcTime := "update mysql.tidb set variable_value=? where variable_name='tikv_gc_life_time';"
+	_, err := bc.db.Exec(updateGcTime, bc.gcTime)
+	return errors.Trace(err)
 }
 
 // BackupTable backup the given table.

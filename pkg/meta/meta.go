@@ -2,6 +2,7 @@ package meta
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -23,6 +25,7 @@ import (
 
 const (
 	dialTimeout = 5 * time.Second
+
 )
 
 // Backer backups a TiDB/TiKV cluster.
@@ -34,10 +37,11 @@ type Backer struct {
 		cli   *http.Client
 	}
 	tikvCli tikv.Storage
+	db      *sql.DB
 }
 
 // NewBacker creates a new Backer.
-func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
+func NewBacker(ctx context.Context, pdAddrs string, connectUrl string) (*Backer, error) {
 	addrs := strings.Split(pdAddrs, ",")
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
@@ -47,6 +51,10 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	tikvCli, err := tikv.Driver{}.Open(
 		// Disable GC because TiDB enables GC already.
 		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	db, err := sql.Open("mysql", connectUrl)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -62,6 +70,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 			cli:   &http.Client{Timeout: 30 * time.Second},
 		},
 		tikvCli: tikvCli.(tikv.Storage),
+		db:      db,
 	}, nil
 }
 
@@ -204,6 +213,11 @@ func (backer *Backer) SendBackup(
 // GetPDClient returns a pd client.
 func (backer *Backer) GetPDClient() pd.Client {
 	return backer.pdClient
+}
+
+// GetDb returns a db instance.
+func (backer *Backer) GetDB() *sql.DB {
+	return backer.db
 }
 
 // GetTiKV returns a tikv storage.

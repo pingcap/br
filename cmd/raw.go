@@ -38,7 +38,15 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			err = client.DisableGc()
+			if err != nil {
+				return err
+			}
 			err = client.BackupRange([]byte(""), []byte(""), u, backupTS)
+			if err != nil {
+				return err
+			}
+			err = client.EnableGc()
 			if err != nil {
 				return err
 			}
@@ -88,7 +96,15 @@ func newRegionCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			err = client.DisableGc()
+			if err != nil {
+				return err
+			}
 			err = client.BackupRange(startKey, endKey, u, backupTS)
+			if err != nil {
+				return err
+			}
+			err = client.EnableGc()
 			if err != nil {
 				return err
 			}
@@ -135,7 +151,15 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			err = client.DisableGc()
+			if err != nil {
+				return err
+			}
 			err = client.BackupTable(db, table, u, backupTS)
+			if err != nil {
+				return err
+			}
+			err = client.EnableGc()
 			if err != nil {
 				return err
 			}

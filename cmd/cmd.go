@@ -28,6 +28,8 @@ const (
 	FlagKey = "key"
 	// FlagStorage is the name of key flag.
 	FlagStorage = "storage"
+	// FlagConnect is the url of target db.
+	FlagConnect = "connect"
 )
 
 // AddFlags adds flags to the given cmd.
@@ -38,7 +40,10 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().String(FlagKey, "", "Key path")
 	cmd.PersistentFlags().StringP(FlagStorage, "s", "",
 		`specify the url where backup storage, eg, "local:///path/to/save"`)
+	cmd.PersistentFlags().String(FlagConnect, "",
+		`specify the url to connect TiDB, eg, "username:password@protocol(address)"`)
 	cmd.MarkFlagRequired(FlagPD)
+	cmd.MarkFlagRequired(FlagConnect)
 	//cmd.MarkFlagRequired(FlagStorage)
 }
 
@@ -55,7 +60,15 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			err = errors.Errorf("pd address can not be empty")
 			return
 		}
-		defaultBacker, err = meta.NewBacker(defaultContext, addr)
+		connectUrl, err := cmd.Flags().GetString(FlagConnect)
+		if err != nil {
+			return
+		}
+		if connectUrl == "" {
+			err = errors.Errorf("connect url can not be empty")
+			return
+		}
+		defaultBacker, err = meta.NewBacker(defaultContext, addr, connectUrl)
 		defaultRawClient, err = raw.NewBackupClient(defaultBacker)
 	})
 	return
