@@ -25,7 +25,6 @@ import (
 
 const (
 	dialTimeout = 5 * time.Second
-
 )
 
 // Backer backups a TiDB/TiKV cluster.

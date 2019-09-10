@@ -106,6 +106,9 @@ func (bc *BackupClient) DisableGc() error {
 			return errors.Trace(err)
 		}
 	}
+	if gcTime == "720h" {
+		return nil
+	}
 	bc.gcTime = gcTime
 	_, err = bc.db.Exec(updateGcTime, "720h")
 	return errors.Trace(err)
@@ -118,6 +121,9 @@ func (bc *BackupClient) EnableGc() error {
 	}
 	updateGcTime := "update mysql.tidb set variable_value=? where variable_name='tikv_gc_life_time';"
 	_, err := bc.db.Exec(updateGcTime, bc.gcTime)
+	if err != nil {
+		log.Error("enable MVCC GC failed", zap.Reflect("original_gc_life_time", bc.gcTime))
+	}
 	return errors.Trace(err)
 }
 
