@@ -54,10 +54,6 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			defer client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			err = client.RestoreAll(restoreTS)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			err = client.CompactCluster()
 			return errors.Trace(err)
 		},
 	}
@@ -110,10 +106,6 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(fmt.Errorf("not exists database"))
 			}
 			err = client.RestoreDatabase(db, restoreTS)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			err = client.CompactCluster()
 			return errors.Trace(err)
 		},
 	}
@@ -181,10 +173,6 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(fmt.Errorf("not exists table"))
 			}
 			err = client.RestoreTable(table, restoreTS)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			err = client.CompactCluster()
 			return errors.Trace(err)
 		},
 	}

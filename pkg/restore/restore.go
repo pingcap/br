@@ -196,7 +196,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	if returnErr != nil {
 		return errors.Trace(returnErr)
 	}
-	log.Info("start to import table",
+	log.Info("start to import engine",
 		zap.Uint64("restore_ts", restoreTS),
 		zap.String("table", table.Schema.Name.O),
 		zap.String("db", table.Db.Name.O),
@@ -205,7 +205,17 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	if returnErr != nil {
 		return errors.Trace(returnErr)
 	}
-	log.Info("import table success",
+	log.Info("import engine success",
+		zap.Uint64("restore_ts", restoreTS),
+		zap.String("table", table.Schema.Name.O),
+		zap.String("db", table.Db.Name.O),
+	)
+
+	returnErr = rc.CleanupEngine(table.Uuid)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
+	log.Info("cleanup engine success",
 		zap.Uint64("restore_ts", restoreTS),
 		zap.String("table", table.Schema.Name.O),
 		zap.String("db", table.Db.Name.O),
@@ -216,12 +226,6 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 		zap.String("table", table.Schema.Name.O),
 		zap.String("db", table.Db.Name.O),
 	)
-
-	returnErr = rc.CleanupEngine(table.Uuid)
-	if returnErr != nil {
-		return errors.Trace(returnErr)
-	}
-	returnErr = AnalyzeTable(table, dns)
 
 	return errors.Trace(returnErr)
 }
