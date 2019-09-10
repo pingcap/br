@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
@@ -12,6 +13,7 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+// NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "restore",
@@ -25,7 +27,6 @@ func NewRestoreCommand() *cobra.Command {
 	return bp
 }
 
-// NewRestoreCommand return a restore subcommand
 func newFullRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "full",
@@ -51,11 +52,8 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			err = client.RestoreAll(restoreTS)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -102,16 +100,16 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			dbName, err := cmd.Flags().GetString("db")
 			if err != nil {
 				return errors.Trace(err)
 			}
 			db := client.GetDatabase(dbName)
-			err = client.RestoreDatabase(db, restoreTS)
-			if err != nil {
-				return errors.Trace(err)
+			if db == nil {
+				return errors.Trace(fmt.Errorf("not exists database"))
 			}
-			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
+			err = client.RestoreDatabase(db, restoreTS)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -161,11 +159,15 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
 			dbName, err := cmd.Flags().GetString("db")
 			if err != nil {
 				return errors.Trace(err)
 			}
 			db := client.GetDatabase(dbName)
+			if db == nil {
+				return errors.Trace(fmt.Errorf("not exists database"))
+			}
 			err = restore.CreateDatabase(db.Schema, client.GetDbDNS())
 			if err != nil {
 				return errors.Trace(err)
@@ -175,11 +177,10 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			table := db.GetTable(tableName)
-			err = client.RestoreTable(table, restoreTS)
-			if err != nil {
-				return errors.Trace(err)
+			if table == nil {
+				return errors.Trace(fmt.Errorf("not exists table"))
 			}
-			err = client.SwitchClusterMode(import_sstpb.SwitchMode_Normal)
+			err = client.RestoreTable(table, restoreTS)
 			if err != nil {
 				return errors.Trace(err)
 			}

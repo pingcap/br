@@ -15,8 +15,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-var MaxFileNumPerEngine int = 100
-
+// RestoreClient sends requests to importer to restore files
 type RestoreClient struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -31,6 +30,7 @@ type RestoreClient struct {
 	backupMeta *backup.BackupMeta
 }
 
+// NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, error) {
 	_ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
@@ -47,6 +47,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, erro
 	}, nil
 }
 
+// InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	databases, err := LoadBackupTables(backupMeta)
 	if err != nil {
@@ -57,18 +58,22 @@ func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	return nil
 }
 
+// SetDbDNS sets the DNS to connect the database to a new value
 func (rc *RestoreClient) SetDbDNS(dbDns string) {
 	rc.dbDNS = dbDns
 }
 
+// GetDbDNS returns a DNS to connect the database
 func (rc *RestoreClient) GetDbDNS() string {
 	return rc.dbDNS
 }
 
+// SetImportAddr sets the address to connect the importer
 func (rc *RestoreClient) SetImportAddr(addr string) {
 	rc.importerAddr = addr
 }
 
+// GetImportKVClient returns a new ImportKVClient
 func (rc *RestoreClient) GetImportKVClient() (import_kvpb.ImportKVClient, error) {
 	conn, err := grpc.DialContext(rc.ctx, rc.importerAddr, grpc.WithInsecure())
 	if err != nil {
@@ -79,10 +84,12 @@ func (rc *RestoreClient) GetImportKVClient() (import_kvpb.ImportKVClient, error)
 	return client, nil
 }
 
+// SetStatusAddr sets the address to check status of TiDB to a new value
 func (rc *RestoreClient) SetStatusAddr(statusAddr string) {
 	rc.statusAddr = statusAddr
 }
 
+// GetTS gets a new timestamp from PD
 func (rc *RestoreClient) GetTS() (uint64, error) {
 	p, l, err := rc.pdClient.GetTS(rc.ctx)
 	if err != nil {
@@ -97,10 +104,12 @@ func (rc *RestoreClient) GetTS() (uint64, error) {
 	return restoreTS, nil
 }
 
+// GetDatabase returns a database instance by name
 func (rc *RestoreClient) GetDatabase(name string) *Database {
 	return rc.databases[name]
 }
 
+// RestoreTable executes the job to restore a table
 func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.String("table", table.Schema.Name.O),
@@ -217,6 +226,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	return errors.Trace(returnErr)
 }
 
+// RestoreDatabase executes the job to restore a database
 func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
 	returnErr := CreateDatabase(db.Schema, rc.dbDNS)
 	if returnErr != nil {
@@ -255,6 +265,7 @@ func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
 	return returnErr
 }
 
+// RestoreAll executes the job to restore all files
 func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
 	errCh := make(chan error)
 	defer close(errCh)
@@ -286,18 +297,20 @@ func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
 	return returnErr
 }
 
+// OpenEngine sends a OpenEngine request to importer
 func (rc *RestoreClient) OpenEngine(uuid []byte) error {
 	req := &import_kvpb.OpenEngineRequest{
 		Uuid: uuid,
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_, err = client.OpenEngine(rc.ctx, req)
-	return err
+	return errors.Trace(err)
 }
 
+// ImportEngine sends a ImportEngine request to importer
 func (rc *RestoreClient) ImportEngine(uuid []byte) error {
 	req := &import_kvpb.ImportEngineRequest{
 		Uuid:   uuid,
@@ -305,36 +318,39 @@ func (rc *RestoreClient) ImportEngine(uuid []byte) error {
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_, err = client.ImportEngine(rc.ctx, req)
-	return err
+	return errors.Trace(err)
 }
 
+// CloseEngine sends a CloseEngine request to importer
 func (rc *RestoreClient) CloseEngine(uuid []byte) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: uuid,
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_, err = client.CloseEngine(rc.ctx, req)
-	return err
+	return errors.Trace(err)
 }
 
+// CleanupEngine sends a CleanupEngine request to importer
 func (rc *RestoreClient) CleanupEngine(uuid []byte) error {
 	req := &import_kvpb.CleanupEngineRequest{
 		Uuid: uuid,
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_, err = client.CleanupEngine(rc.ctx, req)
-	return err
+	return errors.Trace(err)
 }
 
+// SwitchClusterMode sends a SwitchClusterMode request to importer
 func (rc *RestoreClient) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 	req := &import_kvpb.SwitchModeRequest{
 		PdAddr: rc.pdAddr,
@@ -344,20 +360,25 @@ func (rc *RestoreClient) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
+		return errors.Trace(err)
 	}
 	_, err = client.SwitchMode(rc.ctx, req)
-	return err
+	if err != nil {
+		log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
+	}
+	return errors.Trace(err)
 }
 
+// CompactCluster sends a CompactCluster request to importer
 func (rc *RestoreClient) CompactCluster() error {
 	req := &import_kvpb.CompactClusterRequest{
 		PdAddr: rc.pdAddr,
 	}
 	client, err := rc.GetImportKVClient()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_, err = client.CompactCluster(rc.ctx, req)
-	return err
+	return errors.Trace(err)
 }

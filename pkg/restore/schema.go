@@ -19,10 +19,10 @@ import (
 )
 
 type Table struct {
-	Uuid              []byte
-	Db                *model.DBInfo
-	Schema            *model.TableInfo
-	Files             []*FilePair
+	Uuid   []byte
+	Db     *model.DBInfo
+	Schema *model.TableInfo
+	Files  []*FilePair
 }
 
 type Database struct {
@@ -36,6 +36,7 @@ type FilePair struct {
 	Write   *backup.File
 }
 
+// GetTable returns a table instance by name
 func (db *Database) GetTable(name string) *Table {
 	for _, table := range db.Tables {
 		if table.Schema.Name.O == name {
@@ -45,6 +46,7 @@ func (db *Database) GetTable(name string) *Table {
 	return nil
 }
 
+// CreateTable executes a CREATE TABLE SQL
 func CreateTable(table *Table, dns string) error {
 	db, err := sql.Open("mysql", dns)
 	if err != nil {
@@ -64,6 +66,7 @@ func CreateTable(table *Table, dns string) error {
 	return nil
 }
 
+// CreateDatabase executes a CREATE DATABASE SQL
 func CreateDatabase(schema *model.DBInfo, dns string) error {
 	db, err := sql.Open("mysql", dns)
 	if err != nil {
@@ -79,6 +82,7 @@ func CreateDatabase(schema *model.DBInfo, dns string) error {
 	return nil
 }
 
+// AnalyzeTable executes a ANALYZE TABLE SQL
 func AnalyzeTable(table *Table, dns string) error {
 	db, err := sql.Open("mysql", dns)
 	if err != nil {

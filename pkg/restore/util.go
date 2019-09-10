@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// LoadBackupTables loads schemas from BackupMeta
 func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	databases := make(map[string]*Database)
 	filePairs := groupFiles(meta.Files)
@@ -52,10 +53,10 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		table := &Table{
-			Uuid:              uuid.NewV4().Bytes(),
-			Db:                dbInfo,
-			Schema:            tableInfo,
-			Files:             tableFiles,
+			Uuid:   uuid.NewV4().Bytes(),
+			Db:     dbInfo,
+			Schema: tableInfo,
+			Files:  tableFiles,
 		}
 
 		db, ok := databases[table.Db.Name.O]
@@ -74,6 +75,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	return databases, nil
 }
 
+// FetchTableInfo fetches table schema from status address
 func FetchTableInfo(addr string, dbName string, tableName string) (*model.TableInfo, error) {
 	url := fmt.Sprintf("http://%s/schema/%s/%s", addr, dbName, tableName)
 	log.Info("fetch table schema", zap.String("URL", url))
@@ -94,6 +96,7 @@ func FetchTableInfo(addr string, dbName string, tableName string) (*model.TableI
 	return &schema, nil
 }
 
+// GroupIDPairs returns grouped id pairs
 func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableIDs []*import_kvpb.IdPair, indexIDs []*import_kvpb.IdPair) {
 	tableIDs = make([]*import_kvpb.IdPair, 0)
 	tableIDs = append(tableIDs, &import_kvpb.IdPair{
