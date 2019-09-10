@@ -48,8 +48,8 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, erro
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
-func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta) error {
-	databases, err := LoadBackupTables(backupMeta)
+func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta, partitionCount int) error {
+	databases, err := LoadBackupTables(backupMeta, partitionCount)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -124,8 +124,14 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	tableInfo, returnErr := FetchTableInfo(rc.statusAddr, table.Db.Name.O, table.Schema.Name.O)
 	tableIDs, indexIDs := GroupIDPairs(table.Schema, tableInfo)
 
-	returnErr = rc.OpenEngine(table.Uuid)
+	returnErr = rc.OpenEngine(table.Uuid.Bytes())
 	if returnErr != nil {
+		log.Error("open engine failed",
+			zap.Uint64("restore_ts", restoreTS),
+			zap.String("table", table.Schema.Name.O),
+			zap.String("uuid", table.Uuid.String()),
+			zap.String("db", table.Db.Name.O),
+		)
 		return errors.Trace(returnErr)
 	}
 
@@ -154,7 +160,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 					TableIds:  tableIDs,
 					IndexIds:  indexIDs,
 					RestoreTs: restoreTS,
-					Uuid:      table.Uuid,
+					Uuid:      table.Uuid.Bytes(),
 				}
 				sendErr := func(err error) {
 					log.Error("restore file failed",
@@ -192,41 +198,77 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 		return errors.Trace(returnErr)
 	}
 
-	returnErr = rc.CloseEngine(table.Uuid)
+	returnErr = rc.CloseEngine(table.Uuid.Bytes())
 	if returnErr != nil {
+		log.Error("close engine failed",
+			zap.Uint64("restore_ts", restoreTS),
+			zap.String("table", table.Schema.Name.O),
+			zap.String("uuid", table.Uuid.String()),
+			zap.String("db", table.Db.Name.O),
+		)
 		return errors.Trace(returnErr)
 	}
-	log.Info("start to import engine",
-		zap.Uint64("restore_ts", restoreTS),
-		zap.String("table", table.Schema.Name.O),
-		zap.String("db", table.Db.Name.O),
-	)
-	returnErr = rc.ImportEngine(table.Uuid)
+	returnErr = rc.ImportEngine(table.Uuid.Bytes())
 	if returnErr != nil {
+		log.Error("import engine failed",
+			zap.Uint64("restore_ts", restoreTS),
+			zap.String("table", table.Schema.Name.O),
+			zap.String("uuid", table.Uuid.String()),
+			zap.String("db", table.Db.Name.O),
+		)
 		return errors.Trace(returnErr)
 	}
-	log.Info("import engine success",
-		zap.Uint64("restore_ts", restoreTS),
-		zap.String("table", table.Schema.Name.O),
-		zap.String("db", table.Db.Name.O),
-	)
 
-	returnErr = rc.CleanupEngine(table.Uuid)
+	returnErr = rc.CleanupEngine(table.Uuid.Bytes())
 	if returnErr != nil {
+		log.Error("cleanup engine failed",
+			zap.Uint64("restore_ts", restoreTS),
+			zap.String("table", table.Schema.Name.O),
+			zap.String("uuid", table.Uuid.String()),
+			zap.String("db", table.Db.Name.O),
+		)
 		return errors.Trace(returnErr)
 	}
-	log.Info("cleanup engine success",
-		zap.Uint64("restore_ts", restoreTS),
-		zap.String("table", table.Schema.Name.O),
-		zap.String("db", table.Db.Name.O),
-	)
 
 	log.Info("restore table finished",
 		zap.Uint64("restore_ts", restoreTS),
 		zap.String("table", table.Schema.Name.O),
+		zap.String("uuid", table.Uuid.String()),
 		zap.String("db", table.Db.Name.O),
 	)
 
+	return errors.Trace(returnErr)
+}
+
+// RestoreMultipleTables executes the job to restore multiple tables
+func (rc *RestoreClient) RestoreMultipleTables(tables []*Table, restoreTS uint64) error {
+	log.Info("start to restore multiple table",
+		zap.Int("len", len(tables)),
+	)
+	var returnErr error
+	errCh := make(chan error)
+	defer close(errCh)
+	for _, table := range tables {
+		select {
+		case <-rc.ctx.Done():
+			return nil
+		default:
+			go func(t *Table) {
+				err := rc.RestoreTable(t, restoreTS)
+				if err != nil {
+					errCh <- errors.Trace(err)
+				}
+				errCh <- nil
+			}(table)
+		}
+	}
+
+	for i := 0; i < len(tables); i++ {
+		err := <-errCh
+		if err != nil {
+			returnErr = err
+		}
+	}
 	return errors.Trace(returnErr)
 }
 
@@ -236,37 +278,14 @@ func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
 	if returnErr != nil {
 		return returnErr
 	}
-
-	errCh := make(chan error)
-	defer close(errCh)
-	for _, table := range db.Tables {
-		select {
-		case <-rc.ctx.Done():
-			return nil
-		default:
-			go func() {
-				err := rc.RestoreTable(table, restoreTS)
-				if err != nil {
-					errCh <- errors.Trace(err)
-				}
-				errCh <- nil
-			}()
-		}
-	}
-
-	for i := 0; i < len(db.Tables); i++ {
-		err := <-errCh
-		if err != nil {
-			returnErr = err
-		}
-	}
+	returnErr = rc.RestoreMultipleTables(db.Tables, restoreTS)
 	if returnErr == nil {
 		log.Info("restore database finished",
 			zap.Uint64("restore_ts", restoreTS),
 			zap.String("db", db.Schema.Name.O),
 		)
 	}
-	return returnErr
+	return errors.Trace(returnErr)
 }
 
 // RestoreAll executes the job to restore all files
@@ -278,13 +297,13 @@ func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
 		case <-rc.ctx.Done():
 			return nil
 		default:
-			go func() {
-				err := rc.RestoreDatabase(db, restoreTS)
+			go func(d *Database) {
+				err := rc.RestoreDatabase(d, restoreTS)
 				if err != nil {
 					errCh <- errors.Trace(err)
 				}
 				errCh <- nil
-			}()
+			}(db)
 		}
 	}
 

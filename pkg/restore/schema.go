@@ -4,22 +4,23 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
-	"github.com/pingcap/errors"
-	"go.uber.org/zap"
 	"strconv"
 	"strings"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	tidb_table "github.com/pingcap/tidb/table"
+	tidbTable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/format"
+	"github.com/twinj/uuid"
+	"go.uber.org/zap"
 )
 
 type Table struct {
-	Uuid   []byte
+	Uuid   uuid.UUID
 	Db     *model.DBInfo
 	Schema *model.TableInfo
 	Files  []*FilePair
@@ -37,13 +38,14 @@ type FilePair struct {
 }
 
 // GetTable returns a table instance by name
-func (db *Database) GetTable(name string) *Table {
+func (db *Database) GetTables(name string) []*Table {
+	tables := make([]*Table, 0)
 	for _, table := range db.Tables {
 		if table.Schema.Name.O == name {
-			return table
+			tables = append(tables, table)
 		}
 	}
-	return nil
+	return tables
 }
 
 // CreateTable executes a CREATE TABLE SQL
@@ -114,7 +116,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 
 	tblCharset := t.Charset
 	tblCollate := t.Collate
-	fmt.Fprintf(&buf, "CREATE TABLE %s (\n", t.Name)
+	fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", t.Name)
 	var pkCol *model.ColumnInfo
 	for i, col := range t.Columns {
 		fmt.Fprintf(&buf, "  %s %s", col.Name.O, getColumnTypeDesc(col))
@@ -166,7 +168,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 			}
 			if mysql.HasOnUpdateNowFlag(col.Flag) {
 				buf.WriteString(" ON UPDATE CURRENT_TIMESTAMP")
-				buf.WriteString(tidb_table.OptionalFsp(&col.FieldType))
+				buf.WriteString(tidbTable.OptionalFsp(&col.FieldType))
 			}
 		}
 		if len(col.Comment) > 0 {

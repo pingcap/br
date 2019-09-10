@@ -62,6 +62,7 @@ func newFullRestoreCommand() *cobra.Command {
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
+	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
@@ -114,6 +115,7 @@ func newDbRestoreCommand() *cobra.Command {
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
+	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
 
 	command.Flags().String("db", "", "database name")
 
@@ -168,11 +170,11 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			table := db.GetTable(tableName)
-			if table == nil {
+			tables := db.GetTables(tableName)
+			if len(tables) <= 0 {
 				return errors.Trace(fmt.Errorf("not exists table"))
 			}
-			err = client.RestoreTable(table, restoreTS)
+			err = client.RestoreMultipleTables(tables, restoreTS)
 			return errors.Trace(err)
 		},
 	}
@@ -181,6 +183,7 @@ func newTableRestoreCommand() *cobra.Command {
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
+	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -215,7 +218,11 @@ func initRestoreClient(client *restore.RestoreClient, flagSet *flag.FlagSet) err
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = client.InitBackupMeta(backupMeta)
+	partitionCount, err := flagSet.GetInt("partition-count")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = client.InitBackupMeta(backupMeta, partitionCount)
 	if err != nil {
 		return errors.Trace(err)
 	}

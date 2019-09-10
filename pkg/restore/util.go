@@ -20,9 +20,21 @@ import (
 )
 
 // LoadBackupTables loads schemas from BackupMeta
-func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
+func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*Database, error) {
 	databases := make(map[string]*Database)
 	filePairs := groupFiles(meta.Files)
+
+	addTableToDb := func(t *Table) {
+		db, ok := databases[t.Db.Name.O]
+		if !ok {
+			db = &Database{
+				Schema: t.Db,
+				Tables: make([]*Table, 0),
+			}
+			databases[t.Db.Name.O] = db
+		}
+		db.Tables = append(db.Tables, t)
+	}
 
 	for _, schema := range meta.Schemas {
 		dbInfo := &model.DBInfo{}
@@ -50,26 +62,29 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 
 			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
 				tableFiles = append(tableFiles, pair)
+				if len(tableFiles) >= partitionCount {
+					table := &Table{
+						Uuid:   uuid.NewV4(),
+						Db:     dbInfo,
+						Schema: tableInfo,
+						Files:  tableFiles,
+					}
+					addTableToDb(table)
+					tableFiles = make([]*FilePair, 0)
+				}
 			}
 		}
-		table := &Table{
-			Uuid:   uuid.NewV4().Bytes(),
-			Db:     dbInfo,
-			Schema: tableInfo,
-			Files:  tableFiles,
-		}
-
-		db, ok := databases[table.Db.Name.O]
-		if !ok {
-			db = &Database{
-				Schema: table.Db,
-				Tables: make([]*Table, 0),
+		if len(tableFiles) > 0 {
+			table := &Table{
+				Uuid:   uuid.NewV4(),
+				Db:     dbInfo,
+				Schema: tableInfo,
+				Files:  tableFiles,
 			}
-			databases[table.Db.Name.O] = db
+			addTableToDb(table)
 		}
-		db.Tables = append(db.Tables, table)
 
-		log.Info("load table", zap.Reflect("table", table))
+		log.Info("load table", zap.Reflect("table", schema))
 	}
 
 	return databases, nil
