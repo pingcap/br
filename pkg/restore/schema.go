@@ -23,8 +23,6 @@ type Table struct {
 	Db                *model.DBInfo
 	Schema            *model.TableInfo
 	Files             []*FilePair
-	RestoredFileCount int64
-	Finished          bool
 }
 
 type Database struct {
@@ -56,7 +54,11 @@ func CreateTable(table *Table, dns string) error {
 	createSQL := GetCreateTableSQL(table.Schema)
 	_, err = db.Exec(createSQL)
 	if err != nil {
-		log.Error("create table failed", zap.String("SQL", createSQL), zap.String("db", table.Db.Name.O), zap.Error(err))
+		log.Error("create table failed",
+			zap.String("SQL", createSQL),
+			zap.String("db", table.Db.Name.O),
+			zap.String("addr", dns),
+			zap.Error(err))
 		return errors.Trace(err)
 	}
 	return nil
@@ -97,6 +99,7 @@ func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", db.Name.O)
 	fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", db.Charset, db.Collate)
+	buf.WriteString(";")
 
 	return buf.String()
 }
@@ -243,6 +246,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	}
 	// add partition info here.
 	appendPartitionInfo(t.Partition, &buf)
+	buf.WriteString(";")
 
 	return buf.String()
 }

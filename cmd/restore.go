@@ -211,10 +211,7 @@ func initRestoreClient(client *restore.RestoreClient, flagSet *flag.FlagSet) err
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = client.InitImportKVClient(importerAddr)
-	if err != nil {
-		return errors.Trace(err)
-	}
+	client.SetImportAddr(importerAddr)
 
 	metaPath, err := flagSet.GetString("meta")
 	if err != nil {

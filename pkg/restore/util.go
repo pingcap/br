@@ -41,25 +41,13 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		tableFiles := make([]*FilePair, 0)
 		for _, pair := range filePairs {
 			f := pair.Write
-			if !bytes.HasPrefix(f.StartKey, tablecodec.TablePrefix()) {
+			if !bytes.HasPrefix(f.StartKey, tablecodec.TablePrefix()) && !bytes.HasPrefix(f.EndKey, tablecodec.TablePrefix()) {
 				continue
 			}
-			startTableID, _, _, err := tablecodec.DecodeKeyHead(f.StartKey)
-			if err != nil {
-				log.Error("decode start key failed", zap.Reflect("file", f), zap.Error(err))
-				return nil, errors.Trace(err)
-			}
-			endTableID, _, _, err := tablecodec.DecodeKeyHead(f.EndKey)
-			if err != nil {
-				log.Error("decode end key failed", zap.Reflect("file", f), zap.Error(err))
-				return nil, errors.Trace(err)
-			}
-			if startTableID != endTableID {
-				log.Error("mismatched table id of start key and end key", zap.Reflect("file", f), zap.Error(err))
-				return nil, errors.Trace(err)
-			}
+			startTableID := tablecodec.DecodeTableID(f.StartKey)
+			endTableID := tablecodec.DecodeTableID(f.EndKey)
 
-			if startTableID == tableInfo.ID {
+			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
 				tableFiles = append(tableFiles, pair)
 			}
 		}
@@ -68,8 +56,6 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			Db:                dbInfo,
 			Schema:            tableInfo,
 			Files:             tableFiles,
-			RestoredFileCount: 0,
-			Finished:          false,
 		}
 
 		db, ok := databases[table.Db.Name.O]
@@ -112,7 +98,7 @@ func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableI
 	tableIDs = make([]*import_kvpb.IdPair, 0)
 	tableIDs = append(tableIDs, &import_kvpb.IdPair{
 		OldId: srcTable.ID,
-		NewId: srcTable.ID,
+		NewId: destTable.ID,
 	})
 
 	indexIDs = make([]*import_kvpb.IdPair, 0)
@@ -126,6 +112,12 @@ func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableI
 			}
 		}
 	}
+	log.Info("group id pairs",
+		zap.Reflect("src", srcTable),
+		zap.Reflect("dest", destTable),
+		zap.Reflect("table_id", tableIDs),
+		zap.Reflect("index_id", indexIDs),
+	)
 
 	return
 }
