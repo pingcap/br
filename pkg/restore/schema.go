@@ -112,7 +112,7 @@ func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	return buf.String()
 }
 
-// GetCreateTableSQL generates a CREATE DATABASE SQL from TableInfo
+// GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo
 func GetCreateTableSQL(t *model.TableInfo) string {
 	var buf bytes.Buffer
 
