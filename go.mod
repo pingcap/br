@@ -22,11 +22,11 @@ require (
 	github.com/pingcap/errcode v0.3.0 // indirect
 	github.com/pingcap/errors v0.11.4
 	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
-	github.com/pingcap/kvproto v0.0.0-20190822083357-8a2d1a3ccb10
+	github.com/pingcap/kvproto v0.0.0-20190910074707-5a11ba1a2674
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
-	github.com/pingcap/parser v0.0.0-20190822024127-41d48df05864
+	github.com/pingcap/parser v0.0.0-20190903084634-0daf3f706c76
 	github.com/pingcap/pd v0.0.0-20190806095100-82f1dd11d823
-	github.com/pingcap/tidb v0.0.0-20190822044546-9312090275b2
+	github.com/pingcap/tidb v1.1.0-beta.0.20190910062414-660ce3f16138
 	github.com/prometheus/client_golang v1.1.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20190728182440-6a916e37a237 // indirect
@@ -50,5 +50,3 @@ require (
 	google.golang.org/genproto v0.0.0-20190817000702-55e96fffbd48 // indirect
 	google.golang.org/grpc v1.23.0
 )
-
-// replace github.com/pingcap/kvproto => /home/stn/kvproto

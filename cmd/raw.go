@@ -17,6 +17,8 @@ func NewBackupCommand() *cobra.Command {
 		newTableBackupCommand(),
 		// newRegionCommand(),
 	)
+	bp.PersistentFlags().Uint64P(
+		"ratelimit", "", 0, "The rate limit of the backup task")
 	return bp
 }
 
@@ -38,7 +40,11 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = client.BackupRange([]byte(""), []byte(""), u, backupTS)
+			rate, err := command.Flags().GetUint64("ratelimit")
+			if err != nil {
+				return err
+			}
+			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate)
 			if err != nil {
 				return err
 			}
@@ -88,7 +94,11 @@ func newRegionCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = client.BackupRange(startKey, endKey, u, backupTS)
+			rate, err := command.Flags().GetUint64("ratelimit")
+			if err != nil {
+				return err
+			}
+			err = client.BackupRange(startKey, endKey, u, backupTS, rate)
 			if err != nil {
 				return err
 			}
@@ -135,7 +145,11 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = client.BackupTable(db, table, u, backupTS)
+			rate, err := command.Flags().GetUint64("ratelimit")
+			if err != nil {
+				return err
+			}
+			err = client.BackupTable(db, table, u, backupTS, rate)
 			if err != nil {
 				return err
 			}
