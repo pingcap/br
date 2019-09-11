@@ -164,43 +164,14 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 		return []tableRange{{startID: tableID, endID: tableID + 1}}
 	}
 
-	// Try to find gap between partitions.
-	gaps := make([]int, 0, 1)
-	last := pis.Definitions[0].ID
-	for i, pi := range pis.Definitions[1:] {
-		if pi.ID != last+1 {
-			// Index starts from 1.
-			gaps = append(gaps, i+1)
-			last = pi.ID
-		} else {
-			last++
-		}
-	}
-	ranges := make([]tableRange, 0)
-	if len(gaps) == 0 {
-		// No gap.
+	ranges := make([]tableRange, 0, len(pis.Definitions))
+	for _, def := range pis.Definitions {
 		ranges = append(ranges,
 			tableRange{
-				startID: pis.Definitions[0].ID,
-				endID:   pis.Definitions[len(pis.Definitions)-1].ID + 1,
+				startID: def.ID,
+				endID:   def.ID + 1,
 			})
-		return ranges
 	}
-
-	var next int
-	for _, idx := range gaps {
-		ranges = append(ranges,
-			tableRange{
-				startID: pis.Definitions[next].ID,
-				endID:   pis.Definitions[idx-1].ID + 1,
-			})
-		next = idx
-	}
-	ranges = append(ranges,
-		tableRange{
-			startID: pis.Definitions[next].ID,
-			endID:   pis.Definitions[len(pis.Definitions)-1].ID + 1,
-		})
 	return ranges
 }
 

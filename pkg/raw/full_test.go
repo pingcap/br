@@ -23,11 +23,14 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	}
 	cases := []Case{
 		{ids: []int64{1}, trs: []tableRange{{startID: 1, endID: 2}}},
-		{ids: []int64{1, 2, 3}, trs: []tableRange{{startID: 1, endID: 4}}},
-		{ids: []int64{1, 3}, trs: []tableRange{{startID: 1, endID: 2}, {startID: 3, endID: 4}}},
-		{ids: []int64{1, 2, 3, 6}, trs: []tableRange{{startID: 1, endID: 4}, {startID: 6, endID: 7}}},
-		{ids: []int64{1, 2, 6, 7, 9, 10}, trs: []tableRange{
-			{startID: 1, endID: 3}, {startID: 6, endID: 8}, {startID: 9, endID: 11},
+		{ids: []int64{1, 2, 3}, trs: []tableRange{
+			{startID: 1, endID: 2},
+			{startID: 2, endID: 3},
+			{startID: 3, endID: 4},
+		}},
+		{ids: []int64{1, 3}, trs: []tableRange{
+			{startID: 1, endID: 2},
+			{startID: 3, endID: 4},
 		}},
 	}
 	for _, cs := range cases {
