@@ -20,9 +20,9 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient     pd.Client
-	pdAddr       string
-	importerAddr string
+	pdClient      pd.Client
+	pdAddr        string
+	importerAddr []string
 
 	databases  map[string]*Database
 	dbDNS      string
@@ -69,19 +69,24 @@ func (rc *Client) GetDbDNS() string {
 }
 
 // SetImportAddr sets the address to connect the importer
-func (rc *Client) SetImportAddr(addr string) {
-	rc.importerAddr = addr
+func (rc *Client) SetImportAddr(importerAddr string) {
+	addrs := strings.Split(importerAddr, ",")
+	rc.importerAddr = addrs
 }
 
 // GetImportKVClient returns a new ImportKVClient
-func (rc *Client) GetImportKVClient() (import_kvpb.ImportKVClient, error) {
-	conn, err := grpc.DialContext(rc.ctx, rc.importerAddr, grpc.WithInsecure())
-	if err != nil {
-		log.Error("connect to importer server failed", zap.Error(err))
-		return nil, errors.Trace(err)
+func (rc *Client) GetImportKVClients() ([]import_kvpb.ImportKVClient, error) {
+	clients := make([]import_kvpb.ImportKVClient, 0)
+	for _, addr := range rc.importerAddr {
+		conn, err := grpc.DialContext(rc.ctx, addr, grpc.WithInsecure())
+		if err != nil {
+			log.Error("connect to importer server failed", zap.Error(err))
+			return nil, errors.Trace(err)
+		}
+		cli := import_kvpb.NewImportKVClient(conn)
+		clients = append(clients, cli)
 	}
-	client := import_kvpb.NewImportKVClient(conn)
-	return client, nil
+	return clients, nil
 }
 
 // SetStatusAddr sets the address to check status of TiDB to a new value
@@ -140,13 +145,9 @@ func (rc *Client) RestoreTable(table *Table, restoreTS uint64) error {
 
 	errCh := make(chan error)
 	defer close(errCh)
-	var clients []import_kvpb.ImportKVClient
-	for i := 0; i < 4; i++ {
-		c, err := rc.GetImportKVClient()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		clients = append(clients, c)
+	clients, returnErr := rc.GetImportKVClients()
+	if returnErr != nil {
+		return errors.Trace(returnErr)
 	}
 	for i, file := range table.Files {
 		client := clients[i%len(clients)]
@@ -328,12 +329,17 @@ func (rc *Client) OpenEngine(uuid []byte) error {
 	req := &import_kvpb.OpenEngineRequest{
 		Uuid: uuid,
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, err = client.OpenEngine(rc.ctx, req)
-	return errors.Trace(err)
+	for _, cli := range clients {
+		_, err = cli.OpenEngine(rc.ctx, req)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // ImportEngine sends a ImportEngine request to importer
@@ -342,12 +348,17 @@ func (rc *Client) ImportEngine(uuid []byte) error {
 		Uuid:   uuid,
 		PdAddr: rc.pdAddr,
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, err = client.ImportEngine(rc.ctx, req)
-	return errors.Trace(err)
+	for _, cli := range clients {
+		_, err = cli.ImportEngine(rc.ctx, req)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // CloseEngine sends a CloseEngine request to importer
@@ -355,12 +366,17 @@ func (rc *Client) CloseEngine(uuid []byte) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: uuid,
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, err = client.CloseEngine(rc.ctx, req)
-	return errors.Trace(err)
+	for _, cli := range clients {
+		_, err = cli.CloseEngine(rc.ctx, req)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // CleanupEngine sends a CleanupEngine request to importer
@@ -368,12 +384,17 @@ func (rc *Client) CleanupEngine(uuid []byte) error {
 	req := &import_kvpb.CleanupEngineRequest{
 		Uuid: uuid,
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, err = client.CleanupEngine(rc.ctx, req)
-	return errors.Trace(err)
+	for _, cli := range clients {
+		_, err = cli.CleanupEngine(rc.ctx, req)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // SwitchClusterMode sends a SwitchClusterMode request to importer
@@ -384,16 +405,19 @@ func (rc *Client) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 			Mode: mode,
 		},
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
 		return errors.Trace(err)
 	}
-	_, err = client.SwitchMode(rc.ctx, req)
-	if err != nil {
-		log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
+	for _, cli := range clients {
+		_, err = cli.SwitchMode(rc.ctx, req)
+		if err != nil {
+			log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
+			return errors.Trace(err)
+		}
 	}
-	return errors.Trace(err)
+	return nil
 }
 
 // CompactCluster sends a CompactCluster request to importer
@@ -401,10 +425,15 @@ func (rc *Client) CompactCluster() error {
 	req := &import_kvpb.CompactClusterRequest{
 		PdAddr: rc.pdAddr,
 	}
-	client, err := rc.GetImportKVClient()
+	clients, err := rc.GetImportKVClients()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	_, err = client.CompactCluster(rc.ctx, req)
-	return errors.Trace(err)
+	for _, cli := range clients {
+		_, err = cli.CompactCluster(rc.ctx, req)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
