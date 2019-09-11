@@ -144,7 +144,7 @@ func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableI
 func groupFiles(files []*backup.File) (filePairs []*FilePair) {
 	filePairs = make([]*FilePair, 0)
 	for _, file := range files {
-		if strings.HasSuffix(file.Name, "write") {
+		if strings.Contains(file.Name, "write") {
 			var defaultFile *backup.File
 			defaultName := strings.TrimSuffix(file.Name, "write") + "default"
 			for _, f := range files {
