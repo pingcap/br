@@ -146,7 +146,7 @@ func groupFiles(files []*backup.File) (filePairs []*FilePair) {
 	for _, file := range files {
 		if strings.Contains(file.Name, "write") {
 			var defaultFile *backup.File
-			defaultName := strings.TrimSuffix(file.Name, "write") + "default"
+			defaultName := strings.ReplaceAll(file.Name, "write", "default")
 			for _, f := range files {
 				if f.Name == defaultName {
 					defaultFile = f
