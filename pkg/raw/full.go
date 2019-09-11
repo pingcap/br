@@ -41,7 +41,10 @@ type BackupClient struct {
 	clusterID uint64
 	pdClient  pd.Client
 	db        *sql.DB
-	gcTime    string
+
+	gcMutex          sync.Mutex
+	savedGCTime      string
+	disableGCCounter uint
 
 	backupMeta backup.BackupMeta
 }
@@ -93,6 +96,12 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 
 // DisableGc disables MVCC Gc of TiDB
 func (bc *BackupClient) DisableGc() error {
+	bc.gcMutex.Lock()
+	defer bc.gcMutex.Unlock()
+	if bc.disableGCCounter > 0 {
+		return nil
+	}
+
 	selectGcTime := "select variable_value from mysql.tidb where variable_name='tikv_gc_life_time';"
 	updateGcTime := "update mysql.tidb set variable_value=? where variable_name='tikv_gc_life_time';"
 	rows, err := bc.db.Query(selectGcTime)
@@ -106,25 +115,35 @@ func (bc *BackupClient) DisableGc() error {
 			return errors.Trace(err)
 		}
 	}
-	if gcTime == "720h" {
-		return nil
-	}
-	bc.gcTime = gcTime
+	bc.savedGCTime = gcTime
 	_, err = bc.db.Exec(updateGcTime, "720h")
-	return errors.Trace(err)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	bc.disableGCCounter++
+	return nil
 }
 
 // EnableGc enables MVCC Gc of TiDB from previously saved gc time
 func (bc *BackupClient) EnableGc() error {
-	if bc.gcTime == "" {
+	bc.gcMutex.Lock()
+	defer bc.gcMutex.Unlock()
+	if bc.disableGCCounter != 1 {
+		return nil
+	}
+
+	if bc.savedGCTime == "" {
 		return errors.Trace(fmt.Errorf("uninitialized gc time"))
 	}
 	updateGcTime := "update mysql.tidb set variable_value=? where variable_name='tikv_gc_life_time';"
-	_, err := bc.db.Exec(updateGcTime, bc.gcTime)
+	_, err := bc.db.Exec(updateGcTime, bc.savedGCTime)
 	if err != nil {
-		log.Error("enable MVCC GC failed", zap.Reflect("original_gc_life_time", bc.gcTime))
+		log.Error("enable MVCC GC failed", zap.Reflect("original_gc_life_time", bc.savedGCTime))
+		return errors.Trace(err)
 	}
-	return errors.Trace(err)
+
+	bc.disableGCCounter--
+	return nil
 }
 
 // BackupTable backup the given table.
