@@ -198,7 +198,7 @@ func newTableRestoreCommand() *cobra.Command {
 	return command
 }
 
-func initRestoreClient(client *restore.RestoreClient, flagSet *flag.FlagSet) error {
+func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	importerAddr, err := flagSet.GetString("importer")
 	if err != nil {
 		return errors.Trace(err)

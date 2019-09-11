@@ -19,13 +19,15 @@ import (
 	"go.uber.org/zap"
 )
 
+// Table wraps the schema and files of a table
 type Table struct {
-	Uuid   uuid.UUID
+	UUID   uuid.UUID
 	Db     *model.DBInfo
 	Schema *model.TableInfo
 	Files  []*FilePair
 }
 
+// Database wraps the schema and tables of a database
 type Database struct {
 	Schema *model.DBInfo
 	Tables []*Table
@@ -37,7 +39,7 @@ type FilePair struct {
 	Write   *backup.File
 }
 
-// GetTable returns a table instance by name
+// GetTables returns a table instance by name
 func (db *Database) GetTables(name string) []*Table {
 	tables := make([]*Table, 0)
 	for _, table := range db.Tables {

@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// RestoreClient sends requests to importer to restore files
-type RestoreClient struct {
+// Client sends requests to importer to restore files
+type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -31,7 +31,7 @@ type RestoreClient struct {
 }
 
 // NewRestoreClient returns a new RestoreClient
-func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, error) {
+func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	_ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
@@ -39,7 +39,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, erro
 		return nil, errors.Trace(err)
 	}
 	log.Info("new region client", zap.String("pdAddrs", pdAddrs))
-	return &RestoreClient{
+	return &Client{
 		ctx:      _ctx,
 		cancel:   cancel,
 		pdClient: pdClient,
@@ -48,7 +48,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*RestoreClient, erro
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
-func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta, partitionCount int) error {
+func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, partitionCount int) error {
 	databases, err := LoadBackupTables(backupMeta, partitionCount)
 	if err != nil {
 		return errors.Trace(err)
@@ -59,22 +59,22 @@ func (rc *RestoreClient) InitBackupMeta(backupMeta *backup.BackupMeta, partition
 }
 
 // SetDbDNS sets the DNS to connect the database to a new value
-func (rc *RestoreClient) SetDbDNS(dbDns string) {
-	rc.dbDNS = dbDns
+func (rc *Client) SetDbDNS(dbDNS string) {
+	rc.dbDNS = dbDNS
 }
 
 // GetDbDNS returns a DNS to connect the database
-func (rc *RestoreClient) GetDbDNS() string {
+func (rc *Client) GetDbDNS() string {
 	return rc.dbDNS
 }
 
 // SetImportAddr sets the address to connect the importer
-func (rc *RestoreClient) SetImportAddr(addr string) {
+func (rc *Client) SetImportAddr(addr string) {
 	rc.importerAddr = addr
 }
 
 // GetImportKVClient returns a new ImportKVClient
-func (rc *RestoreClient) GetImportKVClient() (import_kvpb.ImportKVClient, error) {
+func (rc *Client) GetImportKVClient() (import_kvpb.ImportKVClient, error) {
 	conn, err := grpc.DialContext(rc.ctx, rc.importerAddr, grpc.WithInsecure())
 	if err != nil {
 		log.Error("connect to importer server failed", zap.Error(err))
@@ -85,12 +85,12 @@ func (rc *RestoreClient) GetImportKVClient() (import_kvpb.ImportKVClient, error)
 }
 
 // SetStatusAddr sets the address to check status of TiDB to a new value
-func (rc *RestoreClient) SetStatusAddr(statusAddr string) {
+func (rc *Client) SetStatusAddr(statusAddr string) {
 	rc.statusAddr = statusAddr
 }
 
 // GetTS gets a new timestamp from PD
-func (rc *RestoreClient) GetTS() (uint64, error) {
+func (rc *Client) GetTS() (uint64, error) {
 	p, l, err := rc.pdClient.GetTS(rc.ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -105,12 +105,12 @@ func (rc *RestoreClient) GetTS() (uint64, error) {
 }
 
 // GetDatabase returns a database instance by name
-func (rc *RestoreClient) GetDatabase(name string) *Database {
+func (rc *Client) GetDatabase(name string) *Database {
 	return rc.databases[name]
 }
 
 // RestoreTable executes the job to restore a table
-func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
+func (rc *Client) RestoreTable(table *Table, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.String("table", table.Schema.Name.O),
 		zap.String("db", table.Db.Name.O),
@@ -122,14 +122,17 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 		return errors.Trace(returnErr)
 	}
 	tableInfo, returnErr := FetchTableInfo(rc.statusAddr, table.Db.Name.O, table.Schema.Name.O)
+	if returnErr != nil {
+		return errors.Trace(returnErr)
+	}
 	tableIDs, indexIDs := GroupIDPairs(table.Schema, tableInfo)
 
-	returnErr = rc.OpenEngine(table.Uuid.Bytes())
+	returnErr = rc.OpenEngine(table.UUID.Bytes())
 	if returnErr != nil {
 		log.Error("open engine failed",
 			zap.Uint64("restore_ts", restoreTS),
 			zap.String("table", table.Schema.Name.O),
-			zap.String("uuid", table.Uuid.String()),
+			zap.String("uuid", table.UUID.String()),
 			zap.String("db", table.Db.Name.O),
 		)
 		return errors.Trace(returnErr)
@@ -139,9 +142,9 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	defer close(errCh)
 	var clients []import_kvpb.ImportKVClient
 	for i := 0; i < 4; i++ {
-		c, returnErr := rc.GetImportKVClient()
-		if returnErr != nil {
-			return errors.Trace(returnErr)
+		c, err := rc.GetImportKVClient()
+		if err != nil {
+			return errors.Trace(err)
 		}
 		clients = append(clients, c)
 	}
@@ -160,7 +163,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 					TableIds:  tableIDs,
 					IndexIds:  indexIDs,
 					RestoreTs: restoreTS,
-					Uuid:      table.Uuid.Bytes(),
+					Uuid:      table.UUID.Bytes(),
 				}
 				sendErr := func(err error) {
 					log.Error("restore file failed",
@@ -198,33 +201,33 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 		return errors.Trace(returnErr)
 	}
 
-	returnErr = rc.CloseEngine(table.Uuid.Bytes())
+	returnErr = rc.CloseEngine(table.UUID.Bytes())
 	if returnErr != nil {
 		log.Error("close engine failed",
 			zap.Uint64("restore_ts", restoreTS),
 			zap.String("table", table.Schema.Name.O),
-			zap.String("uuid", table.Uuid.String()),
+			zap.String("uuid", table.UUID.String()),
 			zap.String("db", table.Db.Name.O),
 		)
 		return errors.Trace(returnErr)
 	}
-	returnErr = rc.ImportEngine(table.Uuid.Bytes())
+	returnErr = rc.ImportEngine(table.UUID.Bytes())
 	if returnErr != nil {
 		log.Error("import engine failed",
 			zap.Uint64("restore_ts", restoreTS),
 			zap.String("table", table.Schema.Name.O),
-			zap.String("uuid", table.Uuid.String()),
+			zap.String("uuid", table.UUID.String()),
 			zap.String("db", table.Db.Name.O),
 		)
 		return errors.Trace(returnErr)
 	}
 
-	returnErr = rc.CleanupEngine(table.Uuid.Bytes())
+	returnErr = rc.CleanupEngine(table.UUID.Bytes())
 	if returnErr != nil {
 		log.Error("cleanup engine failed",
 			zap.Uint64("restore_ts", restoreTS),
 			zap.String("table", table.Schema.Name.O),
-			zap.String("uuid", table.Uuid.String()),
+			zap.String("uuid", table.UUID.String()),
 			zap.String("db", table.Db.Name.O),
 		)
 		return errors.Trace(returnErr)
@@ -233,7 +236,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 	log.Info("restore table finished",
 		zap.Uint64("restore_ts", restoreTS),
 		zap.String("table", table.Schema.Name.O),
-		zap.String("uuid", table.Uuid.String()),
+		zap.String("uuid", table.UUID.String()),
 		zap.String("db", table.Db.Name.O),
 	)
 
@@ -241,7 +244,7 @@ func (rc *RestoreClient) RestoreTable(table *Table, restoreTS uint64) error {
 }
 
 // RestoreMultipleTables executes the job to restore multiple tables
-func (rc *RestoreClient) RestoreMultipleTables(tables []*Table, restoreTS uint64) error {
+func (rc *Client) RestoreMultipleTables(tables []*Table, restoreTS uint64) error {
 	log.Info("start to restore multiple table",
 		zap.Int("len", len(tables)),
 	)
@@ -273,7 +276,7 @@ func (rc *RestoreClient) RestoreMultipleTables(tables []*Table, restoreTS uint64
 }
 
 // RestoreDatabase executes the job to restore a database
-func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
+func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
 	returnErr := CreateDatabase(db.Schema, rc.dbDNS)
 	if returnErr != nil {
 		return returnErr
@@ -289,7 +292,7 @@ func (rc *RestoreClient) RestoreDatabase(db *Database, restoreTS uint64) error {
 }
 
 // RestoreAll executes the job to restore all files
-func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
+func (rc *Client) RestoreAll(restoreTS uint64) error {
 	errCh := make(chan error)
 	defer close(errCh)
 	for _, db := range rc.databases {
@@ -321,7 +324,7 @@ func (rc *RestoreClient) RestoreAll(restoreTS uint64) error {
 }
 
 // OpenEngine sends a OpenEngine request to importer
-func (rc *RestoreClient) OpenEngine(uuid []byte) error {
+func (rc *Client) OpenEngine(uuid []byte) error {
 	req := &import_kvpb.OpenEngineRequest{
 		Uuid: uuid,
 	}
@@ -334,7 +337,7 @@ func (rc *RestoreClient) OpenEngine(uuid []byte) error {
 }
 
 // ImportEngine sends a ImportEngine request to importer
-func (rc *RestoreClient) ImportEngine(uuid []byte) error {
+func (rc *Client) ImportEngine(uuid []byte) error {
 	req := &import_kvpb.ImportEngineRequest{
 		Uuid:   uuid,
 		PdAddr: rc.pdAddr,
@@ -348,7 +351,7 @@ func (rc *RestoreClient) ImportEngine(uuid []byte) error {
 }
 
 // CloseEngine sends a CloseEngine request to importer
-func (rc *RestoreClient) CloseEngine(uuid []byte) error {
+func (rc *Client) CloseEngine(uuid []byte) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: uuid,
 	}
@@ -361,7 +364,7 @@ func (rc *RestoreClient) CloseEngine(uuid []byte) error {
 }
 
 // CleanupEngine sends a CleanupEngine request to importer
-func (rc *RestoreClient) CleanupEngine(uuid []byte) error {
+func (rc *Client) CleanupEngine(uuid []byte) error {
 	req := &import_kvpb.CleanupEngineRequest{
 		Uuid: uuid,
 	}
@@ -374,7 +377,7 @@ func (rc *RestoreClient) CleanupEngine(uuid []byte) error {
 }
 
 // SwitchClusterMode sends a SwitchClusterMode request to importer
-func (rc *RestoreClient) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
+func (rc *Client) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 	req := &import_kvpb.SwitchModeRequest{
 		PdAddr: rc.pdAddr,
 		Request: &import_sstpb.SwitchModeRequest{
@@ -394,7 +397,7 @@ func (rc *RestoreClient) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
 }
 
 // CompactCluster sends a CompactCluster request to importer
-func (rc *RestoreClient) CompactCluster() error {
+func (rc *Client) CompactCluster() error {
 	req := &import_kvpb.CompactClusterRequest{
 		PdAddr: rc.pdAddr,
 	}

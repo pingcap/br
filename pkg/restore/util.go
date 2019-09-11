@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
@@ -64,7 +65,7 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*
 				tableFiles = append(tableFiles, pair)
 				if len(tableFiles) >= partitionCount {
 					table := &Table{
-						Uuid:   uuid.NewV4(),
+						UUID:   uuid.NewV4(),
 						Db:     dbInfo,
 						Schema: tableInfo,
 						Files:  tableFiles,
@@ -76,7 +77,7 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*
 		}
 		if len(tableFiles) > 0 {
 			table := &Table{
-				Uuid:   uuid.NewV4(),
+				UUID:   uuid.NewV4(),
 				Db:     dbInfo,
 				Schema: tableInfo,
 				Files:  tableFiles,
@@ -92,9 +93,9 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*
 
 // FetchTableInfo fetches table schema from status address
 func FetchTableInfo(addr string, dbName string, tableName string) (*model.TableInfo, error) {
-	url := fmt.Sprintf("http://%s/schema/%s/%s", addr, dbName, tableName)
-	log.Info("fetch table schema", zap.String("URL", url))
-	resp, err := http.Get(url)
+	statusURL := fmt.Sprintf("http://%s/schema/%s/%s", addr, url.PathEscape(dbName), url.PathEscape(tableName))
+	log.Info("fetch table schema", zap.String("URL", statusURL))
+	resp, err := http.Get(statusURL)
 	if err != nil {
 		return nil, err
 	}
