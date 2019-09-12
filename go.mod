@@ -8,7 +8,6 @@ require (
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gogo/protobuf v1.2.1
-	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
 	github.com/google/btree v1.0.0
 	github.com/gorilla/mux v1.7.3 // indirect
@@ -22,11 +21,11 @@ require (
 	github.com/pingcap/errcode v0.3.0 // indirect
 	github.com/pingcap/errors v0.11.4
 	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
-	github.com/pingcap/kvproto v0.0.0-20190822083357-8a2d1a3ccb10
+	github.com/pingcap/kvproto v0.0.0-20190910074707-5a11ba1a2674
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
-	github.com/pingcap/parser v0.0.0-20190822024127-41d48df05864
+	github.com/pingcap/parser v0.0.0-20190912032624-978b8272c04e
 	github.com/pingcap/pd v0.0.0-20190806095100-82f1dd11d823
-	github.com/pingcap/tidb v0.0.0-20190822044546-9312090275b2
+	github.com/pingcap/tidb v0.0.0-20190912055946-5c48d93368d4
 	github.com/prometheus/client_golang v1.1.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20190728182440-6a916e37a237 // indirect
@@ -42,13 +41,6 @@ require (
 	go.etcd.io/etcd v3.3.13+incompatible // indirect
 	go.uber.org/atomic v1.4.0 // indirect
 	go.uber.org/zap v1.10.0
-	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4 // indirect
-	golang.org/x/net v0.0.0-20190813141303-74dc4d7220e7 // indirect
-	golang.org/x/sys v0.0.0-20190813064441-fde4db37ae7a // indirect
-	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	google.golang.org/appengine v1.6.1 // indirect
-	google.golang.org/genproto v0.0.0-20190817000702-55e96fffbd48 // indirect
 	google.golang.org/grpc v1.23.0
 )
-
-// replace github.com/pingcap/kvproto => /home/stn/kvproto
