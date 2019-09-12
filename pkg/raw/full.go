@@ -90,6 +90,7 @@ func (bc *BackupClient) BackupTable(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
+	rateLimit uint64,
 ) error {
 	session, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -139,7 +140,7 @@ func (bc *BackupClient) BackupTable(
 	startKey := tablecodec.GenTablePrefix(tableID)
 	endKey := tablecodec.GenTablePrefix(tableID + 1)
 
-	return bc.BackupRange(startKey, endKey, path, backupTS)
+	return bc.BackupRange(startKey, endKey, path, backupTS, rateLimit)
 }
 
 // BackupRange make a backup of the given key range.
@@ -147,10 +148,14 @@ func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
+	rateMBs uint64,
 ) error {
+	// The unit of rate limit in protocol is bytes per second.
+	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
-		zap.Binary("EndKey", endKey))
+		zap.Binary("EndKey", endKey),
+		zap.Uint64("RateLimit", rateMBs))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
@@ -166,6 +171,7 @@ func (bc *BackupClient) BackupRange(
 		StartVersion: backupTS,
 		EndVersion:   backupTS,
 		Path:         path,
+		RateLimit:    rateLimit,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
 	results, err := push.pushBackup(req, allStores...)
@@ -181,9 +187,11 @@ func (bc *BackupClient) BackupRange(
 		return err
 	}
 
-	timeRange := &backup.TimeRange{StartVersion: backupTS, EndVersion: backupTS}
-	bc.backupMeta.TimeRange = timeRange
-	log.Info("backup time range", zap.Reflect("TimeRange", timeRange))
+	bc.backupMeta.StartVersion = backupTS
+	bc.backupMeta.EndVersion = backupTS
+	log.Info("backup time range",
+		zap.Reflect("StartVersion", backupTS),
+		zap.Reflect("EndVersion", backupTS))
 
 	results.tree.Ascend(func(i btree.Item) bool {
 		r := i.(*Range)
@@ -354,7 +362,6 @@ func onBackupResponse(
 			regionErr.NotLeader != nil ||
 			regionErr.RegionNotFound != nil ||
 			regionErr.StaleCommand != nil ||
-			regionErr.ServerIsBusy != nil ||
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error",
 				zap.Reflect("RegionError", regionErr))
