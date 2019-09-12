@@ -135,6 +135,8 @@ func (bc *BackupClient) BackupTable(
 		zap.Reflect("Schema", dbInfo),
 		zap.Reflect("Table", tableInfo))
 
+	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
+	//       backup global index.
 	ranges := buildTableRanges(tableInfo)
 	for _, r := range ranges {
 		start, end := r.Range()
