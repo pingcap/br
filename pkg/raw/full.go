@@ -148,11 +148,14 @@ func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
-	rateLimit uint64,
+	rateMBs uint64,
 ) error {
+	// The unit of rate limit in protocol is bytes per second.
+	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
-		zap.Binary("EndKey", endKey))
+		zap.Binary("EndKey", endKey),
+		zap.Uint64("RateLimit", rateMBs))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()

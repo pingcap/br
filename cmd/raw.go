@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/spf13/cobra"
 )
 
@@ -15,10 +14,9 @@ func NewBackupCommand() *cobra.Command {
 	bp.AddCommand(
 		newFullBackupCommand(),
 		newTableBackupCommand(),
-		// newRegionCommand(),
 	)
 	bp.PersistentFlags().Uint64P(
-		"ratelimit", "", 0, "The rate limit of the backup task")
+		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
 	return bp
 }
 
@@ -51,64 +49,6 @@ func newFullBackupCommand() *cobra.Command {
 			return client.SaveBackupMeta(u)
 		},
 	}
-	return command
-}
-
-// newRegionCommand return a backup region subcommand.
-func newRegionCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "region [flags]",
-		Short: "backup specified regions",
-		RunE: func(command *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
-			regionID, err := command.Flags().GetUint64("region")
-			if err != nil {
-				return err
-			}
-			u, err := command.Flags().GetString("storage")
-			if err != nil {
-				return err
-			}
-			useRaw, err := command.Flags().GetBool("raw")
-			if err != nil {
-				return err
-			}
-			backer := GetDefaultBacker()
-			region, _, err := backer.GetPDClient().GetRegionByID(backer.Context(), regionID)
-			if err != nil {
-				return err
-			}
-			startKey := region.GetStartKey()
-			endKey := region.GetEndKey()
-			if !useRaw {
-				startKey, _, err = codec.DecodeBytes(startKey, nil)
-				if err != nil {
-					return err
-				}
-				endKey, _, err = codec.DecodeBytes(endKey, nil)
-				if err != nil {
-					return err
-				}
-			}
-			backupTS, err := client.GetTS()
-			if err != nil {
-				return err
-			}
-			rate, err := command.Flags().GetUint64("ratelimit")
-			if err != nil {
-				return err
-			}
-			err = client.BackupRange(startKey, endKey, u, backupTS, rate)
-			if err != nil {
-				return err
-			}
-			return client.SaveBackupMeta(u)
-		},
-	}
-	command.Flags().BoolP("raw", "raw", false,
-		"backup region with decode region keys")
-	command.Flags().Uint64P("region", "r", 0, "backup the specific region")
-	command.MarkFlagRequired("region")
 	return command
 }
 
