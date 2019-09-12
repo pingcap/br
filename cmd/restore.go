@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 
@@ -36,7 +37,9 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			client, err := restore.NewRestoreClient(ctx, pdAddr)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -62,7 +65,9 @@ func newFullRestoreCommand() *cobra.Command {
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
-	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
+	command.Flags().Int("partition-size", 50, "max number of sst per importer engine file")
+	command.Flags().Int("max-open-engines", 4, "max opened importer engine files")
+	command.Flags().Int("max-import-jobs", 4, "max concurrent import jobs, may cause importer OOM if it is too big")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
@@ -81,7 +86,9 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			client, err := restore.NewRestoreClient(ctx, pdAddr)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -106,16 +113,22 @@ func newDbRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.Trace(fmt.Errorf("not exists database"))
 			}
+			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+			if err != nil {
+				return errors.Trace(err)
+			}
 			err = client.RestoreDatabase(db, restoreTS)
 			return errors.Trace(err)
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
-	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
+	command.Flags().Int("partition-size", 50, "max number of sst per importer engine file")
+	command.Flags().Int("max-open-engines", 4, "max opened importer engine file")
+	command.Flags().Int("max-import-jobs", 4, "max concurrent import jobs, may cause importer OOM if it is too big")
 
 	command.Flags().String("db", "", "database name")
 
@@ -137,7 +150,9 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			client, err := restore.NewRestoreClient(GetDefaultContext(), pdAddr)
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			client, err := restore.NewRestoreClient(ctx, pdAddr)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -162,7 +177,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.Trace(fmt.Errorf("not exists database"))
 			}
-			err = restore.CreateDatabase(db.Schema, client.GetDbDNS())
+			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -179,11 +194,13 @@ func newTableRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().String("importer", "", "the address of tikv importer, ip:port")
 	command.Flags().String("meta", "", "meta file location")
 	command.Flags().String("status", "", "the address to check tidb status, ip:port")
-	command.Flags().Int("partition-count", 50, "max number of sst per importer engine file")
+	command.Flags().Int("partition-size", 50, "max number of sst per importer engine file")
+	command.Flags().Int("max-open-engines", 4, "max opened importer engine file")
+	command.Flags().Int("max-import-jobs", 4, "max concurrent import engine jobs, may cause importer OOM if it is too big")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -203,7 +220,11 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	client.SetImportAddr(importerAddr)
+
+	err = client.SetImportAddr(importerAddr)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	metaPath, err := flagSet.GetString("meta")
 	if err != nil {
@@ -218,26 +239,38 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	partitionCount, err := flagSet.GetInt("partition-count")
+	partitionSize, err := flagSet.GetInt("partition-size")
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = client.InitBackupMeta(backupMeta, partitionCount)
+	err = client.InitBackupMeta(backupMeta, partitionSize)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	dns, err := flagSet.GetString("connect")
+	dsn, err := flagSet.GetString("connect")
 	if err != nil {
 		return errors.Trace(err)
 	}
-	client.SetDbDNS(dns)
+	client.SetDbDSN(dsn)
 
 	statusAddr, err := flagSet.GetString("status")
 	if err != nil {
 		return errors.Trace(err)
 	}
 	client.SetStatusAddr(statusAddr)
+
+	maxOpenEngines, err := flagSet.GetInt("max-open-engines")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	client.SetMaxOpenEngines(maxOpenEngines)
+
+	maxImportJobs, err := flagSet.GetInt("max-import-jobs")
+	if err != nil {
+		return errors.Trace(err)
+	}
+	client.SetMaxImportJobs(maxImportJobs)
 
 	return nil
 }

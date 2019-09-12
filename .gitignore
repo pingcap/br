@@ -3,3 +3,4 @@ bin/
 _tools/
 .idea/
 backupmeta
+*.log

@@ -21,7 +21,7 @@ import (
 )
 
 // LoadBackupTables loads schemas from BackupMeta
-func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*Database, error) {
+func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*Database, error) {
 	databases := make(map[string]*Database)
 	filePairs := groupFiles(meta.Files)
 
@@ -63,7 +63,7 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*
 
 			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
 				tableFiles = append(tableFiles, pair)
-				if len(tableFiles) >= partitionCount {
+				if len(tableFiles) >= partitionSize {
 					table := &Table{
 						UUID:   uuid.NewV4(),
 						Db:     dbInfo,
@@ -84,9 +84,8 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionCount int) (map[string]*
 			}
 			addTableToDb(table)
 		}
-
-		log.Info("load table", zap.Reflect("table", schema))
 	}
+	log.Info("load databases", zap.Reflect("db", databases))
 
 	return databases, nil
 }
@@ -132,8 +131,6 @@ func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableI
 		}
 	}
 	log.Info("group id pairs",
-		zap.Reflect("src", srcTable),
-		zap.Reflect("dest", destTable),
 		zap.Reflect("table_id", tableIDs),
 		zap.Reflect("index_id", indexIDs),
 	)
