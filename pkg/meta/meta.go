@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -33,7 +34,11 @@ type Backer struct {
 		addrs []string
 		cli   *http.Client
 	}
-	tikvCli tikv.Storage
+	tikvCli    tikv.Storage
+	backupClis struct {
+		mu   sync.Mutex
+		clis map[uint64]*grpc.ClientConn
+	}
 }
 
 // NewBacker creates a new Backer.
@@ -51,18 +56,15 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 		return nil, errors.Trace(err)
 	}
 
-	return &Backer{
+	backer := &Backer{
 		ctx:      ctx,
 		pdClient: pdClient,
-		pdHTTP: struct {
-			addrs []string
-			cli   *http.Client
-		}{
-			addrs: addrs,
-			cli:   &http.Client{Timeout: 30 * time.Second},
-		},
-		tikvCli: tikvCli.(tikv.Storage),
-	}, nil
+		tikvCli:  tikvCli.(tikv.Storage),
+	}
+	backer.pdHTTP.addrs = addrs
+	backer.pdHTTP.cli = &http.Client{Timeout: 30 * time.Second}
+	backer.backupClis.clis = make(map[uint64]*grpc.ClientConn)
+	return backer, nil
 }
 
 // GetClusterVersion returns the current cluster version.
@@ -129,8 +131,16 @@ func (backer *Backer) Context() context.Context {
 	return backer.ctx
 }
 
-// NewBackupClient creates a new backup client.
-func (backer *Backer) NewBackupClient(storeID uint64) (backup.BackupClient, error) {
+// GetBackupClient get or create a backup client.
+func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, error) {
+	backer.backupClis.mu.Lock()
+	defer backer.backupClis.mu.Unlock()
+
+	if conn, ok := backer.backupClis.clis[storeID]; ok {
+		// Find a cached backup client.
+		return backup.NewBackupClient(conn), nil
+	}
+
 	store, err := backer.pdClient.GetStore(backer.ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -154,8 +164,25 @@ func (backer *Backer) NewBackupClient(storeID uint64) (backup.BackupClient, erro
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+	// Cache the conn.
+	backer.backupClis.clis[storeID] = conn
+
 	client := backup.NewBackupClient(conn)
 	return client, nil
+}
+
+// ResetBackupClient reset and close cached backup client.
+func (backer *Backer) ResetBackupClient(storeID uint64) error {
+	backer.backupClis.mu.Lock()
+	defer backer.backupClis.mu.Unlock()
+
+	if conn, ok := backer.backupClis.clis[storeID]; ok {
+		delete(backer.backupClis.clis, storeID)
+		if err := conn.Close(); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 // SendBackup send backup request to the given store.
@@ -167,7 +194,7 @@ func (backer *Backer) SendBackup(
 	respFn func(*backup.BackupResponse) error,
 ) error {
 	log.Info("try backup", zap.Any("backup request", req))
-	client, err := backer.NewBackupClient(storeID)
+	client, err := backer.GetBackupClient(storeID)
 	if err != nil {
 		log.Warn("fail to connect store", zap.Uint64("StoreID", storeID))
 		return nil
@@ -177,6 +204,11 @@ func (backer *Backer) SendBackup(
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
 		log.Warn("fail to create backup", zap.Uint64("StoreID", storeID))
+		if err1 := backer.ResetBackupClient(storeID); err1 != nil {
+			log.Warn("fail to reset backup client",
+				zap.Uint64("StoreID", storeID),
+				zap.Error(err1))
+		}
 		return nil
 	}
 	for {
