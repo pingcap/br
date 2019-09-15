@@ -396,6 +396,7 @@ func onBackupResponse(
 		if !(regionErr.EpochNotMatch != nil ||
 			regionErr.NotLeader != nil ||
 			regionErr.RegionNotFound != nil ||
+			regionErr.ServerIsBusy != nil ||
 			regionErr.StaleCommand != nil ||
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error",
