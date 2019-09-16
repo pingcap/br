@@ -9,7 +9,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
-	"github.com/overvenus/br/pkg/meta"
+	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -90,6 +90,7 @@ func (bc *BackupClient) BackupTable(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
+	rateLimit uint64,
 ) error {
 	session, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -135,11 +136,46 @@ func (bc *BackupClient) BackupTable(
 		zap.Reflect("Schema", dbInfo),
 		zap.Reflect("Table", tableInfo))
 
-	tableID := tableInfo.ID
-	startKey := tablecodec.GenTablePrefix(tableID)
-	endKey := tablecodec.GenTablePrefix(tableID + 1)
+	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
+	//       backup global index.
+	ranges := buildTableRanges(tableInfo)
+	for _, r := range ranges {
+		start, end := r.Range()
+		err = bc.BackupRange(start, end, path, backupTS, rateLimit)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-	return bc.BackupRange(startKey, endKey, path, backupTS)
+type tableRange struct {
+	startID, endID int64
+}
+
+func (tr tableRange) Range() ([]byte, []byte) {
+	startKey := tablecodec.GenTablePrefix(tr.startID)
+	endKey := tablecodec.GenTablePrefix(tr.endID)
+	return []byte(startKey), []byte(endKey)
+}
+
+func buildTableRanges(tbl *model.TableInfo) []tableRange {
+	pis := tbl.GetPartitionInfo()
+	if pis == nil {
+		// Short path, no partition.
+		tableID := tbl.ID
+		return []tableRange{{startID: tableID, endID: tableID + 1}}
+	}
+
+	ranges := make([]tableRange, 0, len(pis.Definitions))
+	for _, def := range pis.Definitions {
+		ranges = append(ranges,
+			tableRange{
+				startID: def.ID,
+				endID:   def.ID + 1,
+			})
+	}
+	return ranges
 }
 
 // BackupRange make a backup of the given key range.
@@ -147,10 +183,14 @@ func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
+	rateMBs uint64,
 ) error {
+	// The unit of rate limit in protocol is bytes per second.
+	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
-		zap.Binary("EndKey", endKey))
+		zap.Binary("EndKey", endKey),
+		zap.Uint64("RateLimit", rateMBs))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
@@ -166,6 +206,7 @@ func (bc *BackupClient) BackupRange(
 		StartVersion: backupTS,
 		EndVersion:   backupTS,
 		Path:         path,
+		RateLimit:    rateLimit,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
 	results, err := push.pushBackup(req, allStores...)
@@ -181,9 +222,11 @@ func (bc *BackupClient) BackupRange(
 		return err
 	}
 
-	timeRange := &backup.TimeRange{StartVersion: backupTS, EndVersion: backupTS}
-	bc.backupMeta.TimeRange = timeRange
-	log.Info("backup time range", zap.Reflect("TimeRange", timeRange))
+	bc.backupMeta.StartVersion = backupTS
+	bc.backupMeta.EndVersion = backupTS
+	log.Info("backup time range",
+		zap.Reflect("StartVersion", backupTS),
+		zap.Reflect("EndVersion", backupTS))
 
 	results.tree.Ascend(func(i btree.Item) bool {
 		r := i.(*Range)
@@ -353,8 +396,8 @@ func onBackupResponse(
 		if !(regionErr.EpochNotMatch != nil ||
 			regionErr.NotLeader != nil ||
 			regionErr.RegionNotFound != nil ||
-			regionErr.StaleCommand != nil ||
 			regionErr.ServerIsBusy != nil ||
+			regionErr.StaleCommand != nil ||
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error",
 				zap.Reflect("RegionError", regionErr))

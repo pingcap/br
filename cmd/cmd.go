@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/overvenus/br/pkg/meta"
-	"github.com/overvenus/br/pkg/raw"
+	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/raw"
 	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 )
@@ -69,4 +69,9 @@ func GetDefaultBacker() *meta.Backer {
 // GetDefaultRawClient returns the default back client for command line usage.
 func GetDefaultRawClient() *raw.BackupClient {
 	return defaultRawClient
+}
+
+// GetDefaultContext returns the default context for command line usage.
+func GetDefaultContext() context.Context {
+	return defaultContext
 }
