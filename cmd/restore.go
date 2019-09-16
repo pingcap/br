@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/errors"
@@ -10,7 +12,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
-	"io/ioutil"
 )
 
 // NewRestoreCommand returns a restore subcommand
