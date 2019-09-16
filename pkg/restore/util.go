@@ -25,18 +25,6 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*D
 	databases := make(map[string]*Database)
 	filePairs := groupFiles(meta.Files)
 
-	addTableToDb := func(t *Table) {
-		db, ok := databases[t.Db.Name.O]
-		if !ok {
-			db = &Database{
-				Schema: t.Db,
-				Tables: make([]*Table, 0),
-			}
-			databases[t.Db.Name.O] = db
-		}
-		db.Tables = append(db.Tables, t)
-	}
-
 	for _, schema := range meta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
@@ -52,6 +40,17 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*D
 			return nil, errors.Trace(err)
 		}
 
+		db, ok := databases[dbInfo.Name.String()]
+		if !ok {
+			db = &Database{
+				Schema:     dbInfo,
+				FileGroups: make([]*FileGroup, 0),
+				Tables:     make([]*model.TableInfo, 0),
+			}
+			databases[dbInfo.Name.String()] = db
+		}
+		db.Tables = append(db.Tables, tableInfo)
+
 		tableFiles := make([]*FilePair, 0)
 		for _, pair := range filePairs {
 			f := pair.Write
@@ -64,25 +63,25 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*D
 			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
 				tableFiles = append(tableFiles, pair)
 				if len(tableFiles) >= partitionSize {
-					table := &Table{
+					group := &FileGroup{
 						UUID:   uuid.NewV4(),
 						Db:     dbInfo,
 						Schema: tableInfo,
 						Files:  tableFiles,
 					}
-					addTableToDb(table)
+					db.FileGroups = append(db.FileGroups, group)
 					tableFiles = make([]*FilePair, 0)
 				}
 			}
 		}
 		if len(tableFiles) > 0 {
-			table := &Table{
+			group := &FileGroup{
 				UUID:   uuid.NewV4(),
 				Db:     dbInfo,
 				Schema: tableInfo,
 				Files:  tableFiles,
 			}
-			addTableToDb(table)
+			db.FileGroups = append(db.FileGroups, group)
 		}
 	}
 	log.Info("load databases", zap.Reflect("db", databases))

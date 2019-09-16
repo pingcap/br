@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -19,8 +20,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// Table wraps the schema and files of a table
-type Table struct {
+// FileGroup wraps the schema and files of a table
+type FileGroup struct {
 	UUID   uuid.UUID
 	Db     *model.DBInfo
 	Schema *model.TableInfo
@@ -29,8 +30,9 @@ type Table struct {
 
 // Database wraps the schema and tables of a database
 type Database struct {
-	Schema *model.DBInfo
-	Tables []*Table
+	Schema     *model.DBInfo
+	FileGroups []*FileGroup
+	Tables     []*model.TableInfo
 }
 
 // FilePair wraps a default cf file & a write cf file
@@ -39,31 +41,42 @@ type FilePair struct {
 	Write   *backup.File
 }
 
-// GetTables returns a table instance by name
-func (db *Database) GetTables(name string) []*Table {
-	tables := make([]*Table, 0)
-	for _, table := range db.Tables {
-		if table.Schema.Name.O == name {
-			tables = append(tables, table)
+// GetFileGroups returns file groups by name
+func (db *Database) GetFileGroups(name string) []*FileGroup {
+	fileGroups := make([]*FileGroup, 0)
+	for _, group := range db.FileGroups {
+		if group.Schema.Name.String() == name {
+			fileGroups = append(fileGroups, group)
 		}
 	}
-	return tables
+	return fileGroups
+}
+
+// GetTable returns a table info by name
+func (db *Database) GetTable(name string) *model.TableInfo {
+	for _, table := range db.Tables {
+		if table.Name.String() == name {
+			return table
+		}
+	}
+	return nil
 }
 
 // CreateTable executes a CREATE TABLE SQL
-func CreateTable(table *Table, dns string) error {
-	db, err := sql.Open("mysql", dns)
+func CreateTable(dbName string, table *model.TableInfo, dsn string) error {
+	dbDSN := dsn + url.QueryEscape(dbName)
+	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dns), zap.Error(err))
+		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	createSQL := GetCreateTableSQL(table.Schema)
+	createSQL := GetCreateTableSQL(table)
 	_, err = db.Exec(createSQL)
 	if err != nil {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
-			zap.String("db", table.Db.Name.O),
-			zap.String("addr", dns),
+			zap.String("db", dbName),
+			zap.String("addr", dsn),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -71,10 +84,10 @@ func CreateTable(table *Table, dns string) error {
 }
 
 // CreateDatabase executes a CREATE DATABASE SQL
-func CreateDatabase(schema *model.DBInfo, dns string) error {
-	db, err := sql.Open("mysql", dns)
+func CreateDatabase(schema *model.DBInfo, dsn string) error {
+	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dns), zap.Error(err))
+		log.Error("open database failed", zap.String("addr", dsn), zap.Error(err))
 		return errors.Trace(err)
 	}
 	createSQL := GetCreateDatabaseSQL(schema)
@@ -87,25 +100,48 @@ func CreateDatabase(schema *model.DBInfo, dns string) error {
 }
 
 // AnalyzeTable executes a ANALYZE TABLE SQL
-func AnalyzeTable(table *Table, dns string) error {
-	db, err := sql.Open("mysql", dns)
+func AnalyzeTable(dbName string, table *model.TableInfo, dsn string) error {
+	dbDSN := dsn + url.QueryEscape(dbName)
+	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dns), zap.Error(err))
+		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", table.Schema.Name.O)
+	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", table.Name.String())
 	_, err = db.Exec(analyzeSQL)
 	if err != nil {
-		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.String("db", table.Db.Name.O), zap.Error(err))
+		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.String("db", dbName), zap.Error(err))
 		return errors.Trace(err)
 	}
+	return nil
+}
+
+// AlterAutoIncID alters max auto-increment id of table
+func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
+	dbDSN := dsn + url.QueryEscape(dbName)
+	db, err := sql.Open("mysql", dbDSN)
+	if err != nil {
+		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
+		return errors.Trace(err)
+	}
+	alterIDSQL := fmt.Sprintf("ALTER TABLE %s auto_increment = %d", table.Name.String(), table.AutoIncID)
+	_, err = db.Exec(alterIDSQL)
+	if err != nil {
+		log.Error("alter auto inc id failed", zap.String("SQL", alterIDSQL), zap.String("db", dbName), zap.Error(err))
+		return errors.Trace(err)
+	}
+	log.Info("alter auto inc id",
+		zap.String("table", table.Name.String()),
+		zap.String("db", dbName),
+		zap.Int64("auto_inc_id", table.AutoIncID),
+	)
 	return nil
 }
 
 // GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", db.Name.O)
+	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", db.Name.String())
 	fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", db.Charset, db.Collate)
 	buf.WriteString(";")
 
@@ -121,7 +157,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", t.Name)
 	var pkCol *model.ColumnInfo
 	for i, col := range t.Columns {
-		fmt.Fprintf(&buf, "  %s %s", col.Name.O, getColumnTypeDesc(col))
+		fmt.Fprintf(&buf, "  %s %s", col.Name.String(), getColumnTypeDesc(col))
 		if col.Charset != "binary" {
 			if col.Charset != tblCharset || col.Collate != tblCollate {
 				fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", col.Charset, col.Collate)
@@ -187,7 +223,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	if pkCol != nil {
 		// If PKIsHandle, pk info is not in tb.Indices(). We should handle it here.
 		buf.WriteString(",\n")
-		fmt.Fprintf(&buf, "  PRIMARY KEY (%s)", pkCol.Name.O)
+		fmt.Fprintf(&buf, "  PRIMARY KEY (%s)", pkCol.Name.String())
 	}
 
 	publicIndices := make([]*model.IndexInfo, 0, len(t.Indices))
@@ -204,14 +240,14 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 		if idx.Primary {
 			buf.WriteString("  PRIMARY KEY ")
 		} else if idx.Unique {
-			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", idx.Name.O)
+			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", idx.Name.String())
 		} else {
-			fmt.Fprintf(&buf, "  KEY %s ", idx.Name.O)
+			fmt.Fprintf(&buf, "  KEY %s ", idx.Name.String())
 		}
 
 		cols := make([]string, 0, len(idx.Columns))
 		for _, c := range idx.Columns {
-			colInfo := c.Name.O
+			colInfo := c.Name.String()
 			if c.Length != types.UnspecifiedLength {
 				colInfo = fmt.Sprintf("%s(%s)", colInfo, strconv.Itoa(c.Length))
 			}

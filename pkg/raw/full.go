@@ -3,6 +3,7 @@ package raw
 import (
 	"context"
 	"encoding/json"
+	"github.com/pingcap/tidb/meta/autoid"
 	"io/ioutil"
 	"sync"
 	"time"
@@ -92,11 +93,11 @@ func (bc *BackupClient) BackupTable(
 	backupTS uint64,
 	rateLimit uint64,
 ) error {
-	session, err := session.CreateSession(bc.backer.GetTiKV())
+	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	do := domain.GetDomain(session.(sessionctx.Context))
+	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return errors.Trace(err)
@@ -111,10 +112,16 @@ func (bc *BackupClient) BackupTable(
 	}
 	cTableName := model.NewCIStr(tableName)
 	table, err := info.TableByName(cDBName, cTableName)
-	tableInfo = table.Meta()
 	if err != nil {
 		return errors.Trace(err)
 	}
+	tableInfo = table.Meta()
+	idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
+	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tableInfo.AutoIncID = globalAutoID
 
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
@@ -131,6 +138,11 @@ func (bc *BackupClient) BackupTable(
 		Db:    dbData,
 		Table: tableData,
 	}
+	log.Info("save table schema",
+		zap.String("db", dbInfo.Name.String()),
+		zap.String("table", tableInfo.Name.String()),
+		zap.Int64("auto_inc_id", globalAutoID),
+	)
 	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
 	log.Info("backup table meta",
 		zap.Reflect("Schema", dbInfo),
@@ -186,11 +198,11 @@ func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
 		"mysql",
 	}
 
-	session, err := session.CreateSession(bc.backer.GetTiKV())
+	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	do := domain.GetDomain(session.(sessionctx.Context))
+	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return errors.Trace(err)
@@ -209,7 +221,13 @@ LoadDb:
 		if err != nil {
 			return errors.Trace(err)
 		}
+		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
+			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			tableInfo.AutoIncID = globalAutoID
 			tableData, err := json.Marshal(tableInfo)
 			if err != nil {
 				return errors.Trace(err)
@@ -219,6 +237,11 @@ LoadDb:
 				Db:    dbData,
 				Table: tableData,
 			}
+			log.Info("save table schema",
+				zap.String("db", dbInfo.Name.String()),
+				zap.String("table", tableInfo.Name.String()),
+				zap.Int64("auto_inc_id", globalAutoID),
+			)
 			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
 		}
 	}
