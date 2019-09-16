@@ -42,6 +42,10 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			err = client.BackupAllSchemas(backupTS)
+			if err != nil {
+				return err
+			}
 			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate)
 			if err != nil {
 				return err

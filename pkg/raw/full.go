@@ -178,6 +178,53 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
+// BackupAllSchemas fetches all schemas from TiDB.
+func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
+	SystemDatabases := [3]string{
+		"INFORMATION_SCHEMA",
+		"PERFORMANCE_SCHEMA",
+		"mysql",
+	}
+
+	session, err := session.CreateSession(bc.backer.GetTiKV())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	do := domain.GetDomain(session.(sessionctx.Context))
+	info, err := do.GetSnapshotInfoSchema(backupTS)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	dbInfos := info.AllSchemas()
+LoadDb:
+	for _, dbInfo := range dbInfos {
+		// skip system databases
+		for _, sysDbName := range SystemDatabases {
+			if sysDbName == dbInfo.Name.String() {
+				continue LoadDb
+			}
+		}
+		dbData, err := json.Marshal(dbInfo)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for _, tableInfo := range dbInfo.Tables {
+			tableData, err := json.Marshal(tableInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			// Save schema.
+			backupSchema := &backup.Schema{
+				Db:    dbData,
+				Table: tableData,
+			}
+			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+		}
+	}
+	return nil
+}
+
 // BackupRange make a backup of the given key range.
 func (bc *BackupClient) BackupRange(
 	startKey, endKey []byte,
