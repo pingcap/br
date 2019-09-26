@@ -16,7 +16,7 @@ func NewBackupCommand() *cobra.Command {
 		newTableBackupCommand(),
 	)
 
-	bp.PersistentFlags().StringP("timeago", "", "", "To backup history version, time before now, 1m 1h allowed")
+	bp.PersistentFlags().StringP("timeago", "", "", "The history version of the backup task, e.g. 1m 1h, do not exceed GCSafePoint")
 
 	bp.PersistentFlags().Uint64P(
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")

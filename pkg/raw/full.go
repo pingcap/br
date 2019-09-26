@@ -70,6 +70,15 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 		}
 		t := duration.Nanoseconds() / int64(time.Millisecond)
 		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
+
+		// check backup time do not exceed GCSafePoint
+		safePoint, err := bc.backer.GetGCSafePoint()
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		if p-t < safePoint.Physical {
+			return 0, errors.New("given backup time exceed GCSafePoint")
+		}
 		p -= t
 	}
 

@@ -115,9 +115,9 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 	return "", err
 }
 
-// GetGCSaftPoint returns the current gc safe point.
+// GetGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
-func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
+func (backer *Backer) GetGCSafePoint() (Timestamp, error) {
 	safePoint, err := backer.pdClient.UpdateGCSafePoint(backer.ctx, 0)
 	println(safePoint)
 	if err != nil {
