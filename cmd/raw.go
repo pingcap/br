@@ -15,6 +15,9 @@ func NewBackupCommand() *cobra.Command {
 		newFullBackupCommand(),
 		newTableBackupCommand(),
 	)
+
+	bp.PersistentFlags().StringP("timeago", "", "", "To backup history version, time before now, 1m 1h allowed")
+
 	bp.PersistentFlags().Uint64P(
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
 	return bp
@@ -34,14 +37,22 @@ func newFullBackupCommand() *cobra.Command {
 			if u == "" {
 				return errors.New("empty backup store is not allowed")
 			}
-			backupTS, err := client.GetTS()
+
+			timeAgo, err := command.Flags().GetString("timeago")
 			if err != nil {
 				return err
 			}
+
+			backupTS, err := client.GetTS(timeAgo)
+			if err != nil {
+				return err
+			}
+
 			rate, err := command.Flags().GetUint64("ratelimit")
 			if err != nil {
 				return err
 			}
+
 			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate)
 			if err != nil {
 				return err
@@ -81,10 +92,16 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.Errorf("empty table name is not allowed")
 			}
 
-			backupTS, err := client.GetTS()
+			timeAgo, err := command.Flags().GetString("timeago")
 			if err != nil {
 				return err
 			}
+
+			backupTS, err := client.GetTS(timeAgo)
+			if err != nil {
+				return err
+			}
+
 			rate, err := command.Flags().GetUint64("ratelimit")
 			if err != nil {
 				return err
