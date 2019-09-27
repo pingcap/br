@@ -39,9 +39,10 @@ func (r *testBackup) SetUpSuite(c *C) {
 }
 
 func (r *testBackup) TestGetTS(c *C) {
-	// mockPDClient' physical ts and current ts will have deviation, so make this deviation tolerance 100ms
 	var (
-		err       error
+		err error
+		// mockPDClient' physical ts and current ts will have deviation
+		// so make this deviation tolerance 100ms
 		deviation = 100
 	)
 
