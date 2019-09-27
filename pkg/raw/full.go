@@ -57,17 +57,37 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 }
 
 // GetTS returns the latest timestamp.
-func (bc *BackupClient) GetTS() (uint64, error) {
+func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 	p, l, err := bc.pdClient.GetTS(bc.ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+
+	if timeAgo != "" {
+		duration, err := time.ParseDuration(timeAgo)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		t := duration.Nanoseconds() / int64(time.Millisecond)
+		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
+
+		// check backup time do not exceed GCSafePoint
+		safePoint, err := bc.backer.GetGCSafePoint()
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		if p-t < safePoint.Physical {
+			return 0, errors.New("given backup time exceed GCSafePoint")
+		}
+		p -= t
+	}
+
 	ts := meta.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
 	backupTS := meta.EncodeTs(ts)
-	log.Info("backup timestamp", zap.Uint64("BackupTS", backupTS))
+	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
 
