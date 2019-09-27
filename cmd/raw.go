@@ -17,6 +17,8 @@ func NewBackupCommand() *cobra.Command {
 	)
 	bp.PersistentFlags().Uint64P(
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
+	bp.PersistentFlags().Uint32P(
+		"concurrency", "", 4, "The size of thread pool on each node that execute the backup task")
 	return bp
 }
 
@@ -42,7 +44,14 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate)
+			concurrency, err := command.Flags().GetUint32("concurrency")
+			if err != nil {
+				return err
+			}
+			if concurrency == 0 {
+				return errors.New("at least one thread required")
+			}
+			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
@@ -89,7 +98,14 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = client.BackupTable(db, table, u, backupTS, rate)
+			concurrency, err := command.Flags().GetUint32("concurrency")
+			if err != nil {
+				return err
+			}
+			if concurrency == 0 {
+				return errors.New("at least one thread required")
+			}
+			err = client.BackupTable(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
