@@ -73,6 +73,17 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 
+	// timeago = "-1m"
+	timeAgo = "-1m"
+	expectedDuration = -60000
+	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
+	ts, err = r.backupClient.GetTS(timeAgo)
+	c.Assert(err, IsNil)
+	pdTs = meta.DecodeTs(ts).Physical
+	duration = int(currentTs - pdTs)
+	c.Assert(duration, Greater, expectedDuration-deviation)
+	c.Assert(duration, Less, expectedDuration+deviation)
+
 	// timeago = "1000000h" exceed GCSafePoint
 	// because GCSafePoint in mockPDClient is 0
 	timeAgo = "1000000h"
