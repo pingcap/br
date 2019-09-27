@@ -87,7 +87,7 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 		Logical:  l,
 	}
 	backupTS := meta.EncodeTs(ts)
-	log.Info("backup timestamp", zap.Uint64("BackupTS", backupTS))
+	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
 
