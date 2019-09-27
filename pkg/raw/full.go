@@ -210,7 +210,7 @@ func (bc *BackupClient) BackupRange(
 		EndVersion:   backupTS,
 		Path:         path,
 		RateLimit:    rateLimit,
-		Concurrency:  concurrency
+		Concurrency:  concurrency,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
 	results, err := push.pushBackup(req, allStores...)
@@ -432,7 +432,7 @@ func (bc *BackupClient) handleFineGrained(
 	rg Range,
 	backupTS uint64,
 	path string,
-	rateLimit: uint64,
+	rateLimit uint64,
 	concurrency: uint32,
 	respCh chan<- *backup.BackupResponse,
 ) (int, error) {
