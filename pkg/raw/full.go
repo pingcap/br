@@ -91,7 +91,7 @@ func (bc *BackupClient) BackupTable(
 	path string,
 	backupTS uint64,
 	rateLimit uint64,
-	concurrency uint64,
+	concurrency uint32,
 ) error {
 	session, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -433,7 +433,7 @@ func (bc *BackupClient) handleFineGrained(
 	backupTS uint64,
 	path string,
 	rateLimit uint64,
-	concurrency: uint32,
+	concurrency uint32,
 	respCh chan<- *backup.BackupResponse,
 ) (int, error) {
 	leader, pderr := bc.findRegionLeader(rg.StartKey)
