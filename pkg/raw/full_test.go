@@ -74,7 +74,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "1000000h" exceed GCSafePoint
-	// because GSSafePoint in mockPDClient is 0
+	// because GCSafePoint in mockPDClient is 0
 	timeAgo = "1000000h"
 	_, err = r.backupClient.GetTS(timeAgo)
 	c.Assert(err, ErrorMatches, "given backup time exceed GCSafePoint")
