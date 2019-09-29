@@ -85,10 +85,10 @@ func (s *testRestoreSchemaSuite) startServer(c *C) {
 	cfg.Status.StatusPort = 10090
 	cfg.Status.ReportStatus = true
 
-	server, err := server.NewServer(cfg, s.tidbdrv)
+	svr, err := server.NewServer(cfg, s.tidbdrv)
 	c.Assert(err, IsNil)
-	s.server = server
-	go server.Run()
+	s.server = svr
+	go svr.Run()
 	waitUntilServerOnline(cfg.Status.StatusPort)
 }
 
@@ -140,7 +140,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
-	c.Assert(autoIncID == uint64(globalAutoID + 100), IsTrue, Commentf("Error alter auto inc id: autoIncID=%d, globalAutoID=%d", autoIncID, globalAutoID))
+	c.Assert(autoIncID == uint64(globalAutoID+100), IsTrue, Commentf("Error alter auto inc id: autoIncID=%d, globalAutoID=%d", autoIncID, globalAutoID))
 }
 
 type configOverrider func(*mysql.Config)
@@ -148,9 +148,9 @@ type configOverrider func(*mysql.Config)
 const retryTime = 100
 
 var defaultDSNConfig = mysql.Config{
-	User:   "root",
-	Net:    "tcp",
-	Addr:   "127.0.0.1:4001",
+	User: "root",
+	Net:  "tcp",
+	Addr: "127.0.0.1:4001",
 }
 
 // getDSN generates a DSN string for MySQL connection.
