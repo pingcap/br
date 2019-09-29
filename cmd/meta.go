@@ -32,7 +32,7 @@ func NewMetaCommand() *cobra.Command {
 		Short: "show the current GC safepoint of cluster",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			backer := GetDefaultBacker()
-			sp, err := backer.GetGCSaftPoint()
+			sp, err := backer.GetGCSafePoint()
 			if err != nil {
 				fmt.Println(errors.ErrorStack(err))
 				return err

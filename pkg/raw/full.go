@@ -58,17 +58,37 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 }
 
 // GetTS returns the latest timestamp.
-func (bc *BackupClient) GetTS() (uint64, error) {
+func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 	p, l, err := bc.pdClient.GetTS(bc.ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+
+	if timeAgo != "" {
+		duration, err := time.ParseDuration(timeAgo)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		t := duration.Nanoseconds() / int64(time.Millisecond)
+		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
+
+		// check backup time do not exceed GCSafePoint
+		safePoint, err := bc.backer.GetGCSafePoint()
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		if p-t < safePoint.Physical {
+			return 0, errors.New("given backup time exceed GCSafePoint")
+		}
+		p -= t
+	}
+
 	ts := meta.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
 	backupTS := meta.EncodeTs(ts)
-	log.Info("backup timestamp", zap.Uint64("BackupTS", backupTS))
+	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
 
@@ -92,6 +112,7 @@ func (bc *BackupClient) BackupTable(
 	path string,
 	backupTS uint64,
 	rateLimit uint64,
+	concurrency uint32,
 ) error {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -153,7 +174,7 @@ func (bc *BackupClient) BackupTable(
 	ranges := buildTableRanges(tableInfo)
 	for _, r := range ranges {
 		start, end := r.Range()
-		err = bc.BackupRange(start, end, path, backupTS, rateLimit)
+		err = bc.BackupRange(start, end, path, backupTS, rateLimit, concurrency)
 		if err != nil {
 			return err
 		}
@@ -254,13 +275,15 @@ func (bc *BackupClient) BackupRange(
 	path string,
 	backupTS uint64,
 	rateMBs uint64,
+	concurrency uint32,
 ) error {
 	// The unit of rate limit in protocol is bytes per second.
 	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
 		zap.Binary("EndKey", endKey),
-		zap.Uint64("RateLimit", rateMBs))
+		zap.Uint64("RateLimit", rateMBs),
+		zap.Uint32("Concurrency", concurrency))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
@@ -277,6 +300,7 @@ func (bc *BackupClient) BackupRange(
 		EndVersion:   backupTS,
 		Path:         path,
 		RateLimit:    rateLimit,
+		Concurrency:  concurrency,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
 	results, err := push.pushBackup(req, allStores...)
@@ -287,7 +311,7 @@ func (bc *BackupClient) BackupRange(
 
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
-	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, results)
+	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, rateLimit, concurrency, results)
 	if err != nil {
 		return err
 	}
@@ -340,6 +364,8 @@ func (bc *BackupClient) fineGrainedBackup(
 	startKey, endKey []byte,
 	backupTS uint64,
 	path string,
+	rateLimit uint64,
+	concurrency uint32,
 	rangeTree RangeTree,
 ) error {
 	bo := tikv.NewBackoffer(bc.ctx, backupFineGrainedMaxBackoff)
@@ -367,7 +393,7 @@ func (bc *BackupClient) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(boFork, rg, backupTS, path, respCh)
+						bc.handleFineGrained(boFork, rg, backupTS, path, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -496,6 +522,8 @@ func (bc *BackupClient) handleFineGrained(
 	rg Range,
 	backupTS uint64,
 	path string,
+	rateLimit uint64,
+	concurrency uint32,
 	respCh chan<- *backup.BackupResponse,
 ) (int, error) {
 	leader, pderr := bc.findRegionLeader(rg.StartKey)
@@ -510,6 +538,8 @@ func (bc *BackupClient) handleFineGrained(
 		StartVersion: backupTS,
 		EndVersion:   backupTS,
 		Path:         path,
+		RateLimit:    rateLimit,
+		Concurrency:  concurrency,
 	}
 	lockResolver := bc.backer.GetLockResolver()
 	err := bc.backer.SendBackup(
