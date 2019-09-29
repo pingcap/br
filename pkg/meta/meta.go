@@ -28,8 +28,8 @@ const (
 
 // Backer backups a TiDB/TiKV cluster.
 type Backer struct {
-	ctx      context.Context
-	pdClient pd.Client
+	Ctx      context.Context
+	PDClient pd.Client
 	pdHTTP   struct {
 		addrs []string
 		cli   *http.Client
@@ -57,8 +57,8 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	}
 
 	backer := &Backer{
-		ctx:      ctx,
-		pdClient: pdClient,
+		Ctx:      ctx,
+		PDClient: pdClient,
 		tikvCli:  tikvCli.(tikv.Storage),
 	}
 	backer.pdHTTP.addrs = addrs
@@ -115,10 +115,10 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 	return "", err
 }
 
-// GetGCSaftPoint returns the current gc safe point.
+// GetGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
-func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
-	safePoint, err := backer.pdClient.UpdateGCSafePoint(backer.ctx, 0)
+func (backer *Backer) GetGCSafePoint() (Timestamp, error) {
+	safePoint, err := backer.PDClient.UpdateGCSafePoint(backer.Ctx, 0)
 	println(safePoint)
 	if err != nil {
 		return Timestamp{}, errors.Trace(err)
@@ -128,7 +128,7 @@ func (backer *Backer) GetGCSaftPoint() (Timestamp, error) {
 
 // Context returns Backer's context.
 func (backer *Backer) Context() context.Context {
-	return backer.ctx
+	return backer.Ctx
 }
 
 // GetBackupClient get or create a backup client.
@@ -141,12 +141,12 @@ func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, erro
 		return backup.NewBackupClient(conn), nil
 	}
 
-	store, err := backer.pdClient.GetStore(backer.ctx, storeID)
+	store, err := backer.PDClient.GetStore(backer.Ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	opt := grpc.WithInsecure()
-	ctx, cancel := context.WithTimeout(backer.ctx, dialTimeout)
+	ctx, cancel := context.WithTimeout(backer.Ctx, dialTimeout)
 	keepAlive := 10
 	keepAliveTimeout := 3
 	conn, err := grpc.DialContext(
@@ -235,7 +235,7 @@ func (backer *Backer) SendBackup(
 
 // GetPDClient returns a pd client.
 func (backer *Backer) GetPDClient() pd.Client {
-	return backer.pdClient
+	return backer.PDClient
 }
 
 // GetTiKV returns a tikv storage.
