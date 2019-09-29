@@ -62,8 +62,8 @@ func newFullBackupCommand() *cobra.Command {
 			if concurrency == 0 {
 				return errors.New("at least one thread required")
 			}
-      
-      err = client.BackupAllSchemas(backupTS)
+
+			err = client.BackupAllSchemas(backupTS)
 			if err != nil {
 				return err
 			}
