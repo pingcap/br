@@ -3,14 +3,15 @@ package raw
 import (
 	"context"
 	"encoding/json"
-	"github.com/pingcap/tidb/meta/autoid"
 	"io/ioutil"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/pingcap/tidb/meta/autoid"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -24,6 +25,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
 )
 
 // Maximum total sleep time(in ms) for kv/cop commands.
@@ -234,7 +237,7 @@ LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
 		for _, sysDbName := range SystemDatabases {
-			if sysDbName == dbInfo.Name.String() {
+			if strings.ToLower(sysDbName) == dbInfo.Name.L {
 				continue LoadDb
 			}
 		}

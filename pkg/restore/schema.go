@@ -107,7 +107,7 @@ func AnalyzeTable(dbName string, table *model.TableInfo, dsn string) error {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", table.Name.String())
+	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Name.String()))
 	_, err = db.Exec(analyzeSQL)
 	if err != nil {
 		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.String("db", dbName), zap.Error(err))
@@ -124,7 +124,7 @@ func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	alterIDSQL := fmt.Sprintf("ALTER TABLE %s auto_increment = %d", table.Name.String(), table.AutoIncID)
+	alterIDSQL := fmt.Sprintf("ALTER TABLE %s auto_increment = %d", encloseName(table.Name.String()), table.AutoIncID)
 	_, err = db.Exec(alterIDSQL)
 	if err != nil {
 		log.Error("alter auto inc id failed", zap.String("SQL", alterIDSQL), zap.String("db", dbName), zap.Error(err))
@@ -141,7 +141,7 @@ func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
 // GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", db.Name.String())
+	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", encloseName(db.Name.String()))
 	fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", db.Charset, db.Collate)
 	buf.WriteString(";")
 
@@ -157,7 +157,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", t.Name)
 	var pkCol *model.ColumnInfo
 	for i, col := range t.Columns {
-		fmt.Fprintf(&buf, "  %s %s", col.Name.String(), getColumnTypeDesc(col))
+		fmt.Fprintf(&buf, "  %s %s", encloseName(col.Name.String()), getColumnTypeDesc(col))
 		if col.Charset != "binary" {
 			if col.Charset != tblCharset || col.Collate != tblCollate {
 				fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", col.Charset, col.Collate)
@@ -223,7 +223,7 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	if pkCol != nil {
 		// If PKIsHandle, pk info is not in tb.Indices(). We should handle it here.
 		buf.WriteString(",\n")
-		fmt.Fprintf(&buf, "  PRIMARY KEY (%s)", pkCol.Name.String())
+		fmt.Fprintf(&buf, "  PRIMARY KEY (%s)", encloseName(pkCol.Name.String()))
 	}
 
 	publicIndices := make([]*model.IndexInfo, 0, len(t.Indices))
@@ -240,9 +240,9 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 		if idx.Primary {
 			buf.WriteString("  PRIMARY KEY ")
 		} else if idx.Unique {
-			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", idx.Name.String())
+			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", encloseName(idx.Name.String()))
 		} else {
-			fmt.Fprintf(&buf, "  KEY %s ", idx.Name.String())
+			fmt.Fprintf(&buf, "  KEY %s ", encloseName(idx.Name.String()))
 		}
 
 		cols := make([]string, 0, len(idx.Columns))
@@ -330,7 +330,7 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 	}
 	for i, def := range partitionInfo.Definitions {
 		lessThans := strings.Join(def.LessThan, ",")
-		fmt.Fprintf(buf, "  PARTITION %s VALUES LESS THAN (%s)", def.Name, lessThans)
+		fmt.Fprintf(buf, "  PARTITION %s VALUES LESS THAN (%s)", encloseName(def.Name.String()), lessThans)
 		if i < len(partitionInfo.Definitions)-1 {
 			buf.WriteString(",\n")
 		} else {
@@ -338,4 +338,8 @@ func appendPartitionInfo(partitionInfo *model.PartitionInfo, buf *bytes.Buffer) 
 		}
 	}
 	buf.WriteString(")")
+}
+
+func encloseName(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
