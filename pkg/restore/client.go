@@ -2,7 +2,10 @@ package restore
 
 import (
 	"context"
+	"strings"
+
 	"github.com/pingcap/br/pkg/meta"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_kvpb"
@@ -11,7 +14,6 @@ import (
 	pd "github.com/pingcap/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"strings"
 )
 
 // Client sends requests to importer to restore files
