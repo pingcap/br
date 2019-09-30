@@ -160,8 +160,8 @@ func (bc *BackupClient) BackupTable(
 		Table: tableData,
 	}
 	log.Info("save table schema",
-		zap.String("db", dbInfo.Name.String()),
-		zap.String("table", tableInfo.Name.String()),
+		zap.Stringer("db", dbInfo.Name),
+		zap.Stringer("table", tableInfo.Name),
 		zap.Int64("auto_inc_id", globalAutoID),
 	)
 	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
@@ -259,8 +259,8 @@ LoadDb:
 				Table: tableData,
 			}
 			log.Info("save table schema",
-				zap.String("db", dbInfo.Name.String()),
-				zap.String("table", tableInfo.Name.String()),
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tableInfo.Name),
 				zap.Int64("auto_inc_id", globalAutoID),
 			)
 			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)

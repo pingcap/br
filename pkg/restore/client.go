@@ -131,9 +131,9 @@ func (rc *Client) GetDatabase(name string) *Database {
 // UploadTableFiles executes the job to restore files of a table
 func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *FileGroup, restoreTS uint64) error {
 	log.Info("start to upload files of group",
-		zap.String("group", group.Schema.Name.String()),
-		zap.String("uuid", group.UUID.String()),
-		zap.String("db", group.Db.Name.String()),
+		zap.Stringer("group", group.Schema.Name),
+		zap.Stringer("uuid", group.UUID),
+		zap.Stringer("db", group.Db.Name),
 	)
 
 	tableInfo, returnErr := FetchTableInfo(rc.statusAddr, group.Db.Name.String(), group.Schema.Name.String())
@@ -146,9 +146,9 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 	if returnErr != nil {
 		log.Error("open engine failed",
 			zap.Uint64("restore_ts", restoreTS),
-			zap.String("group", group.Schema.Name.String()),
-			zap.String("uuid", group.UUID.String()),
-			zap.String("db", group.Db.Name.String()),
+			zap.Stringer("group", group.Schema.Name),
+			zap.Stringer("uuid", group.UUID),
+			zap.Stringer("db", group.Db.Name),
 		)
 		return errors.Trace(returnErr)
 	}
@@ -175,8 +175,8 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 					log.Error("restore file failed",
 						zap.Reflect("file", file),
 						zap.Uint64("restore_ts", restoreTS),
-						zap.String("group", group.Schema.Name.String()),
-						zap.String("db", group.Db.Name.String()),
+						zap.Stringer("group", group.Schema.Name),
+						zap.Stringer("db", group.Db.Name),
 						zap.Error(errors.Trace(err)),
 					)
 					errCh <- errors.Trace(err)
@@ -189,8 +189,8 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 				log.Debug("restore file success",
 					zap.Reflect("file", file),
 					zap.Uint64("restore_ts", restoreTS),
-					zap.String("group", group.Schema.Name.String()),
-					zap.String("db", group.Db.Name.String()),
+					zap.Stringer("group", group.Schema.Name),
+					zap.Stringer("db", group.Db.Name),
 				)
 				errCh <- nil
 			}(file)
@@ -211,18 +211,18 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 	if returnErr != nil {
 		log.Error("close engine failed",
 			zap.Uint64("restore_ts", restoreTS),
-			zap.String("group", group.Schema.Name.String()),
-			zap.String("uuid", group.UUID.String()),
-			zap.String("db", group.Db.Name.String()),
+			zap.Stringer("group", group.Schema.Name),
+			zap.Stringer("uuid", group.UUID),
+			zap.Stringer("db", group.Db.Name),
 		)
 		return errors.Trace(returnErr)
 	}
 
 	log.Info("upload group files finished",
 		zap.Uint64("restore_ts", restoreTS),
-		zap.String("group", group.Schema.Name.String()),
-		zap.String("uuid", group.UUID.String()),
-		zap.String("db", group.Db.Name.String()),
+		zap.Stringer("group", group.Schema.Name),
+		zap.Stringer("uuid", group.UUID),
+		zap.Stringer("db", group.Db.Name),
 	)
 
 	return errors.Trace(returnErr)
@@ -257,7 +257,7 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 		for j := 0; j < rc.maxOpenEngines; j++ {
 			go func(client import_kvpb.ImportKVClient, n int) {
 				for job := range uploadJobCh {
-					log.Info("restore table", zap.Int("importer", n), zap.String("uuid", job.Group.UUID.String()))
+					log.Info("restore table", zap.Int("importer", n), zap.Stringer("uuid", job.Group.UUID))
 					err := rc.UploadTableFiles(client, job.Group, restoreTS)
 					if err != nil {
 						errCh <- errors.Trace(err)
@@ -278,17 +278,17 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 				group := job.Group
 				log.Info("start to import group",
 					zap.Uint64("restore_ts", restoreTS),
-					zap.String("group", group.Schema.Name.String()),
-					zap.String("uuid", group.UUID.String()),
-					zap.String("db", group.Db.Name.String()),
+					zap.Stringer("group", group.Schema.Name),
+					zap.Stringer("uuid", group.UUID),
+					zap.Stringer("db", group.Db.Name),
 				)
 				err := rc.ImportEngine(job.Client, group.UUID.Bytes())
 				if err != nil {
 					log.Error("import engine failed",
 						zap.Uint64("restore_ts", restoreTS),
-						zap.String("group", group.Schema.Name.String()),
-						zap.String("uuid", group.UUID.String()),
-						zap.String("db", group.Db.Name.String()),
+						zap.Stringer("group", group.Schema.Name),
+						zap.Stringer("uuid", group.UUID),
+						zap.Stringer("db", group.Db.Name),
 						zap.Error(err),
 					)
 					errCh <- errors.Trace(err)
@@ -298,9 +298,9 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 				if err != nil {
 					log.Error("cleanup engine failed",
 						zap.Uint64("restore_ts", restoreTS),
-						zap.String("group", group.Schema.Name.String()),
-						zap.String("uuid", group.UUID.String()),
-						zap.String("db", group.Db.Name.String()),
+						zap.Stringer("group", group.Schema.Name),
+						zap.Stringer("uuid", group.UUID),
+						zap.Stringer("db", group.Db.Name),
 						zap.Error(err),
 					)
 					errCh <- errors.Trace(err)
@@ -308,9 +308,9 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 				}
 				log.Info("import group finished",
 					zap.Uint64("restore_ts", restoreTS),
-					zap.String("group", group.Schema.Name.String()),
-					zap.String("uuid", group.UUID.String()),
-					zap.String("db", group.Db.Name.String()),
+					zap.Stringer("group", group.Schema.Name),
+					zap.Stringer("uuid", group.UUID),
+					zap.Stringer("db", group.Db.Name),
 				)
 				errCh <- nil
 			}
@@ -359,7 +359,7 @@ func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
 	if returnErr == nil {
 		log.Info("restore database finished",
 			zap.Uint64("restore_ts", restoreTS),
-			zap.String("db", db.Schema.Name.String()),
+			zap.Stringer("db", db.Schema.Name),
 		)
 	}
 	return errors.Trace(returnErr)

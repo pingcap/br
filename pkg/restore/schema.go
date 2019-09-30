@@ -131,7 +131,7 @@ func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
 		return errors.Trace(err)
 	}
 	log.Info("alter auto inc id",
-		zap.String("table", table.Name.String()),
+		zap.Stringer("table", table.Name),
 		zap.String("db", dbName),
 		zap.Int64("auto_inc_id", table.AutoIncID),
 	)

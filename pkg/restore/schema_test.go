@@ -130,7 +130,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	idAlloc := autoid.NewAllocator(s.store, dbInfo.ID, false)
 	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.Meta().ID)
 	c.Assert(err, IsNil, Commentf("Error allocate next auto id"))
-	c.Assert(autoIncID == uint64(globalAutoID), IsTrue, Commentf("Error wrong next auto id: autoIncID=%d, globalAutoID=%d", autoIncID, globalAutoID))
+	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 
 	// Alter AutoIncID to the next AutoIncID + 100
 	tableInfo.Meta().AutoIncID = globalAutoID + 100
@@ -140,7 +140,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
-	c.Assert(autoIncID == uint64(globalAutoID+100), IsTrue, Commentf("Error alter auto inc id: autoIncID=%d, globalAutoID=%d", autoIncID, globalAutoID))
+	c.Assert(autoIncID, Equals, uint64(globalAutoID+100))
 }
 
 type configOverrider func(*mysql.Config)
