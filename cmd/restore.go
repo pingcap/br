@@ -187,7 +187,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			table := db.GetTable(tableName)
 			if table == nil {
-				return errors.Trace(fmt.Errorf("not exists table"))
+				return errors.New("not exists table")
 			}
 			err = restore.CreateTable(db.Schema.Name.String(), table, client.GetDbDSN())
 			if err != nil {
@@ -199,7 +199,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			fileGroups := db.GetFileGroups(tableName)
 			if len(fileGroups) <= 0 {
-				return errors.Trace(fmt.Errorf("not exists table"))
+				return errors.New("not exists table")
 			}
 			err = client.RestoreMultipleTables(fileGroups, restoreTS)
 			return errors.Trace(err)
