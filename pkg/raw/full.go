@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io/ioutil"
-	"strings"
 	"sync"
 	"time"
 
@@ -217,8 +216,8 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 // BackupAllSchemas fetches all schemas from TiDB.
 func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
 	SystemDatabases := [3]string{
-		"INFORMATION_SCHEMA",
-		"PERFORMANCE_SCHEMA",
+		"information_schema",
+		"performance_schema",
 		"mysql",
 	}
 
@@ -237,7 +236,7 @@ LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
 		for _, sysDbName := range SystemDatabases {
-			if strings.ToLower(sysDbName) == dbInfo.Name.L {
+			if sysDbName == dbInfo.Name.L {
 				continue LoadDb
 			}
 		}
