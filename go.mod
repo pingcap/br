@@ -3,6 +3,7 @@ module github.com/pingcap/br
 go 1.12
 
 require (
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
@@ -27,7 +28,7 @@ require (
 	github.com/pingcap/parser v0.0.0-20190912032624-978b8272c04e
 	github.com/pingcap/pd v0.0.0-20190806095100-82f1dd11d823
 	github.com/pingcap/tidb v0.0.0-20190912055946-5c48d93368d4
-	github.com/prometheus/client_golang v1.1.0
+	github.com/prometheus/client_golang v0.9.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20190728182440-6a916e37a237 // indirect
 	github.com/sirupsen/logrus v1.4.2 // indirect

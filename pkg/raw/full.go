@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/tidb/meta/autoid"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -23,6 +24,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
 )
 
 // Maximum total sleep time(in ms) for kv/cop commands.
@@ -113,11 +116,11 @@ func (bc *BackupClient) BackupTable(
 	rateLimit uint64,
 	concurrency uint32,
 ) error {
-	session, err := session.CreateSession(bc.backer.GetTiKV())
+	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
 		return errors.Trace(err)
 	}
-	do := domain.GetDomain(session.(sessionctx.Context))
+	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return errors.Trace(err)
@@ -132,10 +135,16 @@ func (bc *BackupClient) BackupTable(
 	}
 	cTableName := model.NewCIStr(tableName)
 	table, err := info.TableByName(cDBName, cTableName)
-	tableInfo = table.Meta()
 	if err != nil {
 		return errors.Trace(err)
 	}
+	tableInfo = table.Meta()
+	idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
+	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tableInfo.AutoIncID = globalAutoID
 
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
@@ -152,6 +161,11 @@ func (bc *BackupClient) BackupTable(
 		Db:    dbData,
 		Table: tableData,
 	}
+	log.Info("save table schema",
+		zap.Stringer("db", dbInfo.Name),
+		zap.Stringer("table", tableInfo.Name),
+		zap.Int64("auto_inc_id", globalAutoID),
+	)
 	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
 	log.Info("backup table meta",
 		zap.Reflect("Schema", dbInfo),
@@ -197,6 +211,64 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 			})
 	}
 	return ranges
+}
+
+// BackupAllSchemas fetches all schemas from TiDB.
+func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
+	SystemDatabases := [3]string{
+		"information_schema",
+		"performance_schema",
+		"mysql",
+	}
+
+	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	do := domain.GetDomain(dbSession.(sessionctx.Context))
+	info, err := do.GetSnapshotInfoSchema(backupTS)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	dbInfos := info.AllSchemas()
+LoadDb:
+	for _, dbInfo := range dbInfos {
+		// skip system databases
+		for _, sysDbName := range SystemDatabases {
+			if sysDbName == dbInfo.Name.L {
+				continue LoadDb
+			}
+		}
+		dbData, err := json.Marshal(dbInfo)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
+		for _, tableInfo := range dbInfo.Tables {
+			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			tableInfo.AutoIncID = globalAutoID
+			tableData, err := json.Marshal(tableInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			// Save schema.
+			backupSchema := &backup.Schema{
+				Db:    dbData,
+				Table: tableData,
+			}
+			log.Info("save table schema",
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tableInfo.Name),
+				zap.Int64("auto_inc_id", globalAutoID),
+			)
+			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+		}
+	}
+	return nil
 }
 
 // BackupRange make a backup of the given key range.

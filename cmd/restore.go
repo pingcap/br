@@ -185,11 +185,23 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			tables := db.GetTables(tableName)
-			if len(tables) <= 0 {
-				return errors.Trace(fmt.Errorf("not exists table"))
+			table := db.GetTable(tableName)
+			if table == nil {
+				return errors.New("not exists table")
 			}
-			err = client.RestoreMultipleTables(tables, restoreTS)
+			err = restore.CreateTable(db.Schema.Name.String(), table, client.GetDbDSN())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = restore.AlterAutoIncID(db.Schema.Name.String(), table, client.GetDbDSN())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			fileGroups := db.GetFileGroups(tableName)
+			if len(fileGroups) <= 0 {
+				return errors.New("not exists table")
+			}
+			err = client.RestoreMultipleTables(fileGroups, restoreTS)
 			return errors.Trace(err)
 		},
 	}

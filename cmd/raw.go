@@ -63,6 +63,11 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
+			err = client.BackupAllSchemas(backupTS)
+			if err != nil {
+				return err
+			}
+
 			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
