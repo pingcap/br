@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/cheggaaa/pb/v3"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
@@ -43,6 +44,11 @@ type BackupClient struct {
 	pdClient  pd.Client
 
 	backupMeta backup.BackupMeta
+
+	// the count of regions need to backup, calculated according to scanRegions
+	approximateRegions int64
+	// the count of regions already backup
+	successRegions int64
 }
 
 // NewBackupClient returns a new backup client
@@ -290,6 +296,12 @@ func (bc *BackupClient) BackupRange(
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
 
+	//regions, _, err := bc.pdClient.ScanRegions(ctx, startKey, endKey, 0)
+	//if err != nil {
+	//	return errors.Trace(err)
+	//}
+	//bc.approximateRegions = int64(len(regions))
+
 	allStores, err := bc.pdClient.GetAllStores(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -305,7 +317,11 @@ func (bc *BackupClient) BackupRange(
 		Concurrency:  concurrency,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
-	results, err := push.pushBackup(req, allStores...)
+
+	backupDone := make(chan struct{}, 1)
+	bc.printBackupProgress(backupDone)
+
+	results, err := push.pushBackup(req, &bc.successRegions, allStores...)
 	if err != nil {
 		return err
 	}
@@ -333,6 +349,7 @@ func (bc *BackupClient) BackupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
+	backupDone <- struct{}{}
 	log.Info("backup range finished",
 		zap.Duration("take", time.Since(start)))
 	return nil
@@ -565,4 +582,27 @@ func (bc *BackupClient) handleFineGrained(
 		return 0, err
 	}
 	return max, nil
+}
+
+func (bc *BackupClient) printBackupProgress(done <-chan struct{}) {
+
+	bar := pb.New64(bc.approximateRegions)
+	bar.Start()
+
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if bc.successRegions <= bc.approximateRegions {
+					bar.SetCurrent(bc.successRegions)
+				}
+			}
+		}
+	}()
+
 }

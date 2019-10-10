@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect

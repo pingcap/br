@@ -3,6 +3,7 @@ package raw
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	// "github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/br/pkg/meta"
@@ -35,6 +36,7 @@ func newPushDown(ctx context.Context, backer *meta.Backer, cap int) *pushDown {
 // FullBackup make a full backup of a tikv cluster.
 func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
+	successRegions *int64,
 	stores ...*metapb.Store,
 ) (RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
@@ -74,6 +76,7 @@ func (push *pushDown) pushBackup(
 			}
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
+				atomic.AddInt64(successRegions, 1)
 				res.putOk(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 			} else {
