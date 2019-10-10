@@ -68,10 +68,26 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			err = client.BackupRange([]byte(""), []byte(""), u, backupTS, rate, concurrency)
+			done := make(chan struct{}, 1)
+
+			startKey := []byte("")
+			endKey := []byte("")
+
+			// the count of regions need to backup
+			approximateRegions, err := client.GetRangeRegions(startKey, nil)
 			if err != nil {
 				return err
 			}
+
+			go func() {
+				client.PrintBackupProgress(int64(approximateRegions), done)
+			}()
+
+			err = client.BackupRange(startKey, endKey, u, backupTS, rate, concurrency)
+			if err != nil {
+				return err
+			}
+			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -128,10 +144,32 @@ func newTableBackupCommand() *cobra.Command {
 			if concurrency == 0 {
 				return errors.New("at least one thread required")
 			}
-			err = client.BackupTable(db, table, u, backupTS, rate, concurrency)
+			ranges, err := client.BackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
+			done := make(chan struct{}, 1)
+			// the count of regions need to backup
+			approximateRegions := 0
+			for _, r := range ranges {
+				regionCount, err := client.GetRangeRegions(r.StartKey, r.EndKey)
+				if err != nil {
+					return err
+				}
+				approximateRegions += regionCount
+			}
+
+			go func() {
+				client.PrintBackupProgress(int64(approximateRegions), done)
+			}()
+
+			for _, r := range ranges {
+				err := client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
+				if err != nil {
+					return err
+				}
+			}
+			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},
 	}

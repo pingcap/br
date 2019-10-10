@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
@@ -45,8 +46,6 @@ type BackupClient struct {
 
 	backupMeta backup.BackupMeta
 
-	// the count of regions need to backup, calculated according to scanRegions
-	approximateRegions int64
 	// the count of regions already backup
 	successRegions int64
 }
@@ -114,22 +113,22 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
 }
 
-// BackupTable backup the given table.
-func (bc *BackupClient) BackupTable(
+// BackupTableRanges backup the given table.
+func (bc *BackupClient) BackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-) error {
+) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	var dbInfo *model.DBInfo
@@ -137,29 +136,29 @@ func (bc *BackupClient) BackupTable(
 	cDBName := model.NewCIStr(dbName)
 	dbInfo, exist := info.SchemaByName(cDBName)
 	if !exist {
-		return errors.Errorf("schema %s not found", dbName)
+		return nil, errors.Errorf("schema %s not found", dbName)
 	}
 	cTableName := model.NewCIStr(tableName)
 	table, err := info.TableByName(cDBName, cTableName)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	tableInfo = table.Meta()
 	idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	tableInfo.AutoIncID = globalAutoID
 
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	tableData, err := json.Marshal(tableInfo)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	// Save schema.
@@ -179,25 +178,25 @@ func (bc *BackupClient) BackupTable(
 
 	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 	//       backup global index.
-	ranges := buildTableRanges(tableInfo)
-	for _, r := range ranges {
-		start, end := r.Range()
-		err = bc.BackupRange(start, end, path, backupTS, rateLimit, concurrency)
-		if err != nil {
-			return err
-		}
+	tableRanges := buildTableRanges(tableInfo)
+	ranges := make([]Range, 0, len(tableRanges))
+	for _, r := range tableRanges {
+		ranges = append(ranges, r.Range())
 	}
-	return nil
+	return ranges, nil
 }
 
 type tableRange struct {
 	startID, endID int64
 }
 
-func (tr tableRange) Range() ([]byte, []byte) {
+func (tr tableRange) Range() Range {
 	startKey := tablecodec.GenTablePrefix(tr.startID)
 	endKey := tablecodec.GenTablePrefix(tr.endID)
-	return []byte(startKey), []byte(endKey)
+	return Range{
+		StartKey: []byte(startKey),
+		EndKey:   []byte(endKey),
+	}
 }
 
 func buildTableRanges(tbl *model.TableInfo) []tableRange {
@@ -296,12 +295,6 @@ func (bc *BackupClient) BackupRange(
 	ctx, cancel := context.WithCancel(bc.ctx)
 	defer cancel()
 
-	//regions, _, err := bc.pdClient.ScanRegions(ctx, startKey, endKey, 0)
-	//if err != nil {
-	//	return errors.Trace(err)
-	//}
-	//bc.approximateRegions = int64(len(regions))
-
 	allStores, err := bc.pdClient.GetAllStores(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -317,9 +310,6 @@ func (bc *BackupClient) BackupRange(
 		Concurrency:  concurrency,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
-
-	backupDone := make(chan struct{}, 1)
-	bc.printBackupProgress(backupDone)
 
 	results, err := push.pushBackup(req, &bc.successRegions, allStores...)
 	if err != nil {
@@ -349,7 +339,6 @@ func (bc *BackupClient) BackupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	backupDone <- struct{}{}
 	log.Info("backup range finished",
 		zap.Duration("take", time.Since(start)))
 	return nil
@@ -584,25 +573,36 @@ func (bc *BackupClient) handleFineGrained(
 	return max, nil
 }
 
-func (bc *BackupClient) printBackupProgress(done <-chan struct{}) {
-
-	bar := pb.New64(bc.approximateRegions)
+// PrintBackupProgress prints progress of backup
+func (bc *BackupClient) PrintBackupProgress(count int64, done <-chan struct{}) {
+	bar := pb.New64(count)
 	bar.Start()
 
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case <-t.C:
-				if bc.successRegions <= bc.approximateRegions {
-					bar.SetCurrent(bc.successRegions)
-				}
+	for {
+		select {
+		case <-done:
+			bar.SetCurrent(count)
+			return
+		case <-t.C:
+			regions := atomic.LoadInt64(&bc.successRegions)
+			if regions <= count {
+				bar.SetCurrent(regions)
+			} else {
+				bar.SetCurrent(count)
 			}
 		}
-	}()
+	}
 
+}
+
+// GetRangeRegions get region count by scanRegions(startKey, endKey)
+func (bc *BackupClient) GetRangeRegions(startKey, endKey []byte) (int, error) {
+	regions, _, err := bc.pdClient.ScanRegions(bc.ctx, startKey, endKey, 0)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
+	return len(regions), nil
 }

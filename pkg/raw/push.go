@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 	"sync/atomic"
-
 	// "github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
