@@ -80,7 +80,7 @@ func newFullBackupCommand() *cobra.Command {
 			}
 
 			go func() {
-				client.PrintBackupProgress(int64(approximateRegions), done)
+				client.PrintBackupProgress("Full Backup", int64(approximateRegions), done)
 			}()
 
 			err = client.BackupRange(startKey, endKey, u, backupTS, rate, concurrency)
@@ -144,7 +144,7 @@ func newTableBackupCommand() *cobra.Command {
 			if concurrency == 0 {
 				return errors.New("at least one thread required")
 			}
-			ranges, err := client.BackupTableRanges(db, table, u, backupTS, rate, concurrency)
+			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
@@ -160,7 +160,7 @@ func newTableBackupCommand() *cobra.Command {
 			}
 
 			go func() {
-				client.PrintBackupProgress(int64(approximateRegions), done)
+				client.PrintBackupProgress("Table Backup", int64(approximateRegions), done)
 			}()
 
 			for _, r := range ranges {

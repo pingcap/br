@@ -113,8 +113,8 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
 }
 
-// BackupTableRanges backup the given table.
-func (bc *BackupClient) BackupTableRanges(
+// GetBackupTableRanges gets the range of table
+func (bc *BackupClient) GetBackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
@@ -574,8 +574,10 @@ func (bc *BackupClient) handleFineGrained(
 }
 
 // PrintBackupProgress prints progress of backup
-func (bc *BackupClient) PrintBackupProgress(count int64, done <-chan struct{}) {
-	bar := pb.New64(count)
+func (bc *BackupClient) PrintBackupProgress(barName string, count int64, done <-chan struct{}) {
+	tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "↖" "↗" "↘" "↙" ) "." ">"}} {{percent .}}`
+	bar := pb.ProgressBarTemplate(tmpl).Start64(count)
+	bar.Set("barName", barName)
 	bar.Start()
 
 	t := time.NewTicker(time.Second)
@@ -585,6 +587,7 @@ func (bc *BackupClient) PrintBackupProgress(count int64, done <-chan struct{}) {
 		select {
 		case <-done:
 			bar.SetCurrent(count)
+			bar.Finish()
 			return
 		case <-t.C:
 			regions := atomic.LoadInt64(&bc.successRegions)
