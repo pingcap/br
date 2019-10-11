@@ -1,0 +1,3 @@
+# config of tidb
+
+lease = "0s"
