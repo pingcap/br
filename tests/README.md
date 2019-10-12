@@ -5,14 +5,13 @@ programs.
 
 ## Preparations
 
-1. The following 7 executables must be copied or linked into these locations:
+1. The following 6 executables must be copied or linked into these locations:
     * `bin/tidb-server`
 	* `bin/tikv-server`
 	* `bin/pd-server`
     * `bin/pd-ctl`
 	* `bin/tikv-importer`
 	* `bin/go-ycsb`
-	* `bin/br`
 
     The versions must be ≥2.1.0 as usual.
 
@@ -30,10 +29,11 @@ Make sure the path is `br/`
 
 Run `make integration_test` to execute the integration tests. This command will
 
-1. Check that all 7 executables exist.
+1. Build `br`
+2. Check that all 6 required executables and `br` executable exist
 3. Execute `tests/run.sh`
 
-If the first steps are done before, you could also run `tests/run.sh` directly.
+If the first tow steps are done before, you could also run `tests/run.sh` directly.
 This script will
 
 1. Start PD, TiKV, TiDB and TiKV-Importer in background with local storage
