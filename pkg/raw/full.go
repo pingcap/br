@@ -602,7 +602,7 @@ func (bc *BackupClient) PrintBackupProgress(barName string, count int64, done <-
 }
 
 // GetRangeRegions get region count by scanRegions(startKey, endKey)
-func (bc *BackupClient) GetRangeRegions(startKey, endKey []byte) (int, error) {
+func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
 	regions, _, err := bc.pdClient.ScanRegions(bc.ctx, startKey, endKey, 0)
 	if err != nil {
 		return 0, errors.Trace(err)
