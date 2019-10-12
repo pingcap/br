@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
@@ -25,9 +26,9 @@ require (
 	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
 	github.com/pingcap/kvproto v0.0.0-20190910074707-5a11ba1a2674
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
-	github.com/pingcap/parser v0.0.0-20190912032624-978b8272c04e
-	github.com/pingcap/pd v0.0.0-20190806095100-82f1dd11d823
-	github.com/pingcap/tidb v0.0.0-20190912055946-5c48d93368d4
+	github.com/pingcap/parser v0.0.0-20190923031704-33636bc5e5d6
+	github.com/pingcap/pd v1.1.0-beta.0.20190923032047-5c648dc365e0
+	github.com/pingcap/tidb v0.0.0-20191010035248-d82a94fe5ea7
 	github.com/prometheus/client_golang v0.9.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20190728182440-6a916e37a237 // indirect
