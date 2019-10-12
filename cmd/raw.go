@@ -74,7 +74,7 @@ func newFullBackupCommand() *cobra.Command {
 			endKey := []byte("")
 
 			// the count of regions need to backup
-			approximateRegions, err := client.GetRangeRegions(startKey, nil)
+			approximateRegions, err := client.GetRangeRegionCount(startKey, nil)
 			if err != nil {
 				return err
 			}
@@ -152,7 +152,7 @@ func newTableBackupCommand() *cobra.Command {
 			// the count of regions need to backup
 			approximateRegions := 0
 			for _, r := range ranges {
-				regionCount, err := client.GetRangeRegions(r.StartKey, r.EndKey)
+				regionCount, err := client.GetRangeRegionCount(r.StartKey, r.EndKey)
 				if err != nil {
 					return err
 				}
