@@ -1,0 +1,5 @@
+# config of tikv
+
+[coprocessor]
+region-max-keys = 20
+region-split-keys = 12

@@ -8,10 +8,20 @@ GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 all: check build test
 
 build:
-	GO111MODULE=on go build -race
+	GO111MODULE=on go build -race -o bin/br
 
 test:
 	GO111MODULE=on go test -race ./...
+
+integration_test: build
+	@which bin/tidb-server
+	@which bin/tikv-server
+	@which bin/pd-server
+	@which bin/pd-ctl
+	@which bin/tikv-importer
+	@which bin/go-ycsb
+	@which bin/br
+	tests/run.sh
 
 tools:
 	@echo "install tools..."
