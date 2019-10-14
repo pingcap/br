@@ -16,46 +16,31 @@ import (
 	tidbTable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/format"
-	"github.com/twinj/uuid"
 	"go.uber.org/zap"
 )
 
-// FileGroup wraps the schema and files of a table
-type FileGroup struct {
-	UUID   uuid.UUID
+type File struct {
+	UUID []byte
+	Meta *backup.File
+}
+
+// Table wraps the schema and files of a table
+type Table struct {
 	Db     *model.DBInfo
 	Schema *model.TableInfo
-	Files  []*FilePair
+	Files  []*File
 }
 
 // Database wraps the schema and tables of a database
 type Database struct {
-	Schema     *model.DBInfo
-	FileGroups []*FileGroup
-	Tables     []*model.TableInfo
+	Schema *model.DBInfo
+	Tables []*Table
 }
 
-// FilePair wraps a default cf file & a write cf file
-type FilePair struct {
-	Default *backup.File
-	Write   *backup.File
-}
-
-// GetFileGroups returns file groups by name
-func (db *Database) GetFileGroups(name string) []*FileGroup {
-	fileGroups := make([]*FileGroup, 0)
-	for _, group := range db.FileGroups {
-		if group.Schema.Name.String() == name {
-			fileGroups = append(fileGroups, group)
-		}
-	}
-	return fileGroups
-}
-
-// GetTable returns a table info by name
-func (db *Database) GetTable(name string) *model.TableInfo {
+// GetTable returns a table of the database by name
+func (db *Database) GetTable(name string) *Table {
 	for _, table := range db.Tables {
-		if table.Name.String() == name {
+		if table.Schema.Name.String() == name {
 			return table
 		}
 	}
@@ -63,20 +48,20 @@ func (db *Database) GetTable(name string) *model.TableInfo {
 }
 
 // CreateTable executes a CREATE TABLE SQL
-func CreateTable(dbName string, table *model.TableInfo, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(dbName)
+func CreateTable(table *Table, dsn string) error {
+	dbDSN := dsn + url.QueryEscape(table.Db.Name.String())
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	createSQL := GetCreateTableSQL(table)
+	createSQL := GetCreateTableSQL(table.Schema)
 	_, err = db.Exec(createSQL)
 	if err != nil {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
-			zap.String("db", dbName),
-			zap.String("addr", dsn),
+			zap.Stringer("db", table.Db.Name),
+			zap.String("dsn", dsn),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -117,23 +102,31 @@ func AnalyzeTable(dbName string, table *model.TableInfo, dsn string) error {
 }
 
 // AlterAutoIncID alters max auto-increment id of table
-func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(dbName)
+func AlterAutoIncID(table *Table, dsn string) error {
+	dbDSN := dsn + url.QueryEscape(table.Db.Name.String())
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
 		return errors.Trace(err)
 	}
-	alterIDSQL := fmt.Sprintf("ALTER TABLE %s auto_increment = %d", encloseName(table.Name.String()), table.AutoIncID)
+	alterIDSQL := fmt.Sprintf(
+		"ALTER TABLE %s auto_increment = %d",
+		encloseName(table.Schema.Name.String()),
+		table.Schema.AutoIncID,
+	)
 	_, err = db.Exec(alterIDSQL)
 	if err != nil {
-		log.Error("alter auto inc id failed", zap.String("SQL", alterIDSQL), zap.String("db", dbName), zap.Error(err))
+		log.Error("alter auto inc id failed",
+			zap.String("SQL", alterIDSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err),
+		)
 		return errors.Trace(err)
 	}
 	log.Info("alter auto inc id",
-		zap.Stringer("table", table.Name),
-		zap.String("db", dbName),
-		zap.Int64("auto_inc_id", table.AutoIncID),
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
+		zap.Int64("auto_inc_id", table.Schema.AutoIncID),
 	)
 	return nil
 }

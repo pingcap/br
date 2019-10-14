@@ -3,16 +3,14 @@ package restore
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/url"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/tablecodec"
@@ -21,138 +19,128 @@ import (
 )
 
 // LoadBackupTables loads schemas from BackupMeta
-func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*Database, error) {
+func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	databases := make(map[string]*Database)
-	filePairs := groupFiles(meta.Files)
-
 	for _, schema := range meta.Schemas {
+		// Parse the database schema.
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			log.Error("load db info failed", zap.Binary("data", schema.Db), zap.Error(err))
 			return nil, errors.Trace(err)
 		}
-
-		tableInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tableInfo)
-		if err != nil {
-			log.Error("load table info failed", zap.Binary("data", schema.Table), zap.Error(err))
-			return nil, errors.Trace(err)
-		}
-
+		// If the database do not ever added into the map, initialize a database object in the map.
 		db, ok := databases[dbInfo.Name.String()]
 		if !ok {
 			db = &Database{
-				Schema:     dbInfo,
-				FileGroups: make([]*FileGroup, 0),
-				Tables:     make([]*model.TableInfo, 0),
+				Schema: dbInfo,
+				Tables: make([]*Table, 0),
 			}
 			databases[dbInfo.Name.String()] = db
 		}
-		db.Tables = append(db.Tables, tableInfo)
-
-		tableFiles := make([]*FilePair, 0)
-		for _, pair := range filePairs {
-			f := pair.Write
-			if !bytes.HasPrefix(f.StartKey, tablecodec.TablePrefix()) && !bytes.HasPrefix(f.EndKey, tablecodec.TablePrefix()) {
+		// Parse the table schema.
+		tableInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tableInfo)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		// Find the files belong to the table
+		tableFiles := make([]*File, 0)
+		for _, fileMeta := range meta.Files {
+			// If the file do not contains any table data, skip it.
+			if !bytes.HasPrefix(fileMeta.GetStartKey(), tablecodec.TablePrefix()) &&
+				!bytes.HasPrefix(fileMeta.EndKey, tablecodec.TablePrefix()) {
 				continue
 			}
-			startTableID := tablecodec.DecodeTableID(f.StartKey)
-			endTableID := tablecodec.DecodeTableID(f.EndKey)
-
+			startTableID := tablecodec.DecodeTableID(fileMeta.GetStartKey())
+			endTableID := tablecodec.DecodeTableID(fileMeta.GetEndKey())
+			// If the file contains a part of the data of the table, append it to the slice.
 			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
-				tableFiles = append(tableFiles, pair)
-				if len(tableFiles) >= partitionSize {
-					group := &FileGroup{
-						UUID:   uuid.NewV4(),
-						Db:     dbInfo,
-						Schema: tableInfo,
-						Files:  tableFiles,
-					}
-					db.FileGroups = append(db.FileGroups, group)
-					tableFiles = make([]*FilePair, 0)
-				}
+				tableFiles = append(tableFiles, &File{
+					UUID: uuid.NewV4().Bytes(),
+					Meta: fileMeta,
+				})
 			}
 		}
-		if len(tableFiles) > 0 {
-			group := &FileGroup{
-				UUID:   uuid.NewV4(),
-				Db:     dbInfo,
-				Schema: tableInfo,
-				Files:  tableFiles,
-			}
-			db.FileGroups = append(db.FileGroups, group)
+		table := &Table{
+			Db:     dbInfo,
+			Schema: tableInfo,
+			Files:  tableFiles,
 		}
+		db.Tables = append(db.Tables, table)
 	}
-	log.Info("load databases", zap.Reflect("db", databases))
+
+	dbNames := make([]string, 0, len(databases))
+	for name := range databases {
+		dbNames = append(dbNames, name)
+	}
+	log.Info("load databases", zap.Reflect("db", dbNames))
 
 	return databases, nil
 }
 
-// FetchTableInfo fetches table schema from status address
-func FetchTableInfo(addr string, dbName string, tableName string) (*model.TableInfo, error) {
-	statusURL := fmt.Sprintf("http://%s/schema/%s/%s", addr, url.PathEscape(dbName), url.PathEscape(tableName))
-	log.Info("fetch table schema", zap.String("URL", statusURL))
-	resp, err := http.Get(statusURL)
-	if err != nil {
-		return nil, err
+func GetRewriteRules(srcTable *model.TableInfo, destTable *model.TableInfo) (import_sstpb.RewriteRule, []import_sstpb.RewriteRule) {
+	recordRule := import_sstpb.RewriteRule{
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(srcTable.ID),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(destTable.ID),
 	}
-	defer resp.Body.Close()
-	var schema model.TableInfo
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(data, &schema)
-	if err != nil {
-		return nil, err
-	}
-	return &schema, nil
-}
 
-// GroupIDPairs returns grouped id pairs
-func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableIDs []*import_kvpb.IdPair, indexIDs []*import_kvpb.IdPair) {
-	tableIDs = make([]*import_kvpb.IdPair, 0)
-	tableIDs = append(tableIDs, &import_kvpb.IdPair{
-		OldId: srcTable.ID,
-		NewId: destTable.ID,
-	})
-
-	indexIDs = make([]*import_kvpb.IdPair, 0)
-	for _, src := range srcTable.Indices {
-		for _, dest := range destTable.Indices {
-			if src.Name == dest.Name {
-				indexIDs = append(indexIDs, &import_kvpb.IdPair{
-					OldId: src.ID,
-					NewId: dest.ID,
+	indexRules := make([]import_sstpb.RewriteRule, 0, len(srcTable.Indices))
+	for _, srcIndex := range srcTable.Indices {
+		for _, destIndex := range destTable.Indices {
+			if srcIndex.Name == destIndex.Name {
+				indexRules = append(indexRules, import_sstpb.RewriteRule{
+					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(srcTable.ID, srcIndex.ID),
+					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(destTable.ID, destIndex.ID),
 				})
 			}
 		}
 	}
-	log.Info("group id pairs",
-		zap.Reflect("table_id", tableIDs),
-		zap.Reflect("index_id", indexIDs),
-	)
-
-	return
+	return recordRule, indexRules
 }
 
-func groupFiles(files []*backup.File) (filePairs []*FilePair) {
-	filePairs = make([]*FilePair, 0)
-	for _, file := range files {
-		if strings.Contains(file.Name, "write") {
-			var defaultFile *backup.File
-			defaultName := strings.ReplaceAll(file.Name, "write", "default")
-			for _, f := range files {
-				if f.Name == defaultName {
-					defaultFile = f
-				}
+func GetSSTMetaFromFile(file *File, region *metapb.Region) import_sstpb.SSTMeta {
+	var cfName string
+	if strings.Contains(file.Meta.Name, "default") {
+		cfName = "default"
+	} else if strings.Contains(file.Meta.Name, "write") {
+		cfName = "write"
+	}
+	rangeStart := file.Meta.GetStartKey()
+	if bytes.Compare(region.GetStartKey(), rangeStart) > 0 {
+		rangeStart = region.GetStartKey()
+	}
+	rangeEnd := file.Meta.GetEndKey()
+	if len(region.GetEndKey()) != 0 && bytes.Compare(region.GetEndKey(), rangeEnd) < 0 {
+		rangeEnd = region.GetEndKey()
+	}
+	return import_sstpb.SSTMeta{
+		Uuid:   file.UUID,
+		Crc32:  file.Meta.GetCrc32(),
+		CfName: cfName,
+		Range: &import_sstpb.Range{
+			Start: rangeStart,
+			End:   rangeEnd,
+		},
+	}
+}
+
+type RetryableFunc func() error
+type ContinueFunc func(error) bool
+
+func WithRetry(retryableFunc RetryableFunc, continueFunc ContinueFunc, attempts uint, delayTime time.Duration) error {
+	var lastErr error
+	for i := uint(0); i < attempts; i++ {
+		err := retryableFunc()
+		if err != nil {
+			lastErr = err
+			// If this is the last attempt, do not wait
+			if !continueFunc(err) || i == attempts-1 {
+				break
 			}
-			filePairs = append(filePairs, &FilePair{
-				Default: defaultFile,
-				Write:   file,
-			})
+			time.Sleep(delayTime)
+		} else {
+			return nil
 		}
 	}
-	return
+	return lastErr
 }
