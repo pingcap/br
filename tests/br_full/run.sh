@@ -28,7 +28,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 # backup full
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/backupdata" --ratelimit 100 --concurrency 4
+br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/backupdata" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"

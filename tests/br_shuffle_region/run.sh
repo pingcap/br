@@ -28,7 +28,7 @@ echo "-u $PD_ADDR -d sched add shuffle-region-scheduler" | pd-ctl
 echo "-u $PD_ADDR -d sched show" | pd-ctl
 
 # backup with shuffle region
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t $TABLE --ratelimit 100 --concurrency 4
+br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
 
 run_sql "DELETE FROM $DB.$TABLE;"
 
