@@ -125,16 +125,20 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
+	table := Table{
+		Schema: tableInfo.Meta(),
+		Db:     dbInfo,
+	}
 
 	// Get the next AutoIncID
 	idAlloc := autoid.NewAllocator(s.store, dbInfo.ID, false)
-	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.Meta().ID)
+	globalAutoID, err := idAlloc.NextGlobalAutoID(table.Schema.ID)
 	c.Assert(err, IsNil, Commentf("Error allocate next auto id"))
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 
 	// Alter AutoIncID to the next AutoIncID + 100
-	tableInfo.Meta().AutoIncID = globalAutoID + 100
-	err = AlterAutoIncID("test", tableInfo.Meta(), "root@tcp(127.0.0.1:4001)/")
+	table.Schema.AutoIncID = globalAutoID + 100
+	err = AlterAutoIncID(&table, "root@tcp(127.0.0.1:4001)/")
 	c.Assert(err, IsNil, Commentf("Error alter auto inc id: %s", err))
 
 	// Check if AutoIncID is altered successfully
