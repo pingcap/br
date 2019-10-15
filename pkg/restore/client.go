@@ -368,7 +368,7 @@ func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
 // RestoreAll executes the job to restore all files
 func (rc *Client) RestoreAll(restoreTS uint64) error {
 	errCh := make(chan error)
-	defer close(errCh)
+	// defer close(errCh)
 	for _, db := range rc.databases {
 		select {
 		case <-rc.ctx.Done():
@@ -378,8 +378,9 @@ func (rc *Client) RestoreAll(restoreTS uint64) error {
 				err := rc.RestoreDatabase(d, restoreTS)
 				if err != nil {
 					errCh <- errors.Trace(err)
+				} else {
+					errCh <- nil
 				}
-				errCh <- nil
 			}(db)
 		}
 	}
