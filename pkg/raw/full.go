@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/cheggaaa/pb/v3"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
@@ -18,6 +19,7 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
@@ -43,6 +45,9 @@ type BackupClient struct {
 	pdClient  pd.Client
 
 	backupMeta backup.BackupMeta
+
+	// the count of regions already backup
+	successRegions int64
 }
 
 // NewBackupClient returns a new backup client
@@ -108,22 +113,22 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
 }
 
-// BackupTable backup the given table.
-func (bc *BackupClient) BackupTable(
+// GetBackupTableRanges gets the range of table
+func (bc *BackupClient) GetBackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-) error {
+) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	var dbInfo *model.DBInfo
@@ -131,29 +136,29 @@ func (bc *BackupClient) BackupTable(
 	cDBName := model.NewCIStr(dbName)
 	dbInfo, exist := info.SchemaByName(cDBName)
 	if !exist {
-		return errors.Errorf("schema %s not found", dbName)
+		return nil, errors.Errorf("schema %s not found", dbName)
 	}
 	cTableName := model.NewCIStr(tableName)
 	table, err := info.TableByName(cDBName, cTableName)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	tableInfo = table.Meta()
 	idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	tableInfo.AutoIncID = globalAutoID
 
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	tableData, err := json.Marshal(tableInfo)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	// Save schema.
@@ -173,25 +178,25 @@ func (bc *BackupClient) BackupTable(
 
 	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 	//       backup global index.
-	ranges := buildTableRanges(tableInfo)
-	for _, r := range ranges {
-		start, end := r.Range()
-		err = bc.BackupRange(start, end, path, backupTS, rateLimit, concurrency)
-		if err != nil {
-			return err
-		}
+	tableRanges := buildTableRanges(tableInfo)
+	ranges := make([]Range, 0, len(tableRanges))
+	for _, r := range tableRanges {
+		ranges = append(ranges, r.Range())
 	}
-	return nil
+	return ranges, nil
 }
 
 type tableRange struct {
 	startID, endID int64
 }
 
-func (tr tableRange) Range() ([]byte, []byte) {
+func (tr tableRange) Range() Range {
 	startKey := tablecodec.GenTablePrefix(tr.startID)
 	endKey := tablecodec.GenTablePrefix(tr.endID)
-	return []byte(startKey), []byte(endKey)
+	return Range{
+		StartKey: []byte(startKey),
+		EndKey:   []byte(endKey),
+	}
 }
 
 func buildTableRanges(tbl *model.TableInfo) []tableRange {
@@ -305,7 +310,8 @@ func (bc *BackupClient) BackupRange(
 		Concurrency:  concurrency,
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
-	results, err := push.pushBackup(req, allStores...)
+
+	results, err := push.pushBackup(req, &bc.successRegions, allStores...)
 	if err != nil {
 		return err
 	}
@@ -565,4 +571,42 @@ func (bc *BackupClient) handleFineGrained(
 		return 0, err
 	}
 	return max, nil
+}
+
+// PrintBackupProgress prints progress of backup
+func (bc *BackupClient) PrintBackupProgress(barName string, count int64, done <-chan struct{}) {
+	tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "↖" "↗" "↘" "↙" ) "." ">"}} {{percent .}}`
+	bar := pb.ProgressBarTemplate(tmpl).Start64(count)
+	bar.Set("barName", barName)
+	bar.Start()
+
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-done:
+			bar.SetCurrent(count)
+			bar.Finish()
+			return
+		case <-t.C:
+			regions := atomic.LoadInt64(&bc.successRegions)
+			if regions <= count {
+				bar.SetCurrent(regions)
+			} else {
+				bar.SetCurrent(count)
+			}
+		}
+	}
+
+}
+
+// GetRangeRegionCount get region count by scanRegions(startKey, endKey)
+func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
+	// TODO find an efficient way to get range regionCount
+	regions, _, err := bc.pdClient.ScanRegions(bc.ctx, startKey, endKey, 0)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
+	return len(regions), nil
 }

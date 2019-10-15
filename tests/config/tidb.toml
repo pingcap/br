@@ -1,0 +1,6 @@
+# config of tidb
+
+# Schema lease duration
+# There are lot of ddl in the tests, setting this 
+# to 0s to accelerate the tests
+lease = "0s"

@@ -3,8 +3,9 @@ module github.com/pingcap/br
 go 1.12
 
 require (
-	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191015061819-53f48e1507f9+incompatible
+	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191015064953-78cd353fdec8+incompatible
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
+	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
@@ -32,12 +33,10 @@ require (
 	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
 	github.com/pingcap/kvproto v0.0.0-20191011042334-8ee4fd8fb4ca
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
-	github.com/pingcap/parser v0.0.0-20191014060455-5d0bf28eaa23
-	github.com/pingcap/pd v1.1.0-beta.0.20190912093418-dc03c839debd
-	github.com/pingcap/tidb v0.0.0-20190912055946-5c48d93368d4
-	github.com/pingcap/tidb-tools v3.0.4+incompatible // indirect
-	github.com/pingcap/tipb v0.0.0-20191008064422-018b2fadf414 // indirect
-	github.com/prometheus/client_golang v1.1.0
+	github.com/pingcap/parser v0.0.0-20190923031704-33636bc5e5d6
+	github.com/pingcap/pd v1.1.0-beta.0.20190923032047-5c648dc365e0
+	github.com/pingcap/tidb v0.0.0-20191010035248-d82a94fe5ea7
+	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/client_model v0.0.0-20190812154241-14fe0d1b01d4 // indirect
 	github.com/prometheus/common v0.7.0 // indirect
 	github.com/prometheus/procfs v0.0.5 // indirect

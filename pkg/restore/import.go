@@ -20,10 +20,10 @@ var (
 )
 
 const (
-	importFileRetryTimes = 8
+	importFileRetryTimes   = 8
 	importFileWaitInterval = 10 * time.Millisecond
 
-	downloadSSTRetryTimes = 3
+	downloadSSTRetryTimes   = 3
 	downloadSSTWaitInterval = 10 * time.Millisecond
 )
 
@@ -49,7 +49,7 @@ func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL st
 
 func (importer *FileImporter) Import(file *File, rules []*import_sstpb.RewriteRule) error {
 	err := WithRetry(func() error {
-		regionInfos, err := importer.getRegions(file)
+		regionInfos, err := importer.client.ScanRegions(importer.ctx, file.Meta.GetStartKey(), file.Meta.GetEndKey(), 0)
 		if err != nil {
 			return err
 		}
@@ -85,31 +85,6 @@ func (importer *FileImporter) Import(file *File, rules []*import_sstpb.RewriteRu
 		return true
 	}, importFileRetryTimes, importFileWaitInterval)
 	return err
-}
-
-func (importer *FileImporter) getRegions(file *File) ([]*restore_util.RegionInfo, error) {
-	overlappedRegions := make([]*restore_util.RegionInfo, 0)
-	startKey := file.Meta.GetStartKey()
-GetRegions:
-	for {
-		regionInfos, err := importer.client.ScanRegions(importer.ctx, startKey, 3)
-		if err != nil {
-			return nil, err
-		}
-		for i := range regionInfos {
-			if len(file.Meta.GetEndKey()) == 0 ||
-				bytes.Compare(regionInfos[i].Region.GetStartKey(), file.Meta.GetEndKey()) < 0 {
-				overlappedRegions = append(overlappedRegions, regionInfos[i])
-				if len(regionInfos[i].Region.GetEndKey()) == 0 {
-					break GetRegions
-				}
-				startKey = regionInfos[i].Region.GetEndKey()
-			} else {
-				break GetRegions
-			}
-		}
-	}
-	return overlappedRegions, nil
 }
 
 func (importer *FileImporter) getImportClient(storeID uint64) (import_sstpb.ImportSSTClient, error) {
