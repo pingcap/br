@@ -32,7 +32,7 @@ br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t 
 run_sql "DELETE FROM $DB.$TABLE;"
 
 # restore with shuffle leader
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" --importer $IMPORTER_ADDR --meta backupmeta --status $TIDB_IP:10080 --pd $PD_ADDR
+br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" --meta backupmeta --pd $PD_ADDR
 
 # remove shuffle leader scheduler
 pd-ctl -u "http://$PD_ADDR" -d sched remove shuffle-leader-scheduler

@@ -35,7 +35,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 # restore full
-br restore full --connect "root@tcp($TIDB_ADDR)/" --importer $IMPORTER_ADDR --meta backupmeta --status $TIDB_IP:10080 --pd $PD_ADDR
+br restore full --connect "root@tcp($TIDB_ADDR)/" --meta backupmeta --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
