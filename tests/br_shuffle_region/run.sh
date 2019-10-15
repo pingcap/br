@@ -24,18 +24,21 @@ go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 # add shuffle region scheduler
-pd-ctl -u "http://$PD_ADDR" -d sched add shuffle-region-scheduler
+echo "add shuffle-region-scheduler"
+echo "-u $PD_ADDR -d sched add shuffle-region-scheduler" | pd-ctl
 
 # backup with shuffle region
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t $TABLE --ratelimit 100 --concurrency 4
+echo "backup start..."
+br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
 
-run_sql "DELETE FROM $DB.$TABLE;"
+run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore with shuffle region
+echo "restore start..."
 br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" --meta backupmeta --pd $PD_ADDR
 
 # remove shuffle region scheduler
-pd-ctl -u "http://$PD_ADDR" -d sched remove shuffle-region-scheduler
+echo "-u $PD_ADDR -d sched remove shuffle-region-scheduler" | pd-ctl
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
