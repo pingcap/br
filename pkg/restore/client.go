@@ -116,13 +116,17 @@ func (rc *Client) GetDatabase(name string) *Database {
 	return rc.databases[name]
 }
 
-func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr, restoreTS uint64) (*model.TableInfo, error) {
+func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
 	dbSession, err := session.CreateSession(rc.tikvCli)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
-	info, err := do.GetSnapshotInfoSchema(restoreTS)
+	ts, err := rc.GetTS()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	info, err := do.GetSnapshotInfoSchema(ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -133,10 +137,10 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr, rest
 	return table.Meta(), nil
 }
 
-func (rc *Client) CreateTables(tables []*Table, restoreTS uint64) ([]*import_sstpb.RewriteRule, error) {
+func (rc *Client) CreateTables(tables []*Table) ([]*import_sstpb.RewriteRule, error) {
 	rules := make([]*import_sstpb.RewriteRule, 0)
 	for _, table := range tables {
-		tableRules, err := rc.CreateTable(table, restoreTS)
+		tableRules, err := rc.CreateTable(table)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -145,7 +149,7 @@ func (rc *Client) CreateTables(tables []*Table, restoreTS uint64) ([]*import_sst
 	return rules, nil
 }
 
-func (rc *Client) CreateTable(table *Table, restoreTS uint64) ([]*import_sstpb.RewriteRule, error) {
+func (rc *Client) CreateTable(table *Table) ([]*import_sstpb.RewriteRule, error) {
 	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 	if err != nil {
 		return nil, err
@@ -158,7 +162,7 @@ func (rc *Client) CreateTable(table *Table, restoreTS uint64) ([]*import_sstpb.R
 	if err != nil {
 		return nil, err
 	}
-	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name, restoreTS)
+	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
 	if err != nil {
 		return nil, err
 	}

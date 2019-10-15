@@ -18,7 +18,6 @@ set -eu
 TEST_DIR=/tmp/backup_restore_test
 
 PD_ADDR="127.0.0.1:2379"
-IMPORTER_ADDR="127.0.0.1:8808"
 TIDB_IP="127.0.0.1"
 TIDB_PORT="4000"
 TIDB_ADDR="127.0.0.1:4000"
@@ -70,12 +69,6 @@ start_services() {
         --config "tests/config/tidb.toml" \
         --log-file "$TEST_DIR/tidb.log" &
 
-    echo "Starting Importer..."
-    bin/tikv-importer \
-        -A "$IMPORTER_ADDR" \
-        --log-file "$TEST_DIR/importer.log" \
-        --import-dir "$TEST_DIR/importer" &
-
     echo "Verifying TiDB is started..."
     i=0
     while ! curl -o /dev/null -sf "http://$TIDB_IP:10080/status"; do
@@ -110,7 +103,6 @@ for script in tests/*/run.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
-    IMPORTER_ADDR="$IMPORTER_ADDR" \
     TIDB_IP="$TIDB_IP" \
     TIDB_PORT="$TIDB_PORT" \
     TIDB_ADDR="$TIDB_ADDR" \
