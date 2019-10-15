@@ -24,7 +24,7 @@ TIDB_PORT="4000"
 TIDB_ADDR="127.0.0.1:4000"
 # actaul tikv_addr are TIKV_ADDR${i} 
 TIKV_ADDR="127.0.0.1:2016"
-TIKV_COUNT=2
+TIKV_COUNT=4
 
 stop_services() {
     killall -9 tikv-server || true
@@ -82,6 +82,16 @@ start_services() {
         i=$((i+1))
         if [ "$i" -gt 10 ]; then
             echo 'Failed to start TiDB'
+            exit 1
+        fi
+        sleep 3
+    done
+
+    i=0
+    while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
+        i=$((i+1))
+        if [ "$i" -gt 10 ]; then
+            echo 'Failed to bootstrap cluster'
             exit 1
         fi
         sleep 3

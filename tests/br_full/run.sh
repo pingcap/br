@@ -28,13 +28,15 @@ for i in $(seq $DB_COUNT); do
 done
 
 # backup full
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/backupdata" --ratelimit 100 --concurrency 4
+echo "backup start..."
+br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/backupdata" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
 
 # restore full
+echo "restore start..."
 br restore full --connect "root@tcp($TIDB_ADDR)/" --importer $IMPORTER_ADDR --meta backupmeta --status $TIDB_IP:10080 --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
@@ -47,7 +49,7 @@ for i in $(seq $DB_COUNT); do
         fail=true
         echo "TEST: [$TEST_NAME] fail on database $DB${i}"
     fi
-    echo "[original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+    echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
 done
 
 if $fail; then

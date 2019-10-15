@@ -1,4 +1,4 @@
-recordcount=2000
+recordcount=10000
 operationcount=0
 workload=core
 
