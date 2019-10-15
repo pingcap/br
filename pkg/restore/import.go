@@ -14,8 +14,18 @@ import (
 	"google.golang.org/grpc"
 )
 
-var notLeaderError error = errors.New("not leader")
-var epochNotMatchError error = errors.New("epoch not match")
+var (
+	notLeaderError     error = errors.New("not leader")
+	epochNotMatchError error = errors.New("epoch not match")
+)
+
+const (
+	importFileRetryTimes = 8
+	importFileWaitInterval = 10 * time.Millisecond
+
+	downloadSSTRetryTimes = 3
+	downloadSSTWaitInterval = 10 * time.Millisecond
+)
 
 type FileImporter struct {
 	mu            sync.Mutex
@@ -37,7 +47,7 @@ func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL st
 	}
 }
 
-func (importer *FileImporter) Import(file *File, recordRule import_sstpb.RewriteRule, indexRules []import_sstpb.RewriteRule) error {
+func (importer *FileImporter) Import(file *File, rules []*import_sstpb.RewriteRule) error {
 	err := WithRetry(func() error {
 		regionInfos, err := importer.getRegions(file)
 		if err != nil {
@@ -49,7 +59,7 @@ func (importer *FileImporter) Import(file *File, recordRule import_sstpb.Rewrite
 			wg.Add(1)
 			go func(n int, regionInfo *restore_util.RegionInfo) {
 				defer wg.Done()
-				rule := findRewriteRule(regionInfo.Region, recordRule, indexRules)
+				rule := findRewriteRule(regionInfo.Region, rules)
 				returnErrs[n] = importer.downloadSST(regionInfo, file, rule)
 				if returnErrs[n] != nil {
 					return
@@ -61,7 +71,7 @@ func (importer *FileImporter) Import(file *File, recordRule import_sstpb.Rewrite
 						return false
 					}
 					return true
-				}, 3, time.Millisecond*100)
+				}, downloadSSTRetryTimes, downloadSSTWaitInterval)
 			}(i, info)
 		}
 		wg.Wait()
@@ -73,7 +83,7 @@ func (importer *FileImporter) Import(file *File, recordRule import_sstpb.Rewrite
 		return nil
 	}, func(e error) bool {
 		return true
-	}, 3, time.Millisecond*100)
+	}, importFileRetryTimes, importFileWaitInterval)
 	return err
 }
 
@@ -183,19 +193,17 @@ func (importer *FileImporter) ingestSST(regionInfo *restore_util.RegionInfo, fil
 	return nil
 }
 
-func findRewriteRule(region *metapb.Region, recordRule import_sstpb.RewriteRule, indexRules []import_sstpb.RewriteRule) import_sstpb.RewriteRule {
+func findRewriteRule(region *metapb.Region, rules []*import_sstpb.RewriteRule) import_sstpb.RewriteRule {
 	if len(region.GetStartKey()) != 0 || len(region.GetEndKey()) != 0 {
 		key := region.GetStartKey()
 		if len(key) == 0 {
 			key = region.GetEndKey()
 		}
-		for _, ir := range indexRules {
-			if bytes.HasPrefix(key, ir.GetNewKeyPrefix()) {
-				return ir
+		for _, rule := range rules {
+			// regions may have the new prefix
+			if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
+				return *rule
 			}
-		}
-		if bytes.HasPrefix(key, recordRule.GetNewKeyPrefix()) {
-			return recordRule
 		}
 	}
 	return import_sstpb.RewriteRule{}

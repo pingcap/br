@@ -47,25 +47,13 @@ func (db *Database) GetTable(name string) *Table {
 	return nil
 }
 
-// CreateTable executes a CREATE TABLE SQL
-func CreateTable(table *Table, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(table.Db.Name.String())
+func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
+	dbDSN := dsn + url.QueryEscape(dbName)
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
-		return errors.Trace(err)
 	}
-	createSQL := GetCreateTableSQL(table.Schema)
-	_, err = db.Exec(createSQL)
-	if err != nil {
-		log.Error("create table failed",
-			zap.String("SQL", createSQL),
-			zap.Stringer("db", table.Db.Name),
-			zap.String("dsn", dsn),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
+	return db, err
 }
 
 // CreateDatabase executes a CREATE DATABASE SQL
@@ -84,37 +72,39 @@ func CreateDatabase(schema *model.DBInfo, dsn string) error {
 	return nil
 }
 
-// AnalyzeTable executes a ANALYZE TABLE SQL
-func AnalyzeTable(dbName string, table *model.TableInfo, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(dbName)
-	db, err := sql.Open("mysql", dbDSN)
+// CreateTable executes a CREATE TABLE SQL
+func CreateTable(db *sql.DB, table *Table) error {
+	createSQL := GetCreateTableSQL(table.Schema)
+	_, err := db.Exec(createSQL)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
+		log.Error("create table failed",
+			zap.String("SQL", createSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err))
 		return errors.Trace(err)
 	}
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Name.String()))
-	_, err = db.Exec(analyzeSQL)
+	return nil
+}
+
+// AnalyzeTable executes a ANALYZE TABLE SQL
+func AnalyzeTable(db *sql.DB, table *Table) error {
+	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Schema.Name.String()))
+	_, err := db.Exec(analyzeSQL)
 	if err != nil {
-		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.String("db", dbName), zap.Error(err))
+		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.Error(err))
 		return errors.Trace(err)
 	}
 	return nil
 }
 
 // AlterAutoIncID alters max auto-increment id of table
-func AlterAutoIncID(table *Table, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(table.Db.Name.String())
-	db, err := sql.Open("mysql", dbDSN)
-	if err != nil {
-		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
-		return errors.Trace(err)
-	}
+func AlterAutoIncID(db *sql.DB, table *Table) error {
 	alterIDSQL := fmt.Sprintf(
 		"ALTER TABLE %s auto_increment = %d",
 		encloseName(table.Schema.Name.String()),
 		table.Schema.AutoIncID,
 	)
-	_, err = db.Exec(alterIDSQL)
+	_, err := db.Exec(alterIDSQL)
 	if err != nil {
 		log.Error("alter auto inc id failed",
 			zap.String("SQL", alterIDSQL),

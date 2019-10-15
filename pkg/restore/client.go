@@ -9,6 +9,7 @@ import (
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
@@ -59,6 +60,10 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	}, nil
 }
 
+func (rc *Client) GetPDClient() pd.Client {
+	return rc.pdClient
+}
+
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	databases, err := LoadBackupTables(backupMeta)
@@ -68,10 +73,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	client, err := restore_util.NewClient(rc.pdClient)
-	if err != nil {
-		return err
-	}
+	client := restore_util.NewClient(rc.pdClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, client, backupMeta.GetPath())
 	return nil
 }
@@ -101,6 +103,14 @@ func (rc *Client) GetTS() (uint64, error) {
 	return restoreTS, nil
 }
 
+func (rc *Client) GetDatabases() []*Database {
+	dbs := make([]*Database, 0, len(rc.databases))
+	for _, db := range rc.databases {
+		dbs = append(dbs, db)
+	}
+	return dbs
+}
+
 // GetDatabase returns a database by name
 func (rc *Client) GetDatabase(name string) *Database {
 	return rc.databases[name]
@@ -123,36 +133,55 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr, rest
 	return table.Meta(), nil
 }
 
-func (rc *Client) RestoreTable(table *Table, restoreTS uint64) error {
+func (rc *Client) CreateTables(tables []*Table, restoreTS uint64) ([]*import_sstpb.RewriteRule, error) {
+	rules := make([]*import_sstpb.RewriteRule, 0)
+	for _, table := range tables {
+		tableRules, err := rc.CreateTable(table, restoreTS)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		rules = append(rules, tableRules...)
+	}
+	return rules, nil
+}
+
+func (rc *Client) CreateTable(table *Table, restoreTS uint64) ([]*import_sstpb.RewriteRule, error) {
+	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
+	if err != nil {
+		return nil, err
+	}
+	err = CreateTable(db, table)
+	if err != nil {
+		return nil, err
+	}
+	err = AlterAutoIncID(db, table)
+	if err != nil {
+		return nil, err
+	}
+	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name, restoreTS)
+	if err != nil {
+		return nil, err
+	}
+	return GetRewriteRules(table.Schema, newTableInfo), nil
+}
+
+func (rc *Client) RestoreTable(table *Table, rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 	)
-	err := CreateTable(table, rc.dbDSN)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = AlterAutoIncID(table, rc.dbDSN)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	newTableInfo, returnErr := rc.GetTableSchema(table.Db.Name, table.Schema.Name, restoreTS)
-	if returnErr != nil {
-		return errors.Trace(returnErr)
-	}
-	recordRule, indexRules := GetRewriteRules(table.Schema, newTableInfo)
 	errCh := make(chan error, len(table.Files))
 	defer close(errCh)
 	for _, file := range table.Files {
 		go func(file *File) {
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.fileImporter.Import(file, recordRule, indexRules):
+			case errCh <- rc.fileImporter.Import(file, rules):
 			}
 		}(file)
 	}
 	for range table.Files {
-		err = <-errCh
+		err := <-errCh
 		if err != nil {
 			rc.cancel()
 			return err
@@ -162,23 +191,19 @@ func (rc *Client) RestoreTable(table *Table, restoreTS uint64) error {
 }
 
 // RestoreDatabase executes the job to restore a database
-func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
-	err := CreateDatabase(db.Schema, rc.dbDSN)
-	if err != nil {
-		return err
-	}
+func (rc *Client) RestoreDatabase(db *Database, rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
 	errCh := make(chan error, len(db.Tables))
 	defer close(errCh)
 	for _, table := range db.Tables {
 		go func(table *Table) {
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.RestoreTable(table, restoreTS):
+			case errCh <- rc.RestoreTable(table, rules, restoreTS):
 			}
 		}(table)
 	}
 	for range db.Tables {
-		err = <-errCh
+		err := <-errCh
 		if err != nil {
 			return err
 		}
@@ -187,14 +212,14 @@ func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
 }
 
 // RestoreAll executes the job to restore all files
-func (rc *Client) RestoreAll(restoreTS uint64) error {
+func (rc *Client) RestoreAll(rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
 	errCh := make(chan error, len(rc.databases))
 	defer close(errCh)
 	for _, db := range rc.databases {
 		go func(db *Database) {
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.RestoreDatabase(db, restoreTS):
+			case errCh <- rc.RestoreDatabase(db, rules, restoreTS):
 			}
 		}(db)
 	}

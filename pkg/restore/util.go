@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	restore_util "github.com/5kbpers/tidb-tools/pkg/restore-util"
 	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -16,6 +17,11 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/twinj/uuid"
 	"go.uber.org/zap"
+)
+
+var (
+	dataKeyPrefix   = []byte{'z'}
+	recordPrefixSep = []byte("_r")
 )
 
 // LoadBackupTables loads schemas from BackupMeta
@@ -78,24 +84,26 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	return databases, nil
 }
 
-func GetRewriteRules(srcTable *model.TableInfo, destTable *model.TableInfo) (import_sstpb.RewriteRule, []import_sstpb.RewriteRule) {
-	recordRule := import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(srcTable.ID),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(destTable.ID),
-	}
+func GetRewriteRules(srcTable *model.TableInfo, destTable *model.TableInfo) []*import_sstpb.RewriteRule {
+	rules := make([]*import_sstpb.RewriteRule, 0, len(srcTable.Indices)+1)
 
-	indexRules := make([]import_sstpb.RewriteRule, 0, len(srcTable.Indices))
+	rules = append(rules, &import_sstpb.RewriteRule{
+		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(srcTable.ID), recordPrefixSep...),
+		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(destTable.ID), recordPrefixSep...),
+	})
+
 	for _, srcIndex := range srcTable.Indices {
 		for _, destIndex := range destTable.Indices {
 			if srcIndex.Name == destIndex.Name {
-				indexRules = append(indexRules, import_sstpb.RewriteRule{
+				rules = append(rules, &import_sstpb.RewriteRule{
 					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(srcTable.ID, srcIndex.ID),
 					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(destTable.ID, destIndex.ID),
 				})
 			}
 		}
 	}
-	return recordRule, indexRules
+
+	return rules
 }
 
 func GetSSTMetaFromFile(file *File, region *metapb.Region) import_sstpb.SSTMeta {
@@ -143,4 +151,15 @@ func WithRetry(retryableFunc RetryableFunc, continueFunc ContinueFunc, attempts 
 		}
 	}
 	return lastErr
+}
+
+func GetRanges(files []*File) []restore_util.Range {
+	ranges := make([]restore_util.Range, 0, len(files))
+	for _, file := range files {
+		ranges = append(ranges, restore_util.Range{
+			StartKey: file.Meta.GetStartKey(),
+			EndKey:   file.Meta.GetEndKey(),
+		})
+	}
+	return ranges
 }
