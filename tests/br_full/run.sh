@@ -28,6 +28,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 # backup full
+echo "backup start..."
 br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/backupdata" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
@@ -35,6 +36,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 # restore full
+echo "restore start..."
 br restore full --connect "root@tcp($TIDB_ADDR)/" --importer $IMPORTER_ADDR --meta backupmeta --status $TIDB_IP:10080 --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
