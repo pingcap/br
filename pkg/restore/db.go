@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -17,30 +16,9 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/format"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/utils"
 )
-
-// Table wraps the schema and files of a table.
-type Table struct {
-	Db     *model.DBInfo
-	Schema *model.TableInfo
-	Files  []*backup.File
-}
-
-// Database wraps the schema and tables of a database.
-type Database struct {
-	Schema *model.DBInfo
-	Tables []*Table
-}
-
-// GetTable returns a table of the database by name.
-func (db *Database) GetTable(name string) *Table {
-	for _, table := range db.Tables {
-		if table.Schema.Name.String() == name {
-			return table
-		}
-	}
-	return nil
-}
 
 // OpenDatabase opens a database with dsn.
 func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
@@ -69,7 +47,7 @@ func CreateDatabase(schema *model.DBInfo, dsn string) error {
 }
 
 // CreateTable executes a CREATE TABLE SQL.
-func CreateTable(db *sql.DB, table *Table) error {
+func CreateTable(db *sql.DB, table *utils.Table) error {
 	createSQL := GetCreateTableSQL(table.Schema)
 	_, err := db.Exec(createSQL)
 	if err != nil {
@@ -83,7 +61,7 @@ func CreateTable(db *sql.DB, table *Table) error {
 }
 
 // AnalyzeTable executes a ANALYZE TABLE SQL.
-func AnalyzeTable(db *sql.DB, table *Table) error {
+func AnalyzeTable(db *sql.DB, table *utils.Table) error {
 	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Schema.Name.String()))
 	_, err := db.Exec(analyzeSQL)
 	if err != nil {
@@ -94,7 +72,7 @@ func AnalyzeTable(db *sql.DB, table *Table) error {
 }
 
 // AlterAutoIncID alters max auto-increment id of table.
-func AlterAutoIncID(db *sql.DB, table *Table) error {
+func AlterAutoIncID(db *sql.DB, table *utils.Table) error {
 	alterIDSQL := fmt.Sprintf(
 		"ALTER TABLE %s auto_increment = %d",
 		encloseName(table.Schema.Name.String()),

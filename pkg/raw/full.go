@@ -3,12 +3,13 @@ package raw
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
-
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
@@ -24,11 +25,11 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/sqlexec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Maximum total sleep time(in ms) for kv/cop commands.
@@ -128,6 +129,7 @@ func (bc *BackupClient) GetBackupTableRanges(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
+	checksumSwitch bool,
 ) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -159,6 +161,15 @@ func (bc *BackupClient) GetBackupTableRanges(
 	}
 	tableInfo.AutoIncID = globalAutoID
 
+	var tblChecksum, tblKvs, tblBytes uint64
+	if checksumSwitch {
+		dbSession.GetSessionVars().SnapshotTS = backupTS
+		tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -171,8 +182,11 @@ func (bc *BackupClient) GetBackupTableRanges(
 
 	// Save schema.
 	backupSchema := &backup.Schema{
-		Db:    dbData,
-		Table: tableData,
+		Db:         dbData,
+		Table:      tableData,
+		Crc64Xor:   tblChecksum,
+		TotalKvs:   tblKvs,
+		TotalBytes: tblBytes,
 	}
 	log.Info("save table schema",
 		zap.Stringer("db", dbInfo.Name),
@@ -227,7 +241,7 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 }
 
 // GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
+func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch bool) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -237,6 +251,11 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
 		return nil, errors.Trace(err)
+	}
+
+	if checksumSwitch {
+		// make checksumSwitch snapshot is same as backup snapshot
+		dbSession.GetSessionVars().SnapshotTS = backupTS
 	}
 
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
@@ -262,6 +281,13 @@ LoadDb:
 		}
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
+			var tblChecksum, tblKvs, tblBytes uint64
+			if checksumSwitch {
+				tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
+			}
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -273,8 +299,11 @@ LoadDb:
 			}
 			// Save schema.
 			backupSchema := &backup.Schema{
-				Db:    dbData,
-				Table: tableData,
+				Db:         dbData,
+				Table:      tableData,
+				Crc64Xor:   tblChecksum,
+				TotalKvs:   tblKvs,
+				TotalBytes: tblBytes,
 			}
 			log.Info("save table schema",
 				zap.Stringer("db", dbInfo.Name),
@@ -627,4 +656,86 @@ func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error
 		return 0, errors.Trace(err)
 	}
 	return len(regions), nil
+}
+
+// FastChecksum check data integrity by xor all(sst_checksum) per table
+func (bc *BackupClient) FastChecksum() (bool, error) {
+	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
+	if err != nil {
+		return false, err
+	}
+
+	for _, schema := range bc.backupMeta.Schemas {
+		dbInfo := &model.DBInfo{}
+		err = json.Unmarshal(schema.Db, dbInfo)
+		if err != nil {
+			return false, err
+		}
+		tblInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tblInfo)
+		if err != nil {
+			return false, err
+		}
+		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
+
+		checksum := uint64(0)
+		totalKvs := uint64(0)
+		totalBytes := uint64(0)
+		for _, file := range tbl.Files {
+			checksum ^= file.Crc64Xor
+			totalKvs += file.TotalKvs
+			totalBytes += file.TotalBytes
+		}
+		if !(schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes) {
+			log.Error("failed in fast checksum",
+				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
+				zap.Uint64("calculated crc64", checksum),
+				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
+				zap.Uint64("calculated total kvs", totalKvs),
+				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
+				zap.Uint64("calculated total bytes", totalBytes),
+			)
+		} else {
+			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (bc *BackupClient) getChecksumFromTiDB(dbSession session.Session, dbl *model.DBInfo, tbl *model.TableInfo) (checksum uint64, totalKvs uint64, totalBytes uint64, err error) {
+	var recordSets []sqlexec.RecordSet
+	// TODO figure out why
+	// must set to true to avoid load global vars, otherwise we got error
+	dbSession.GetSessionVars().CommonGlobalLoaded = true
+
+	recordSets, err = dbSession.Execute(bc.ctx, fmt.Sprintf("admin checksum table `%s`.`%s`", dbl.Name.L, tbl.Name.L))
+	if err != nil {
+		return 0, 0, 0, errors.Trace(err)
+	}
+	records, err := utils.ResultSetToStringSlice(bc.ctx, dbSession, recordSets[0])
+	if err != nil {
+		return 0, 0, 0, errors.Trace(err)
+	}
+	log.Info("tidb table checksum",
+		zap.String("db", dbl.Name.L),
+		zap.String("table", tbl.Name.L),
+		zap.Reflect("records", records),
+	)
+
+	record := records[0]
+	checksum, err = strconv.ParseUint(record[2], 10, 64)
+	if err != nil {
+		return 0, 0, 0, errors.Trace(err)
+	}
+	totalKvs, err = strconv.ParseUint(record[3], 10, 64)
+	if err != nil {
+		return 0, 0, 0, errors.Trace(err)
+	}
+	totalBytes, err = strconv.ParseUint(record[4], 10, 64)
+	if err != nil {
+		return 0, 0, 0, errors.Trace(err)
+	}
+	return
 }

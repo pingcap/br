@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +16,8 @@ func NewBackupCommand() *cobra.Command {
 		newFullBackupCommand(),
 		newTableBackupCommand(),
 	)
+
+	bp.PersistentFlags().BoolP("checksum", "", false, "The checksum verification switch")
 
 	bp.PersistentFlags().StringP("timeago", "", "", "The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
@@ -68,7 +71,12 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			ranges, err := client.GetAllBackupTableRanges(backupTS)
+			checksumSwitch, err := command.Flags().GetBool("checksum")
+			if err != nil {
+				return err
+			}
+
+			ranges, err := client.GetAllBackupTableRanges(backupTS, checksumSwitch)
 			if err != nil {
 				return err
 			}
@@ -89,6 +97,16 @@ func newFullBackupCommand() *cobra.Command {
 				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
 				if err != nil {
 					return err
+				}
+			}
+			if checksumSwitch {
+				valid, err := client.FastChecksum()
+				if err != nil {
+					return err
+				}
+
+				if !valid {
+					log.Error("backup checksumSwitch not passed!")
 				}
 			}
 			done <- struct{}{}
@@ -155,7 +173,12 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
+			checksumSwitch, err := command.Flags().GetBool("checksum")
+			if err != nil {
+				return err
+			}
+
+			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency, checksumSwitch)
 			if err != nil {
 				return err
 			}
@@ -179,6 +202,16 @@ func newTableBackupCommand() *cobra.Command {
 				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
 				if err != nil {
 					return err
+				}
+			}
+			if checksumSwitch {
+				valid, err := client.FastChecksum()
+				if err != nil {
+					return err
+				}
+
+				if !valid {
+					log.Error("backup checksumSwitch not passed!")
 				}
 			}
 			done <- struct{}{}
