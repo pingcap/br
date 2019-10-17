@@ -3,7 +3,7 @@ module github.com/pingcap/br
 go 1.12
 
 require (
-	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191015122535-2518c0a330c1+incompatible
+	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191017055410-2403e11b977f+incompatible
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.4.1
@@ -32,5 +32,3 @@ require (
 )
 
 replace github.com/golang/lint => golang.org/x/lint v0.0.0-20190930215403-16217165b5de
-
-replace github.com/5kbpers/tidb-tools => /Users/5kbpers/go/src/github.com/pingcap/tidb-tools
