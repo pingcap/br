@@ -142,7 +142,8 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 	}
 	tableIDs, indexIDs := GroupIDPairs(group.Schema, tableInfo)
 
-	returnErr = rc.OpenEngine(client, group.UUID.Bytes())
+	ubytes, _ := group.UUID.MarshalBinary()
+	returnErr = rc.OpenEngine(client, ubytes)
 	if returnErr != nil {
 		log.Error("open engine failed",
 			zap.Uint64("restore_ts", restoreTS),
@@ -161,6 +162,7 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 			return nil
 		default:
 			go func(file *FilePair) {
+				ubytes, _ := group.UUID.MarshalBinary()
 				req := &import_kvpb.RestoreFileRequest{
 					Default:   file.Default,
 					Write:     file.Write,
@@ -169,7 +171,7 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 					TableIds:  tableIDs,
 					IndexIds:  indexIDs,
 					RestoreTs: restoreTS,
-					Uuid:      group.UUID.Bytes(),
+					Uuid:      ubytes,
 				}
 				sendErr := func(err error) {
 					log.Error("restore file failed",
@@ -207,7 +209,8 @@ func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *Fil
 		return errors.Trace(returnErr)
 	}
 
-	returnErr = rc.CloseEngine(client, group.UUID.Bytes())
+	ubytes1, _ := group.UUID.MarshalBinary()
+	returnErr = rc.CloseEngine(client, ubytes1)
 	if returnErr != nil {
 		log.Error("close engine failed",
 			zap.Uint64("restore_ts", restoreTS),
@@ -282,7 +285,8 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 					zap.Stringer("uuid", group.UUID),
 					zap.Stringer("db", group.Db.Name),
 				)
-				err := rc.ImportEngine(job.Client, group.UUID.Bytes())
+				ubytes, _ := group.UUID.MarshalBinary()
+				err := rc.ImportEngine(job.Client, ubytes)
 				if err != nil {
 					log.Error("import engine failed",
 						zap.Uint64("restore_ts", restoreTS),
@@ -294,7 +298,8 @@ func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) e
 					errCh <- errors.Trace(err)
 					return
 				}
-				err = rc.CleanupEngine(job.Client, group.UUID.Bytes())
+				ubytes1, _ := group.UUID.MarshalBinary()
+				err = rc.CleanupEngine(job.Client, ubytes1)
 				if err != nil {
 					log.Error("cleanup engine failed",
 						zap.Uint64("restore_ts", restoreTS),

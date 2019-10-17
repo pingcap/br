@@ -10,13 +10,13 @@ import (
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
+	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/twinj/uuid"
 	"go.uber.org/zap"
 )
 
@@ -64,7 +64,7 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*D
 				tableFiles = append(tableFiles, pair)
 				if len(tableFiles) >= partitionSize {
 					group := &FileGroup{
-						UUID:   uuid.NewV4(),
+						UUID:   uuid.New(),
 						Db:     dbInfo,
 						Schema: tableInfo,
 						Files:  tableFiles,
@@ -76,7 +76,7 @@ func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*D
 		}
 		if len(tableFiles) > 0 {
 			group := &FileGroup{
-				UUID:   uuid.NewV4(),
+				UUID:   uuid.New(),
 				Db:     dbInfo,
 				Schema: tableInfo,
 				Files:  tableFiles,
