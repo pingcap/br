@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	restore_util "github.com/5kbpers/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/br/pkg/meta"
@@ -137,19 +138,23 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 	return table.Meta(), nil
 }
 
-func (rc *Client) CreateTables(tables []*Table) ([]*import_sstpb.RewriteRule, error) {
-	rules := make([]*import_sstpb.RewriteRule, 0)
+func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, error) {
+	rewriteRules := &restore_util.RewriteRules{
+		Table: make([]*import_sstpb.RewriteRule, 0),
+		Data:  make([]*import_sstpb.RewriteRule, 0),
+	}
 	for _, table := range tables {
-		tableRules, err := rc.CreateTable(table)
+		rules, err := rc.CreateTable(table)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		rules = append(rules, tableRules...)
+		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
+		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 	}
-	return rules, nil
+	return rewriteRules, nil
 }
 
-func (rc *Client) CreateTable(table *Table) ([]*import_sstpb.RewriteRule, error) {
+func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) {
 	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 	if err != nil {
 		return nil, err
@@ -166,21 +171,27 @@ func (rc *Client) CreateTable(table *Table) ([]*import_sstpb.RewriteRule, error)
 	if err != nil {
 		return nil, err
 	}
-	return GetRewriteRules(table.Schema, newTableInfo), nil
+	rewriteRules := GetRewriteRules(table.Schema, newTableInfo)
+	return rewriteRules, nil
 }
 
-func (rc *Client) RestoreTable(table *Table, rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
+func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 	)
 	errCh := make(chan error, len(table.Files))
+	var wg sync.WaitGroup
 	defer close(errCh)
+	// We should encode the rewrite rewriteRules before using it to import files
+	encodedRules := encodeRewriteRules(rewriteRules)
 	for _, file := range table.Files {
-		go func(file *File) {
+		wg.Add(1)
+		go func(file *backup.File) {
+			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.fileImporter.Import(file, rules):
+			case errCh <- rc.fileImporter.Import(file, encodedRules):
 			}
 		}(file)
 	}
@@ -188,6 +199,7 @@ func (rc *Client) RestoreTable(table *Table, rules []*import_sstpb.RewriteRule, 
 		err := <-errCh
 		if err != nil {
 			rc.cancel()
+			wg.Wait()
 			return err
 		}
 	}
@@ -195,20 +207,24 @@ func (rc *Client) RestoreTable(table *Table, rules []*import_sstpb.RewriteRule, 
 }
 
 // RestoreDatabase executes the job to restore a database
-func (rc *Client) RestoreDatabase(db *Database, rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
+func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	errCh := make(chan error, len(db.Tables))
+	var wg sync.WaitGroup
 	defer close(errCh)
 	for _, table := range db.Tables {
+		wg.Add(1)
 		go func(table *Table) {
+			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.RestoreTable(table, rules, restoreTS):
+			case errCh <- rc.RestoreTable(table, rewriteRules, restoreTS):
 			}
 		}(table)
 	}
 	for range db.Tables {
 		err := <-errCh
 		if err != nil {
+			wg.Wait()
 			return err
 		}
 	}
@@ -216,20 +232,24 @@ func (rc *Client) RestoreDatabase(db *Database, rules []*import_sstpb.RewriteRul
 }
 
 // RestoreAll executes the job to restore all files
-func (rc *Client) RestoreAll(rules []*import_sstpb.RewriteRule, restoreTS uint64) error {
+func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	errCh := make(chan error, len(rc.databases))
+	var wg sync.WaitGroup
 	defer close(errCh)
 	for _, db := range rc.databases {
+		wg.Add(1)
 		go func(db *Database) {
+			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
-			case errCh <- rc.RestoreDatabase(db, rules, restoreTS):
+			case errCh <- rc.RestoreDatabase(db, rewriteRules, restoreTS):
 			}
 		}(db)
 	}
 	for range rc.databases {
 		err := <-errCh
 		if err != nil {
+			wg.Wait()
 			return err
 		}
 	}

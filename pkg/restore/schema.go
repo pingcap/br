@@ -19,16 +19,11 @@ import (
 	"go.uber.org/zap"
 )
 
-type File struct {
-	UUID []byte
-	Meta *backup.File
-}
-
 // Table wraps the schema and files of a table
 type Table struct {
 	Db     *model.DBInfo
 	Schema *model.TableInfo
-	Files  []*File
+	Files  []*backup.File
 }
 
 // Database wraps the schema and tables of a database

@@ -49,25 +49,31 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rules := make([]*import_sstpb.RewriteRule, 0)
-			ranges := make([]restore_util.Range, 0)
+			tableRules := make([]*import_sstpb.RewriteRule, 0)
+			dataRules := make([]*import_sstpb.RewriteRule, 0)
+			files := make([]*backup.File, 0)
 			for _, db := range client.GetDatabases() {
 				err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
 				if err != nil {
 					return errors.Trace(err)
 				}
-				dbRules, err := client.CreateTables(db.Tables)
+				rules, err := client.CreateTables(db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				rules = append(rules, dbRules...)
+				tableRules = append(tableRules, rules.Table...)
+				dataRules = append(dataRules, rules.Data...)
 				for _, table := range db.Tables {
-					ranges = append(ranges, restore.GetRanges(table.Files)...)
+					files = append(files, table.Files...)
 				}
 			}
 
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, ranges, rules)
+			rewriteRules := &restore_util.RewriteRules{
+				Table: tableRules,
+				Data:  dataRules,
+			}
+			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -75,7 +81,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreAll(rules, restoreTS)
+			err = client.RestoreAll(rewriteRules, restoreTS)
 			return errors.Trace(err)
 		},
 	}
@@ -124,16 +130,16 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rules, err := client.CreateTables(db.Tables)
+			rewriteRules, err := client.CreateTables(db.Tables)
 			if err != nil {
 				return errors.Trace(err)
 			}
-			ranges := make([]restore_util.Range, 0)
+			files := make([]*backup.File, 0)
 			for _, table := range db.Tables {
-				ranges = append(ranges, restore.GetRanges(table.Files)...)
+				files = append(files, table.Files...)
 			}
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, ranges, rules)
+			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -141,7 +147,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreDatabase(db, rules, restoreTS)
+			err = client.RestoreDatabase(db, rewriteRules, restoreTS)
 			return errors.Trace(err)
 		},
 	}
@@ -200,13 +206,13 @@ func newTableRestoreCommand() *cobra.Command {
 			if table == nil {
 				return errors.New("not exists table")
 			}
-			rules, err := client.CreateTable(table)
+			// The rules here is raw key.
+			rewriteRules, err := client.CreateTable(table)
 			if err != nil {
 				return errors.Trace(err)
 			}
-
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, restore.GetRanges(table.Files), rules)
+			err = splitter.Split(ctx, restore.GetRanges(table.Files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -214,7 +220,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rules, restoreTS)
+			err = client.RestoreTable(table, rewriteRules, restoreTS)
 			return errors.Trace(err)
 		},
 	}
