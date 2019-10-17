@@ -63,18 +63,15 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			err = client.BackupAllSchemas(backupTS)
+			ranges, err := client.GetAllBackupTableRanges(backupTS)
 			if err != nil {
 				return err
 			}
 
 			done := make(chan struct{}, 1)
 
-			startKey := []byte("")
-			endKey := []byte("")
-
 			// the count of regions need to backup
-			approximateRegions, err := client.GetRangeRegionCount(startKey, nil)
+			approximateRegions, err := client.GetRangeRegionCount([]byte{}, []byte{})
 			if err != nil {
 				return err
 			}
@@ -83,9 +80,11 @@ func newFullBackupCommand() *cobra.Command {
 				client.PrintBackupProgress("Full Backup", int64(approximateRegions), done)
 			}()
 
-			err = client.BackupRange(startKey, endKey, u, backupTS, rate, concurrency)
-			if err != nil {
-				return err
+			for _, r := range ranges {
+				err := client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
+				if err != nil {
+					return err
+				}
 			}
 			done <- struct{}{}
 			return client.SaveBackupMeta(u)
