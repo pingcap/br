@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io/ioutil"
 
 	restore_util "github.com/5kbpers/tidb-tools/pkg/restore-util"
@@ -57,7 +56,8 @@ func newFullRestoreCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				rules, err := client.CreateTables(db.Tables)
+				var rules *restore_util.RewriteRules
+				rules, err = client.CreateTables(db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -123,7 +123,7 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 			db := client.GetDatabase(dbName)
 			if db == nil {
-				return errors.Trace(fmt.Errorf("not exists database"))
+				return errors.New("not exists database")
 			}
 			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
 			if err != nil {
@@ -191,7 +191,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			db := client.GetDatabase(dbName)
 			if db == nil {
-				return errors.Trace(fmt.Errorf("not exists database"))
+				return errors.New("not exists database")
 			}
 			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
 			if err != nil {

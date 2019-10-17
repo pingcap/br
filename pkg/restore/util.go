@@ -147,7 +147,7 @@ func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rew
 		CfName: cfName,
 		Range: &import_sstpb.Range{
 			Start: rangeStart,
-			End:  rangeEnd,
+			End:   rangeEnd,
 		},
 	}
 }
@@ -218,7 +218,7 @@ func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.R
 	}
 	return &restore_util.RewriteRules{
 		Table: encodedTableRules,
-		Data: encodedDataRules,
+		Data:  encodedDataRules,
 	}
 }
 
