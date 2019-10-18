@@ -3,7 +3,7 @@ module github.com/pingcap/br
 go 1.12
 
 require (
-	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191017055410-2403e11b977f+incompatible
+	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191017094851-d0fa77736e62+incompatible
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.4.1
@@ -27,8 +27,9 @@ require (
 	go.uber.org/zap v1.10.0
 	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550 // indirect
 	golang.org/x/net v0.0.0-20191011234655-491137f69257 // indirect
-	golang.org/x/tools v0.0.0-20191012152004-8de300cfc20a
+	golang.org/x/tools v0.0.0-20191012152004-8de300cfc20a // indirect
 	google.golang.org/grpc v1.24.0
+	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 
 replace github.com/golang/lint => golang.org/x/lint v0.0.0-20190930215403-16217165b5de
