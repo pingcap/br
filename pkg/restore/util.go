@@ -19,10 +19,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var (
-	dataKeyPrefix   = []byte{'z'}
-	recordPrefixSep = []byte("_r")
-)
+var recordPrefixSep = []byte("_r")
 
 // LoadBackupTables loads schemas from BackupMeta
 func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
@@ -81,24 +78,25 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	return databases, nil
 }
 
-func GetRewriteRules(srcTable *model.TableInfo, destTable *model.TableInfo) *restore_util.RewriteRules {
+// GetRewriteRules returns the rewrite rule of the new table and the old table.
+func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
 	tableRule := &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(srcTable.ID),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(destTable.ID),
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
 	}
 
-	dataRules := make([]*import_sstpb.RewriteRule, 0, len(srcTable.Indices)+1)
+	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
 	dataRules = append(dataRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(srcTable.ID), recordPrefixSep...),
-		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(destTable.ID), recordPrefixSep...),
+		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
+		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
 	})
 
-	for _, srcIndex := range srcTable.Indices {
-		for _, destIndex := range destTable.Indices {
+	for _, srcIndex := range oldTable.Indices {
+		for _, destIndex := range newTable.Indices {
 			if srcIndex.Name == destIndex.Name {
 				dataRules = append(dataRules, &import_sstpb.RewriteRule{
-					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(srcTable.ID, srcIndex.ID),
-					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(destTable.ID, destIndex.ID),
+					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
+					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
 				})
 			}
 		}
@@ -110,8 +108,10 @@ func GetRewriteRules(srcTable *model.TableInfo, destTable *model.TableInfo) *res
 	}
 }
 
+// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
+// It will rewrites the file start key and end key (if there is not any corresponding rewrite rule, set it to ""),
+// then returns the range of the sst meta as [max(rewrite file start key, region start key), min(rewrite file end key, region end key)]
 func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rewriteRules *restore_util.RewriteRules, needRewrite bool) import_sstpb.SSTMeta {
-	regionRule := findRegionRewriteRule(region, rewriteRules)
 	// Get the column family of the file by the file name.
 	var cfName string
 	if strings.Contains(file.GetName(), "default") {
@@ -129,15 +129,10 @@ func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rew
 	if len(rangeEnd) == 0 || (len(region.GetEndKey()) != 0 && bytes.Compare(region.GetEndKey(), rangeEnd) < 0) {
 		rangeEnd = region.GetEndKey()
 	}
-	// The prefix of the region start key may be not the new prefix in the regionRule.
-	// Here only considers the start key, since the regions have already split by the rewrite rules.
-	if bytes.Compare(regionRule.GetNewKeyPrefix(), rangeStart) > 0 {
-		rangeStart = regionRule.GetNewKeyPrefix()
-	}
 
 	if !needRewrite {
-		rangeStart = restoreEncodedKeyWithOldPrefix(rangeStart, rewriteRules)
-		rangeEnd = restoreEncodedKeyWithOldPrefix(rangeEnd, rewriteRules)
+		rangeStart = rewriteEncodedKeyWithOldPrefix(rangeStart, rewriteRules)
+		rangeEnd = rewriteEncodedKeyWithOldPrefix(rangeEnd, rewriteRules)
 	}
 	if len(rangeEnd) == 0 {
 		rangeEnd = []byte{0xff}
@@ -152,10 +147,10 @@ func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rew
 	}
 }
 
-type RetryableFunc func() error
-type ContinueFunc func(error) bool
+type retryableFunc func() error
+type continueFunc func(error) bool
 
-func WithRetry(retryableFunc RetryableFunc, continueFunc ContinueFunc, attempts uint, delayTime time.Duration) error {
+func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts uint, delayTime time.Duration) error {
 	var lastErr error
 	for i := uint(0); i < attempts; i++ {
 		err := retryableFunc()
@@ -173,6 +168,7 @@ func WithRetry(retryableFunc RetryableFunc, continueFunc ContinueFunc, attempts 
 	return lastErr
 }
 
+// GetRanges returns the ranges of the files.
 func GetRanges(files []*backup.File) []restore_util.Range {
 	ranges := make([]restore_util.Range, 0, len(files))
 AppendRange:
@@ -250,7 +246,7 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 	return []byte("")
 }
 
-func restoreEncodedKeyWithOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
+func rewriteEncodedKeyWithOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
 	if len(key) > 0 {
 		ret := make([]byte, len(key))
 		copy(ret, key)

@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -16,9 +17,9 @@ import (
 )
 
 var (
-	notLeaderError           error = errors.New("not leader")
-	epochNotMatchError       error = errors.New("epoch not match")
-	rewriteRuleNotFoundError error = errors.New("rewrite rule not found")
+	errNotLeader           error = errors.New("not leader")
+	errEpochNotMatch       error = errors.New("epoch not match")
+	errRewriteRuleNotFound error = errors.New("rewrite rule not found")
 )
 
 const (
@@ -53,13 +54,18 @@ func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL st
 // Import tries to import a file.
 // All rules must contain encoded keys
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
-	err := WithRetry(func() error {
+	err := withRetry(func() error {
 		regionInfos, err := importer.client.ScanRegions(
 			importer.ctx,
 			rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules),
 			rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules),
 			0,
 		)
+		//fmt.Printf(
+		//	"scan regions: start=%x, end=%x",
+		//	rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules),
+		//	rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules),
+		//)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -74,15 +80,15 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 					if strings.Contains(err.Error(), "Cannot create sst file with no entries") {
 						return
 					}
-					if err != rewriteRuleNotFoundError {
+					if err != errRewriteRuleNotFound {
 						returnErrs[n] = err
 					}
 					return
 				}
-				returnErrs[n] = WithRetry(func() error {
+				returnErrs[n] = withRetry(func() error {
 					return importer.ingestSST(id, regionInfo, file, rewriteRules)
 				}, func(e error) bool {
-					if e == epochNotMatchError {
+					if e == errEpochNotMatch {
 						return false
 					}
 					return true
@@ -131,7 +137,7 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 		}
 		regionRule := findRegionRewriteRule(regionInfo.Region, rewriteRules)
 		if regionRule == nil {
-			return nil, rewriteRuleNotFoundError
+			return nil, errRewriteRuleNotFound
 		}
 		sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, rewriteRules, false)
 		sstMeta.RegionId = regionInfo.Region.GetId()
@@ -144,6 +150,13 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 		}
 		_, err = client.Download(importer.ctx, req)
 		if err != nil {
+			fmt.Printf(
+				"download sst failed: sstMeta=%v, rewriteRule=%v, file=%v, region=%v, err=%v\n",
+				sstMeta,
+				*regionRule,
+				file,
+				regionInfo.Region,
+				err)
 			return nil, errors.Trace(err)
 		}
 	}
@@ -180,10 +193,10 @@ func (importer *FileImporter) ingestSST(id []byte, regionInfo *restore_util.Regi
 	respErr := resp.GetError()
 	if respErr != nil {
 		if respErr.EpochNotMatch != nil {
-			return epochNotMatchError
+			return errEpochNotMatch
 		}
 		if respErr.NotLeader != nil {
-			return notLeaderError
+			return errNotLeader
 		}
 		return errors.Errorf("ingest failed: %v", respErr)
 	}

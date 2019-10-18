@@ -61,6 +61,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	}, nil
 }
 
+// GetPDClient returns a pd client.
 func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
 }
@@ -104,6 +105,7 @@ func (rc *Client) GetTS() (uint64, error) {
 	return restoreTS, nil
 }
 
+// GetDatabases returns all databases.
 func (rc *Client) GetDatabases() []*Database {
 	dbs := make([]*Database, 0, len(rc.databases))
 	for _, db := range rc.databases {
@@ -117,6 +119,7 @@ func (rc *Client) GetDatabase(name string) *Database {
 	return rc.databases[name]
 }
 
+// GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
 	dbSession, err := session.CreateSession(rc.tikvCli)
 	if err != nil {
@@ -138,6 +141,7 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 	return table.Meta(), nil
 }
 
+// CreateTables creates multiple tables, and returns their rewrite rules.
 func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
@@ -154,6 +158,7 @@ func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, err
 	return rewriteRules, nil
 }
 
+// CreateTables creates a table, and returns its rewrite rules.
 func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) {
 	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 	if err != nil {
@@ -171,15 +176,17 @@ func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) 
 	if err != nil {
 		return nil, err
 	}
-	rewriteRules := GetRewriteRules(table.Schema, newTableInfo)
+	rewriteRules := GetRewriteRules(newTableInfo, table.Schema)
 	return rewriteRules, nil
 }
 
+// RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 	)
+	fmt.Printf("start to restore table: table=%s. db=%s\n", table.Schema.Name, table.Db.Name)
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -203,10 +210,11 @@ func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteR
 			return err
 		}
 	}
+	fmt.Printf("finish restore table: table=%s. db=%s\n", table.Schema.Name, table.Db.Name)
 	return nil
 }
 
-// RestoreDatabase executes the job to restore a database
+// RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
@@ -231,7 +239,7 @@ func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.Rewri
 	return nil
 }
 
-// RestoreAll executes the job to restore all files
+// RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
