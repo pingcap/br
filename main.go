@@ -17,7 +17,7 @@ import (
 )
 
 func main() {
-	conf := &log.Config{Level: "info", File: log.FileLogConfig{Filename:"br.log"}}
+	conf := &log.Config{Level: "info", File: log.FileLogConfig{Filename: "br.log"}}
 	lg, p, _ := log.InitLogger(conf)
 	log.ReplaceGlobals(lg, p)
 
