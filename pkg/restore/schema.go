@@ -19,20 +19,20 @@ import (
 	"go.uber.org/zap"
 )
 
-// Table wraps the schema and files of a table
+// Table wraps the schema and files of a table.
 type Table struct {
 	Db     *model.DBInfo
 	Schema *model.TableInfo
 	Files  []*backup.File
 }
 
-// Database wraps the schema and tables of a database
+// Database wraps the schema and tables of a database.
 type Database struct {
 	Schema *model.DBInfo
 	Tables []*Table
 }
 
-// GetTable returns a table of the database by name
+// GetTable returns a table of the database by name.
 func (db *Database) GetTable(name string) *Table {
 	for _, table := range db.Tables {
 		if table.Schema.Name.String() == name {
@@ -42,6 +42,7 @@ func (db *Database) GetTable(name string) *Table {
 	return nil
 }
 
+// OpenDatabase opens a database with dsn.
 func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
 	dbDSN := dsn + url.QueryEscape(dbName)
 	db, err := sql.Open("mysql", dbDSN)
@@ -51,7 +52,7 @@ func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
 	return db, err
 }
 
-// CreateDatabase executes a CREATE DATABASE SQL
+// CreateDatabase executes a CREATE DATABASE SQL.
 func CreateDatabase(schema *model.DBInfo, dsn string) error {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -67,7 +68,7 @@ func CreateDatabase(schema *model.DBInfo, dsn string) error {
 	return nil
 }
 
-// CreateTable executes a CREATE TABLE SQL
+// CreateTable executes a CREATE TABLE SQL.
 func CreateTable(db *sql.DB, table *Table) error {
 	createSQL := GetCreateTableSQL(table.Schema)
 	_, err := db.Exec(createSQL)
@@ -81,7 +82,7 @@ func CreateTable(db *sql.DB, table *Table) error {
 	return nil
 }
 
-// AnalyzeTable executes a ANALYZE TABLE SQL
+// AnalyzeTable executes a ANALYZE TABLE SQL.
 func AnalyzeTable(db *sql.DB, table *Table) error {
 	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Schema.Name.String()))
 	_, err := db.Exec(analyzeSQL)
@@ -92,7 +93,7 @@ func AnalyzeTable(db *sql.DB, table *Table) error {
 	return nil
 }
 
-// AlterAutoIncID alters max auto-increment id of table
+// AlterAutoIncID alters max auto-increment id of table.
 func AlterAutoIncID(db *sql.DB, table *Table) error {
 	alterIDSQL := fmt.Sprintf(
 		"ALTER TABLE %s auto_increment = %d",
@@ -116,7 +117,7 @@ func AlterAutoIncID(db *sql.DB, table *Table) error {
 	return nil
 }
 
-// GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo
+// GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo.
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", encloseName(db.Name.String()))
@@ -126,7 +127,7 @@ func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	return buf.String()
 }
 
-// GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo
+// GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo.
 func GetCreateTableSQL(t *model.TableInfo) string {
 	var buf bytes.Buffer
 

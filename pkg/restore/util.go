@@ -44,7 +44,7 @@ func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
-// LoadBackupTables loads schemas from BackupMeta
+// LoadBackupTables loads schemas from BackupMeta.
 func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	databases := make(map[string]*Database)
 	for _, schema := range meta.Schemas {
@@ -131,8 +131,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 }
 
 // getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
-// It will rewrites the file start key and end key (if there is not any corresponding rewrite rule, set it to ""),
-// then returns the range of the sst meta as [max(rewrite file start key, region start key), min(rewrite file end key, region end key)]
+// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
 func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string

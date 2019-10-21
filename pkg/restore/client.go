@@ -156,7 +156,7 @@ func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, err
 	return rewriteRules, nil
 }
 
-// CreateTables creates a table, and returns its rewrite rules.
+// CreateTable creates a table, and returns its rewrite rules.
 func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) {
 	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 	if err != nil {

@@ -31,6 +31,7 @@ const (
 	downloadSSTWaitInterval = 10 * time.Millisecond
 )
 
+// FileImporter used to import a file to TiKV.
 type FileImporter struct {
 	mu            sync.Mutex
 	client        restore_util.Client
@@ -41,6 +42,7 @@ type FileImporter struct {
 	cancel context.CancelFunc
 }
 
+// NewFileImporter returns a new file importer.
 func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL string) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
