@@ -218,7 +218,7 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// BackupAllSchemas fetches all schemas from TiDB.
+// GetAllBackupTableRanges gets the range of all tables.
 func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",

@@ -3,156 +3,247 @@ package restore
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
-	"net/http"
-	"net/url"
 	"strings"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
-	"github.com/pingcap/log"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
+	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/twinj/uuid"
-	"go.uber.org/zap"
+	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/zap/zapcore"
 )
 
-// LoadBackupTables loads schemas from BackupMeta
-func LoadBackupTables(meta *backup.BackupMeta, partitionSize int) (map[string]*Database, error) {
-	databases := make(map[string]*Database)
-	filePairs := groupFiles(meta.Files)
+var recordPrefixSep = []byte("_r")
 
+type files []*backup.File
+
+func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range fs {
+		err := arr.AppendReflected(fs[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type rules []*import_sstpb.RewriteRule
+
+func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range rs {
+		err := arr.AppendReflected(rs[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// LoadBackupTables loads schemas from BackupMeta.
+func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
+	databases := make(map[string]*Database)
 	for _, schema := range meta.Schemas {
+		// Parse the database schema.
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			log.Error("load db info failed", zap.Binary("data", schema.Db), zap.Error(err))
 			return nil, errors.Trace(err)
 		}
-
-		tableInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tableInfo)
-		if err != nil {
-			log.Error("load table info failed", zap.Binary("data", schema.Table), zap.Error(err))
-			return nil, errors.Trace(err)
-		}
-
+		// If the database do not ever added into the map, initialize a database object in the map.
 		db, ok := databases[dbInfo.Name.String()]
 		if !ok {
 			db = &Database{
-				Schema:     dbInfo,
-				FileGroups: make([]*FileGroup, 0),
-				Tables:     make([]*model.TableInfo, 0),
+				Schema: dbInfo,
+				Tables: make([]*Table, 0),
 			}
 			databases[dbInfo.Name.String()] = db
 		}
-		db.Tables = append(db.Tables, tableInfo)
-
-		tableFiles := make([]*FilePair, 0)
-		for _, pair := range filePairs {
-			f := pair.Write
-			if !bytes.HasPrefix(f.StartKey, tablecodec.TablePrefix()) && !bytes.HasPrefix(f.EndKey, tablecodec.TablePrefix()) {
+		// Parse the table schema.
+		tableInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tableInfo)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		// Find the files belong to the table
+		tableFiles := make([]*backup.File, 0)
+		for _, file := range meta.Files {
+			// If the file do not contains any table data, skip it.
+			if !bytes.HasPrefix(file.GetStartKey(), tablecodec.TablePrefix()) &&
+				!bytes.HasPrefix(file.EndKey, tablecodec.TablePrefix()) {
 				continue
 			}
-			startTableID := tablecodec.DecodeTableID(f.StartKey)
-			endTableID := tablecodec.DecodeTableID(f.EndKey)
-
+			startTableID := tablecodec.DecodeTableID(file.GetStartKey())
+			endTableID := tablecodec.DecodeTableID(file.GetEndKey())
+			// If the file contains a part of the data of the table, append it to the slice.
 			if startTableID == tableInfo.ID || endTableID == tableInfo.ID {
-				tableFiles = append(tableFiles, pair)
-				if len(tableFiles) >= partitionSize {
-					group := &FileGroup{
-						UUID:   uuid.NewV4(),
-						Db:     dbInfo,
-						Schema: tableInfo,
-						Files:  tableFiles,
-					}
-					db.FileGroups = append(db.FileGroups, group)
-					tableFiles = make([]*FilePair, 0)
-				}
+				tableFiles = append(tableFiles, file)
 			}
 		}
-		if len(tableFiles) > 0 {
-			group := &FileGroup{
-				UUID:   uuid.NewV4(),
-				Db:     dbInfo,
-				Schema: tableInfo,
-				Files:  tableFiles,
-			}
-			db.FileGroups = append(db.FileGroups, group)
+		table := &Table{
+			Db:     dbInfo,
+			Schema: tableInfo,
+			Files:  tableFiles,
 		}
+		db.Tables = append(db.Tables, table)
 	}
-	log.Info("load databases", zap.Reflect("db", databases))
 
 	return databases, nil
 }
 
-// FetchTableInfo fetches table schema from status address
-func FetchTableInfo(addr string, dbName string, tableName string) (*model.TableInfo, error) {
-	statusURL := fmt.Sprintf("http://%s/schema/%s/%s", addr, url.PathEscape(dbName), url.PathEscape(tableName))
-	log.Info("fetch table schema", zap.String("URL", statusURL))
-	resp, err := http.Get(statusURL)
-	if err != nil {
-		return nil, err
+// GetRewriteRules returns the rewrite rule of the new table and the old table.
+func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
+	tableRule := &import_sstpb.RewriteRule{
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
 	}
-	defer resp.Body.Close()
-	var schema model.TableInfo
-	data, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(data, &schema)
-	if err != nil {
-		return nil, err
-	}
-	return &schema, nil
-}
 
-// GroupIDPairs returns grouped id pairs
-func GroupIDPairs(srcTable *model.TableInfo, destTable *model.TableInfo) (tableIDs []*import_kvpb.IdPair, indexIDs []*import_kvpb.IdPair) {
-	tableIDs = make([]*import_kvpb.IdPair, 0)
-	tableIDs = append(tableIDs, &import_kvpb.IdPair{
-		OldId: srcTable.ID,
-		NewId: destTable.ID,
+	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
+	dataRules = append(dataRules, &import_sstpb.RewriteRule{
+		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
+		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
 	})
 
-	indexIDs = make([]*import_kvpb.IdPair, 0)
-	for _, src := range srcTable.Indices {
-		for _, dest := range destTable.Indices {
-			if src.Name == dest.Name {
-				indexIDs = append(indexIDs, &import_kvpb.IdPair{
-					OldId: src.ID,
-					NewId: dest.ID,
+	for _, srcIndex := range oldTable.Indices {
+		for _, destIndex := range newTable.Indices {
+			if srcIndex.Name == destIndex.Name {
+				dataRules = append(dataRules, &import_sstpb.RewriteRule{
+					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
+					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
 				})
 			}
 		}
 	}
-	log.Info("group id pairs",
-		zap.Reflect("table_id", tableIDs),
-		zap.Reflect("index_id", indexIDs),
-	)
 
-	return
+	return &restore_util.RewriteRules{
+		Table: []*import_sstpb.RewriteRule{tableRule},
+		Data:  dataRules,
+	}
 }
 
-func groupFiles(files []*backup.File) (filePairs []*FilePair) {
-	filePairs = make([]*FilePair, 0)
-	for _, file := range files {
-		if strings.Contains(file.Name, "write") {
-			var defaultFile *backup.File
-			defaultName := strings.ReplaceAll(file.Name, "write", "default")
-			for _, f := range files {
-				if f.Name == defaultName {
-					defaultFile = f
-				}
+// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
+// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
+func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
+	// Get the column family of the file by the file name.
+	var cfName string
+	if strings.Contains(file.GetName(), "default") {
+		cfName = "default"
+	} else if strings.Contains(file.GetName(), "write") {
+		cfName = "write"
+	}
+	// Find the overlapped part between the file and the region.
+	// Here we rewrites the keys to compare with the keys of the region.
+	rangeStart := regionRule.GetNewKeyPrefix()
+	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
+	return import_sstpb.SSTMeta{
+		Uuid:   id,
+		CfName: cfName,
+		Range: &import_sstpb.Range{
+			Start: rangeStart,
+			End:   rangeEnd,
+		},
+	}
+}
+
+type retryableFunc func() error
+type continueFunc func(error) bool
+
+func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts uint, delayTime time.Duration) error {
+	var lastErr error
+	for i := uint(0); i < attempts; i++ {
+		err := retryableFunc()
+		if err != nil {
+			lastErr = err
+			// If this is the last attempt, do not wait
+			if !continueFunc(err) || i == attempts-1 {
+				break
 			}
-			filePairs = append(filePairs, &FilePair{
-				Default: defaultFile,
-				Write:   file,
-			})
+			time.Sleep(delayTime)
+		} else {
+			return nil
 		}
 	}
-	return
+	return lastErr
+}
+
+// GetRanges returns the ranges of the files.
+func GetRanges(files []*backup.File) []restore_util.Range {
+	ranges := make([]restore_util.Range, 0, len(files))
+	fileAppended := make(map[string]bool)
+
+	for _, file := range files {
+		// We skips all default cf files because we don't range overlap.
+		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
+			ranges = append(ranges, restore_util.Range{
+				StartKey: file.GetStartKey(),
+				EndKey:   file.GetEndKey(),
+			})
+			fileAppended[file.GetName()] = true
+		}
+	}
+	return ranges
+}
+
+// rules must be encoded
+func findRegionRewriteRule(region *metapb.Region, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+	for _, rule := range rewriteRules.Data {
+		// regions may have the new prefix
+		if bytes.HasPrefix(region.GetStartKey(), rule.GetNewKeyPrefix()) {
+			return rule
+		}
+	}
+	return nil
+}
+
+func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.RewriteRules {
+	encodedTableRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Table))
+	encodedDataRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Data))
+	for _, rule := range rewriteRules.Table {
+		encodedTableRules = append(encodedTableRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
+			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
+		})
+	}
+	for _, rule := range rewriteRules.Data {
+		encodedDataRules = append(encodedDataRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
+			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
+		})
+	}
+	return &restore_util.RewriteRules{
+		Table: encodedTableRules,
+		Data:  encodedDataRules,
+	}
+}
+
+func encodeKeyPrefix(key []byte) []byte {
+	encodedPrefix := make([]byte, 0)
+	ungroupedLen := len(key) % 8
+	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
+	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
+}
+
+func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
+	if len(key) > 0 {
+		ret := make([]byte, len(key))
+		copy(ret, key)
+		ret = codec.EncodeBytes([]byte{}, ret)
+		for _, rule := range rewriteRules.Data {
+			// regions may have the new prefix
+			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+			}
+		}
+		for _, rule := range rewriteRules.Table {
+			// regions may have the new prefix
+			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+			}
+		}
+	}
+	return []byte("")
 }
