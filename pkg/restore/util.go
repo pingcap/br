@@ -12,14 +12,37 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
-	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var recordPrefixSep = []byte("_r")
+
+type files []*backup.File
+
+func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range fs {
+		err := arr.AppendReflected(fs[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type rules []*import_sstpb.RewriteRule
+
+func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range rs {
+		err := arr.AppendReflected(rs[i])
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // LoadBackupTables loads schemas from BackupMeta
 func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
@@ -73,7 +96,6 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	for name := range databases {
 		dbNames = append(dbNames, name)
 	}
-	log.Info("load databases", zap.Reflect("db", dbNames))
 
 	return databases, nil
 }
@@ -111,7 +133,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 // getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
 // It will rewrites the file start key and end key (if there is not any corresponding rewrite rule, set it to ""),
 // then returns the range of the sst meta as [max(rewrite file start key, region start key), min(rewrite file end key, region end key)]
-func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rewriteRules *restore_util.RewriteRules, needRewrite bool) import_sstpb.SSTMeta {
+func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string
 	if strings.Contains(file.GetName(), "default") {
@@ -121,22 +143,8 @@ func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, rew
 	}
 	// Find the overlapped part between the file and the region.
 	// Here we rewrites the keys to compare with the keys of the region.
-	rangeStart := rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules)
-	if bytes.Compare(region.GetStartKey(), rangeStart) > 0 {
-		rangeStart = region.GetStartKey()
-	}
-	rangeEnd := rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules)
-	if len(rangeEnd) == 0 || (len(region.GetEndKey()) != 0 && bytes.Compare(region.GetEndKey(), rangeEnd) < 0) {
-		rangeEnd = region.GetEndKey()
-	}
-
-	if !needRewrite {
-		rangeStart = rewriteEncodedKeyWithOldPrefix(rangeStart, rewriteRules)
-		rangeEnd = rewriteEncodedKeyWithOldPrefix(rangeEnd, rewriteRules)
-	}
-	if len(rangeEnd) == 0 {
-		rangeEnd = []byte{0xff}
-	}
+	rangeStart := regionRule.GetNewKeyPrefix()
+	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
@@ -171,17 +179,17 @@ func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts 
 // GetRanges returns the ranges of the files.
 func GetRanges(files []*backup.File) []restore_util.Range {
 	ranges := make([]restore_util.Range, 0, len(files))
-AppendRange:
+	fileAppended := make(map[string]bool)
+
 	for _, file := range files {
-		for _, rg := range ranges {
-			if bytes.Equal(rg.StartKey, file.GetStartKey()) && bytes.Equal(rg.EndKey, file.GetEndKey()) {
-				continue AppendRange
-			}
+		// We skips all default cf files because we don't range overlap.
+		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
+			ranges = append(ranges, restore_util.Range{
+				StartKey: file.GetStartKey(),
+				EndKey:   file.GetEndKey(),
+			})
+			fileAppended[file.GetName()] = true
 		}
-		ranges = append(ranges, restore_util.Range{
-			StartKey: file.GetStartKey(),
-			EndKey:   file.GetEndKey(),
-		})
 	}
 	return ranges
 }
@@ -240,26 +248,6 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
 				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
-			}
-		}
-	}
-	return []byte("")
-}
-
-func rewriteEncodedKeyWithOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
-	if len(key) > 0 {
-		ret := make([]byte, len(key))
-		copy(ret, key)
-		for _, rule := range rewriteRules.Data {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetNewKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetNewKeyPrefix(), rule.GetOldKeyPrefix(), 1)
-			}
-		}
-		for _, rule := range rewriteRules.Table {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetNewKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetNewKeyPrefix(), rule.GetOldKeyPrefix(), 1)
 			}
 		}
 	}

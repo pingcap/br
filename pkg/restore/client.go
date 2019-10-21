@@ -44,7 +44,6 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	log.Info("new region client", zap.String("pdAddrs", pdAddrs))
 	tikvCli, err := tikv.Driver{}.Open(
 		// Disable GC because TiDB enables GC already.
 		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
@@ -101,7 +100,6 @@ func (rc *Client) GetTS() (uint64, error) {
 		Logical:  l,
 	}
 	restoreTS := meta.EncodeTs(ts)
-	log.Info("restore timestamp", zap.Uint64("RestoreTS", restoreTS))
 	return restoreTS, nil
 }
 
@@ -185,8 +183,9 @@ func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteR
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
+		zap.Array("files", files(table.Files)),
+		zap.Reflect("rewriteRules", rewriteRules),
 	)
-	fmt.Printf("start to restore table: table=%s. db=%s\n", table.Schema.Name, table.Db.Name)
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -198,6 +197,7 @@ func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteR
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
+				errCh <- nil
 			case errCh <- rc.fileImporter.Import(file, encodedRules):
 			}
 		}(file)
@@ -207,10 +207,19 @@ func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteR
 		if err != nil {
 			rc.cancel()
 			wg.Wait()
+			log.Error(
+				"restore table failed",
+				zap.Stringer("table", table.Schema.Name),
+				zap.Stringer("db", table.Db.Name),
+			)
 			return err
 		}
 	}
-	fmt.Printf("finish restore table: table=%s. db=%s\n", table.Schema.Name, table.Db.Name)
+	log.Info(
+		"finish to restore table",
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
+	)
 	return nil
 }
 
@@ -225,6 +234,7 @@ func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.Rewri
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
+				errCh <- nil
 			case errCh <- rc.RestoreTable(table, rewriteRules, restoreTS):
 			}
 		}(table)
@@ -250,6 +260,7 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
+				errCh <- nil
 			case errCh <- rc.RestoreDatabase(db, rewriteRules, restoreTS):
 			}
 		}(db)
