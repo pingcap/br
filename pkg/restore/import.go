@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -12,7 +13,6 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/prometheus/common/log"
-	"github.com/twinj/uuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
@@ -161,7 +161,10 @@ func (importer *FileImporter) getImportClient(storeID uint64) (import_sstpb.Impo
 }
 
 func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, file *backup.File, rewriteRules *restore_util.RewriteRules) (*import_sstpb.SSTMeta, bool, error) {
-	id := uuid.NewV4().Bytes()
+	id, err := uuid.New().MarshalBinary()
+	if err != nil {
+		return nil, true, errors.Trace(err)
+	}
 	regionRule := findRegionRewriteRule(regionInfo.Region, rewriteRules)
 	if regionRule == nil {
 		return nil, true, errRewriteRuleNotFound
