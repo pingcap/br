@@ -92,11 +92,6 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		db.Tables = append(db.Tables, table)
 	}
 
-	dbNames := make([]string, 0, len(databases))
-	for name := range databases {
-		dbNames = append(dbNames, name)
-	}
-
 	return databases, nil
 }
 
