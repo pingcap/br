@@ -18,7 +18,6 @@ integration_test: build
 	@which bin/tikv-server
 	@which bin/pd-server
 	@which bin/pd-ctl
-	@which bin/tikv-importer
 	@which bin/go-ycsb
 	@which bin/br
 	tests/run.sh

@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -20,70 +19,40 @@ import (
 	"go.uber.org/zap"
 )
 
-// FileGroup wraps the schema and files of a table
-type FileGroup struct {
-	UUID   uuid.UUID
+// Table wraps the schema and files of a table.
+type Table struct {
 	Db     *model.DBInfo
 	Schema *model.TableInfo
-	Files  []*FilePair
+	Files  []*backup.File
 }
 
-// Database wraps the schema and tables of a database
+// Database wraps the schema and tables of a database.
 type Database struct {
-	Schema     *model.DBInfo
-	FileGroups []*FileGroup
-	Tables     []*model.TableInfo
+	Schema *model.DBInfo
+	Tables []*Table
 }
 
-// FilePair wraps a default cf file & a write cf file
-type FilePair struct {
-	Default *backup.File
-	Write   *backup.File
-}
-
-// GetFileGroups returns file groups by name
-func (db *Database) GetFileGroups(name string) []*FileGroup {
-	fileGroups := make([]*FileGroup, 0)
-	for _, group := range db.FileGroups {
-		if group.Schema.Name.String() == name {
-			fileGroups = append(fileGroups, group)
-		}
-	}
-	return fileGroups
-}
-
-// GetTable returns a table info by name
-func (db *Database) GetTable(name string) *model.TableInfo {
+// GetTable returns a table of the database by name.
+func (db *Database) GetTable(name string) *Table {
 	for _, table := range db.Tables {
-		if table.Name.String() == name {
+		if table.Schema.Name.String() == name {
 			return table
 		}
 	}
 	return nil
 }
 
-// CreateTable executes a CREATE TABLE SQL
-func CreateTable(dbName string, table *model.TableInfo, dsn string) error {
+// OpenDatabase opens a database with dsn.
+func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
 	dbDSN := dsn + url.QueryEscape(dbName)
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
-		return errors.Trace(err)
 	}
-	createSQL := GetCreateTableSQL(table)
-	_, err = db.Exec(createSQL)
-	if err != nil {
-		log.Error("create table failed",
-			zap.String("SQL", createSQL),
-			zap.String("db", dbName),
-			zap.String("addr", dsn),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
+	return db, err
 }
 
-// CreateDatabase executes a CREATE DATABASE SQL
+// CreateDatabase executes a CREATE DATABASE SQL.
 func CreateDatabase(schema *model.DBInfo, dsn string) error {
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
@@ -99,46 +68,56 @@ func CreateDatabase(schema *model.DBInfo, dsn string) error {
 	return nil
 }
 
-// AnalyzeTable executes a ANALYZE TABLE SQL
-func AnalyzeTable(dbName string, table *model.TableInfo, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(dbName)
-	db, err := sql.Open("mysql", dbDSN)
+// CreateTable executes a CREATE TABLE SQL.
+func CreateTable(db *sql.DB, table *Table) error {
+	createSQL := GetCreateTableSQL(table.Schema)
+	_, err := db.Exec(createSQL)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
-		return errors.Trace(err)
-	}
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Name.String()))
-	_, err = db.Exec(analyzeSQL)
-	if err != nil {
-		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.String("db", dbName), zap.Error(err))
+		log.Error("create table failed",
+			zap.String("SQL", createSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err))
 		return errors.Trace(err)
 	}
 	return nil
 }
 
-// AlterAutoIncID alters max auto-increment id of table
-func AlterAutoIncID(dbName string, table *model.TableInfo, dsn string) error {
-	dbDSN := dsn + url.QueryEscape(dbName)
-	db, err := sql.Open("mysql", dbDSN)
+// AnalyzeTable executes a ANALYZE TABLE SQL.
+func AnalyzeTable(db *sql.DB, table *Table) error {
+	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", encloseName(table.Schema.Name.String()))
+	_, err := db.Exec(analyzeSQL)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
+		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.Error(err))
 		return errors.Trace(err)
 	}
-	alterIDSQL := fmt.Sprintf("ALTER TABLE %s auto_increment = %d", encloseName(table.Name.String()), table.AutoIncID)
-	_, err = db.Exec(alterIDSQL)
+	return nil
+}
+
+// AlterAutoIncID alters max auto-increment id of table.
+func AlterAutoIncID(db *sql.DB, table *Table) error {
+	alterIDSQL := fmt.Sprintf(
+		"ALTER TABLE %s auto_increment = %d",
+		encloseName(table.Schema.Name.String()),
+		table.Schema.AutoIncID,
+	)
+	_, err := db.Exec(alterIDSQL)
 	if err != nil {
-		log.Error("alter auto inc id failed", zap.String("SQL", alterIDSQL), zap.String("db", dbName), zap.Error(err))
+		log.Error("alter auto inc id failed",
+			zap.String("SQL", alterIDSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err),
+		)
 		return errors.Trace(err)
 	}
 	log.Info("alter auto inc id",
-		zap.Stringer("table", table.Name),
-		zap.String("db", dbName),
-		zap.Int64("auto_inc_id", table.AutoIncID),
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
+		zap.Int64("auto_inc_id", table.Schema.AutoIncID),
 	)
 	return nil
 }
 
-// GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo
+// GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo.
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", encloseName(db.Name.String()))
@@ -148,7 +127,7 @@ func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	return buf.String()
 }
 
-// GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo
+// GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo.
 func GetCreateTableSQL(t *model.TableInfo) string {
 	var buf bytes.Buffer
 

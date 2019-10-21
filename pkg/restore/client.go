@@ -2,18 +2,23 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/pingcap/br/pkg/meta"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/store/tikv"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
 )
 
 // Client sends requests to importer to restore files
@@ -21,16 +26,14 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient        pd.Client
-	pdAddr          string
-	importerClients []import_kvpb.ImportKVClient
+	pdClient     pd.Client
+	pdAddrs      []string
+	tikvCli      tikv.Storage
+	fileImporter FileImporter
 
-	databases      map[string]*Database
-	dbDSN          string
-	statusAddr     string
-	maxOpenEngines int
-	maxImportJobs  int
-	backupMeta     *backup.BackupMeta
+	databases  map[string]*Database
+	dbDSN      string
+	backupMeta *backup.BackupMeta
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -41,23 +44,38 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	log.Info("new region client", zap.String("pdAddrs", pdAddrs))
+	tikvCli, err := tikv.Driver{}.Open(
+		// Disable GC because TiDB enables GC already.
+		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	return &Client{
 		ctx:      _ctx,
 		cancel:   cancel,
 		pdClient: pdClient,
-		pdAddr:   addrs[0],
+		pdAddrs:  addrs,
+		tikvCli:  tikvCli.(tikv.Storage),
 	}, nil
 }
 
+// GetPDClient returns a pd client.
+func (rc *Client) GetPDClient() pd.Client {
+	return rc.pdClient
+}
+
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
-func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, partitionSize int) error {
-	databases, err := LoadBackupTables(backupMeta, partitionSize)
+func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
+	databases, err := LoadBackupTables(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	rc.databases = databases
 	rc.backupMeta = backupMeta
+
+	client := restore_util.NewClient(rc.pdClient)
+	rc.fileImporter = NewFileImporter(rc.ctx, client, backupMeta.GetPath())
 	return nil
 }
 
@@ -71,43 +89,6 @@ func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
 }
 
-// SetMaxOpenEngines sets the max number of opened importer engine files
-func (rc *Client) SetMaxOpenEngines(v int) {
-	rc.maxOpenEngines = v
-}
-
-// SetMaxImportJobs sets the max number of concurrent import engine jobs
-func (rc *Client) SetMaxImportJobs(v int) {
-	rc.maxImportJobs = v
-}
-
-// SetImportAddr sets the address to connect the importer
-func (rc *Client) SetImportAddr(importerAddr string) error {
-	addrs := strings.Split(importerAddr, ",")
-	clients := make([]import_kvpb.ImportKVClient, 0)
-	for _, addr := range addrs {
-		conn, err := grpc.DialContext(rc.ctx, addr, grpc.WithInsecure())
-		if err != nil {
-			log.Error("connect to importer server failed", zap.Error(err))
-			return errors.Trace(err)
-		}
-		cli := import_kvpb.NewImportKVClient(conn)
-		clients = append(clients, cli)
-	}
-	rc.importerClients = clients
-	return nil
-}
-
-// GetImportKVClients returns a new ImportKVClient
-func (rc *Client) GetImportKVClients() []import_kvpb.ImportKVClient {
-	return rc.importerClients
-}
-
-// SetStatusAddr sets the address to check status of TiDB to a new value
-func (rc *Client) SetStatusAddr(statusAddr string) {
-	rc.statusAddr = statusAddr
-}
-
 // GetTS gets a new timestamp from PD
 func (rc *Client) GetTS() (uint64, error) {
 	p, l, err := rc.pdClient.GetTS(rc.ctx)
@@ -119,355 +100,176 @@ func (rc *Client) GetTS() (uint64, error) {
 		Logical:  l,
 	}
 	restoreTS := meta.EncodeTs(ts)
-	log.Info("restore timestamp", zap.Uint64("RestoreTS", restoreTS))
 	return restoreTS, nil
 }
 
-// GetDatabase returns a database instance by name
+// GetDatabases returns all databases.
+func (rc *Client) GetDatabases() []*Database {
+	dbs := make([]*Database, 0, len(rc.databases))
+	for _, db := range rc.databases {
+		dbs = append(dbs, db)
+	}
+	return dbs
+}
+
+// GetDatabase returns a database by name
 func (rc *Client) GetDatabase(name string) *Database {
 	return rc.databases[name]
 }
 
-// UploadTableFiles executes the job to restore files of a table
-func (rc *Client) UploadTableFiles(client import_kvpb.ImportKVClient, group *FileGroup, restoreTS uint64) error {
-	log.Info("start to upload files of group",
-		zap.Stringer("group", group.Schema.Name),
-		zap.Stringer("uuid", group.UUID),
-		zap.Stringer("db", group.Db.Name),
-	)
-
-	tableInfo, returnErr := FetchTableInfo(rc.statusAddr, group.Db.Name.String(), group.Schema.Name.String())
-	if returnErr != nil {
-		return errors.Trace(returnErr)
+// GetTableSchema returns the schema of a table from TiDB.
+func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
+	dbSession, err := session.CreateSession(rc.tikvCli)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-	tableIDs, indexIDs := GroupIDPairs(group.Schema, tableInfo)
-
-	ubytes, _ := group.UUID.MarshalBinary()
-	returnErr = rc.OpenEngine(client, ubytes)
-	if returnErr != nil {
-		log.Error("open engine failed",
-			zap.Uint64("restore_ts", restoreTS),
-			zap.Stringer("group", group.Schema.Name),
-			zap.Stringer("uuid", group.UUID),
-			zap.Stringer("db", group.Db.Name),
-		)
-		return errors.Trace(returnErr)
+	do := domain.GetDomain(dbSession.(sessionctx.Context))
+	ts, err := rc.GetTS()
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-
-	errCh := make(chan error, len(group.Files))
-	defer close(errCh)
-	for _, file := range group.Files {
-		select {
-		case <-rc.ctx.Done():
-			return nil
-		default:
-			go func(file *FilePair) {
-				ubytes, _ := group.UUID.MarshalBinary()
-				req := &import_kvpb.RestoreFileRequest{
-					Default:   file.Default,
-					Write:     file.Write,
-					Path:      rc.backupMeta.Path,
-					PdAddr:    rc.pdAddr,
-					TableIds:  tableIDs,
-					IndexIds:  indexIDs,
-					RestoreTs: restoreTS,
-					Uuid:      ubytes,
-				}
-				sendErr := func(err error) {
-					log.Error("restore file failed",
-						zap.Reflect("file", file),
-						zap.Uint64("restore_ts", restoreTS),
-						zap.Stringer("group", group.Schema.Name),
-						zap.Stringer("db", group.Db.Name),
-						zap.Error(errors.Trace(err)),
-					)
-					errCh <- errors.Trace(err)
-				}
-				_, err := client.RestoreFile(rc.ctx, req)
-				if err != nil {
-					sendErr(err)
-					return
-				}
-				log.Debug("restore file success",
-					zap.Reflect("file", file),
-					zap.Uint64("restore_ts", restoreTS),
-					zap.Stringer("group", group.Schema.Name),
-					zap.Stringer("db", group.Db.Name),
-				)
-				errCh <- nil
-			}(file)
-		}
+	info, err := do.GetSnapshotInfoSchema(ts)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
+	table, err := info.TableByName(dbName, tableName)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return table.Meta(), nil
+}
 
-	for i := 0; i < len(group.Files); i++ {
-		err := <-errCh
+// CreateTables creates multiple tables, and returns their rewrite rules.
+func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, error) {
+	rewriteRules := &restore_util.RewriteRules{
+		Table: make([]*import_sstpb.RewriteRule, 0),
+		Data:  make([]*import_sstpb.RewriteRule, 0),
+	}
+	for _, table := range tables {
+		rules, err := rc.CreateTable(table)
 		if err != nil {
-			returnErr = err
+			return nil, errors.Trace(err)
 		}
+		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
+		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 	}
-	if returnErr != nil {
-		return errors.Trace(returnErr)
-	}
+	return rewriteRules, nil
+}
 
-	ubytes1, _ := group.UUID.MarshalBinary()
-	returnErr = rc.CloseEngine(client, ubytes1)
-	if returnErr != nil {
-		log.Error("close engine failed",
-			zap.Uint64("restore_ts", restoreTS),
-			zap.Stringer("group", group.Schema.Name),
-			zap.Stringer("uuid", group.UUID),
-			zap.Stringer("db", group.Db.Name),
-		)
-		return errors.Trace(returnErr)
+// CreateTable creates a table, and returns its rewrite rules.
+func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) {
+	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
+	if err != nil {
+		return nil, err
 	}
+	err = CreateTable(db, table)
+	if err != nil {
+		return nil, err
+	}
+	err = AlterAutoIncID(db, table)
+	if err != nil {
+		return nil, err
+	}
+	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+	if err != nil {
+		return nil, err
+	}
+	rewriteRules := GetRewriteRules(newTableInfo, table.Schema)
+	return rewriteRules, nil
+}
 
-	log.Info("upload group files finished",
-		zap.Uint64("restore_ts", restoreTS),
-		zap.Stringer("group", group.Schema.Name),
-		zap.Stringer("uuid", group.UUID),
-		zap.Stringer("db", group.Db.Name),
+// RestoreTable tries to restore the data of a table.
+func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	log.Info("start to restore table",
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
+		zap.Array("files", files(table.Files)),
+		zap.Reflect("rewriteRules", rewriteRules),
 	)
-
-	return errors.Trace(returnErr)
-}
-
-type uploadJob struct {
-	Group *FileGroup
-}
-
-type importJob struct {
-	Group  *FileGroup
-	Client import_kvpb.ImportKVClient
-}
-
-// RestoreMultipleTables executes the job to restore multiple tables
-func (rc *Client) RestoreMultipleTables(groups []*FileGroup, restoreTS uint64) error {
-	log.Info("start to restore multiple table",
-		zap.Int("len", len(groups)),
-	)
-	var returnErr error
-	errCh := make(chan error, len(groups))
-	uploadJobCh := make(chan uploadJob, len(groups))
-	importJobCh := make(chan importJob, len(groups))
+	errCh := make(chan error, len(table.Files))
+	var wg sync.WaitGroup
 	defer close(errCh)
-	defer close(uploadJobCh)
-	defer close(importJobCh)
-
-	clients := rc.GetImportKVClients()
-	for i := 0; i < len(clients); i++ {
-		n := i % len(clients)
-		cli := clients[n]
-		for j := 0; j < rc.maxOpenEngines; j++ {
-			go func(client import_kvpb.ImportKVClient, n int) {
-				for job := range uploadJobCh {
-					log.Info("restore table", zap.Int("importer", n), zap.Stringer("uuid", job.Group.UUID))
-					err := rc.UploadTableFiles(client, job.Group, restoreTS)
-					if err != nil {
-						errCh <- errors.Trace(err)
-						return
-					}
-					importJobCh <- importJob{
-						Group:  job.Group,
-						Client: client,
-					}
-				}
-			}(cli, n)
-		}
-	}
-
-	for i := 0; i < rc.maxImportJobs; i++ {
-		go func() {
-			for job := range importJobCh {
-				group := job.Group
-				log.Info("start to import group",
-					zap.Uint64("restore_ts", restoreTS),
-					zap.Stringer("group", group.Schema.Name),
-					zap.Stringer("uuid", group.UUID),
-					zap.Stringer("db", group.Db.Name),
-				)
-				ubytes, _ := group.UUID.MarshalBinary()
-				err := rc.ImportEngine(job.Client, ubytes)
-				if err != nil {
-					log.Error("import engine failed",
-						zap.Uint64("restore_ts", restoreTS),
-						zap.Stringer("group", group.Schema.Name),
-						zap.Stringer("uuid", group.UUID),
-						zap.Stringer("db", group.Db.Name),
-						zap.Error(err),
-					)
-					errCh <- errors.Trace(err)
-					return
-				}
-				ubytes1, _ := group.UUID.MarshalBinary()
-				err = rc.CleanupEngine(job.Client, ubytes1)
-				if err != nil {
-					log.Error("cleanup engine failed",
-						zap.Uint64("restore_ts", restoreTS),
-						zap.Stringer("group", group.Schema.Name),
-						zap.Stringer("uuid", group.UUID),
-						zap.Stringer("db", group.Db.Name),
-						zap.Error(err),
-					)
-					errCh <- errors.Trace(err)
-					return
-				}
-				log.Info("import group finished",
-					zap.Uint64("restore_ts", restoreTS),
-					zap.Stringer("group", group.Schema.Name),
-					zap.Stringer("uuid", group.UUID),
-					zap.Stringer("db", group.Db.Name),
-				)
-				errCh <- nil
-			}
-		}()
-	}
-
-	go func() {
-		for _, group := range groups {
+	// We should encode the rewrite rewriteRules before using it to import files
+	encodedRules := encodeRewriteRules(rewriteRules)
+	for _, file := range table.Files {
+		wg.Add(1)
+		go func(file *backup.File) {
+			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
-				return
-			default:
-				uploadJobCh <- uploadJob{
-					Group: group,
-				}
-			}
-		}
-	}()
-
-	for i := 0; i < len(groups); i++ {
-		returnErr = <-errCh
-		if returnErr != nil {
-			return errors.Trace(returnErr)
-		}
-	}
-	return nil
-}
-
-// RestoreDatabase executes the job to restore a database
-func (rc *Client) RestoreDatabase(db *Database, restoreTS uint64) error {
-	returnErr := CreateDatabase(db.Schema, rc.dbDSN)
-	if returnErr != nil {
-		return returnErr
-	}
-	for _, table := range db.Tables {
-		returnErr = CreateTable(db.Schema.Name.String(), table, rc.dbDSN)
-		if returnErr != nil {
-			return errors.Trace(returnErr)
-		}
-		returnErr = AlterAutoIncID(db.Schema.Name.String(), table, rc.dbDSN)
-		if returnErr != nil {
-			return errors.Trace(returnErr)
-		}
-	}
-	returnErr = rc.RestoreMultipleTables(db.FileGroups, restoreTS)
-	if returnErr == nil {
-		log.Info("restore database finished",
-			zap.Uint64("restore_ts", restoreTS),
-			zap.Stringer("db", db.Schema.Name),
-		)
-	}
-	return errors.Trace(returnErr)
-}
-
-// RestoreAll executes the job to restore all files
-func (rc *Client) RestoreAll(restoreTS uint64) error {
-	errCh := make(chan error)
-	defer close(errCh)
-	for _, db := range rc.databases {
-		select {
-		case <-rc.ctx.Done():
-			return nil
-		default:
-			go func(d *Database) {
-				err := rc.RestoreDatabase(d, restoreTS)
-				if err != nil {
-					errCh <- errors.Trace(err)
-				}
 				errCh <- nil
-			}(db)
-		}
+			case errCh <- rc.fileImporter.Import(file, encodedRules):
+			}
+		}(file)
 	}
-
-	var returnErr error
-	for i := 0; i < len(rc.databases); i++ {
+	for range table.Files {
 		err := <-errCh
 		if err != nil {
-			returnErr = err
+			rc.cancel()
+			wg.Wait()
+			log.Error(
+				"restore table failed",
+				zap.Stringer("table", table.Schema.Name),
+				zap.Stringer("db", table.Db.Name),
+			)
+			return err
 		}
 	}
-	if returnErr == nil {
-		log.Info("restore all finished", zap.Uint64("restore_ts", restoreTS))
-	}
-	return returnErr
+	log.Info(
+		"finish to restore table",
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
+	)
+	return nil
 }
 
-// OpenEngine sends a OpenEngine request to importer
-func (rc *Client) OpenEngine(client import_kvpb.ImportKVClient, uuid []byte) error {
-	req := &import_kvpb.OpenEngineRequest{
-		Uuid: uuid,
+// RestoreDatabase tries to restore the data of a database
+func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	errCh := make(chan error, len(db.Tables))
+	var wg sync.WaitGroup
+	defer close(errCh)
+	for _, table := range db.Tables {
+		wg.Add(1)
+		go func(table *Table) {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreTable(table, rewriteRules, restoreTS):
+			}
+		}(table)
 	}
-	_, err := client.OpenEngine(rc.ctx, req)
-	return errors.Trace(err)
-}
-
-// ImportEngine sends a ImportEngine request to importer
-func (rc *Client) ImportEngine(client import_kvpb.ImportKVClient, uuid []byte) error {
-	req := &import_kvpb.ImportEngineRequest{
-		Uuid:   uuid,
-		PdAddr: rc.pdAddr,
-	}
-	_, err := client.ImportEngine(rc.ctx, req)
-	return errors.Trace(err)
-}
-
-// CloseEngine sends a CloseEngine request to importer
-func (rc *Client) CloseEngine(client import_kvpb.ImportKVClient, uuid []byte) error {
-	req := &import_kvpb.CloseEngineRequest{
-		Uuid: uuid,
-	}
-	_, err := client.CloseEngine(rc.ctx, req)
-	return errors.Trace(err)
-}
-
-// CleanupEngine sends a CleanupEngine request to importer
-func (rc *Client) CleanupEngine(client import_kvpb.ImportKVClient, uuid []byte) error {
-	req := &import_kvpb.CleanupEngineRequest{
-		Uuid: uuid,
-	}
-	_, err := client.CleanupEngine(rc.ctx, req)
-	return errors.Trace(err)
-}
-
-// SwitchClusterMode sends a SwitchClusterMode request to importer
-func (rc *Client) SwitchClusterMode(mode import_sstpb.SwitchMode) error {
-	req := &import_kvpb.SwitchModeRequest{
-		PdAddr: rc.pdAddr,
-		Request: &import_sstpb.SwitchModeRequest{
-			Mode: mode,
-		},
-	}
-	clients := rc.GetImportKVClients()
-	for _, cli := range clients {
-		_, err := cli.SwitchMode(rc.ctx, req)
+	for range db.Tables {
+		err := <-errCh
 		if err != nil {
-			log.Error("switch cluster mode failed", zap.Reflect("mode", mode))
-			return errors.Trace(err)
+			wg.Wait()
+			return err
 		}
 	}
 	return nil
 }
 
-// CompactCluster sends a CompactCluster request to importer
-func (rc *Client) CompactCluster() error {
-	req := &import_kvpb.CompactClusterRequest{
-		PdAddr: rc.pdAddr,
+// RestoreAll tries to restore all the data of backup files.
+func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	errCh := make(chan error, len(rc.databases))
+	var wg sync.WaitGroup
+	defer close(errCh)
+	for _, db := range rc.databases {
+		wg.Add(1)
+		go func(db *Database) {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreDatabase(db, rewriteRules, restoreTS):
+			}
+		}(db)
 	}
-	clients := rc.GetImportKVClients()
-	for _, cli := range clients {
-		_, err := cli.CompactCluster(rc.ctx, req)
+	for range rc.databases {
+		err := <-errCh
 		if err != nil {
-			return errors.Trace(err)
+			wg.Wait()
+			return err
 		}
 	}
 	return nil

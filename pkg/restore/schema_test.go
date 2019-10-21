@@ -107,17 +107,14 @@ func (s *testRestoreSchemaSuite) stopServer(c *C) {
 func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	s.startServer(c)
 	defer s.stopServer(c)
-
 	tk := testkit.NewTestKit(c, s.store)
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t;")
 	tk.MustExec("create table t (a int);")
 	tk.MustExec("insert into t values (10);")
-
 	// Query the current AutoIncID
 	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
-
 	// Get schemas of db and table
 	info, err := s.dom.GetSnapshotInfoSchema(math.MaxUint64)
 	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))
@@ -125,18 +122,21 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-
+	table := Table{
+		Schema: tableInfo.Meta(),
+		Db:     dbInfo,
+	}
 	// Get the next AutoIncID
 	idAlloc := autoid.NewAllocator(s.store, dbInfo.ID, false)
-	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.Meta().ID)
+	globalAutoID, err := idAlloc.NextGlobalAutoID(table.Schema.ID)
 	c.Assert(err, IsNil, Commentf("Error allocate next auto id"))
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
-
 	// Alter AutoIncID to the next AutoIncID + 100
-	tableInfo.Meta().AutoIncID = globalAutoID + 100
-	err = AlterAutoIncID("test", tableInfo.Meta(), "root@tcp(127.0.0.1:4001)/")
+	table.Schema.AutoIncID = globalAutoID + 100
+	db, err := OpenDatabase(dbInfo.Name.String(), "root@tcp(127.0.0.1:4001)/")
+	c.Assert(err, IsNil, Commentf("Error open database"))
+	err = AlterAutoIncID(db, &table)
 	c.Assert(err, IsNil, Commentf("Error alter auto inc id: %s", err))
-
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))

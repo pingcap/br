@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	// FIXME: remove it.
-	_ "github.com/5kbpers/tidb-tools/pkg/restore-util"
 	_ "github.com/pingcap/tidb/ddl"
 )
 

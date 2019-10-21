@@ -218,8 +218,8 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// BackupAllSchemas fetches all schemas from TiDB.
-func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
+// GetAllBackupTableRanges gets the range of all tables.
+func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -228,15 +228,16 @@ func (bc *BackupClient) BackupAllSchemas(backupTS uint64) error {
 
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	dbInfos := info.AllSchemas()
+	ranges := make([]Range, 0)
 LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
@@ -247,18 +248,18 @@ LoadDb:
 		}
 		dbData, err := json.Marshal(dbInfo)
 		if err != nil {
-			return errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
-				return errors.Trace(err)
+				return nil, errors.Trace(err)
 			}
 			tableInfo.AutoIncID = globalAutoID
 			tableData, err := json.Marshal(tableInfo)
 			if err != nil {
-				return errors.Trace(err)
+				return nil, errors.Trace(err)
 			}
 			// Save schema.
 			backupSchema := &backup.Schema{
@@ -271,9 +272,16 @@ LoadDb:
 				zap.Int64("auto_inc_id", globalAutoID),
 			)
 			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+
+			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
+			//       backup global index.
+			tableRanges := buildTableRanges(tableInfo)
+			for _, r := range tableRanges {
+				ranges = append(ranges, r.Range())
+			}
 		}
 	}
-	return nil
+	return ranges, nil
 }
 
 // BackupRange make a backup of the given key range.
