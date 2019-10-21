@@ -14,9 +14,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-
-	// FIXME: remove it.
-	_ "github.com/pingcap/tidb/ddl"
 )
 
 func main() {
