@@ -4,12 +4,12 @@ import (
 	"context"
 	"io/ioutil"
 
-	restore_util "github.com/5kbpers/tidb-tools/pkg/restore-util"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 )

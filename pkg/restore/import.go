@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	restore_util "github.com/5kbpers/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/prometheus/common/log"
 	"github.com/twinj/uuid"

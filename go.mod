@@ -3,7 +3,7 @@ module github.com/pingcap/br
 go 1.12
 
 require (
-	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191018085309-1d625db17643+incompatible
+	github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20191018085309-1d625db17643+incompatible // indirect
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.4.1
@@ -18,6 +18,7 @@ require (
 	github.com/pingcap/parser v0.0.0-20190923031704-33636bc5e5d6
 	github.com/pingcap/pd v1.1.0-beta.0.20190923032047-5c648dc365e0
 	github.com/pingcap/tidb v0.0.0-20191010035248-d82a94fe5ea7
+	github.com/pingcap/tidb-tools v3.0.5-0.20191021033851-888c9e3b8de4+incompatible
 	github.com/prometheus/client_golang v1.1.0
 	github.com/prometheus/common v0.6.0
 	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
