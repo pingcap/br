@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -79,6 +80,17 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 // NewBacker creates a new Backer.
 func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	addrs := strings.Split(pdAddrs, ",")
+
+	available := false
+	for _, addr := range addrs {
+		if pingHost(addr) {
+			available = true
+		}
+	}
+	if !available {
+		return nil, errors.New("pd address not avaliable, please check network")
+	}
+
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -301,4 +313,23 @@ func DecodeTs(ts uint64) Timestamp {
 // EncodeTs encodes Timestamp into a uint64
 func EncodeTs(tp Timestamp) uint64 {
 	return uint64((tp.Physical << physicalShiftBits) + tp.Logical)
+}
+
+func pingHost(host string) (result bool) {
+	var (
+		ip  string
+		err error
+	)
+	if strings.Contains(host, "http://") {
+		ip = host[len("http://"):]
+	} else if strings.Contains(host, "https://") {
+		ip = host[len("https://"):]
+	}
+	var conn net.Conn
+	if conn, err = net.DialTimeout("tcp", ip, 3*time.Second); err != nil {
+		return false
+	}
+	conn.Close()
+
+	return true
 }
