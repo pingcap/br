@@ -86,7 +86,7 @@ func newFullRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().String("meta", "", "meta file location")
 
 	command.MarkFlagRequired("connect")
