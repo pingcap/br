@@ -32,12 +32,17 @@ func newFullBackupCommand() *cobra.Command {
 		Short: "backup the whole TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			u, err := command.Flags().GetString("storage")
+			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
 			}
 			if u == "" {
 				return errors.New("empty backup store is not allowed")
+			}
+
+			err = client.SetStorage(u)
+			if err != nil {
+				return err
 			}
 
 			timeAgo, err := command.Flags().GetString("timeago")
@@ -81,7 +86,7 @@ func newFullBackupCommand() *cobra.Command {
 			}()
 
 			for _, r := range ranges {
-				err := client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
+				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
 				if err != nil {
 					return err
 				}
@@ -100,13 +105,19 @@ func newTableBackupCommand() *cobra.Command {
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
 			client := GetDefaultRawClient()
-			u, err := command.Flags().GetString("storage")
+			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
 			}
 			if u == "" {
 				return errors.New("empty backup store is not allowed")
 			}
+
+			err = client.SetStorage(u)
+			if err != nil {
+				return err
+			}
+
 			db, err := command.Flags().GetString("db")
 			if err != nil {
 				return err
@@ -143,6 +154,7 @@ func newTableBackupCommand() *cobra.Command {
 			if concurrency == 0 {
 				return errors.New("at least one thread required")
 			}
+
 			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
@@ -151,7 +163,8 @@ func newTableBackupCommand() *cobra.Command {
 			// the count of regions need to backup
 			approximateRegions := 0
 			for _, r := range ranges {
-				regionCount, err := client.GetRangeRegionCount(r.StartKey, r.EndKey)
+				var regionCount int
+				regionCount, err = client.GetRangeRegionCount(r.StartKey, r.EndKey)
 				if err != nil {
 					return err
 				}
@@ -163,7 +176,7 @@ func newTableBackupCommand() *cobra.Command {
 			}()
 
 			for _, r := range ranges {
-				err := client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
+				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
 				if err != nil {
 					return err
 				}
