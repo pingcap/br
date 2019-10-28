@@ -197,7 +197,7 @@ func (rangeTree *RangeTree) getIncompleteRange(
 
 func (rangeTree *RangeTree) checkDupFiles() {
 	// Name -> SHA256
-	files := make(map[string]string)
+	files := make(map[string][]byte)
 	rangeTree.tree.Ascend(func(i btree.Item) bool {
 		rg := i.(*Range)
 		for _, f := range rg.Files {
@@ -205,11 +205,11 @@ func (rangeTree *RangeTree) checkDupFiles() {
 			if ok {
 				log.Error("dup file",
 					zap.String("Name", f.Name),
-					zap.String("SHA256_1", old),
-					zap.String("SHA256_2", string(f.Sha256)),
+					zap.ByteString("SHA256_1", old),
+					zap.ByteString("SHA256_2", f.Sha256),
 				)
 			} else {
-				files[f.Name] = string(f.Sha256)
+				files[f.Name] = f.Sha256
 			}
 		}
 		return true
