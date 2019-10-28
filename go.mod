@@ -5,6 +5,9 @@ go 1.13
 require (
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/etcd v3.3.17+incompatible // indirect
+	github.com/coreos/go-semver v0.3.0 // indirect
+	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
+	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
@@ -12,11 +15,12 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/kvproto v0.0.0-20191021035730-e2dd54e175d2
+	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
+	github.com/pingcap/kvproto v0.0.0-20191018083421-f37afb7e2ae7
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20190917040145-a90dba59f50d
 	github.com/pingcap/pd v1.1.0-beta.0.20191018040858-0d9d9d67d029
-	github.com/pingcap/tidb v1.1.0-beta.0.20191018092636-44379c205421
+	github.com/pingcap/tidb v0.0.0-20191022034824-9b4d7891def5
 	github.com/pingcap/tidb-tools v3.0.5-0.20191021033851-888c9e3b8de4+incompatible
 	github.com/prometheus/client_golang v0.9.1
 	github.com/prometheus/common v0.4.1
@@ -31,6 +35,7 @@ require (
 	golang.org/x/text v0.3.2 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect
 	golang.org/x/tools v0.0.0-20191012152004-8de300cfc20a // indirect
+	google.golang.org/appengine v1.4.0 // indirect
 	google.golang.org/genproto v0.0.0-20190905072037-92dd089d5514 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect

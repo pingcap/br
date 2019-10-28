@@ -39,7 +39,7 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringP(FlagStorage, "s", "",
 		`specify the url where backup storage, eg, "local:///path/to/save"`)
 	cmd.MarkFlagRequired(FlagPD)
-	//cmd.MarkFlagRequired(FlagStorage)
+	cmd.MarkFlagRequired(FlagStorage)
 }
 
 // Init ...

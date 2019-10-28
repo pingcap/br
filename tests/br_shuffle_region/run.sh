@@ -35,7 +35,7 @@ run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore with shuffle region
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" --meta backupmeta --pd $PD_ADDR
+br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB/backupdata" --pd $PD_ADDR
 
 # remove shuffle region scheduler
 echo "-u $PD_ADDR -d sched remove shuffle-region-scheduler" | pd-ctl

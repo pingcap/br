@@ -37,7 +37,7 @@ done
 
 # restore full
 echo "restore start..."
-br restore full --connect "root@tcp($TIDB_ADDR)/" --meta backupmeta --pd $PD_ADDR
+br restore full --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB/backupdata" --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')

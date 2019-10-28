@@ -3,7 +3,6 @@ package raw
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +26,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/utils"
+
 	"github.com/pingcap/br/pkg/meta"
 )
 
@@ -45,6 +46,7 @@ type BackupClient struct {
 	pdClient  pd.Client
 
 	backupMeta backup.BackupMeta
+	storage    utils.ExternalStorage
 
 	// the count of regions already backup
 	successRegions int64
@@ -99,6 +101,13 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 	return backupTS, nil
 }
 
+// SetStorage set ExternalStorage for client
+func (bc *BackupClient) SetStorage(path string) error {
+	var err error
+	bc.storage, err = utils.CreateStorage(path)
+	return err
+}
+
 // SaveBackupMeta saves the current backup meta at the given path.
 func (bc *BackupClient) SaveBackupMeta(path string) error {
 	bc.backupMeta.Path = path
@@ -106,11 +115,10 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// TODO: save the file at the path.
 	log.Info("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
 	log.Info("save backup meta", zap.String("path", path))
-	return ioutil.WriteFile("backupmeta", backupMetaData, 0644)
+	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
 // GetBackupTableRanges gets the range of table
@@ -230,7 +238,9 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
+
 	info, err := do.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, errors.Trace(err)

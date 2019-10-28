@@ -4,7 +4,13 @@ import (
 	"math/rand"
 	"testing"
 	"time"
+
+	. "github.com/pingcap/check"
 )
+
+func TestT(t *testing.T) {
+	TestingT(t)
+}
 
 func TestTimestampEncodeDecode(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
