@@ -115,9 +115,8 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
-		var v []byte
-		var e error
-		if v, e = backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli); e != nil {
+		v, e := backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli)
+		if e != nil {
 			err = e
 			continue
 		}
@@ -133,9 +132,8 @@ func (backer *Backer) GetRegionCount() (int, error) {
 
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
-		var v []byte
-		var e error
-		if v, e = backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli); e != nil {
+		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)
+		if e != nil {
 			err = e
 			continue
 		}
