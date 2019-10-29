@@ -686,8 +686,12 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 			totalKvs += file.TotalKvs
 			totalBytes += file.TotalBytes
 		}
-		if !(schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes) {
+		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
+			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
+		} else {
 			log.Error("failed in fast checksum",
+				zap.String("database", dbInfo.Name.String()),
+				zap.String("table", tblInfo.Name.String()),
 				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
 				zap.Uint64("calculated crc64", checksum),
 				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
@@ -695,13 +699,11 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
 				zap.Uint64("calculated total bytes", totalBytes),
 			)
-		} else {
-			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
-			return true, nil
+			return false, nil
 		}
 	}
 
-	return false, nil
+	return true, nil
 }
 
 func (bc *BackupClient) getChecksumFromTiDB(dbSession session.Session, dbl *model.DBInfo, tbl *model.TableInfo) (checksum uint64, totalKvs uint64, totalBytes uint64, err error) {
@@ -710,7 +712,7 @@ func (bc *BackupClient) getChecksumFromTiDB(dbSession session.Session, dbl *mode
 	// must set to true to avoid load global vars, otherwise we got error
 	dbSession.GetSessionVars().CommonGlobalLoaded = true
 
-	recordSets, err = dbSession.Execute(bc.ctx, fmt.Sprintf("admin checksum table `%s`.`%s`", dbl.Name.L, tbl.Name.L))
+	recordSets, err = dbSession.Execute(bc.ctx, fmt.Sprintf("ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbl.Name.L), utils.EncloseName(tbl.Name.L)))
 	if err != nil {
 		return 0, 0, 0, errors.Trace(err)
 	}

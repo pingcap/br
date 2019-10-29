@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -120,4 +121,9 @@ func ResultSetToStringSlice(ctx context.Context, s session.Session, rs sqlexec.R
 		sRows[i] = iRow
 	}
 	return sRows, nil
+}
+
+// EncloseName formats name in sql
+func EncloseName(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
