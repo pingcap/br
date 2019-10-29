@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -19,6 +18,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Client sends requests to importer to restore files
@@ -31,7 +33,7 @@ type Client struct {
 	tikvCli      tikv.Storage
 	fileImporter FileImporter
 
-	databases  map[string]*Database
+	databases  map[string]*utils.Database
 	dbDSN      string
 	backupMeta *backup.BackupMeta
 }
@@ -67,7 +69,7 @@ func (rc *Client) GetPDClient() pd.Client {
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
-	databases, err := LoadBackupTables(backupMeta)
+	databases, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -104,8 +106,8 @@ func (rc *Client) GetTS() (uint64, error) {
 }
 
 // GetDatabases returns all databases.
-func (rc *Client) GetDatabases() []*Database {
-	dbs := make([]*Database, 0, len(rc.databases))
+func (rc *Client) GetDatabases() []*utils.Database {
+	dbs := make([]*utils.Database, 0, len(rc.databases))
 	for _, db := range rc.databases {
 		dbs = append(dbs, db)
 	}
@@ -113,7 +115,7 @@ func (rc *Client) GetDatabases() []*Database {
 }
 
 // GetDatabase returns a database by name
-func (rc *Client) GetDatabase(name string) *Database {
+func (rc *Client) GetDatabase(name string) *utils.Database {
 	return rc.databases[name]
 }
 
@@ -140,7 +142,7 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
-func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, error) {
+func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
@@ -157,7 +159,7 @@ func (rc *Client) CreateTables(tables []*Table) (*restore_util.RewriteRules, err
 }
 
 // CreateTable creates a table, and returns its rewrite rules.
-func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) {
+func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, error) {
 	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 	if err != nil {
 		return nil, err
@@ -179,7 +181,7 @@ func (rc *Client) CreateTable(table *Table) (*restore_util.RewriteRules, error) 
 }
 
 // RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -224,13 +226,13 @@ func (rc *Client) RestoreTable(table *Table, rewriteRules *restore_util.RewriteR
 }
 
 // RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(db *Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
 	defer close(errCh)
 	for _, table := range db.Tables {
 		wg.Add(1)
-		go func(table *Table) {
+		go func(table *utils.Table) {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
@@ -256,7 +258,7 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 	defer close(errCh)
 	for _, db := range rc.databases {
 		wg.Add(1)
-		go func(db *Database) {
+		go func(db *utils.Database) {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
