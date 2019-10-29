@@ -31,7 +31,11 @@ const (
 type Backer struct {
 	Ctx      context.Context
 	PDClient pd.Client
-	pdHTTP   struct {
+
+	// make it public for unit test to mock
+	PDHTTPGet func(string, string, *http.Client) ([]byte, error)
+
+	pdHTTP struct {
 		addrs []string
 		cli   *http.Client
 	}
@@ -95,7 +99,14 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	backer.pdHTTP.addrs = addrs
 	backer.pdHTTP.cli = &http.Client{Timeout: 30 * time.Second}
 	backer.backupClis.clis = make(map[uint64]*grpc.ClientConn)
+	backer.PDHTTPGet = pdGet
 	return backer, nil
+}
+
+// SetPDHTTP set pd addrs and cli for test
+func (backer *Backer) SetPDHTTP(addrs []string, cli *http.Client) {
+	backer.pdHTTP.addrs = addrs
+	backer.pdHTTP.cli = cli
 }
 
 // GetClusterVersion returns the current cluster version.
@@ -106,7 +117,7 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 	for _, addr := range backer.pdHTTP.addrs {
 		var v []byte
 		var e error
-		if v, e = pdGet(addr, clusterVersionPrefix, backer.pdHTTP.cli); e != nil {
+		if v, e = backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli); e != nil {
 			err = e
 			continue
 		}
@@ -124,7 +135,7 @@ func (backer *Backer) GetRegionCount() (int, error) {
 	for _, addr := range backer.pdHTTP.addrs {
 		var v []byte
 		var e error
-		if v, e = pdGet(addr, regionCountPrefix, backer.pdHTTP.cli); e != nil {
+		if v, e = backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli); e != nil {
 			err = e
 			continue
 		}
@@ -133,7 +144,7 @@ func (backer *Backer) GetRegionCount() (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		return regionsMap["count"].(int), nil
+		return int(regionsMap["count"].(float64)), nil
 	}
 	return 0, err
 }
