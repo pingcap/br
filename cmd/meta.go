@@ -83,7 +83,7 @@ func NewMetaCommand() *cobra.Command {
 				s := sha256.Sum256(data)
 				hexBytes := make([]byte, hex.EncodedLen(len(s)))
 				hex.Encode(hexBytes, s[:])
-				if bytes.Compare(hexBytes, file.Sha256) != 0 {
+				if !bytes.Equal(hexBytes, file.Sha256) {
 					return errors.Errorf("backup data checksum failed: %s may be changed\n calculated sha256 is %s\n, origin sha256 is %s", file.Name, s, file.Sha256)
 				}
 			}
