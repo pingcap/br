@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -11,26 +10,12 @@ import (
 
 	"github.com/pingcap/br/cmd"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 )
 
 func main() {
-	conf := &log.Config{Level: "info", File: log.FileLogConfig{Filename: "br.log"}}
-	lg, p, _ := log.InitLogger(conf)
-	log.ReplaceGlobals(lg, p)
-
 	gCtx := context.Background()
 	ctx, cancel := context.WithCancel(gCtx)
-
-	go func() {
-		if err := http.ListenAndServe("localhost:6060", nil); err != nil {
-			log.Warn("fail to start pprof", zap.Error(err))
-		} else {
-			log.Info("start pprof at localhost:6060")
-		}
-	}()
 
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc,
