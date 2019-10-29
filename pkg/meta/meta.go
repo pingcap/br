@@ -2,6 +2,7 @@ package meta
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -30,7 +31,11 @@ const (
 type Backer struct {
 	Ctx      context.Context
 	PDClient pd.Client
-	pdHTTP   struct {
+
+	// make it public for unit test to mock
+	PDHTTPGet func(string, string, *http.Client) ([]byte, error)
+
+	pdHTTP struct {
 		addrs []string
 		cli   *http.Client
 	}
@@ -39,6 +44,36 @@ type Backer struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+}
+
+var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
+	if addr != "" && !strings.HasPrefix("http", addr) {
+		addr = "http://" + addr
+	}
+	u, err := url.Parse(addr)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	url := fmt.Sprintf("%s/%s", u, prefix)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		res, _ := ioutil.ReadAll(resp.Body)
+		return nil, errors.Errorf("[%d] %s", resp.StatusCode, res)
+	}
+
+	r, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return r, nil
 }
 
 // NewBacker creates a new Backer.
@@ -64,55 +99,52 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	backer.pdHTTP.addrs = addrs
 	backer.pdHTTP.cli = &http.Client{Timeout: 30 * time.Second}
 	backer.backupClis.clis = make(map[uint64]*grpc.ClientConn)
+	backer.PDHTTPGet = pdGet
 	return backer, nil
+}
+
+// SetPDHTTP set pd addrs and cli for test
+func (backer *Backer) SetPDHTTP(addrs []string, cli *http.Client) {
+	backer.pdHTTP.addrs = addrs
+	backer.pdHTTP.cli = cli
 }
 
 // GetClusterVersion returns the current cluster version.
 func (backer *Backer) GetClusterVersion() (string, error) {
 	var clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 
-	get := func(addr string) (string, error) {
-		if addr != "" && !strings.HasPrefix("http", addr) {
-			addr = "http://" + addr
-		}
-		u, err := url.Parse(addr)
-		if err != nil {
-			return "", errors.Trace(err)
-		}
-		url := fmt.Sprintf("%s/%s", u, clusterVersionPrefix)
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			return "", errors.Trace(err)
-		}
-		resp, err := backer.pdHTTP.cli.Do(req)
-		if err != nil {
-			return "", errors.Trace(err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			res, _ := ioutil.ReadAll(resp.Body)
-			return "", errors.Errorf("[%d] %s", resp.StatusCode, res)
-		}
-
-		r, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return "", errors.Trace(err)
-		}
-		return string(r), nil
-	}
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
-		var v string
-		var e error
-		if v, e = get(addr); e != nil {
-			err = errors.Trace(err)
+		v, e := backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli)
+		if e != nil {
+			err = e
 			continue
 		}
-		return v, nil
+		return string(v), nil
 	}
 
 	return "", err
+}
+
+// GetRegionCount returns the total region count in the cluster
+func (backer *Backer) GetRegionCount() (int, error) {
+	var regionCountPrefix = "pd/api/v1/regions/count"
+
+	var err error
+	for _, addr := range backer.pdHTTP.addrs {
+		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)
+		if e != nil {
+			err = e
+			continue
+		}
+		regionsMap := make(map[string]interface{})
+		err = json.Unmarshal(v, &regionsMap)
+		if err != nil {
+			return 0, err
+		}
+		return int(regionsMap["count"].(float64)), nil
+	}
+	return 0, err
 }
 
 // GetGCSafePoint returns the current gc safe point.

@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"io/ioutil"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -87,11 +87,9 @@ func newFullRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().String("meta", "", "meta file location")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
-	command.MarkFlagRequired("meta")
 
 	return command
 }
@@ -153,12 +151,10 @@ func newDbRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().String("meta", "", "meta file location")
 
 	command.Flags().String("db", "", "database name")
 
 	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("meta")
 	command.MarkFlagRequired("db")
 
 	return command
@@ -226,13 +222,11 @@ func newTableRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().String("meta", "", "meta file location")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
 
 	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("meta")
 	command.MarkFlagRequired("db")
 	command.MarkFlagRequired("table")
 
@@ -240,11 +234,15 @@ func newTableRestoreCommand() *cobra.Command {
 }
 
 func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
-	metaPath, err := flagSet.GetString("meta")
+	u, err := flagSet.GetString(FlagStorage)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	metaData, err := ioutil.ReadFile(metaPath)
+	s, err := utils.CreateStorage(u)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	metaData, err := s.Read(utils.MetaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

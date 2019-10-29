@@ -26,6 +26,8 @@ import (
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreSchemaSuite{})
@@ -122,7 +124,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-	table := Table{
+	table := utils.Table{
 		Schema: tableInfo.Meta(),
 		Db:     dbInfo,
 	}

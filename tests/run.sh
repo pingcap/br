@@ -110,5 +110,4 @@ for script in tests/*/run.sh; do
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
     sh "$script"
-    rm backupmeta
 done
