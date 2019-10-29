@@ -619,12 +619,7 @@ func (bc *BackupClient) PrintBackupProgress(barName string, count int64, done <-
 
 }
 
-// GetRangeRegionCount get region count by scanRegions(startKey, endKey)
+// GetRangeRegionCount get region count by pd http api
 func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
-	// TODO find an efficient way to get range regionCount
-	regions, _, err := bc.pdClient.ScanRegions(bc.ctx, startKey, endKey, 0)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
-	return len(regions), nil
+	return bc.backer.GetRegionCount()
 }
