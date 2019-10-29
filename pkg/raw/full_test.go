@@ -2,6 +2,7 @@ package raw
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ func (r *testBackup) SetUpSuite(c *C) {
 		Ctx:      ctx,
 		PDClient: mockPDClient,
 	}
+	mockBacker.SetPDHTTP([]string{"test"}, nil)
 	r.backupClient = &BackupClient{
 		clusterID: mockPDClient.GetClusterID(ctx),
 		backer:    mockBacker,
@@ -123,4 +125,20 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	ranges := buildTableRanges(tbl)
 	c.Assert(ranges, DeepEquals, []tableRange{{startID: 7, endID: 8}})
 
+}
+
+func (r *testBackup) TestPDHTTP(c *C) {
+	r.backupClient.backer.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
+		return []byte(`{"count":6,"regions":null}`), nil
+	}
+	resp, err := r.backupClient.backer.GetRegionCount()
+	c.Assert(err, IsNil)
+	c.Assert(resp, Equals, 6)
+
+	r.backupClient.backer.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
+		return []byte(`test`), nil
+	}
+	respString, err := r.backupClient.backer.GetClusterVersion()
+	c.Assert(err, IsNil)
+	c.Assert(respString, Equals, "test")
 }
