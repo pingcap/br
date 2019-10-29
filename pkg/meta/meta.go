@@ -128,12 +128,12 @@ func (backer *Backer) GetRegionCount() (int, error) {
 			err = e
 			continue
 		}
-		regionsMap := make(map[string]int)
-		err = json.Unmarshal(v, regionsMap)
+		regionsMap := make(map[string]interface{})
+		err = json.Unmarshal(v, &regionsMap)
 		if err != nil {
 			return 0, err
 		}
-		return regionsMap["regions"], nil
+		return regionsMap["count"].(int), nil
 	}
 	return 0, err
 }
