@@ -324,7 +324,10 @@ func pingHost(host string) (result bool) {
 		ip = host[len("http://"):]
 	} else if strings.Contains(host, "https://") {
 		ip = host[len("https://"):]
+	} else {
+		ip = host
 	}
+
 	var conn net.Conn
 	if conn, err = net.DialTimeout("tcp", ip, 3*time.Second); err != nil {
 		return false
