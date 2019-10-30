@@ -87,7 +87,7 @@ func newFullRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
@@ -152,7 +152,7 @@ func newDbRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 
@@ -224,7 +224,7 @@ func newTableRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -265,11 +265,11 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	}
 	client.SetDbDSN(dsn)
 
-	tableConcurrency, err := flagSet.GetUint("table-concurrency")
+	concurrency, err := flagSet.GetUint("concurrency")
 	if err != nil {
 		return err
 	}
-	client.SetTableConcurrency(tableConcurrency)
+	client.SetConcurrency(concurrency)
 
 	return nil
 }
