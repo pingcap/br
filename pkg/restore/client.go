@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -18,6 +19,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
@@ -272,6 +275,57 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 		if err != nil {
 			wg.Wait()
 			return err
+		}
+	}
+	return nil
+}
+
+//SwitchToImportMode switch tikv cluster to import mode
+func (rc *Client) SwitchToImportMode(ctx context.Context) error {
+	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
+}
+
+//SwitchToNormalMode switch tikv cluster to normal mode
+func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
+	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
+}
+
+func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
+	stores, err := rc.pdClient.GetAllStores(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for _, store := range stores {
+		opt := grpc.WithInsecure()
+		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
+		keepAlive := 10
+		keepAliveTimeout := 3
+		conn, err := grpc.DialContext(
+			gctx,
+			store.GetAddress(),
+			opt,
+			grpc.WithBackoffMaxDelay(time.Second*3),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:                time.Duration(keepAlive) * time.Second,
+				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
+				PermitWithoutStream: true,
+			}),
+		)
+		cancel()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		client := import_sstpb.NewImportSSTClient(conn)
+		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
+			Mode: mode,
+		})
+		if err != nil {
+			return errors.Trace(err)
+		}
+		err = conn.Close()
+		if err != nil {
+			log.Error("close grpc connection failed in switch mode", zap.Error(err))
+			continue
 		}
 	}
 	return nil
