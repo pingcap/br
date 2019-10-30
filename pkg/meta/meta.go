@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,7 +24,9 @@ import (
 )
 
 const (
-	dialTimeout = 5 * time.Second
+	dialTimeout          = 5 * time.Second
+	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
+	regionCountPrefix    = "pd/api/v1/regions/count"
 )
 
 // Backer backups a TiDB/TiKV cluster.
@@ -81,14 +82,17 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
-	available := false
+	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
+	cli := &http.Client{Timeout: 30 * time.Second}
 	for _, addr := range addrs {
-		if pingHost(addr) {
-			available = true
+		_, failure = pdGet(addr, clusterVersionPrefix, cli)
+		// TODO need check cluster version >= 3.1 when br release
+		if failure == nil {
+			break
 		}
 	}
-	if !available {
-		return nil, errors.New("pd address not avaliable, please check network")
+	if failure != nil {
+		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
@@ -109,7 +113,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 		tikvCli:  tikvCli.(tikv.Storage),
 	}
 	backer.pdHTTP.addrs = addrs
-	backer.pdHTTP.cli = &http.Client{Timeout: 30 * time.Second}
+	backer.pdHTTP.cli = cli
 	backer.backupClis.clis = make(map[uint64]*grpc.ClientConn)
 	backer.PDHTTPGet = pdGet
 	return backer, nil
@@ -123,8 +127,6 @@ func (backer *Backer) SetPDHTTP(addrs []string, cli *http.Client) {
 
 // GetClusterVersion returns the current cluster version.
 func (backer *Backer) GetClusterVersion() (string, error) {
-	var clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli)
@@ -140,8 +142,6 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 
 // GetRegionCount returns the total region count in the cluster
 func (backer *Backer) GetRegionCount() (int, error) {
-	var regionCountPrefix = "pd/api/v1/regions/count"
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)
@@ -313,26 +313,4 @@ func DecodeTs(ts uint64) Timestamp {
 // EncodeTs encodes Timestamp into a uint64
 func EncodeTs(tp Timestamp) uint64 {
 	return uint64((tp.Physical << physicalShiftBits) + tp.Logical)
-}
-
-func pingHost(host string) (result bool) {
-	var (
-		ip  string
-		err error
-	)
-	if strings.Contains(host, "http://") {
-		ip = host[len("http://"):]
-	} else if strings.Contains(host, "https://") {
-		ip = host[len("https://"):]
-	} else {
-		ip = host
-	}
-
-	var conn net.Conn
-	if conn, err = net.DialTimeout("tcp", ip, 3*time.Second); err != nil {
-		return false
-	}
-	conn.Close()
-
-	return true
 }
