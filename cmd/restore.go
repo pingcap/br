@@ -87,6 +87,7 @@ func newFullRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
@@ -151,6 +152,7 @@ func newDbRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
 
 	command.Flags().String("db", "", "database name")
 
@@ -222,6 +224,7 @@ func newTableRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("table-concurrency", 128, "max number of concurrent workers of each table")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -236,7 +239,7 @@ func newTableRestoreCommand() *cobra.Command {
 func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	u, err := flagSet.GetString(FlagStorage)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	s, err := utils.CreateStorage(u)
 	if err != nil {
@@ -258,9 +261,15 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 
 	dsn, err := flagSet.GetString("connect")
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	client.SetDbDSN(dsn)
+
+	tableConcurrency, err := flagSet.GetUint("table-concurrency")
+	if err != nil {
+		return err
+	}
+	client.SetTableConcurrency(tableConcurrency)
 
 	return nil
 }

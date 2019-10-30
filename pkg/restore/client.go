@@ -28,10 +28,11 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient     pd.Client
-	pdAddrs      []string
-	tikvCli      tikv.Storage
-	fileImporter FileImporter
+	pdClient         pd.Client
+	pdAddrs          []string
+	tikvCli          tikv.Storage
+	fileImporter     FileImporter
+	tableConcurrency uint
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -89,6 +90,10 @@ func (rc *Client) SetDbDSN(dns string) {
 // GetDbDSN returns a DNS to connect the database
 func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
+}
+
+func (rc *Client) SetTableConcurrency(c uint) {
+	rc.tableConcurrency = c
 }
 
 // GetTS gets a new timestamp from PD
@@ -191,6 +196,8 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
 	defer close(errCh)
+	poolName := table.Db.Name.String() + "." +table.Schema.Name.String()
+	pool := utils.NewWorkerPool(rc.tableConcurrency, poolName)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
 	for _, file := range table.Files {
@@ -200,7 +207,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 			select {
 			case <-rc.ctx.Done():
 				errCh <- nil
-			case errCh <- rc.fileImporter.Import(file, encodedRules):
+			case errCh <- rc.fileImporter.Import(file, encodedRules, pool):
 			}
 		}(file)
 	}

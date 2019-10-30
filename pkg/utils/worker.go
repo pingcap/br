@@ -1,19 +1,19 @@
 package utils
 
 type WorkerPool struct {
-	limit   int
+	limit   uint
 	workers chan *Worker
 	name    string
 }
 
 type Worker struct {
-	ID int64
+	ID uint64
 }
 
-func NewWorkerPool(limit int, name string) *WorkerPool {
+func NewWorkerPool(limit uint, name string) *WorkerPool {
 	workers := make(chan *Worker, limit)
-	for i := 0; i < limit; i++ {
-		workers <- &Worker{ID: int64(i + 1)}
+	for i := uint(0); i < limit; i++ {
+		workers <- &Worker{ID: uint64(i + 1)}
 	}
 	return &WorkerPool{
 		limit:   limit,

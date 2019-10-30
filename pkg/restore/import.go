@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -56,7 +57,7 @@ func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL st
 
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules, pool *utils.WorkerPool) error {
 	err := withRetry(func() error {
 		startKey := file.GetStartKey()
 		endKey := file.GetEndKey()
@@ -80,7 +81,9 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		var wg sync.WaitGroup
 		for i, info := range regionInfos {
 			wg.Add(1)
+			worker := pool.Apply()
 			go func(n int, regionInfo *restore_util.RegionInfo) {
+				defer pool.Recycle(worker)
 				defer wg.Done()
 				fileMeta, isEmpty, err := importer.downloadSST(regionInfo, file, rewriteRules)
 				if err != nil {
