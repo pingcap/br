@@ -86,7 +86,7 @@ func newFullRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)")
+	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
