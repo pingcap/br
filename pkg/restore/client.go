@@ -92,6 +92,7 @@ func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
 }
 
+// SetTableConcurrency sets the concurrency of each table
 func (rc *Client) SetTableConcurrency(c uint) {
 	rc.tableConcurrency = c
 }

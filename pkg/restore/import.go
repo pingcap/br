@@ -25,11 +25,13 @@ var (
 )
 
 const (
-	importFileRetryTimes   = 8
-	importFileWaitInterval = 10 * time.Millisecond
+	importFileRetryTimes      = 16
+	importFileWaitInterval    = 10 * time.Millisecond
+	importFileMaxWaitInterval = 1 * time.Second
 
-	downloadSSTRetryTimes   = 3
-	downloadSSTWaitInterval = 10 * time.Millisecond
+	downloadSSTRetryTimes      = 8
+	downloadSSTWaitInterval    = 10 * time.Millisecond
+	downloadSSTMaxWaitInterval = 1 * time.Second
 )
 
 // FileImporter used to import a file to TiKV.
@@ -127,7 +129,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						return false
 					}
 					return true
-				}, downloadSSTRetryTimes, downloadSSTWaitInterval)
+				}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			}(i, info)
 		}
 		wg.Wait()
@@ -139,7 +141,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		return nil
 	}, func(e error) bool {
 		return true
-	}, importFileRetryTimes, importFileWaitInterval)
+	}, importFileRetryTimes, importFileWaitInterval, importFileMaxWaitInterval)
 	return errors.Trace(err)
 }
 
