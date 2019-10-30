@@ -83,54 +83,55 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		var wg sync.WaitGroup
 		for i, info := range regionInfos {
 			wg.Add(1)
-			worker := pool.Apply()
-			go func(n int, regionInfo *restore_util.RegionInfo) {
-				defer pool.Recycle(worker)
-				defer wg.Done()
-				fileMeta, isEmpty, err := importer.downloadSST(regionInfo, file, rewriteRules)
-				if err != nil {
-					if err != errRewriteRuleNotFound {
-						returnErrs[n] = err
-						log.Warn("download file failed",
-							zap.Reflect("file", file),
-							zap.Reflect("region", regionInfo.Region),
-							zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
-							zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
-							zap.Error(err),
-						)
-					}
-					return
-				}
-				if isEmpty {
-					log.Warn(
-						"file don't have key in this region, skip it",
-						zap.Reflect("file", file),
-						zap.Reflect("region", regionInfo.Region),
-						zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
-						zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
-					)
-					return
-				}
-				returnErrs[n] = withRetry(func() error {
-					err = importer.ingestSST(fileMeta, regionInfo, rewriteRules)
+			n := i
+			regionInfo := info
+			pool.Apply(
+				func() {
+					defer wg.Done()
+					fileMeta, isEmpty, err := importer.downloadSST(regionInfo, file, rewriteRules)
 					if err != nil {
-						log.Warn("ingest file failed",
+						if err != errRewriteRuleNotFound {
+							returnErrs[n] = err
+							log.Warn("download file failed",
+								zap.Reflect("file", file),
+								zap.Reflect("region", regionInfo.Region),
+								zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
+								zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
+								zap.Error(err),
+							)
+						}
+						return
+					}
+					if isEmpty {
+						log.Warn(
+							"file don't have key in this region, skip it",
 							zap.Reflect("file", file),
 							zap.Reflect("region", regionInfo.Region),
 							zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
 							zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
-							zap.Error(err),
 						)
-						return err
+						return
 					}
-					return nil
-				}, func(e error) bool {
-					if e == errEpochNotMatch {
-						return false
-					}
-					return true
-				}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
-			}(i, info)
+					returnErrs[n] = withRetry(func() error {
+						err = importer.ingestSST(fileMeta, regionInfo, rewriteRules)
+						if err != nil {
+							log.Warn("ingest file failed",
+								zap.Reflect("file", file),
+								zap.Reflect("region", regionInfo.Region),
+								zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
+								zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
+								zap.Error(err),
+							)
+							return err
+						}
+						return nil
+					}, func(e error) bool {
+						if e == errEpochNotMatch {
+							return false
+						}
+						return true
+					}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
+				})
 		}
 		wg.Wait()
 		for _, err = range returnErrs {

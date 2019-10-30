@@ -12,6 +12,8 @@ type Worker struct {
 	ID uint64
 }
 
+type taskFunc func()
+
 // NewWorkerPool returns a WorkPool
 func NewWorkerPool(limit uint, name string) *WorkerPool {
 	workers := make(chan *Worker, limit)
@@ -25,14 +27,14 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 	}
 }
 
-// Apply acquires a worker
-func (pool *WorkerPool) Apply() *Worker {
+// Apply executes a task
+func (pool *WorkerPool) Apply(fn taskFunc) {
 	worker := <-pool.workers
-	return worker
+	go fn()
+	pool.recycle(worker)
 }
 
-// Recycle releases a worker
-func (pool *WorkerPool) Recycle(worker *Worker) {
+func (pool *WorkerPool) recycle(worker *Worker) {
 	if worker == nil {
 		panic("invalid restore worker")
 	}
