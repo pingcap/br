@@ -35,6 +35,7 @@ type Client struct {
 	pdAddrs      []string
 	tikvCli      tikv.Storage
 	fileImporter FileImporter
+	workerPool   *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -92,6 +93,11 @@ func (rc *Client) SetDbDSN(dns string) {
 // GetDbDSN returns a DNS to connect the database
 func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
+}
+
+// SetConcurrency sets the concurrency of each table
+func (rc *Client) SetConcurrency(c uint) {
+	rc.workerPool = utils.NewWorkerPool(c, "restore")
 }
 
 // GetTS gets a new timestamp from PD
@@ -203,7 +209,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 			select {
 			case <-rc.ctx.Done():
 				errCh <- nil
-			case errCh <- rc.fileImporter.Import(file, encodedRules):
+			case errCh <- rc.fileImporter.Import(file, encodedRules, rc.workerPool):
 			}
 		}(file)
 	}
