@@ -196,7 +196,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
 	defer close(errCh)
-	poolName := table.Db.Name.String() + "." +table.Schema.Name.String()
+	poolName := table.Db.Name.String() + "." + table.Schema.Name.String()
 	pool := utils.NewWorkerPool(rc.tableConcurrency, poolName)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
