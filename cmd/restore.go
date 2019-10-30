@@ -81,7 +81,19 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = client.SwitchToImportMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			err = client.RestoreAll(rewriteRules, restoreTS)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = client.SwitchToNormalMode(ctx)
+
 			return errors.Trace(err)
 		},
 	}
@@ -145,7 +157,19 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = client.SwitchToImportMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			err = client.RestoreDatabase(db, rewriteRules, restoreTS)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = client.SwitchToNormalMode(ctx)
+
 			return errors.Trace(err)
 		},
 	}
@@ -216,7 +240,15 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			err = client.SwitchToImportMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
 			err = client.RestoreTable(table, rewriteRules, restoreTS)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchToNormalMode(ctx)
 			return errors.Trace(err)
 		},
 	}
