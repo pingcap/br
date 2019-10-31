@@ -100,6 +100,7 @@ func newFullRestoreCommand() *cobra.Command {
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
+	command.Flags().Uint("region-concurrency", 128, "The size of thread pool that execute restore import")
 
 	command.MarkFlagRequired("connect")
 	command.MarkFlagRequired("importer")
@@ -177,6 +178,7 @@ func newDbRestoreCommand() *cobra.Command {
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
+	command.Flags().Uint("region-concurrency", 128, "The size of thread pool that execute restore import")
 
 	command.Flags().String("db", "", "database name")
 
@@ -257,6 +259,7 @@ func newTableRestoreCommand() *cobra.Command {
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
+	command.Flags().Uint("region-concurrency", 128, "The size of thread pool that execute restore import")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -301,7 +304,12 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return err
 	}
+	regionConcurrency, err := flagSet.GetUint("region-concurrency")
+	if err != nil {
+		return err
+	}
 	client.SetConcurrency(concurrency)
+	client.SetRegionConcurrency(regionConcurrency)
 
 	return nil
 }

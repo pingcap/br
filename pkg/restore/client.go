@@ -31,11 +31,12 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient     pd.Client
-	pdAddrs      []string
-	tikvCli      tikv.Storage
-	fileImporter FileImporter
-	workerPool   *utils.WorkerPool
+	pdClient         pd.Client
+	pdAddrs          []string
+	tikvCli          tikv.Storage
+	fileImporter     FileImporter
+	workerPool       *utils.WorkerPool
+	regionWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -95,9 +96,14 @@ func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
 }
 
-// SetConcurrency sets the concurrency of each table
+// SetConcurrency sets the concurrency of dbs tables files
 func (rc *Client) SetConcurrency(c uint) {
 	rc.workerPool = utils.NewWorkerPool(c, "restore")
+}
+
+// SetRegionConcurrency set the concurrency of regions
+func (rc *Client) SetRegionConcurrency(c uint) {
+	rc.regionWorkerPool = utils.NewWorkerPool(c, "restore_region")
 }
 
 // GetTS gets a new timestamp from PD
@@ -211,7 +217,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules, rc.workerPool):
+				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules, rc.regionWorkerPool):
 				}
 			})
 	}
