@@ -13,8 +13,12 @@ func NewBackupCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "backup",
 		Short: "backup a TiKV cluster",
-		PersistentPreRun: func(c *cobra.Command, args []string) {
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
 			utils.LogBRInfo()
+			return nil
 		},
 	}
 	bp.AddCommand(

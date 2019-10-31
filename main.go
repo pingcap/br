@@ -42,12 +42,9 @@ func main() {
 		Short:            "br is a TiDB/TiKV cluster backup restore tool.",
 		TraverseChildren: true,
 		SilenceUsage:     true,
-		PersistentPreRunE: func(c *cobra.Command, args []string) error {
-			// c.DebugFlags()
-			return cmd.Init(ctx, c)
-		},
 	}
 	cmd.AddFlags(rootCmd)
+	cmd.SetDefaultContext(ctx)
 	rootCmd.AddCommand(
 		cmd.NewVersionCommand(),
 		cmd.NewMetaCommand(),

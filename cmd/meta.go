@@ -17,6 +17,13 @@ func NewMetaCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "meta <subcommand>",
 		Short: "show meta data of a cluster",
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
+			utils.LogBRInfo()
+			return nil
+		},
 	}
 	meta.AddCommand(&cobra.Command{
 		Use:   "version",

@@ -59,10 +59,8 @@ func AddFlags(cmd *cobra.Command) {
 }
 
 // Init ...
-func Init(ctx context.Context, cmd *cobra.Command) (err error) {
+func Init(cmd *cobra.Command) (err error) {
 	initOnce.Do(func() {
-		defaultContext = ctx
-
 		// Initialize the logger.
 		conf := new(log.Config)
 		conf.Level, err = cmd.Flags().GetString(FlagLogLevel)
@@ -95,12 +93,10 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 				}
 			}()
 		}
-		if err != nil {
-			return
-		}
 		// Set the PD server address.
-		pdAddress, err = cmd.Flags().GetString(FlagPD)
-		if err != nil {
+		pdAddress, e = cmd.Flags().GetString(FlagPD)
+		if e != nil {
+			err = e
 			return
 		}
 	})
@@ -122,6 +118,11 @@ func GetDefaultBacker() (*meta.Backer, error) {
 		return nil, err
 	}
 	return defaultBacker, nil
+}
+
+// SetDefaultContext sets the default context for command line usage.
+func SetDefaultContext(ctx context.Context) {
+	defaultContext = ctx
 }
 
 // GetDefaultContext returns the default context for command line usage.
