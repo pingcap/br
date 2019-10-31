@@ -103,12 +103,11 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						return
 					}
 					if isEmpty {
-						log.Warn(
-							"file don't have key in this region, skip it",
+						log.Info(
+							"file don't have any key in this region, skip it",
 							zap.Reflect("file", file),
+							zap.Reflect("range", fileMeta.GetRange()),
 							zap.Reflect("region", regionInfo.Region),
-							zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
-							zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
 						)
 						return
 					}
@@ -117,9 +116,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						if err != nil {
 							log.Warn("ingest file failed",
 								zap.Reflect("file", file),
+								zap.Reflect("range", fileMeta.GetRange()),
 								zap.Reflect("region", regionInfo.Region),
-								zap.Reflect("tableRewriteRules", rules(rewriteRules.Table)),
-								zap.Reflect("dataRewriteRules", rules(rewriteRules.Data)),
 								zap.Error(err),
 							)
 							return err
@@ -175,7 +173,7 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 	if regionRule == nil {
 		return nil, true, errRewriteRuleNotFound
 	}
-	sstMeta := getSSTMetaFromFile(id, file, regionRule)
+	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, regionRule)
 	sstMeta.RegionId = regionInfo.Region.GetId()
 	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
 	req := &import_sstpb.DownloadRequest{
@@ -195,9 +193,10 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 			return nil, true, errors.Trace(err)
 		}
 		if resp.GetIsEmpty() {
-			return nil, true, nil
+			return &sstMeta, true, nil
 		}
-		sstMeta.Range = &resp.Range
+		sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
+		sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
 	}
 	return &sstMeta, false, nil
 }
