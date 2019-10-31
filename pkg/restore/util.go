@@ -167,6 +167,13 @@ func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.R
 	}
 }
 
+func encodeTableRewriteRules(rule *import_sstpb.RewriteRule) *import_sstpb.RewriteRule {
+	return &import_sstpb.RewriteRule{
+		OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
+		NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
+	}
+}
+
 func encodeKeyPrefix(key []byte) []byte {
 	encodedPrefix := make([]byte, 0)
 	ungroupedLen := len(key) % 8

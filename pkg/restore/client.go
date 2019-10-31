@@ -1,15 +1,18 @@
 package restore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
@@ -18,9 +21,9 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
@@ -39,12 +42,14 @@ type Client struct {
 	databases  map[string]*utils.Database
 	dbDSN      string
 	backupMeta *backup.BackupMeta
+	backer     *meta.Backer
 }
 
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	_ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
+	backer, err := meta.NewBacker(_ctx, addrs[0])
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -62,6 +67,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		pdClient: pdClient,
 		pdAddrs:  addrs,
 		tikvCli:  tikvCli.(tikv.Storage),
+		backer:   backer,
 	}, nil
 }
 
@@ -296,25 +302,26 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		return errors.Trace(err)
 	}
 	for _, store := range stores {
-		opt := grpc.WithInsecure()
-		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		keepAlive := 10
-		keepAliveTimeout := 3
-		conn, err := grpc.DialContext(
-			gctx,
-			store.GetAddress(),
-			opt,
-			grpc.WithBackoffMaxDelay(time.Second*3),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                time.Duration(keepAlive) * time.Second,
-				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
-				PermitWithoutStream: true,
-			}),
-		)
-		cancel()
-		if err != nil {
-			return errors.Trace(err)
-		}
+		// opt := grpc.WithInsecure()
+		// gctx, cancel := context.WithTimeout(ctx, time.Second*5)
+		// keepAlive := 10
+		// keepAliveTimeout := 3
+		// conn, err := grpc.DialContext(
+		// 	gctx,
+		// 	store.GetAddress(),
+		// 	opt,
+		// 	grpc.WithBackoffMaxDelay(time.Second*3),
+		// 	grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		// 		Time:                time.Duration(keepAlive) * time.Second,
+		// 		Timeout:             time.Duration(keepAliveTimeout) * time.Second,
+		// 		PermitWithoutStream: true,
+		// 	}),
+		// )
+		// cancel()
+		// if err != nil {
+		// 	return errors.Trace(err)
+		// }
+		conn, err := rc.backer.GetGrpcConn(store.GetId())
 		client := import_sstpb.NewImportSSTClient(conn)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
@@ -329,4 +336,108 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		}
 	}
 	return nil
+}
+
+func (rc *Client) validateChecksum(rewriteRules restore_util.RewriteRules) (bool, error) {
+	tableRules := rewriteRules.Table
+	for _, table := range rc.backupMeta.Schemas {
+		checksumResp := tipb.ChecksumResponse{}
+		var tableMeta *model.TableInfo
+		if err := json.Unmarshal(table.GetTable(), tableMeta); err != nil {
+			return false, errors.Trace(err)
+		}
+		oldTableID := tableMeta.ID
+		var newTableID int64
+		var rule *tipb.ChecksumRewriteRule
+		for _, r := range tableRules {
+			tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
+			if tableID == 0 {
+				return false, nil
+			}
+			if tableID == oldTableID {
+				newTableID = tablecodec.DecodeTableID(r.GetNewKeyPrefix())
+				if newTableID == 0 {
+					return false, nil
+				}
+				encodedRule := encodeTableRewriteRules(r)
+				rule = &tipb.ChecksumRewriteRule{
+					OldPrefix: encodedRule.GetOldKeyPrefix(),
+					NewPrefix: encodedRule.GetNewKeyPrefix(),
+				}
+				break
+			}
+		}
+		if rule == nil {
+			return false, nil
+		}
+		checksumReq := tipb.ChecksumRequest{
+			StartTs:   rc.backupMeta.GetEndVersion(),
+			ScanOn:    tipb.ChecksumScanOn_Table,
+			Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
+			Rule:      rule,
+		}
+		data, err := checksumReq.Marshal()
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		resp, err := rc.checksumTable(newTableID, data)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		checksumResp.Checksum ^= resp.Checksum
+		checksumResp.TotalKvs += resp.TotalKvs
+		checksumResp.TotalBytes += resp.TotalBytes
+		if resp.Checksum != table.GetCrc64Xor() ||
+			resp.TotalKvs != table.GetTotalKvs() ||
+			resp.TotalBytes != table.GetTotalBytes() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (rc *Client) checksumTable(tableID int64, reqData []byte) (tipb.ChecksumResponse, error) {
+	checksumResp := tipb.ChecksumResponse{}
+	startKey := tablecodec.EncodeTablePrefix(tableID)
+	endKey := tablecodec.EncodeTablePrefix(tableID + 1)
+
+	for bytes.Compare(startKey, endKey) < 0 {
+		region, peer, err := rc.pdClient.GetRegion(rc.ctx, startKey)
+		if err != nil {
+			return checksumResp, errors.Trace(err)
+		}
+		storeID := peer.GetStoreId()
+		kvClient, err := rc.backer.GetTikvClient(storeID)
+		if err != nil {
+			return checksumResp, errors.Trace(err)
+		}
+		reqCtx := &kvrpcpb.Context{
+			RegionId:    region.GetId(),
+			RegionEpoch: region.GetRegionEpoch(),
+			Peer:        peer,
+		}
+		var end []byte
+		if bytes.Compare(region.GetEndKey(), endKey) < 0 {
+			end = region.GetEndKey()
+		} else {
+			end = endKey
+		}
+		ranges := []*coprocessor.KeyRange{&coprocessor.KeyRange{Start: startKey, End: end}}
+		req := &coprocessor.Request{
+			Context: reqCtx,
+			Tp:      105,
+			Data:    reqData,
+			Ranges:  ranges,
+		}
+		resp, err := kvClient.Coprocessor(rc.ctx, req)
+		checksum := &tipb.ChecksumResponse{}
+		if err = checksum.Unmarshal(resp.Data); err != nil {
+			return checksumResp, errors.Trace(err)
+		}
+		checksumResp.Checksum ^= checksum.Checksum
+		checksumResp.TotalKvs += checksum.TotalKvs
+		checksumResp.TotalBytes += checksum.TotalBytes
+		startKey = end
+	}
+	return checksumResp, nil
 }
