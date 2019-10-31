@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"github.com/pingcap/br/pkg/raw"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
@@ -11,6 +13,9 @@ func NewBackupCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "backup",
 		Short: "backup a TiKV cluster",
+		PersistentPreRun: func(c *cobra.Command, args []string) {
+			utils.LogBRInfo()
+		},
 	}
 	bp.AddCommand(
 		newFullBackupCommand(),
@@ -34,7 +39,14 @@ func newFullBackupCommand() *cobra.Command {
 		Use:   "full",
 		Short: "backup the whole TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
+			client, err := raw.NewBackupClient(backer)
+			if err != nil {
+				return nil
+			}
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -122,7 +134,14 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
+			client, err := raw.NewBackupClient(backer)
+			if err != nil {
+				return err
+			}
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err

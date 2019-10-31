@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/pingcap/br/pkg/meta"
-	"github.com/pingcap/br/pkg/raw"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
@@ -14,10 +13,12 @@ import (
 )
 
 var (
-	initOnce         = sync.Once{}
-	defaultBacker    *meta.Backer
-	defaultContext   context.Context
-	defaultRawClient *raw.BackupClient
+	initOnce       = sync.Once{}
+	defaultContext context.Context
+	pdAddress      string
+
+	backerOnce    = sync.Once{}
+	defaultBacker *meta.Backer
 )
 
 const (
@@ -51,7 +52,7 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log level")
 	cmd.PersistentFlags().String(FlagLogFile, "",
 		"Set the log file path. If not set, logs will output to stdout")
-	cmd.PersistentFlags().String(FlagStatusAddr, "localhost:6060",
+	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	cmd.MarkFlagRequired(FlagPD)
 	cmd.MarkFlagRequired(FlagStorage)
@@ -94,34 +95,33 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 				}
 			}()
 		}
-
-		// Initialize the main program.
-		var addr string
-		addr, err = cmd.Flags().GetString(FlagPD)
 		if err != nil {
 			return
 		}
-		if addr == "" {
-			err = errors.New("pd address can not be empty")
-			return
-		}
-		defaultBacker, err = meta.NewBacker(defaultContext, addr)
+		// Set the PD server address.
+		pdAddress, err = cmd.Flags().GetString(FlagPD)
 		if err != nil {
 			return
 		}
-		defaultRawClient, err = raw.NewBackupClient(defaultBacker)
 	})
 	return
 }
 
 // GetDefaultBacker returns the default backer for command line usage.
-func GetDefaultBacker() *meta.Backer {
-	return defaultBacker
-}
+func GetDefaultBacker() (*meta.Backer, error) {
+	if pdAddress == "" {
+		return nil, errors.New("pd address can not be empty")
+	}
 
-// GetDefaultRawClient returns the default back client for command line usage.
-func GetDefaultRawClient() *raw.BackupClient {
-	return defaultRawClient
+	// Lazy initialize and defaultBacker
+	var err error
+	backerOnce.Do(func() {
+		defaultBacker, err = meta.NewBacker(defaultContext, pdAddress)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return defaultBacker, nil
 }
 
 // GetDefaultContext returns the default context for command line usage.

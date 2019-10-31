@@ -19,6 +19,9 @@ func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
+		PersistentPreRun: func(c *cobra.Command, args []string) {
+			utils.LogBRInfo()
+		},
 	}
 	bp.AddCommand(
 		newFullRestoreCommand(),
