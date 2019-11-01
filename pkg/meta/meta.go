@@ -14,6 +14,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv"
@@ -41,8 +42,8 @@ type Backer struct {
 		addrs []string
 		cli   *http.Client
 	}
-	tikvCli    tikv.Storage
-	backupClis struct {
+	tikvCli  tikv.Storage
+	grpcClis struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
@@ -114,7 +115,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	}
 	backer.pdHTTP.addrs = addrs
 	backer.pdHTTP.cli = cli
-	backer.backupClis.clis = make(map[uint64]*grpc.ClientConn)
+	backer.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	backer.PDHTTPGet = pdGet
 	return backer, nil
 }
@@ -142,6 +143,8 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 
 // GetRegionCount returns the total region count in the cluster
 func (backer *Backer) GetRegionCount() (int, error) {
+	var regionCountPrefix = "pd/api/v1/regions/count"
+
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)
@@ -175,16 +178,14 @@ func (backer *Backer) Context() context.Context {
 	return backer.Ctx
 }
 
-// GetBackupClient get or create a backup client.
-func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, error) {
-	backer.backupClis.mu.Lock()
-	defer backer.backupClis.mu.Unlock()
-
-	if conn, ok := backer.backupClis.clis[storeID]; ok {
-		// Find a cached backup client.
-		return backup.NewBackupClient(conn), nil
+// GetGrpcConn get a grpc connect to a store
+func (backer *Backer) GetGrpcConn(storeID uint64) (*grpc.ClientConn, error) {
+	backer.grpcClis.mu.Lock()
+	defer backer.grpcClis.mu.Unlock()
+	if conn, ok := backer.grpcClis.clis[storeID]; ok {
+		// Find a cached grpc connect
+		return conn, nil
 	}
-
 	store, err := backer.PDClient.GetStore(backer.Ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -209,19 +210,51 @@ func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, erro
 		return nil, errors.WithStack(err)
 	}
 	// Cache the conn.
-	backer.backupClis.clis[storeID] = conn
-
-	client := backup.NewBackupClient(conn)
-	return client, nil
+	backer.grpcClis.clis[storeID] = conn
+	return conn, nil
 }
 
-// ResetBackupClient reset and close cached backup client.
-func (backer *Backer) ResetBackupClient(storeID uint64) error {
-	backer.backupClis.mu.Lock()
-	defer backer.backupClis.mu.Unlock()
+// GetBackupClient get or create a backup client.
+func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, error) {
+	backer.grpcClis.mu.Lock()
+	defer backer.grpcClis.mu.Unlock()
 
-	if conn, ok := backer.backupClis.clis[storeID]; ok {
-		delete(backer.backupClis.clis, storeID)
+	if conn, ok := backer.grpcClis.clis[storeID]; ok {
+		// Find a cached backup client.
+		return backup.NewBackupClient(conn), nil
+	}
+
+	conn, err := backer.GetGrpcConn(storeID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return backup.NewBackupClient(conn), nil
+}
+
+// GetTikvClient get or create a coprocessor client.
+func (backer *Backer) GetTikvClient(storeID uint64) (tikvpb.TikvClient, error) {
+	backer.grpcClis.mu.Lock()
+	defer backer.grpcClis.mu.Unlock()
+
+	if conn, ok := backer.grpcClis.clis[storeID]; ok {
+		// Find a cached backup client.
+		return tikvpb.NewTikvClient(conn), nil
+	}
+
+	conn, err := backer.GetGrpcConn(storeID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return tikvpb.NewTikvClient(conn), nil
+}
+
+// ResetGrpcClient reset and close cached backup client.
+func (backer *Backer) ResetGrpcClient(storeID uint64) error {
+	backer.grpcClis.mu.Lock()
+	defer backer.grpcClis.mu.Unlock()
+
+	if conn, ok := backer.grpcClis.clis[storeID]; ok {
+		delete(backer.grpcClis.clis, storeID)
 		if err := conn.Close(); err != nil {
 			return errors.Trace(err)
 		}
@@ -248,7 +281,7 @@ func (backer *Backer) SendBackup(
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
 		log.Warn("fail to create backup", zap.Uint64("StoreID", storeID))
-		if err1 := backer.ResetBackupClient(storeID); err1 != nil {
+		if err1 := backer.ResetGrpcClient(storeID); err1 != nil {
 			log.Warn("fail to reset backup client",
 				zap.Uint64("StoreID", storeID),
 				zap.Error(err1))
