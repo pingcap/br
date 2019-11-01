@@ -213,7 +213,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules, rc.regionWorkerPool):
+				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
 				}
 			})
 	}
