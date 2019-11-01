@@ -14,8 +14,6 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
-// TODO: better connect, remove fast checksum, clone rewrite rule, error
-
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
@@ -99,8 +97,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			success, err := client.ValidateChecksum(rewriteRulesRaw)
-			println("validateChecksum: ", success)
+			err = client.ValidateChecksum(rewriteRulesRaw)
 			return errors.Trace(err)
 		},
 	}
@@ -180,9 +177,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			success, err := client.ValidateChecksum(rewriteRulesRaw)
-			println("validateChecksum: ", success)
-
+			err = client.ValidateChecksum(rewriteRulesRaw)
 			return errors.Trace(err)
 		},
 	}
@@ -267,9 +262,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			success, err := client.ValidateChecksum(rewriteRulesRaw)
-			println("validateChecksum: ", success)
-
+			err = client.ValidateChecksum(rewriteRulesRaw)
 			return errors.Trace(err)
 		},
 	}

@@ -25,9 +25,16 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
+)
+
+const (
+	tikvChecksumRetryTimes   = 3
+	tikvChecksumWaitInterval = 50 * time.Millisecond
 )
 
 // Client sends requests to importer to restore files
@@ -303,54 +310,56 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		return errors.Trace(err)
 	}
 	for _, store := range stores {
-		storeID := store.GetId()
-		err := withRetry(func() error {
-			conn, err := rc.backer.GetGrpcConn(storeID)
-			client := import_sstpb.NewImportSSTClient(conn)
-			_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
-				Mode: mode,
-			})
-			return err
-		}, func(e error) bool {
-			if err := rc.backer.ResetGrpcClient(storeID); err != nil {
-				return false
-			}
-			return true
-		}, 2, 10*time.Millisecond)
+		opt := grpc.WithInsecure()
+		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
+		keepAlive := 10
+		keepAliveTimeout := 3
+		conn, err := grpc.DialContext(
+			gctx,
+			store.GetAddress(),
+			opt,
+			grpc.WithBackoffMaxDelay(time.Second*3),
+			grpc.WithKeepaliveParams(keepalive.ClientParameters{
+				Time:                time.Duration(keepAlive) * time.Second,
+				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
+				PermitWithoutStream: true,
+			}),
+		)
+		cancel()
 		if err != nil {
-			log.Error("failed to switch mode", zap.Error(err))
+			return errors.Trace(err)
+		}
+		client := import_sstpb.NewImportSSTClient(conn)
+		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
+			Mode: mode,
+		})
+		if err != nil {
+			return errors.Trace(err)
+		}
+		err = conn.Close()
+		if err != nil {
+			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
 		}
 	}
 	return nil
 }
 
-func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
-	for _, r := range rules {
-		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
-		if tableID != 0 && tableID == tid {
-			return &tipb.ChecksumRewriteRule{
-				OldPrefix: r.GetOldKeyPrefix(),
-				NewPrefix: r.GetNewKeyPrefix(),
-			}
-		}
-	}
-	return nil
-}
-
-func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) (bool, error) {
+//ValidateChecksum validate checksum after restore
+func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) error {
 	var tables []*utils.Table
 	for _, db := range rc.databases {
 		for _, t := range db.Tables {
 			tables = append(tables, t)
 		}
 	}
+	wg := sync.WaitGroup{}
+	errCh := make(chan error, len(tables))
 	for _, table := range tables {
 		rule := getTableRewriteRule(table.Schema.ID, rewriteRules.Table)
 		newTableID := tablecodec.DecodeTableID(rule.GetNewPrefix())
 		if newTableID == 0 || rule == nil {
-			// get rewrite rule failed
-			return false, nil
+			return errors.Errorf("failed to get rewrite rule for %v", table.Schema.ID)
 		}
 		checksumReq := tipb.ChecksumRequest{
 			StartTs:   rc.backupMeta.GetEndVersion(),
@@ -360,19 +369,49 @@ func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) (bool
 		}
 		data, err := checksumReq.Marshal()
 		if err != nil {
-			return false, errors.Trace(err)
+			return errors.Trace(err)
 		}
-		resp, err := rc.checksumTable(newTableID, table.Schema, data)
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-		if resp.Checksum != table.Crc64Xor ||
-			resp.TotalKvs != table.TotalKvs ||
-			resp.TotalBytes != table.TotalBytes {
-			return false, nil
+
+		wg.Add(1)
+		go func(table *utils.Table) {
+			defer wg.Done()
+			resp, err := rc.checksumTable(newTableID, table.Schema, data)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if resp.Checksum != table.Crc64Xor ||
+				resp.TotalKvs != table.TotalKvs ||
+				resp.TotalBytes != table.TotalBytes {
+				log.Error("failed in validate checksum",
+					zap.String("database", table.Db.Name.L),
+					zap.String("table", table.Schema.Name.L),
+					zap.Uint64("origin tidb crc64", table.Crc64Xor),
+					zap.Uint64("calculated crc64", resp.Checksum),
+					zap.Uint64("origin tidb total kvs", table.TotalKvs),
+					zap.Uint64("calculated total kvs", resp.TotalKvs),
+					zap.Uint64("origin tidb total bytes", table.TotalBytes),
+					zap.Uint64("calculated total bytes", resp.TotalBytes),
+				)
+				errCh <- errors.Errorf("failed in validate checksum")
+				return
+			}
+		}(table)
+	}
+	go func() {
+		wg.Wait()
+		close(errCh)
+	}()
+
+	for {
+		err, ok := <-errCh
+		if !ok {
+			log.Info("validate checksum passed")
+			return nil
+		} else if err != nil {
+			return errors.Trace(err)
 		}
 	}
-	return true, nil
 }
 
 func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqData []byte) (*tipb.ChecksumResponse, error) {
@@ -393,12 +432,6 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 				nextStart = end
 			}
 		}
-		storeID := peer.GetStoreId()
-		rc.backer.ResetGrpcClient(storeID)
-		kvClient, err := rc.backer.GetTikvClient(storeID)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
 		reqCtx := &kvrpcpb.Context{
 			RegionId:    region.GetId(),
 			RegionEpoch: region.GetRegionEpoch(),
@@ -411,16 +444,37 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 			Data:    reqData,
 			Ranges:  ranges,
 		}
-		resp, err := kvClient.Coprocessor(rc.ctx, req)
-		if err != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
-			log.Error("Coprocessor request error",
-				zap.Any("RegionError", resp.GetRegionError()),
-				zap.String("OtherError", resp.GetOtherError()),
-				zap.Any("Locked", resp.GetLocked()))
+
+		// send checksum request to TiKV with retry
+		var respData []byte
+		storeID := peer.GetStoreId()
+		err = withRetry(func() error {
+			kvClient, err := rc.backer.GetTikvClient(storeID)
+			if err != nil {
+				return err
+			}
+			resp, err := kvClient.Coprocessor(rc.ctx, req)
+			if err != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
+				log.Error("Coprocessor request error",
+					zap.Any("RegionError", resp.GetRegionError()),
+					zap.String("OtherError", resp.GetOtherError()),
+					zap.Any("Locked", resp.GetLocked()))
+				return err
+			}
+			respData = resp.Data
+			return nil
+		}, func(e error) bool {
+			if err := rc.backer.ResetGrpcClient(storeID); err != nil {
+				return false
+			}
+			return true
+		}, tikvChecksumRetryTimes, tikvChecksumWaitInterval)
+		if err != nil {
 			return nil, errors.Trace(err)
 		}
+
 		checksum := &tipb.ChecksumResponse{}
-		if err = checksum.Unmarshal(resp.Data); err != nil {
+		if err = checksum.Unmarshal(respData); err != nil {
 			return nil, errors.Trace(err)
 		}
 		if checksum == nil {
@@ -432,4 +486,17 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 		start = nextStart
 	}
 	return checksumResp, nil
+}
+
+func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
+	for _, r := range rules {
+		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
+		if tableID != 0 && tableID == tid {
+			return &tipb.ChecksumRewriteRule{
+				OldPrefix: r.GetOldKeyPrefix(),
+				NewPrefix: r.GetNewKeyPrefix(),
+			}
+		}
+	}
+	return nil
 }

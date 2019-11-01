@@ -281,12 +281,12 @@ LoadDb:
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
 			var tblChecksum, tblKvs, tblBytes uint64
-			if checksumSwitch {
-				tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
+
+			tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+			if err != nil {
+				return nil, errors.Trace(err)
 			}
+
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
