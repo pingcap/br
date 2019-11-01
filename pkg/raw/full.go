@@ -162,12 +162,11 @@ func (bc *BackupClient) GetBackupTableRanges(
 	tableInfo.AutoIncID = globalAutoID
 
 	var tblChecksum, tblKvs, tblBytes uint64
-	if checksumSwitch {
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-		tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+
+	dbSession.GetSessionVars().SnapshotTS = backupTS
+	tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	dbData, err := json.Marshal(dbInfo)

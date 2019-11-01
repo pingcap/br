@@ -228,8 +228,8 @@ func (backer *Backer) GetTikvClient(storeID uint64) (tikvpb.TikvClient, error) {
 	return tikvpb.NewTikvClient(conn), nil
 }
 
-// ResetBackupClient reset and close cached backup client.
-func (backer *Backer) ResetBackupClient(storeID uint64) error {
+// ResetGrpcClient reset and close cached backup client.
+func (backer *Backer) ResetGrpcClient(storeID uint64) error {
 	backer.grpcClis.mu.Lock()
 	defer backer.grpcClis.mu.Unlock()
 
@@ -261,7 +261,7 @@ func (backer *Backer) SendBackup(
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
 		log.Warn("fail to create backup", zap.Uint64("StoreID", storeID))
-		if err1 := backer.ResetBackupClient(storeID); err1 != nil {
+		if err1 := backer.ResetGrpcClient(storeID); err1 != nil {
 			log.Warn("fail to reset backup client",
 				zap.Uint64("StoreID", storeID),
 				zap.Error(err1))

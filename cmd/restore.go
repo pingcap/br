@@ -14,6 +14,8 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+// TODO: better connect, remove fast checksum, clone rewrite rule, error
+
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
@@ -73,6 +75,7 @@ func newFullRestoreCommand() *cobra.Command {
 				Table: tableRules,
 				Data:  dataRules,
 			}
+			rewriteRulesRaw := cloneRule(rewriteRules)
 			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
@@ -93,7 +96,11 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			success, err := client.ValidateChecksum(rewriteRulesRaw)
+			println("validateChecksum: ", success)
 			return errors.Trace(err)
 		},
 	}
@@ -144,6 +151,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			rewriteRulesRaw := cloneRule(rewriteRules)
 			files := make([]*backup.File, 0)
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
@@ -169,6 +177,11 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			success, err := client.ValidateChecksum(rewriteRulesRaw)
+			println("validateChecksum: ", success)
 
 			return errors.Trace(err)
 		},
@@ -231,6 +244,8 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			rewriteRulesRaw := cloneRule(rewriteRules)
+
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 			err = splitter.Split(ctx, restore.GetRanges(table.Files), rewriteRules)
 			if err != nil {
@@ -249,6 +264,12 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			success, err := client.ValidateChecksum(rewriteRulesRaw)
+			println("validateChecksum: ", success)
+
 			return errors.Trace(err)
 		},
 	}
@@ -295,4 +316,19 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	client.SetDbDSN(dsn)
 
 	return nil
+}
+
+func cloneRule(r *restore_util.RewriteRules) restore_util.RewriteRules {
+	var Table []*import_sstpb.RewriteRule
+	var Data []*import_sstpb.RewriteRule
+	for _, t := range r.Table {
+		Table = append(Table, &*t)
+	}
+	for _, d := range r.Data {
+		Data = append(Data, &*d)
+	}
+	return restore_util.RewriteRules{
+		Table: Table,
+		Data:  Data,
+	}
 }

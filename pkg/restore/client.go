@@ -3,10 +3,10 @@ package restore
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 
@@ -302,72 +303,53 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		return errors.Trace(err)
 	}
 	for _, store := range stores {
-		// opt := grpc.WithInsecure()
-		// gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		// keepAlive := 10
-		// keepAliveTimeout := 3
-		// conn, err := grpc.DialContext(
-		// 	gctx,
-		// 	store.GetAddress(),
-		// 	opt,
-		// 	grpc.WithBackoffMaxDelay(time.Second*3),
-		// 	grpc.WithKeepaliveParams(keepalive.ClientParameters{
-		// 		Time:                time.Duration(keepAlive) * time.Second,
-		// 		Timeout:             time.Duration(keepAliveTimeout) * time.Second,
-		// 		PermitWithoutStream: true,
-		// 	}),
-		// )
-		// cancel()
-		// if err != nil {
-		// 	return errors.Trace(err)
-		// }
-		conn, err := rc.backer.GetGrpcConn(store.GetId())
-		client := import_sstpb.NewImportSSTClient(conn)
-		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
-			Mode: mode,
-		})
+		storeID := store.GetId()
+		err := withRetry(func() error {
+			conn, err := rc.backer.GetGrpcConn(storeID)
+			client := import_sstpb.NewImportSSTClient(conn)
+			_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
+				Mode: mode,
+			})
+			return err
+		}, func(e error) bool {
+			if err := rc.backer.ResetGrpcClient(storeID); err != nil {
+				return false
+			}
+			return true
+		}, 2, 10*time.Millisecond)
 		if err != nil {
-			return errors.Trace(err)
-		}
-		err = conn.Close()
-		if err != nil {
-			log.Error("close grpc connection failed in switch mode", zap.Error(err))
+			log.Error("failed to switch mode", zap.Error(err))
 			continue
 		}
 	}
 	return nil
 }
 
-func (rc *Client) validateChecksum(rewriteRules restore_util.RewriteRules) (bool, error) {
-	tableRules := rewriteRules.Table
-	for _, table := range rc.backupMeta.Schemas {
-		checksumResp := tipb.ChecksumResponse{}
-		var tableMeta *model.TableInfo
-		if err := json.Unmarshal(table.GetTable(), tableMeta); err != nil {
-			return false, errors.Trace(err)
-		}
-		oldTableID := tableMeta.ID
-		var newTableID int64
-		var rule *tipb.ChecksumRewriteRule
-		for _, r := range tableRules {
-			tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
-			if tableID == 0 {
-				return false, nil
-			}
-			if tableID == oldTableID {
-				newTableID = tablecodec.DecodeTableID(r.GetNewKeyPrefix())
-				if newTableID == 0 {
-					return false, nil
-				}
-				encodedRule := encodeTableRewriteRules(r)
-				rule = &tipb.ChecksumRewriteRule{
-					OldPrefix: encodedRule.GetOldKeyPrefix(),
-					NewPrefix: encodedRule.GetNewKeyPrefix(),
-				}
-				break
+func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
+	for _, r := range rules {
+		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
+		if tableID != 0 && tableID == tid {
+			return &tipb.ChecksumRewriteRule{
+				OldPrefix: r.GetOldKeyPrefix(),
+				NewPrefix: r.GetNewKeyPrefix(),
 			}
 		}
-		if rule == nil {
+	}
+	return nil
+}
+
+func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) (bool, error) {
+	var tables []*utils.Table
+	for _, db := range rc.databases {
+		for _, t := range db.Tables {
+			tables = append(tables, t)
+		}
+	}
+	for _, table := range tables {
+		rule := getTableRewriteRule(table.Schema.ID, rewriteRules.Table)
+		newTableID := tablecodec.DecodeTableID(rule.GetNewPrefix())
+		if newTableID == 0 || rule == nil {
+			// get rewrite rule failed
 			return false, nil
 		}
 		checksumReq := tipb.ChecksumRequest{
@@ -380,64 +362,74 @@ func (rc *Client) validateChecksum(rewriteRules restore_util.RewriteRules) (bool
 		if err != nil {
 			return false, errors.Trace(err)
 		}
-		resp, err := rc.checksumTable(newTableID, data)
+		resp, err := rc.checksumTable(newTableID, table.Schema, data)
 		if err != nil {
 			return false, errors.Trace(err)
 		}
-		checksumResp.Checksum ^= resp.Checksum
-		checksumResp.TotalKvs += resp.TotalKvs
-		checksumResp.TotalBytes += resp.TotalBytes
-		if resp.Checksum != table.GetCrc64Xor() ||
-			resp.TotalKvs != table.GetTotalKvs() ||
-			resp.TotalBytes != table.GetTotalBytes() {
+		if resp.Checksum != table.Crc64Xor ||
+			resp.TotalKvs != table.TotalKvs ||
+			resp.TotalBytes != table.TotalBytes {
 			return false, nil
 		}
 	}
 	return true, nil
 }
 
-func (rc *Client) checksumTable(tableID int64, reqData []byte) (tipb.ChecksumResponse, error) {
-	checksumResp := tipb.ChecksumResponse{}
-	startKey := tablecodec.EncodeTablePrefix(tableID)
-	endKey := tablecodec.EncodeTablePrefix(tableID + 1)
-
-	for bytes.Compare(startKey, endKey) < 0 {
-		region, peer, err := rc.pdClient.GetRegion(rc.ctx, startKey)
-		if err != nil {
-			return checksumResp, errors.Trace(err)
+func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqData []byte) (*tipb.ChecksumResponse, error) {
+	checksumResp := &tipb.ChecksumResponse{}
+	start := tablecodec.EncodeTablePrefix(tableID)
+	end := tablecodec.EncodeTablePrefix(tableID + 1)
+	var nextStart []byte
+	for bytes.Compare(start, end) < 0 {
+		region, peer, err := rc.pdClient.GetRegion(rc.ctx, codec.EncodeBytes([]byte{}, start))
+		if len(region.GetEndKey()) < 9 {
+			nextStart = end
+		} else {
+			if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
+				return nil, errors.Trace(err)
+			} else if bytes.Compare(regionEnd, end) < 0 {
+				nextStart = regionEnd
+			} else {
+				nextStart = end
+			}
 		}
 		storeID := peer.GetStoreId()
+		rc.backer.ResetGrpcClient(storeID)
 		kvClient, err := rc.backer.GetTikvClient(storeID)
 		if err != nil {
-			return checksumResp, errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 		reqCtx := &kvrpcpb.Context{
 			RegionId:    region.GetId(),
 			RegionEpoch: region.GetRegionEpoch(),
 			Peer:        peer,
 		}
-		var end []byte
-		if bytes.Compare(region.GetEndKey(), endKey) < 0 {
-			end = region.GetEndKey()
-		} else {
-			end = endKey
-		}
-		ranges := []*coprocessor.KeyRange{&coprocessor.KeyRange{Start: startKey, End: end}}
+		ranges := []*coprocessor.KeyRange{&coprocessor.KeyRange{Start: start, End: nextStart}}
 		req := &coprocessor.Request{
 			Context: reqCtx,
-			Tp:      105,
+			Tp:      105, // REQ_TYPE_CHECKSUM flag
 			Data:    reqData,
 			Ranges:  ranges,
 		}
 		resp, err := kvClient.Coprocessor(rc.ctx, req)
+		if err != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
+			log.Error("Coprocessor request error",
+				zap.Any("RegionError", resp.GetRegionError()),
+				zap.String("OtherError", resp.GetOtherError()),
+				zap.Any("Locked", resp.GetLocked()))
+			return nil, errors.Trace(err)
+		}
 		checksum := &tipb.ChecksumResponse{}
 		if err = checksum.Unmarshal(resp.Data); err != nil {
-			return checksumResp, errors.Trace(err)
+			return nil, errors.Trace(err)
+		}
+		if checksum == nil {
+			continue
 		}
 		checksumResp.Checksum ^= checksum.Checksum
 		checksumResp.TotalKvs += checksum.TotalKvs
 		checksumResp.TotalBytes += checksum.TotalBytes
-		startKey = end
+		start = nextStart
 	}
 	return checksumResp, nil
 }
