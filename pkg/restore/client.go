@@ -98,12 +98,8 @@ func (rc *Client) GetDbDSN() string {
 
 // SetConcurrency sets the concurrency of dbs tables files
 func (rc *Client) SetConcurrency(c uint) {
-	rc.workerPool = utils.NewWorkerPool(c, "restore")
-}
-
-// SetRegionConcurrency set the concurrency of regions
-func (rc *Client) SetRegionConcurrency(c uint) {
-	rc.regionWorkerPool = utils.NewWorkerPool(c, "restore_region")
+	rc.workerPool = utils.NewWorkerPool(c/2, "restore")
+	rc.regionWorkerPool = utils.NewWorkerPool(c/2, "restore_region")
 }
 
 // GetTS gets a new timestamp from PD
