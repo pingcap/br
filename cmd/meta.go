@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/br/pkg/utils"
@@ -18,15 +17,24 @@ func NewMetaCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "meta <subcommand>",
 		Short: "show meta data of a cluster",
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
+			utils.LogBRInfo()
+			return nil
+		},
 	}
 	meta.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "show cluster version",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			backer := GetDefaultBacker()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
 			v, err := backer.GetClusterVersion()
 			if err != nil {
-				fmt.Println(errors.ErrorStack(err))
 				return err
 			}
 			cmd.Println(v)
@@ -37,10 +45,12 @@ func NewMetaCommand() *cobra.Command {
 		Use:   "safepoint",
 		Short: "show the current GC safepoint of cluster",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			backer := GetDefaultBacker()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
 			sp, err := backer.GetGCSafePoint()
 			if err != nil {
-				fmt.Println(errors.ErrorStack(err))
 				return err
 			}
 			cmd.Printf("Timestamp { Physical: %d, Logical: %d }\n",

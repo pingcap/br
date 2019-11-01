@@ -86,12 +86,12 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	return nil
 }
 
-// SetDbDSN sets the DNS to connect the database to a new value
-func (rc *Client) SetDbDSN(dns string) {
-	rc.dbDSN = dns
+// SetDbDSN sets the DSN to connect the database to a new value
+func (rc *Client) SetDbDSN(dsn string) {
+	rc.dbDSN = dsn
 }
 
-// GetDbDSN returns a DNS to connect the database
+// GetDbDSN returns a DSN to connect the database
 func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
 }
