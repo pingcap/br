@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 	"time"
 
@@ -11,8 +12,8 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 )
 
 var (
@@ -92,13 +93,7 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			return
 		}
 		if len(statusAddr) != 0 {
-			go func() {
-				if e := http.ListenAndServe(statusAddr, nil); e != nil {
-					log.Warn("fail to start pprof", zap.String("addr", statusAddr), zap.Error(e))
-				} else {
-					log.Info("start pprof", zap.String("addr", statusAddr))
-				}
-			}()
+			RunServe(statusAddr)
 		}
 
 		prometheusAddr, e := cmd.Flags().GetString(FlagPrometheusAddr)
@@ -107,7 +102,7 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			return
 		}
 		go func() {
-			utils.PushPrometheus("br", prometheusAddr, time.Second * 10)
+			utils.PushPrometheus("br", prometheusAddr, time.Second*10)
 		}()
 
 		// Initialize the main program.
@@ -142,4 +137,23 @@ func GetDefaultRawClient() *raw.BackupClient {
 // GetDefaultContext returns the default context for command line usage.
 func GetDefaultContext() context.Context {
 	return defaultContext
+}
+
+func RunServe(addr string) {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	go func() {
+		if err := http.ListenAndServe(addr, mux); err != nil {
+			log.Warn("start server failed")
+		} else {
+			log.Info("start server")
+		}
+	}()
 }
