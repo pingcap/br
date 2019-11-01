@@ -42,10 +42,12 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient     pd.Client
-	pdAddrs      []string
-	tikvCli      tikv.Storage
-	fileImporter FileImporter
+	pdClient         pd.Client
+	pdAddrs          []string
+	tikvCli          tikv.Storage
+	fileImporter     FileImporter
+	workerPool       *utils.WorkerPool
+	regionWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -98,14 +100,20 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	return nil
 }
 
-// SetDbDSN sets the DNS to connect the database to a new value
-func (rc *Client) SetDbDSN(dns string) {
-	rc.dbDSN = dns
+// SetDbDSN sets the DSN to connect the database to a new value
+func (rc *Client) SetDbDSN(dsn string) {
+	rc.dbDSN = dsn
 }
 
-// GetDbDSN returns a DNS to connect the database
+// GetDbDSN returns a DSN to connect the database
 func (rc *Client) GetDbDSN() string {
 	return rc.dbDSN
+}
+
+// SetConcurrency sets the concurrency of dbs tables files
+func (rc *Client) SetConcurrency(c uint) {
+	rc.workerPool = utils.NewWorkerPool(c/2, "restore")
+	rc.regionWorkerPool = utils.NewWorkerPool(c/2, "restore_region")
 }
 
 // GetTS gets a new timestamp from PD
@@ -212,14 +220,16 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 	encodedRules := encodeRewriteRules(rewriteRules)
 	for _, file := range table.Files {
 		wg.Add(1)
-		go func(file *backup.File) {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.fileImporter.Import(file, encodedRules):
-			}
-		}(file)
+		fileReplica := file
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+				}
+			})
 	}
 	for range table.Files {
 		err := <-errCh
@@ -249,14 +259,16 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 	defer close(errCh)
 	for _, table := range db.Tables {
 		wg.Add(1)
-		go func(table *utils.Table) {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreTable(table, rewriteRules, restoreTS):
-			}
-		}(table)
+		tblReplica := table
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.RestoreTable(tblReplica, rewriteRules, restoreTS):
+				}
+			})
 	}
 	for range db.Tables {
 		err := <-errCh
@@ -275,15 +287,18 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 	defer close(errCh)
 	for _, db := range rc.databases {
 		wg.Add(1)
-		go func(db *utils.Database) {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreDatabase(db, rewriteRules, restoreTS):
-			}
-		}(db)
+		dbReplica := db
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules, restoreTS):
+				}
+			})
 	}
+
 	for range rc.databases {
 		err := <-errCh
 		if err != nil {

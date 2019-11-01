@@ -25,7 +25,9 @@ import (
 )
 
 const (
-	dialTimeout = 5 * time.Second
+	dialTimeout          = 5 * time.Second
+	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
+	regionCountPrefix    = "pd/api/v1/regions/count"
 )
 
 // Backer backups a TiDB/TiKV cluster.
@@ -80,6 +82,20 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 // NewBacker creates a new Backer.
 func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 	addrs := strings.Split(pdAddrs, ",")
+
+	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
+	cli := &http.Client{Timeout: 30 * time.Second}
+	for _, addr := range addrs {
+		_, failure = pdGet(addr, clusterVersionPrefix, cli)
+		// TODO need check cluster version >= 3.1 when br release
+		if failure == nil {
+			break
+		}
+	}
+	if failure != nil {
+		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
+	}
+
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -98,7 +114,7 @@ func NewBacker(ctx context.Context, pdAddrs string) (*Backer, error) {
 		tikvCli:  tikvCli.(tikv.Storage),
 	}
 	backer.pdHTTP.addrs = addrs
-	backer.pdHTTP.cli = &http.Client{Timeout: 30 * time.Second}
+	backer.pdHTTP.cli = cli
 	backer.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	backer.PDHTTPGet = pdGet
 	return backer, nil
@@ -112,8 +128,6 @@ func (backer *Backer) SetPDHTTP(addrs []string, cli *http.Client) {
 
 // GetClusterVersion returns the current cluster version.
 func (backer *Backer) GetClusterVersion() (string, error) {
-	var clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, clusterVersionPrefix, backer.pdHTTP.cli)
@@ -129,8 +143,6 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 
 // GetRegionCount returns the total region count in the cluster
 func (backer *Backer) GetRegionCount() (int, error) {
-	var regionCountPrefix = "pd/api/v1/regions/count"
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)

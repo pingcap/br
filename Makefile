@@ -5,10 +5,17 @@ PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
+BR_PKG := github.com/pingcap/br
+
+LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(shell git describe --tags --dirty)"
+LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
+LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
+
 all: check build test
 
 build:
-	GO111MODULE=on go build -race -o bin/br
+	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -race -o bin/br
 
 test:
 	GO111MODULE=on go test -race ./...

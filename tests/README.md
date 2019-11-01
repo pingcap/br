@@ -10,7 +10,6 @@ programs.
 	* `bin/tikv-server`
 	* `bin/pd-server`
     * `bin/pd-ctl`
-	* `bin/tikv-importer`
 	* `bin/go-ycsb`
 
     The versions must be ≥2.1.0 as usual.
@@ -36,7 +35,7 @@ Run `make integration_test` to execute the integration tests. This command will
 If the first tow steps are done before, you could also run `tests/run.sh` directly.
 This script will
 
-1. Start PD, TiKV, TiDB and TiKV-Importer in background with local storage
+1. Start PD, TiKV and TiDB in background with local storage
 2. Find out all `tests/*/run.sh` and run it
 
 ## Writing new tests

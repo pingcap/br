@@ -99,7 +99,7 @@ func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.R
 type retryableFunc func() error
 type continueFunc func(error) bool
 
-func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts uint, delayTime time.Duration) error {
+func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts uint, delayTime time.Duration, maxDelayTime time.Duration) error {
 	var lastErr error
 	for i := uint(0); i < attempts; i++ {
 		err := retryableFunc()
@@ -108,6 +108,10 @@ func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts 
 			// If this is the last attempt, do not wait
 			if !continueFunc(err) || i == attempts-1 {
 				break
+			}
+			delayTime = 2 * delayTime
+			if delayTime > maxDelayTime {
+				delayTime = maxDelayTime
 			}
 			time.Sleep(delayTime)
 		} else {

@@ -19,6 +19,13 @@ func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
+			utils.LogBRInfo()
+			return nil
+		},
 	}
 	bp.AddCommand(
 		newFullRestoreCommand(),
@@ -103,9 +110,9 @@ func newFullRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("importer")
 
 	return command
 }
@@ -183,6 +190,7 @@ func newDbRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 
@@ -268,6 +276,7 @@ func newTableRestoreCommand() *cobra.Command {
 	}
 
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
+	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
@@ -282,7 +291,7 @@ func newTableRestoreCommand() *cobra.Command {
 func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	u, err := flagSet.GetString(FlagStorage)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	s, err := utils.CreateStorage(u)
 	if err != nil {
@@ -304,9 +313,15 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 
 	dsn, err := flagSet.GetString("connect")
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	client.SetDbDSN(dsn)
+
+	concurrency, err := flagSet.GetUint("concurrency")
+	if err != nil {
+		return err
+	}
+	client.SetConcurrency(concurrency)
 
 	return nil
 }
