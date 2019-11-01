@@ -4,9 +4,11 @@ import (
 	"context"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/raw"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
@@ -37,6 +39,8 @@ const (
 	FlagLogFile = "log-file"
 	// FlagStatusAddr is the name of status-addr flag.
 	FlagStatusAddr = "status-addr"
+	// FlagPrometheusAddr is the name of prometheus-addr flag
+	FlagPrometheusAddr = "prometheus-addr"
 )
 
 // AddFlags adds flags to the given cmd.
@@ -53,6 +57,8 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "localhost:6060",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
+	cmd.PersistentFlags().String(FlagPrometheusAddr, "",
+		"Set the HTTP address for the prometheus metrics service. Set to empty string to disable")
 	cmd.MarkFlagRequired(FlagPD)
 	cmd.MarkFlagRequired(FlagStorage)
 }
@@ -94,6 +100,15 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 				}
 			}()
 		}
+
+		prometheusAddr, e := cmd.Flags().GetString(FlagPrometheusAddr)
+		if e != nil {
+			err = e
+			return
+		}
+		go func() {
+			utils.PushPrometheus("br", prometheusAddr, time.Second * 10)
+		}()
 
 		// Initialize the main program.
 		var addr string

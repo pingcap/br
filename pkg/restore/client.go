@@ -191,9 +191,9 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	label := fmt.Sprintf("%s.%s", table.Db.Name, table.Schema.Name)
 	log.Info("start to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
+		zap.String("label", label),
 		zap.Array("files", files(table.Files)),
 		zap.Reflect("rewriteRules", rewriteRules),
 	)
@@ -209,7 +209,13 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 			select {
 			case <-rc.ctx.Done():
 				errCh <- nil
-			case errCh <- rc.fileImporter.Import(file, encodedRules, rc.workerPool):
+			default :
+				startTime := time.Now()
+				err := rc.fileImporter.Import(file, encodedRules, rc.workerPool)
+				if err == nil {
+					restoreFileHistogram.Observe(time.Since(startTime).Seconds())
+				}
+				errCh <- err
 			}
 		}(file)
 	}
@@ -225,6 +231,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 			)
 			return err
 		}
+		restoreFileCounter.WithLabelValues(label).Add(1)
 	}
 	log.Info(
 		"finish to restore table",
