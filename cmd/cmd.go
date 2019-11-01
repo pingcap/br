@@ -101,9 +101,11 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		go func() {
-			utils.PushPrometheus("br", prometheusAddr, time.Second*10)
-		}()
+		if len(prometheusAddr) == 0 {
+			go func() {
+				utils.PushPrometheus("br", prometheusAddr, time.Second*10)
+			}()
+		}
 
 		// Initialize the main program.
 		var addr string
@@ -151,7 +153,7 @@ func runServe(addr string) {
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
-			log.Warn("start server failed")
+			log.Error("start server failed")
 		} else {
 			log.Info("start server")
 		}

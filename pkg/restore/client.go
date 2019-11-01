@@ -195,7 +195,8 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
 	label := fmt.Sprintf("%s.%s", table.Db.Name, table.Schema.Name)
 	log.Info("start to restore table",
-		zap.String("label", label),
+		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("db", table.Db.Name),
 		zap.Array("files", files(table.Files)),
 		zap.Reflect("rewriteRules", rewriteRules),
 	)

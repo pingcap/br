@@ -13,7 +13,7 @@ func PushPrometheus(job, addr string, interval time.Duration) {
 	for {
 		err := push.New(addr, job).Gatherer(prometheus.DefaultGatherer).Push()
 		if err != nil {
-			log.Warn("could not push metrics to Prometheus Pushgateway")
+			log.Error("could not push metrics to Prometheus Pushgateway")
 		}
 		time.Sleep(interval)
 	}
