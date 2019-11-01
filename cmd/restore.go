@@ -77,7 +77,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			restoreTS, err := client.GetTS()
+			err = client.ResetTS()
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -87,7 +87,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules, restoreTS)
+			err = client.RestoreAll(rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -154,7 +154,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			restoreTS, err := client.GetTS()
+			err = client.ResetTS()
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -164,7 +164,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreDatabase(db, rewriteRules, restoreTS)
+			err = client.RestoreDatabase(db, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -238,7 +238,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			restoreTS, err := client.GetTS()
+			err = client.ResetTS()
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -246,7 +246,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules, restoreTS)
+			err = client.RestoreTable(table, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
