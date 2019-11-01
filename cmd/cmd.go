@@ -93,7 +93,7 @@ func Init(ctx context.Context, cmd *cobra.Command) (err error) {
 			return
 		}
 		if len(statusAddr) != 0 {
-			RunServe(statusAddr)
+			runServe(statusAddr)
 		}
 
 		prometheusAddr, e := cmd.Flags().GetString(FlagPrometheusAddr)
@@ -139,7 +139,7 @@ func GetDefaultContext() context.Context {
 	return defaultContext
 }
 
-func RunServe(addr string) {
+func runServe(addr string) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 

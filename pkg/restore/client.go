@@ -213,13 +213,13 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				default :
-          startTime := time.Now()
-          err := rc.fileImporter.Import(file, encodedRules)
-          if err == nil {
-            restoreFileHistogram.Observe(time.Since(startTime).Seconds())
-          }
-          errCh <- err
+				default:
+					startTime := time.Now()
+					err := rc.fileImporter.Import(fileReplica, encodedRules)
+					if err == nil {
+						restoreFileHistogram.Observe(time.Since(startTime).Seconds())
+					}
+					errCh <- err
 				}
 			})
 	}
