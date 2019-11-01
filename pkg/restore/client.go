@@ -362,7 +362,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 }
 
 //ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) error {
+func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
 	var tables []*utils.Table
 	for _, db := range rc.databases {
 		for _, t := range db.Tables {
@@ -372,7 +372,7 @@ func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) error
 	wg := sync.WaitGroup{}
 	errCh := make(chan error, len(tables))
 	for _, table := range tables {
-		rule := getTableRewriteRule(table.Schema.ID, rewriteRules.Table)
+		rule := getTableRewriteRule(table.Schema.ID, rewriteRules)
 		newTableID := tablecodec.DecodeTableID(rule.GetNewPrefix())
 		if newTableID == 0 || rule == nil {
 			return errors.Errorf("failed to get rewrite rule for %v", table.Schema.ID)
@@ -389,6 +389,7 @@ func (rc *Client) ValidateChecksum(rewriteRules restore_util.RewriteRules) error
 		}
 
 		wg.Add(1)
+		table := table
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
 			resp, err := rc.checksumTable(newTableID, table.Schema, data)

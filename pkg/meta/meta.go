@@ -178,14 +178,7 @@ func (backer *Backer) Context() context.Context {
 	return backer.Ctx
 }
 
-// GetGrpcConn get a grpc connect to a store
-func (backer *Backer) GetGrpcConn(storeID uint64) (*grpc.ClientConn, error) {
-	backer.grpcClis.mu.Lock()
-	defer backer.grpcClis.mu.Unlock()
-	if conn, ok := backer.grpcClis.clis[storeID]; ok {
-		// Find a cached grpc connect
-		return conn, nil
-	}
+func (backer *Backer) getGrpcConn(storeID uint64) (*grpc.ClientConn, error) {
 	store, err := backer.PDClient.GetStore(backer.Ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -224,7 +217,7 @@ func (backer *Backer) GetBackupClient(storeID uint64) (backup.BackupClient, erro
 		return backup.NewBackupClient(conn), nil
 	}
 
-	conn, err := backer.GetGrpcConn(storeID)
+	conn, err := backer.getGrpcConn(storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -241,7 +234,7 @@ func (backer *Backer) GetTikvClient(storeID uint64) (tikvpb.TikvClient, error) {
 		return tikvpb.NewTikvClient(conn), nil
 	}
 
-	conn, err := backer.GetGrpcConn(storeID)
+	conn, err := backer.getGrpcConn(storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

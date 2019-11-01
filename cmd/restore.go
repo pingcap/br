@@ -57,6 +57,7 @@ func newFullRestoreCommand() *cobra.Command {
 
 			tableRules := make([]*import_sstpb.RewriteRule, 0)
 			dataRules := make([]*import_sstpb.RewriteRule, 0)
+			tableRawRules := make([]*import_sstpb.RewriteRule, 0)
 			files := make([]*backup.File, 0)
 			for _, db := range client.GetDatabases() {
 				err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
@@ -67,6 +68,9 @@ func newFullRestoreCommand() *cobra.Command {
 				rules, err = client.CreateTables(db.Tables)
 				if err != nil {
 					return errors.Trace(err)
+				}
+				for _, r := range rules.Table {
+					tableRawRules = append(tableRules, &*r)
 				}
 				tableRules = append(tableRules, rules.Table...)
 				dataRules = append(dataRules, rules.Data...)
@@ -80,7 +84,7 @@ func newFullRestoreCommand() *cobra.Command {
 				Table: tableRules,
 				Data:  dataRules,
 			}
-			rewriteRulesRaw := cloneRule(rewriteRules)
+
 			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
@@ -104,7 +108,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRulesRaw)
+			err = client.ValidateChecksum(tableRawRules)
 			return errors.Trace(err)
 		},
 	}
@@ -155,7 +159,10 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			rewriteRulesRaw := cloneRule(rewriteRules)
+			tableRawRules := make([]*import_sstpb.RewriteRule, 0)
+			for _, t := range rewriteRules.Table {
+				tableRawRules = append(tableRawRules, &*t)
+			}
 			files := make([]*backup.File, 0)
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
@@ -184,7 +191,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRulesRaw)
+			err = client.ValidateChecksum(tableRawRules)
 			return errors.Trace(err)
 		},
 	}
@@ -247,7 +254,10 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			rewriteRulesRaw := cloneRule(rewriteRules)
+			tableRawRules := make([]*import_sstpb.RewriteRule, 0)
+			for _, t := range rewriteRules.Table {
+				tableRawRules = append(tableRawRules, &*t)
+			}
 
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 			err = splitter.Split(ctx, restore.GetRanges(table.Files), rewriteRules)
@@ -270,7 +280,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRulesRaw)
+			err = client.ValidateChecksum(tableRawRules)
 			return errors.Trace(err)
 		},
 	}
@@ -324,19 +334,4 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	client.SetConcurrency(concurrency)
 
 	return nil
-}
-
-func cloneRule(r *restore_util.RewriteRules) restore_util.RewriteRules {
-	var Table []*import_sstpb.RewriteRule
-	var Data []*import_sstpb.RewriteRule
-	for _, t := range r.Table {
-		Table = append(Table, &*t)
-	}
-	for _, d := range r.Data {
-		Data = append(Data, &*d)
-	}
-	return restore_util.RewriteRules{
-		Table: Table,
-		Data:  Data,
-	}
 }
