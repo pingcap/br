@@ -94,7 +94,12 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules, restoreTS)
+			progress := utils.NewProgressPrinter(
+				"Full Restore", int64(len(files)))
+			progress.GoPrintProgress(ctx)
+
+			err = client.RestoreAll(
+				rewriteRules, restoreTS, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -170,7 +175,12 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreDatabase(db, rewriteRules, restoreTS)
+			progress := utils.NewProgressPrinter(
+				"Database Restore", int64(len(files)))
+			progress.GoPrintProgress(ctx)
+
+			err = client.RestoreDatabase(
+				db, rewriteRules, restoreTS, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -252,7 +262,13 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules, restoreTS)
+
+			progress := utils.NewProgressPrinter(
+				"Table Restore", int64(len(table.Files)))
+			progress.GoPrintProgress(ctx)
+
+			err = client.RestoreTable(
+				table, rewriteRules, restoreTS, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}

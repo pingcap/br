@@ -192,7 +192,12 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 }
 
 // RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreTable(
+	table *utils.Table,
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -229,6 +234,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 			)
 			return err
 		}
+		updateCh <- struct{}{}
 	}
 	log.Info(
 		"finish to restore table",
@@ -239,7 +245,12 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 }
 
 // RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreDatabase(
+	db *utils.Database,
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -252,7 +263,7 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.RestoreTable(tblReplica, rewriteRules, restoreTS):
+				case errCh <- rc.RestoreTable(tblReplica, rewriteRules, restoreTS, updateCh):
 				}
 			})
 	}
@@ -267,7 +278,11 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 }
 
 // RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreAll(
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -280,7 +295,7 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules, restoreTS):
+				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules, restoreTS, updateCh):
 				}
 			})
 	}
