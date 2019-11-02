@@ -509,7 +509,7 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
 	for _, r := range rules {
 		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
-		if tableID != 0 && tableID == tid {
+		if tableID == tid {
 			return &tipb.ChecksumRewriteRule{
 				OldPrefix: r.GetOldKeyPrefix(),
 				NewPrefix: r.GetNewKeyPrefix(),
