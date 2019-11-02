@@ -365,9 +365,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
 	var tables []*utils.Table
 	for _, db := range rc.databases {
-		for _, t := range db.Tables {
-			tables = append(tables, t)
-		}
+		tables = append(tables, db.Tables...)
 	}
 	wg := sync.WaitGroup{}
 	errCh := make(chan error, len(tables))
@@ -438,7 +436,7 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 	var nextStart []byte
 	for bytes.Compare(start, end) < 0 {
 		region, peer, err := rc.pdClient.GetRegion(rc.ctx, codec.EncodeBytes([]byte{}, start))
-		if len(region.GetEndKey()) < 9 {
+		if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
 			nextStart = end
 		} else {
 			if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
@@ -481,10 +479,7 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 			respData = resp.Data
 			return nil
 		}, func(e error) bool {
-			if err := rc.backer.ResetGrpcClient(storeID); err != nil {
-				return false
-			}
-			return true
+			return rc.backer.ResetGrpcClient(storeID) == nil
 		}, tikvChecksumRetryTimes, tikvChecksumWaitInterval, tikvChecksumMaxWaitInterval)
 		if err != nil {
 			return nil, errors.Trace(err)
