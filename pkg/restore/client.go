@@ -61,6 +61,9 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	_ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
 	backer, err := meta.NewBacker(_ctx, addrs[0])
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -436,11 +439,14 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 	var nextStart []byte
 	for bytes.Compare(start, end) < 0 {
 		region, peer, err := rc.pdClient.GetRegion(rc.ctx, codec.EncodeBytes([]byte{}, start))
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 		if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
 			nextStart = end
 		} else {
-			if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
-				return nil, errors.Trace(err)
+			if _, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil); e != nil {
+				return nil, errors.Trace(e)
 			} else if bytes.Compare(regionEnd, end) < 0 {
 				nextStart = regionEnd
 			} else {
@@ -452,7 +458,7 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 			RegionEpoch: region.GetRegionEpoch(),
 			Peer:        peer,
 		}
-		ranges := []*coprocessor.KeyRange{&coprocessor.KeyRange{Start: start, End: nextStart}}
+		ranges := []*coprocessor.KeyRange{{Start: start, End: nextStart}}
 		req := &coprocessor.Request{
 			Context: reqCtx,
 			Tp:      105, // REQ_TYPE_CHECKSUM flag
@@ -464,17 +470,17 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 		var respData []byte
 		storeID := peer.GetStoreId()
 		err = withRetry(func() error {
-			kvClient, err := rc.backer.GetTikvClient(storeID)
-			if err != nil {
-				return err
+			kvClient, e := rc.backer.GetTikvClient(storeID)
+			if e != nil {
+				return e
 			}
-			resp, err := kvClient.Coprocessor(rc.ctx, req)
-			if err != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
+			resp, e := kvClient.Coprocessor(rc.ctx, req)
+			if e != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
 				log.Error("Coprocessor request error",
 					zap.Any("RegionError", resp.GetRegionError()),
 					zap.String("OtherError", resp.GetOtherError()),
 					zap.Any("Locked", resp.GetLocked()))
-				return err
+				return e
 			}
 			respData = resp.Data
 			return nil

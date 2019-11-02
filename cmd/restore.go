@@ -70,7 +70,7 @@ func newFullRestoreCommand() *cobra.Command {
 					return errors.Trace(err)
 				}
 				for _, r := range rules.Table {
-					tableRawRules = append(tableRules, &*r)
+					tableRawRules = append(tableRules, &(*r))
 				}
 				tableRules = append(tableRules, rules.Table...)
 				dataRules = append(dataRules, rules.Data...)
@@ -161,7 +161,7 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 			tableRawRules := make([]*import_sstpb.RewriteRule, 0)
 			for _, t := range rewriteRules.Table {
-				tableRawRules = append(tableRawRules, &*t)
+				tableRawRules = append(tableRawRules, &(*t))
 			}
 			files := make([]*backup.File, 0)
 			for _, table := range db.Tables {
@@ -256,7 +256,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			tableRawRules := make([]*import_sstpb.RewriteRule, 0)
 			for _, t := range rewriteRules.Table {
-				tableRawRules = append(tableRawRules, &*t)
+				tableRawRules = append(tableRawRules, &(*t))
 			}
 
 			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
