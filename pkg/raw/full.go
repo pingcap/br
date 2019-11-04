@@ -129,7 +129,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-	checksumSwitch bool,
 ) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -240,7 +239,7 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 }
 
 // GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch bool) ([]Range, error) {
+func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -252,10 +251,8 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch 
 		return nil, errors.Trace(err)
 	}
 
-	if checksumSwitch {
-		// make checksumSwitch snapshot is same as backup snapshot
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-	}
+	// make FastChecksum snapshot is same as backup snapshot
+	dbSession.GetSessionVars().SnapshotTS = backupTS
 
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 
