@@ -214,7 +214,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreTable", zap.String("table", table.Schema.Name.String()), zap.Duration("costs", elapsed))
+		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
