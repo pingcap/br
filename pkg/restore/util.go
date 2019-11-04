@@ -202,14 +202,14 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 	return []byte("")
 }
 
-// PreSplitRegion splits region by
+// SplitRegion splits region by
 // 1. data range after rewrite
 // 2. rewrite rules
-func PreSplitRegion(ctx context.Context, client *Client, files []*backup.File, rewriteRules *restore_util.RewriteRules) error {
+func SplitRegion(ctx context.Context, client *Client, files []*backup.File, rewriteRules *restore_util.RewriteRules) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("PreSplitRegion", zap.Duration("take", elapsed))
+		log.Info("SplitRegion", zap.Duration("costs", elapsed))
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 	return splitter.Split(ctx, getRanges(files), rewriteRules)

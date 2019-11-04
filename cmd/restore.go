@@ -81,7 +81,7 @@ func newFullRestoreCommand() *cobra.Command {
 				Data:  dataRules,
 			}
 
-			err = restore.PreSplitRegion(ctx, client, files, rewriteRules)
+			err = restore.SplitRegion(ctx, client, files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -161,7 +161,7 @@ func newDbRestoreCommand() *cobra.Command {
 				files = append(files, table.Files...)
 			}
 
-			err = restore.PreSplitRegion(ctx, client, files, rewriteRules)
+			err = restore.SplitRegion(ctx, client, files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -248,7 +248,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = restore.PreSplitRegion(ctx, client, table.Files, rewriteRules)
+			err = restore.SplitRegion(ctx, client, table.Files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
