@@ -211,6 +211,11 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+	}()
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -244,6 +249,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				"restore table failed",
 				zap.Stringer("table", table.Schema.Name),
 				zap.Stringer("db", table.Db.Name),
+				zap.Error(err),
 			)
 			return err
 		}
@@ -258,6 +264,11 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+	}()
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -286,6 +297,11 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreAll", zap.Duration("take", elapsed))
+	}()
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -366,6 +382,12 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 
 //ValidateChecksum validate checksum after restore
 func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Checksum", zap.Duration("take", elapsed))
+	}()
+
 	var tables []*utils.Table
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)

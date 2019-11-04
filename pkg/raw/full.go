@@ -116,7 +116,7 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Info("backup meta",
+	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
 	log.Info("save backup meta", zap.String("path", path))
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
@@ -319,8 +319,25 @@ LoadDb:
 	return ranges, nil
 }
 
-// BackupRange make a backup of the given key range.
-func (bc *BackupClient) BackupRange(
+// BackupRanges make a backup of the given key ranges.
+func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint64, rate uint64, concurrency uint32) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Backup Ranges", zap.Duration("take", elapsed))
+	}()
+
+	for _, r := range ranges {
+		err := bc.backupRange(r.StartKey, r.EndKey, path, backupTS, rate, concurrency)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backupRange make a backup of the given key range.
+func (bc *BackupClient) backupRange(
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
@@ -651,6 +668,12 @@ func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table
 func (bc *BackupClient) FastChecksum() (bool, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+	}()
+
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
 	if err != nil {
 		return false, err

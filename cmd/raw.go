@@ -106,11 +106,9 @@ func newFullBackupCommand() *cobra.Command {
 				client.PrintBackupProgress("Full Backup", int64(approximateRegions), done)
 			}()
 
-			for _, r := range ranges {
-				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
-				if err != nil {
-					return err
-				}
+			err = client.BackupRanges(ranges, u, backupTS, rate, concurrency)
+			if err != nil {
+				return err
 			}
 
 			valid, err := client.FastChecksum()
@@ -217,11 +215,9 @@ func newTableBackupCommand() *cobra.Command {
 				client.PrintBackupProgress("Table Backup", int64(approximateRegions), done)
 			}()
 
-			for _, r := range ranges {
-				err = client.BackupRange(r.StartKey, r.EndKey, u, backupTS, rate, concurrency)
-				if err != nil {
-					return err
-				}
+			err = client.BackupRanges(ranges, u, backupTS, rate, concurrency)
+			if err != nil {
+				return err
 			}
 
 			valid, err := client.FastChecksum()
