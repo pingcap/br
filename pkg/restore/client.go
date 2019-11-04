@@ -300,7 +300,7 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreAll", zap.Duration("costs", elapsed))
+		log.Info("RestoreAll", zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
