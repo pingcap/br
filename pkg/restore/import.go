@@ -183,9 +183,9 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 		if resp.GetIsEmpty() {
 			return &sstMeta, true, nil
 		}
-		sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
-		sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
 	}
+	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
+	sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
 	return &sstMeta, false, nil
 }
 
