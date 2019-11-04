@@ -267,7 +267,7 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreDatabase", zap.String("db", db.Schema.Name.String()), zap.Duration("costs", elapsed))
+		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
