@@ -209,7 +209,7 @@ func PreSplitRegion(ctx context.Context, client *Client, files []*backup.File, r
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("PreSplitRegion", zap.Duration("costs", elapsed))
+		log.Info("PreSplitRegion", zap.Duration("take", elapsed))
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 	return splitter.Split(ctx, getRanges(files), rewriteRules)
