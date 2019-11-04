@@ -324,7 +324,7 @@ func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint6
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Ranges", zap.Duration("costs", elapsed))
+		log.Info("Backup Ranges", zap.Duration("take", elapsed))
 	}()
 
 	for _, r := range ranges {
