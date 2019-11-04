@@ -385,7 +385,7 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Checksum", zap.Duration("costs", elapsed))
+		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
 	var tables []*utils.Table
