@@ -28,8 +28,6 @@ func NewBackupCommand() *cobra.Command {
 		newTableBackupCommand(),
 	)
 
-	bp.PersistentFlags().BoolP("checksum", "", false, "The checksum verification switch")
-
 	bp.PersistentFlags().StringP("timeago", "", "", "The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
 	bp.PersistentFlags().Uint64P(
@@ -89,12 +87,11 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
 
-			ranges, err := client.GetAllBackupTableRanges(backupTS, checksumSwitch)
+			ranges, err := client.GetAllBackupTableRanges(backupTS)
 			if err != nil {
 				return err
 			}
@@ -111,23 +108,21 @@ func newFullBackupCommand() *cobra.Command {
 			defer cancel()
 			progress.GoPrintProgress(ctx)
 
-			for _, r := range ranges {
-				err = client.BackupRange(r.StartKey, r.EndKey,
-					u, backupTS, rate, concurrency, progress.UpdateCh())
-				if err != nil {
-					return err
-				}
+			err = client.BackupRanges(
+				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+			if err != nil {
+				return err
 			}
-			if checksumSwitch {
-				valid, err := client.FastChecksum()
-				if err != nil {
-					return err
-				}
 
-				if !valid {
-					log.Error("backup checksumSwitch not passed!")
-				}
+			valid, err := client.FastChecksum()
+			if err != nil {
+				return err
 			}
+
+			if !valid {
+				log.Error("backup FastChecksum not passed!")
+			}
+
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -198,12 +193,11 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
 
-			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency, checksumSwitch)
+			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
@@ -224,23 +218,21 @@ func newTableBackupCommand() *cobra.Command {
 			defer cancel()
 			progress.GoPrintProgress(ctx)
 
-			for _, r := range ranges {
-				err = client.BackupRange(r.StartKey, r.EndKey,
-					u, backupTS, rate, concurrency, progress.UpdateCh())
-				if err != nil {
-					return err
-				}
+			err = client.BackupRanges(
+				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+			if err != nil {
+				return err
 			}
-			if checksumSwitch {
-				valid, err := client.FastChecksum()
-				if err != nil {
-					return err
-				}
 
-				if !valid {
-					log.Error("backup checksumSwitch not passed!")
-				}
+			valid, err := client.FastChecksum()
+			if err != nil {
+				return err
 			}
+
+			if !valid {
+				log.Error("backup FastChecksum not passed!")
+			}
+
 			return client.SaveBackupMeta(u)
 		},
 	}

@@ -4,14 +4,15 @@ import (
 	"context"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
+
+	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewRestoreCommand returns a restore subcommand
@@ -74,23 +75,27 @@ func newFullRestoreCommand() *cobra.Command {
 					files = append(files, table.Files...)
 				}
 			}
-			batchSize := 64
 			progress := utils.NewProgressPrinter(
 				"Full Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(files)*2),
+				// TODO: int64(len(files)*2),
+				int64(len(files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
+			// TODO: update progress during split/scatter.
+			_ = updateCh
 
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
 				Data:  dataRules,
 			}
-			err = client.SplitRanges(files, rewriteRules, batchSize, updateCh)
+
+			err = restore.SplitRegion(ctx, client, files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
+
 			restoreTS, err := client.GetTS()
 			if err != nil {
 				return errors.Trace(err)
@@ -108,7 +113,10 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -163,16 +171,18 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
-			batchSize := 64
 			progress := utils.NewProgressPrinter(
 				"Database Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(files)*2),
+				// TODO: int64(len(files)*2),
+				int64(len(files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
+			// TODO: update progress during split/scatter.
+			_ = updateCh
 
-			err = client.SplitRanges(files, rewriteRules, batchSize, updateCh)
+			err = restore.SplitRegion(ctx, client, files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -193,7 +203,10 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -257,19 +270,22 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			batchSize := 64
 			progress := utils.NewProgressPrinter(
 				"Table Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(table.Files)*2),
+				// TODO: int64(len(table.Files)*2),
+				int64(len(table.Files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
+			// TODO: update progress during split/scatter.
+			_ = updateCh
 
-			err = client.SplitRanges(table.Files, rewriteRules, batchSize, updateCh)
+			err = restore.SplitRegion(ctx, client, table.Files, rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
 			}
+
 			restoreTS, err := client.GetTS()
 			if err != nil {
 				return errors.Trace(err)
@@ -285,6 +301,10 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
