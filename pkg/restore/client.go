@@ -211,6 +211,11 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreTable", zap.String("table", table.Schema.Name.String()), zap.Duration("costs", elapsed))
+	}()
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -258,6 +263,11 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreDatabase", zap.String("db", db.Schema.Name.String()), zap.Duration("costs", elapsed))
+	}()
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
 	defer close(errCh)
@@ -286,6 +296,11 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreAll", zap.Duration("costs", elapsed))
+	}()
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
 	defer close(errCh)
