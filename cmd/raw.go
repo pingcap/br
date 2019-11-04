@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"github.com/pingcap/br/pkg/raw"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
@@ -11,13 +13,18 @@ func NewBackupCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "backup",
 		Short: "backup a TiKV cluster",
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
+			utils.LogBRInfo()
+			return nil
+		},
 	}
 	bp.AddCommand(
 		newFullBackupCommand(),
 		newTableBackupCommand(),
 	)
-
-	bp.PersistentFlags().BoolP("checksum", "", false, "The checksum verification switch")
 
 	bp.PersistentFlags().StringP("timeago", "", "", "The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
@@ -34,7 +41,14 @@ func newFullBackupCommand() *cobra.Command {
 		Use:   "full",
 		Short: "backup the whole TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
+			client, err := raw.NewBackupClient(backer)
+			if err != nil {
+				return nil
+			}
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -71,12 +85,11 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
 
-			ranges, err := client.GetAllBackupTableRanges(backupTS, checksumSwitch)
+			ranges, err := client.GetAllBackupTableRanges(backupTS)
 			if err != nil {
 				return err
 			}
@@ -99,16 +112,16 @@ func newFullBackupCommand() *cobra.Command {
 					return err
 				}
 			}
-			if checksumSwitch {
-				valid, err := client.FastChecksum()
-				if err != nil {
-					return err
-				}
 
-				if !valid {
-					log.Error("backup checksumSwitch not passed!")
-				}
+			valid, err := client.FastChecksum()
+			if err != nil {
+				return err
 			}
+
+			if !valid {
+				log.Error("backup FastChecksum not passed!")
+			}
+
 			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},
@@ -122,7 +135,14 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			client := GetDefaultRawClient()
+			backer, err := GetDefaultBacker()
+			if err != nil {
+				return err
+			}
+			client, err := raw.NewBackupClient(backer)
+			if err != nil {
+				return err
+			}
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -173,12 +193,11 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
 
-			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency, checksumSwitch)
+			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
 			}
@@ -204,16 +223,16 @@ func newTableBackupCommand() *cobra.Command {
 					return err
 				}
 			}
-			if checksumSwitch {
-				valid, err := client.FastChecksum()
-				if err != nil {
-					return err
-				}
 
-				if !valid {
-					log.Error("backup checksumSwitch not passed!")
-				}
+			valid, err := client.FastChecksum()
+			if err != nil {
+				return err
 			}
+
+			if !valid {
+				log.Error("backup FastChecksum not passed!")
+			}
+
 			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},

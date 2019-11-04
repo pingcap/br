@@ -19,6 +19,13 @@ func NewRestoreCommand() *cobra.Command {
 	bp := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
+		PersistentPreRunE: func(c *cobra.Command, args []string) error {
+			if err := Init(c); err != nil {
+				return err
+			}
+			utils.LogBRInfo()
+			return nil
+		},
 	}
 	bp.AddCommand(
 		newFullRestoreCommand(),
@@ -73,6 +80,7 @@ func newFullRestoreCommand() *cobra.Command {
 				Table: tableRules,
 				Data:  dataRules,
 			}
+
 			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
@@ -93,7 +101,10 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -102,7 +113,6 @@ func newFullRestoreCommand() *cobra.Command {
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("importer")
 
 	return command
 }
@@ -170,7 +180,10 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -251,6 +264,10 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}

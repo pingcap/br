@@ -21,9 +21,12 @@ const (
 
 // Table wraps the schema and files of a table.
 type Table struct {
-	Db     *model.DBInfo
-	Schema *model.TableInfo
-	Files  []*backup.File
+	Db         *model.DBInfo
+	Schema     *model.TableInfo
+	Crc64Xor   uint64
+	TotalKvs   uint64
+	TotalBytes uint64
+	Files      []*backup.File
 }
 
 // Database wraps the schema and tables of a database.
@@ -83,9 +86,12 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		table := &Table{
-			Db:     dbInfo,
-			Schema: tableInfo,
-			Files:  tableFiles,
+			Db:         dbInfo,
+			Schema:     tableInfo,
+			Crc64Xor:   schema.Crc64Xor,
+			TotalKvs:   schema.TotalKvs,
+			TotalBytes: schema.TotalBytes,
+			Files:      tableFiles,
 		}
 		db.Tables = append(db.Tables, table)
 	}
