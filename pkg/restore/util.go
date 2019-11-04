@@ -2,6 +2,7 @@ package restore
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"time"
 
@@ -9,10 +10,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -129,8 +132,8 @@ func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts 
 	return lastErr
 }
 
-// GetRanges returns the ranges of the files.
-func GetRanges(files []*backup.File) []restore_util.Range {
+// getRanges returns the ranges of the files.
+func getRanges(files []*backup.File) []restore_util.Range {
 	ranges := make([]restore_util.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
@@ -209,4 +212,17 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 
 func truncateTS(key []byte) []byte {
 	return key[:len(key)-8]
+}
+
+// SplitRegion splits region by
+// 1. data range after rewrite
+// 2. rewrite rules
+func SplitRegion(ctx context.Context, client *Client, files []*backup.File, rewriteRules *restore_util.RewriteRules) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("SplitRegion", zap.Duration("costs", elapsed))
+	}()
+	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
+	return splitter.Split(ctx, getRanges(files), rewriteRules)
 }

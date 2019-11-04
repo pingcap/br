@@ -116,7 +116,7 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Info("backup meta",
+	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
 	log.Info("save backup meta", zap.String("path", path))
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
@@ -129,7 +129,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-	checksumSwitch bool,
 ) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -162,12 +161,11 @@ func (bc *BackupClient) GetBackupTableRanges(
 	tableInfo.AutoIncID = globalAutoID
 
 	var tblChecksum, tblKvs, tblBytes uint64
-	if checksumSwitch {
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-		tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+
+	dbSession.GetSessionVars().SnapshotTS = backupTS
+	tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	dbData, err := json.Marshal(dbInfo)
@@ -241,7 +239,7 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 }
 
 // GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch bool) ([]Range, error) {
+func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -253,10 +251,8 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch 
 		return nil, errors.Trace(err)
 	}
 
-	if checksumSwitch {
-		// make checksumSwitch snapshot is same as backup snapshot
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-	}
+	// make FastChecksum snapshot is same as backup snapshot
+	dbSession.GetSessionVars().SnapshotTS = backupTS
 
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 
@@ -282,12 +278,12 @@ LoadDb:
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
 			var tblChecksum, tblKvs, tblBytes uint64
-			if checksumSwitch {
-				tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
+
+			tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+			if err != nil {
+				return nil, errors.Trace(err)
 			}
+
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -323,8 +319,25 @@ LoadDb:
 	return ranges, nil
 }
 
-// BackupRange make a backup of the given key range.
-func (bc *BackupClient) BackupRange(
+// BackupRanges make a backup of the given key ranges.
+func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint64, rate uint64, concurrency uint32) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Backup Ranges", zap.Duration("take", elapsed))
+	}()
+
+	for _, r := range ranges {
+		err := bc.backupRange(r.StartKey, r.EndKey, path, backupTS, rate, concurrency)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// backupRange make a backup of the given key range.
+func (bc *BackupClient) backupRange(
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
@@ -655,6 +668,12 @@ func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table
 func (bc *BackupClient) FastChecksum() (bool, error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+	}()
+
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
 	if err != nil {
 		return false, err
