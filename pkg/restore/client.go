@@ -58,9 +58,9 @@ type Client struct {
 
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
-	_ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
-	backer, err := meta.NewBacker(_ctx, addrs[0])
+	backer, err := meta.NewBacker(ctx, addrs[0])
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -76,7 +76,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	}
 
 	return &Client{
-		ctx:      _ctx,
+		ctx:      ctx,
 		cancel:   cancel,
 		pdClient: pdClient,
 		pdAddrs:  addrs,
@@ -494,9 +494,6 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 		checksum := &tipb.ChecksumResponse{}
 		if err = checksum.Unmarshal(respData); err != nil {
 			return nil, errors.Trace(err)
-		}
-		if checksum == nil {
-			continue
 		}
 		checksumResp.Checksum ^= checksum.Checksum
 		checksumResp.TotalKvs += checksum.TotalKvs
