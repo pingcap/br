@@ -30,8 +30,10 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 // Apply executes a task
 func (pool *WorkerPool) Apply(fn taskFunc) {
 	worker := <-pool.workers
-	go fn()
-	pool.recycle(worker)
+	go func() {
+		fn()
+		pool.recycle(worker)
+	}()
 }
 
 func (pool *WorkerPool) recycle(worker *Worker) {

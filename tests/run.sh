@@ -21,7 +21,7 @@ PD_ADDR="127.0.0.1:2379"
 TIDB_IP="127.0.0.1"
 TIDB_PORT="4000"
 TIDB_ADDR="127.0.0.1:4000"
-# actaul tikv_addr are TIKV_ADDR${i} 
+# actaul tikv_addr are TIKV_ADDR${i}
 TIKV_ADDR="127.0.0.1:2016"
 TIKV_COUNT=4
 
@@ -29,7 +29,6 @@ stop_services() {
     killall -9 tikv-server || true
     killall -9 pd-server || true
     killall -9 tidb-server || true
-    killall -9 tikv-importer || true
 
     find "$TEST_DIR" -maxdepth 1 -not -path "$TEST_DIR" -not -name "*.log" | xargs rm -r || true
 }
