@@ -80,6 +80,7 @@ func newFullRestoreCommand() *cobra.Command {
 				Table: tableRules,
 				Data:  dataRules,
 			}
+
 			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
 			if err != nil {
 				return errors.Trace(err)
@@ -100,7 +101,10 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -176,7 +180,10 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.SwitchToNormalMode(ctx)
-
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}
@@ -257,6 +264,10 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.ValidateChecksum(rewriteRules.Table)
 			return errors.Trace(err)
 		},
 	}

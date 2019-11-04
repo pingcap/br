@@ -129,7 +129,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-	checksumSwitch bool,
 ) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -162,12 +161,11 @@ func (bc *BackupClient) GetBackupTableRanges(
 	tableInfo.AutoIncID = globalAutoID
 
 	var tblChecksum, tblKvs, tblBytes uint64
-	if checksumSwitch {
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-		tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+
+	dbSession.GetSessionVars().SnapshotTS = backupTS
+	tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	dbData, err := json.Marshal(dbInfo)
@@ -241,7 +239,7 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 }
 
 // GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch bool) ([]Range, error) {
+func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -253,10 +251,8 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64, checksumSwitch 
 		return nil, errors.Trace(err)
 	}
 
-	if checksumSwitch {
-		// make checksumSwitch snapshot is same as backup snapshot
-		dbSession.GetSessionVars().SnapshotTS = backupTS
-	}
+	// make FastChecksum snapshot is same as backup snapshot
+	dbSession.GetSessionVars().SnapshotTS = backupTS
 
 	do := domain.GetDomain(dbSession.(sessionctx.Context))
 
@@ -282,12 +278,12 @@ LoadDb:
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
 			var tblChecksum, tblKvs, tblBytes uint64
-			if checksumSwitch {
-				tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-				if err != nil {
-					return nil, errors.Trace(err)
-				}
+
+			tblChecksum, tblKvs, tblBytes, err = bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
+			if err != nil {
+				return nil, errors.Trace(err)
 			}
+
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
