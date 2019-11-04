@@ -141,6 +141,7 @@ func (rc *Client) ResetTS() error {
 	if err != nil {
 		return err
 	}
+	// TODO: Support TLS
 	reqURL := "http://" + rc.pdAddrs[0] + resetTSURL
 	return withRetry(func() error {
 		resp, err := http.Post(reqURL, "application/json", strings.NewReader(string(req)))
