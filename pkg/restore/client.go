@@ -136,8 +136,8 @@ func (rc *Client) ResetTS() error {
 	restoreTS = rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	req, err := json.Marshal(struct {
-		TSO float64 `json:"tso,omitempty"`
-	}{TSO: float64(restoreTS)})
+		TSO uint64 `json:"tso,omitempty"`
+	}{TSO: restoreTS})
 	if err != nil {
 		return err
 	}
