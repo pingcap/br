@@ -74,13 +74,20 @@ func newFullRestoreCommand() *cobra.Command {
 					files = append(files, table.Files...)
 				}
 			}
+			batchSize := 64
+			progress := utils.NewProgressPrinter(
+				"Full Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(files)/batchSize+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
 
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
 				Data:  dataRules,
 			}
-			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
+			err = client.SplitRanges(files, rewriteRules, batchSize, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -93,10 +100,6 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-
-			progress := utils.NewProgressPrinter(
-				"Full Restore", int64(len(files)))
-			progress.GoPrintProgress(ctx)
 
 			err = client.RestoreAll(
 				rewriteRules, restoreTS, progress.UpdateCh())
@@ -160,8 +163,16 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
+			batchSize := 64
+			progress := utils.NewProgressPrinter(
+				"Database Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(files)/batchSize+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = client.SplitRanges(files, rewriteRules, batchSize, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -175,12 +186,8 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			progress := utils.NewProgressPrinter(
-				"Database Restore", int64(len(files)))
-			progress.GoPrintProgress(ctx)
-
 			err = client.RestoreDatabase(
-				db, rewriteRules, restoreTS, progress.UpdateCh())
+				db, rewriteRules, restoreTS, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -249,8 +256,17 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, restore.GetRanges(table.Files), rewriteRules)
+
+			batchSize := 64
+			progress := utils.NewProgressPrinter(
+				"Table Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(table.Files)/batchSize+len(table.Files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = client.SplitRanges(table.Files, rewriteRules, batchSize, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -262,10 +278,6 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-
-			progress := utils.NewProgressPrinter(
-				"Table Restore", int64(len(table.Files)))
-			progress.GoPrintProgress(ctx)
 
 			err = client.RestoreTable(
 				table, rewriteRules, restoreTS, progress.UpdateCh())

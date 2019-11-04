@@ -191,6 +191,31 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 	return rewriteRules, nil
 }
 
+// SplitRanges splits regions based on files.
+func (rc *Client) SplitRanges(
+	files []*backup.File,
+	rewriteRules *restore_util.RewriteRules,
+	batchSize int,
+	updateCh chan<- struct{},
+) error {
+	splitter := restore_util.NewRegionSplitter(
+		restore_util.NewClient(rc.pdClient))
+
+	for i := 0; i < len(files); i += batchSize {
+		j := i + batchSize
+		if j > len(files) {
+			j = len(files)
+		}
+
+		err := splitter.Split(rc.ctx, GetRanges(files[i:j]), rewriteRules)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		updateCh <- struct{}{}
+	}
+	return nil
+}
+
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
@@ -257,15 +282,15 @@ func (rc *Client) RestoreDatabase(
 	for _, table := range db.Tables {
 		wg.Add(1)
 		tblReplica := table
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreTable(tblReplica, rewriteRules, restoreTS, updateCh):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreTable(
+				tblReplica, rewriteRules, restoreTS, updateCh):
+			}
+		})
 	}
 	for range db.Tables {
 		err := <-errCh
@@ -289,15 +314,15 @@ func (rc *Client) RestoreAll(
 	for _, db := range rc.databases {
 		wg.Add(1)
 		dbReplica := db
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules, restoreTS, updateCh):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreDatabase(
+				dbReplica, rewriteRules, restoreTS, updateCh):
+			}
+		})
 	}
 
 	for range rc.databases {
