@@ -198,9 +198,22 @@ func (rc *Client) SplitRanges(
 	batchSize int,
 	updateCh chan<- struct{},
 ) error {
+	progressCh := make(chan int, len(files)/batchSize)
+	defer close(progressCh)
+	go func() {
+		for {
+			size, ok := <-progressCh
+			if !ok {
+				return
+			}
+			for c := 0; c < size; c++ {
+				updateCh <- struct{}{}
+			}
+		}
+	}()
+
 	splitter := restore_util.NewRegionSplitter(
 		restore_util.NewClient(rc.pdClient))
-
 	for i := 0; i < len(files); i += batchSize {
 		j := i + batchSize
 		if j > len(files) {
@@ -211,7 +224,7 @@ func (rc *Client) SplitRanges(
 		if err != nil {
 			return errors.Trace(err)
 		}
-		updateCh <- struct{}{}
+		progressCh <- (j - i)
 	}
 	return nil
 }
@@ -244,6 +257,7 @@ func (rc *Client) RestoreTable(
 				case <-rc.ctx.Done():
 					errCh <- nil
 				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+					updateCh <- struct{}{}
 				}
 			})
 	}
@@ -259,7 +273,6 @@ func (rc *Client) RestoreTable(
 			)
 			return err
 		}
-		updateCh <- struct{}{}
 	}
 	log.Info(
 		"finish to restore table",

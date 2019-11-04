@@ -78,7 +78,7 @@ func newFullRestoreCommand() *cobra.Command {
 			progress := utils.NewProgressPrinter(
 				"Full Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(files)/batchSize+len(files)),
+				int64(len(files)*2),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
@@ -167,7 +167,7 @@ func newDbRestoreCommand() *cobra.Command {
 			progress := utils.NewProgressPrinter(
 				"Database Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(files)/batchSize+len(files)),
+				int64(len(files)*2),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
@@ -261,7 +261,7 @@ func newTableRestoreCommand() *cobra.Command {
 			progress := utils.NewProgressPrinter(
 				"Table Restore",
 				// Split/Scatter + Download/Ingest
-				int64(len(table.Files)/batchSize+len(table.Files)),
+				int64(len(table.Files)*2),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
