@@ -382,6 +382,12 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 
 //ValidateChecksum validate checksum after restore
 func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Checksum", zap.Duration("costs", elapsed))
+	}()
+
 	var tables []*utils.Table
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
