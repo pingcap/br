@@ -249,6 +249,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				"restore table failed",
 				zap.Stringer("table", table.Schema.Name),
 				zap.Stringer("db", table.Db.Name),
+				zap.Error(err),
 			)
 			return err
 		}
