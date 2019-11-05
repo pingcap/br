@@ -83,7 +83,7 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
 
 		// check backup time do not exceed GCSafePoint
-		safePoint, err := bc.backer.GetGCSafePoint()
+		safePoint, err := bc.backer.GetGCSafePoint(bc.ctx)
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -127,8 +127,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
-	rateLimit uint64,
-	concurrency uint32,
 ) ([]Range, error) {
 	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 	if err != nil {
@@ -327,17 +325,52 @@ func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint6
 		log.Info("Backup Ranges", zap.Duration("take", elapsed))
 	}()
 
-	for _, r := range ranges {
-		err := bc.backupRange(r.StartKey, r.EndKey, path, backupTS, rate, concurrency)
+	errCh := make(chan error)
+	ctx, cancel := context.WithCancel(bc.ctx)
+	defer cancel()
+	go func() {
+		for _, r := range ranges {
+			err := bc.backupRange(
+				ctx, r.StartKey, r.EndKey, path, backupTS, rate, concurrency)
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+		close(errCh)
+	}()
+
+	// Check GC safepoint every 30s.
+	t := time.NewTicker(time.Second * 30)
+	defer t.Stop()
+
+	finished := false
+	for {
+		err := bc.backer.CheckGCSaftpoint(ctx, backupTS)
 		if err != nil {
 			return err
 		}
+		if finished {
+			return nil
+		}
+		select {
+		case err, ok := <-errCh:
+			if !ok {
+				// Before finish backup, we have to make sure
+				// the backup ts does not fall behind with GC safepoint.
+				finished = true
+			}
+			if err != nil {
+				return err
+			}
+		case <-t.C:
+		}
 	}
-	return nil
 }
 
 // backupRange make a backup of the given key range.
 func (bc *BackupClient) backupRange(
+	ctx context.Context,
 	startKey, endKey []byte,
 	path string,
 	backupTS uint64,
@@ -352,7 +385,7 @@ func (bc *BackupClient) backupRange(
 		zap.Uint64("RateLimit", rateMBs),
 		zap.Uint32("Concurrency", concurrency))
 	start := time.Now()
-	ctx, cancel := context.WithCancel(bc.ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	allStores, err := bc.pdClient.GetAllStores(ctx)

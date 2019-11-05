@@ -195,7 +195,7 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
-			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
+			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS)
 			if err != nil {
 				return err
 			}

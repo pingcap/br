@@ -32,6 +32,7 @@ const (
 
 // Backer backups a TiDB/TiKV cluster.
 type Backer struct {
+	// TODO: remove the context.
 	Ctx      context.Context
 	PDClient pd.Client
 
@@ -164,9 +165,8 @@ func (backer *Backer) GetRegionCount() (int, error) {
 
 // GetGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
-func (backer *Backer) GetGCSafePoint() (Timestamp, error) {
-	safePoint, err := backer.PDClient.UpdateGCSafePoint(backer.Ctx, 0)
-	println(safePoint)
+func (backer *Backer) GetGCSafePoint(ctx context.Context) (Timestamp, error) {
+	safePoint, err := backer.PDClient.UpdateGCSafePoint(ctx, 0)
 	if err != nil {
 		return Timestamp{}, errors.Trace(err)
 	}
@@ -251,6 +251,23 @@ func (backer *Backer) ResetGrpcClient(storeID uint64) error {
 		if err := conn.Close(); err != nil {
 			return errors.Trace(err)
 		}
+	}
+	return nil
+}
+
+// CheckGCSaftpoint spwan a gorouinte and checks whether the ts is older
+// than GC safepoint.
+func (backer *Backer) CheckGCSaftpoint(ctx context.Context, ts uint64) error {
+	// TODO: use GetGCSafePoint instead once PD client exports it.
+	safePoint, err := backer.GetGCSafePoint(ctx)
+	if err != nil {
+		log.Warn("get GC safepoint failed", zap.Error(err))
+		return nil
+	}
+	safePointTS := EncodeTs(safePoint)
+	if ts <= safePointTS {
+		return errors.New(fmt.Sprintf(
+			"GC safepoint %d exceed TS %d", safePointTS, ts))
 	}
 	return nil
 }

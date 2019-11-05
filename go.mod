@@ -4,7 +4,6 @@ go 1.13
 
 require (
 	github.com/cheggaaa/pb/v3 v3.0.1
-	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
@@ -15,7 +14,6 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
 	github.com/pingcap/kvproto v0.0.0-20191025022903-62abb760d9b1
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20190917040145-a90dba59f50d
@@ -38,7 +36,6 @@ require (
 	google.golang.org/genproto v0.0.0-20190905072037-92dd089d5514 // indirect
 	google.golang.org/grpc v1.24.0
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
-	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 
 replace github.com/golang/lint => golang.org/x/lint v0.0.0-20190930215403-16217165b5de

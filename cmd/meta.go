@@ -49,7 +49,7 @@ func NewMetaCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			sp, err := backer.GetGCSafePoint()
+			sp, err := backer.GetGCSafePoint(backer.Context())
 			if err != nil {
 				return err
 			}
