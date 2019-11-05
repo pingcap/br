@@ -132,8 +132,8 @@ func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts 
 	return lastErr
 }
 
-// getRanges returns the ranges of the files.
-func getRanges(files []*backup.File) []restore_util.Range {
+// GetRanges returns the ranges of the files.
+func GetRanges(files []*backup.File) []restore_util.Range {
 	ranges := make([]restore_util.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
@@ -214,15 +214,23 @@ func truncateTS(key []byte) []byte {
 	return key[:len(key)-8]
 }
 
-// SplitRegion splits region by
+// SplitRanges splits region by
 // 1. data range after rewrite
 // 2. rewrite rules
-func SplitRegion(ctx context.Context, client *Client, files []*backup.File, rewriteRules *restore_util.RewriteRules) error {
+func SplitRanges(
+	ctx context.Context,
+	client *Client,
+	ranges []restore_util.Range,
+	rewriteRules *restore_util.RewriteRules,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("SplitRegion", zap.Duration("costs", elapsed))
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-	return splitter.Split(ctx, getRanges(files), rewriteRules)
+	return splitter.Split(ctx, ranges, rewriteRules, func(*restore_util.Range) {
+		updateCh <- struct{}{}
+	})
 }

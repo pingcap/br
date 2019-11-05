@@ -75,23 +75,21 @@ func newFullRestoreCommand() *cobra.Command {
 					files = append(files, table.Files...)
 				}
 			}
+			ranges := restore.GetRanges(files)
+
 			progress := utils.NewProgressPrinter(
 				"Full Restore",
 				// Split/Scatter + Download/Ingest
-				// TODO: int64(len(files)*2),
-				int64(len(files)),
+				int64(len(ranges)+len(files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
-			// TODO: update progress during split/scatter.
-			_ = updateCh
 
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
 				Data:  dataRules,
 			}
-
-			err = restore.SplitRegion(ctx, client, files, rewriteRules)
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -171,18 +169,17 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
+			ranges := restore.GetRanges(files)
+
 			progress := utils.NewProgressPrinter(
 				"Database Restore",
 				// Split/Scatter + Download/Ingest
-				// TODO: int64(len(files)*2),
-				int64(len(files)),
+				int64(len(ranges)+len(files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
-			// TODO: update progress during split/scatter.
-			_ = updateCh
 
-			err = restore.SplitRegion(ctx, client, files, rewriteRules)
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -269,19 +266,17 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			ranges := restore.GetRanges(table.Files)
 
 			progress := utils.NewProgressPrinter(
 				"Table Restore",
 				// Split/Scatter + Download/Ingest
-				// TODO: int64(len(table.Files)*2),
-				int64(len(table.Files)),
+				int64(len(ranges)+len(table.Files)),
 			)
 			progress.GoPrintProgress(ctx)
 			updateCh := progress.UpdateCh()
-			// TODO: update progress during split/scatter.
-			_ = updateCh
 
-			err = restore.SplitRegion(ctx, client, table.Files, rewriteRules)
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
