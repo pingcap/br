@@ -266,7 +266,7 @@ func (backer *Backer) CheckGCSaftpoint(ctx context.Context, ts uint64) error {
 	}
 	safePointTS := EncodeTs(safePoint)
 	if ts <= safePointTS {
-		return errors.New(fmt.Sprintf(
+		return errors.Errorf(
 			"GC safepoint %d exceed TS %d", safePointTS, ts))
 	}
 	return nil
