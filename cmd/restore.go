@@ -75,13 +75,21 @@ func newFullRestoreCommand() *cobra.Command {
 					files = append(files, table.Files...)
 				}
 			}
+			ranges := restore.GetRanges(files)
+
+			progress := utils.NewProgressPrinter(
+				"Full Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
 
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
 				Data:  dataRules,
 			}
-
-			err = restore.SplitRegion(ctx, client, files, rewriteRules)
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -96,7 +104,8 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules, restoreTS)
+			err = client.RestoreAll(
+				rewriteRules, restoreTS, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -160,8 +169,17 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
+			ranges := restore.GetRanges(files)
 
-			err = restore.SplitRegion(ctx, client, files, rewriteRules)
+			progress := utils.NewProgressPrinter(
+				"Database Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -175,7 +193,8 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreDatabase(db, rewriteRules, restoreTS)
+			err = client.RestoreDatabase(
+				db, rewriteRules, restoreTS, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -247,8 +266,17 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			ranges := restore.GetRanges(table.Files)
 
-			err = restore.SplitRegion(ctx, client, table.Files, rewriteRules)
+			progress := utils.NewProgressPrinter(
+				"Table Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(table.Files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -261,7 +289,9 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules, restoreTS)
+
+			err = client.RestoreTable(
+				table, rewriteRules, restoreTS, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}

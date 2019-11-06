@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/pingcap/br/pkg/raw"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
@@ -94,19 +96,20 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			done := make(chan struct{}, 1)
-
 			// the count of regions need to backup
 			approximateRegions, err := client.GetRangeRegionCount([]byte{}, []byte{})
 			if err != nil {
 				return err
 			}
 
-			go func() {
-				client.PrintBackupProgress("Full Backup", int64(approximateRegions), done)
-			}()
+			progress := utils.NewProgressPrinter(
+				"Full Backup", int64(approximateRegions))
+			ctx, cancel := context.WithCancel(defaultBacker.Context())
+			defer cancel()
+			progress.GoPrintProgress(ctx)
 
-			err = client.BackupRanges(ranges, u, backupTS, rate, concurrency)
+			err = client.BackupRanges(
+				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
 			if err != nil {
 				return err
 			}
@@ -120,7 +123,6 @@ func newFullBackupCommand() *cobra.Command {
 				log.Error("backup FastChecksum not passed!")
 			}
 
-			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -199,7 +201,6 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			done := make(chan struct{}, 1)
 			// the count of regions need to backup
 			approximateRegions := 0
 			for _, r := range ranges {
@@ -211,11 +212,14 @@ func newTableBackupCommand() *cobra.Command {
 				approximateRegions += regionCount
 			}
 
-			go func() {
-				client.PrintBackupProgress("Table Backup", int64(approximateRegions), done)
-			}()
+			progress := utils.NewProgressPrinter(
+				"Table Backup", int64(approximateRegions))
+			ctx, cancel := context.WithCancel(defaultBacker.Context())
+			defer cancel()
+			progress.GoPrintProgress(ctx)
 
-			err = client.BackupRanges(ranges, u, backupTS, rate, concurrency)
+			err = client.BackupRanges(
+				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
 			if err != nil {
 				return err
 			}
@@ -229,7 +233,6 @@ func newTableBackupCommand() *cobra.Command {
 				log.Error("backup FastChecksum not passed!")
 			}
 
-			done <- struct{}{}
 			return client.SaveBackupMeta(u)
 		},
 	}

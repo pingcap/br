@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/cheggaaa/pb/v3"
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
@@ -48,9 +46,6 @@ type BackupClient struct {
 
 	backupMeta backup.BackupMeta
 	storage    utils.ExternalStorage
-
-	// the count of regions already backup
-	successRegions int64
 }
 
 // NewBackupClient returns a new backup client
@@ -318,7 +313,14 @@ LoadDb:
 }
 
 // BackupRanges make a backup of the given key ranges.
-func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint64, rate uint64, concurrency uint32) error {
+func (bc *BackupClient) BackupRanges(
+	ranges []Range,
+	path string,
+	backupTS uint64,
+	rate uint64,
+	concurrency uint32,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -331,7 +333,7 @@ func (bc *BackupClient) BackupRanges(ranges []Range, path string, backupTS uint6
 	go func() {
 		for _, r := range ranges {
 			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, path, backupTS, rate, concurrency)
+				ctx, r.StartKey, r.EndKey, path, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -376,6 +378,7 @@ func (bc *BackupClient) backupRange(
 	backupTS uint64,
 	rateMBs uint64,
 	concurrency uint32,
+	updateCh chan<- struct{},
 ) error {
 	// The unit of rate limit in protocol is bytes per second.
 	rateLimit := rateMBs * 1024 * 1024
@@ -404,7 +407,7 @@ func (bc *BackupClient) backupRange(
 	}
 	push := newPushDown(ctx, bc.backer, len(allStores))
 
-	results, err := push.pushBackup(req, &bc.successRegions, allStores...)
+	results, err := push.pushBackup(req, allStores, updateCh)
 	if err != nil {
 		return err
 	}
@@ -412,7 +415,9 @@ func (bc *BackupClient) backupRange(
 
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
-	err = bc.fineGrainedBackup(startKey, endKey, backupTS, path, rateLimit, concurrency, results)
+	err = bc.fineGrainedBackup(
+		startKey, endKey,
+		backupTS, path, rateLimit, concurrency, results, updateCh)
 	if err != nil {
 		return err
 	}
@@ -468,6 +473,7 @@ func (bc *BackupClient) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree RangeTree,
+	updateCh chan<- struct{},
 ) error {
 	bo := tikv.NewBackoffer(bc.ctx, backupFineGrainedMaxBackoff)
 	for {
@@ -540,6 +546,9 @@ func (bc *BackupClient) fineGrainedBackup(
 					zap.Binary("EndKey", resp.EndKey),
 				)
 				rangeTree.putOk(resp.StartKey, resp.EndKey, resp.Files)
+
+				// Update progress
+				updateCh <- struct{}{}
 			}
 		}
 
@@ -664,34 +673,6 @@ func (bc *BackupClient) handleFineGrained(
 		return 0, err
 	}
 	return max, nil
-}
-
-// PrintBackupProgress prints progress of backup
-func (bc *BackupClient) PrintBackupProgress(barName string, count int64, done <-chan struct{}) {
-	tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "↖" "↗" "↘" "↙" ) "." ">"}} {{percent .}}`
-	bar := pb.ProgressBarTemplate(tmpl).Start64(count)
-	bar.Set("barName", barName)
-	bar.Start()
-
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-
-	for {
-		select {
-		case <-done:
-			bar.SetCurrent(count)
-			bar.Finish()
-			return
-		case <-t.C:
-			regions := atomic.LoadInt64(&bc.successRegions)
-			if regions <= count {
-				bar.SetCurrent(regions)
-			} else {
-				bar.SetCurrent(count)
-			}
-		}
-	}
-
 }
 
 // GetRangeRegionCount get region count by pd http api

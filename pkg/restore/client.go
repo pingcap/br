@@ -210,7 +210,12 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 }
 
 // RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreTable(
+	table *utils.Table,
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -237,6 +242,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				case <-rc.ctx.Done():
 					errCh <- nil
 				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+					updateCh <- struct{}{}
 				}
 			})
 	}
@@ -263,7 +269,12 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 }
 
 // RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreDatabase(
+	db *utils.Database,
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -275,15 +286,15 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 	for _, table := range db.Tables {
 		wg.Add(1)
 		tblReplica := table
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreTable(tblReplica, rewriteRules, restoreTS):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreTable(
+				tblReplica, rewriteRules, restoreTS, updateCh):
+			}
+		})
 	}
 	for range db.Tables {
 		err := <-errCh
@@ -296,7 +307,11 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 }
 
 // RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS uint64) error {
+func (rc *Client) RestoreAll(
+	rewriteRules *restore_util.RewriteRules,
+	restoreTS uint64,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -308,15 +323,15 @@ func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules, restoreTS 
 	for _, db := range rc.databases {
 		wg.Add(1)
 		dbReplica := db
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules, restoreTS):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreDatabase(
+				dbReplica, rewriteRules, restoreTS, updateCh):
+			}
+		})
 	}
 
 	for range rc.databases {

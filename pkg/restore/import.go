@@ -24,6 +24,7 @@ var (
 )
 
 const (
+	importScanResgionTime     = 10 * time.Second
 	importFileRetryTimes      = 16
 	importFileWaitInterval    = 10 * time.Millisecond
 	importFileMaxWaitInterval = 1 * time.Second
@@ -69,8 +70,10 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 			// bigger than all of the data keys as endKey here.
 			endKey = append(tablecodec.GenTablePrefix(startTableID), 0xff)
 		}
+		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
+		defer cancel()
 		regionInfos, err := importer.client.ScanRegions(
-			importer.ctx,
+			ctx,
 			rewriteRawKeyWithNewPrefix(startKey, rewriteRules),
 			rewriteRawKeyWithNewPrefix(endKey, rewriteRules),
 			0,
