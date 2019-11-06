@@ -70,7 +70,7 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s", resp.StatusCode, res)
+		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, url)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)

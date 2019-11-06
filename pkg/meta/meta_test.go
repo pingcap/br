@@ -29,11 +29,11 @@ func TestTimestampEncodeDecode(t *testing.T) {
 // import (
 // 	"github.com/pingcap/kvproto/pkg/metapb"
 // 	"github.com/pingcap/kvproto/pkg/pdpb"
-// 	pd "github.com/pingcap/pd/client"
 // 	"github.com/pingcap/pd/pkg/mock/mockid"
 // 	"github.com/pingcap/pd/server"
 // 	"google.golang.org/grpc"
 // )
+
 // func TestClient(t *testing.T) {
 // 	server.EnableZap = true
 // 	TestingT(t)
@@ -90,7 +90,6 @@ func TestTimestampEncodeDecode(t *testing.T) {
 
 // 	srv    *server.Server
 // 	backer *Backer
-// 	client pd.Client
 // }
 
 // func (s *testClientSuite) SetUpSuite(c *C) {
@@ -117,13 +116,17 @@ func TestTimestampEncodeDecode(t *testing.T) {
 // 		)
 // 	}
 
-// 	s.backer, err = NewBacker(s.ctx, s.srv.GetAddr())
+// 	// Disable pd connection check.
+// 	pdGet = func(string, string, *http.Client) ([]byte, error) {
+// 		return []byte{}, nil
+// 	}
+// 	s.backer, err = NewBacker(
+// 		s.ctx, strings.TrimPrefix(s.srv.GetAddr(), "http://"))
 // 	c.Assert(err, IsNil)
 // }
 
 // func (s *testClientSuite) TearDownSuite(c *C) {
 // 	s.cancel()
-// 	s.client.Close()
 
 // 	s.cleanup()
 // }
@@ -168,9 +171,9 @@ func TestTimestampEncodeDecode(t *testing.T) {
 
 // func (s *testClientSuite) TestUpdateGCSafePoint(c *C) {
 // 	{
-// 		newSafePoint, err := s.client.UpdateGCSafePoint(s.ctx, 2333)
+// 		newSafePoint, err := s.backer.PDClient.UpdateGCSafePoint(s.ctx, 2333)
 // 		c.Assert(err, IsNil)
-// 		c.Assert(newSafePoint, Equals, 2333)
+// 		c.Assert(newSafePoint, Equals, uint64(2333))
 // 	}
 // 	{
 // 		err := s.backer.CheckGCSaftpoint(s.ctx, 2333+1)
