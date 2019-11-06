@@ -54,8 +54,12 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
-	cmd.MarkFlagRequired(FlagPD)
-	cmd.MarkFlagRequired(FlagStorage)
+	if err := cmd.MarkFlagRequired(FlagPD); err != nil {
+		panic(err)
+	}
+	if err := cmd.MarkFlagRequired(FlagStorage); err != nil {
+		panic(err)
+	}
 }
 
 // Init ...
@@ -100,7 +104,7 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 	})
-	return
+	return err
 }
 
 // GetDefaultBacker returns the default backer for command line usage.

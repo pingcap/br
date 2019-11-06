@@ -28,7 +28,9 @@ func NewBackupCommand() *cobra.Command {
 		newTableBackupCommand(),
 	)
 
-	bp.PersistentFlags().StringP("timeago", "", "", "The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
+	bp.PersistentFlags().StringP(
+		"timeago", "", "",
+		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
 	bp.PersistentFlags().Uint64P(
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
@@ -238,7 +240,11 @@ func newTableBackupCommand() *cobra.Command {
 	}
 	command.Flags().StringP("db", "", "", "backup a table in the specific db")
 	command.Flags().StringP("table", "t", "", "backup the specific table")
-	command.MarkFlagRequired("db")
-	command.MarkFlagRequired("table")
+	if err := command.MarkFlagRequired("db"); err != nil {
+		panic(err)
+	}
+	if err := command.MarkFlagRequired("table"); err != nil {
+		panic(err)
+	}
 	return command
 }

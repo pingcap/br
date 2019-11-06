@@ -143,8 +143,6 @@ func (backer *Backer) GetClusterVersion() (string, error) {
 
 // GetRegionCount returns the total region count in the cluster
 func (backer *Backer) GetRegionCount() (int, error) {
-	var regionCountPrefix = "pd/api/v1/regions/count"
-
 	var err error
 	for _, addr := range backer.pdHTTP.addrs {
 		v, e := backer.PDHTTPGet(addr, regionCountPrefix, backer.pdHTTP.cli)

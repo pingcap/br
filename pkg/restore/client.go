@@ -62,16 +62,19 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	addrs := strings.Split(pdAddrs, ",")
 	backer, err := meta.NewBacker(ctx, addrs[0])
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	tikvCli, err := tikv.Driver{}.Open(
 		// Disable GC because TiDB enables GC already.
 		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 
@@ -403,7 +406,7 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	var tables []*utils.Table
+	tables := make([]*utils.Table, len(rc.databases))
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
 	}
@@ -430,7 +433,7 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		table := table
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
-			resp, err := rc.checksumTable(newTableID, table.Schema, data)
+			resp, err := rc.checksumTable(newTableID, data)
 			if err != nil {
 				errCh <- err
 				return
@@ -469,7 +472,10 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 	}
 }
 
-func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqData []byte) (*tipb.ChecksumResponse, error) {
+func (rc *Client) checksumTable(
+	tableID int64,
+	reqData []byte,
+) (*tipb.ChecksumResponse, error) {
 	checksumResp := &tipb.ChecksumResponse{}
 	start := tablecodec.EncodeTablePrefix(tableID)
 	end := tablecodec.EncodeTablePrefix(tableID + 1)
@@ -482,11 +488,13 @@ func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqDa
 		if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
 			nextStart = end
 		} else {
-			if _, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil); e != nil {
+			_, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil)
+			switch {
+			case e != nil:
 				return nil, errors.Trace(e)
-			} else if bytes.Compare(regionEnd, end) < 0 {
+			case bytes.Compare(regionEnd, end) < 0:
 				nextStart = regionEnd
-			} else {
+			default:
 				nextStart = end
 			}
 		}

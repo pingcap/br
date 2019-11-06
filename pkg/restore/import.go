@@ -106,23 +106,22 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				)
 				continue
 			}
+			info := regionInfo
 			err = withRetry(func() error {
-				err = importer.ingestSST(fileMeta, regionInfo, rewriteRules)
+				err = importer.ingestSST(fileMeta, info)
 				if err != nil {
 					log.Warn("ingest file failed",
 						zap.Reflect("file", file),
 						zap.Reflect("range", fileMeta.GetRange()),
-						zap.Reflect("region", regionInfo.Region),
+						zap.Reflect("region", info.Region),
 						zap.Error(err),
 					)
 					return err
 				}
 				return nil
 			}, func(e error) bool {
-				if e == errEpochNotMatch {
-					return false
-				}
-				return true
+				// Do not retry if epoch not match.
+				return e != errEpochNotMatch
 			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			if err != nil {
 				return err
@@ -135,7 +134,9 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	return errors.Trace(err)
 }
 
-func (importer *FileImporter) getImportClient(storeID uint64) (import_sstpb.ImportSSTClient, error) {
+func (importer *FileImporter) getImportClient(
+	storeID uint64,
+) (import_sstpb.ImportSSTClient, error) {
 	importer.mu.Lock()
 	defer importer.mu.Unlock()
 	client, ok := importer.importClients[storeID]
@@ -155,7 +156,11 @@ func (importer *FileImporter) getImportClient(storeID uint64) (import_sstpb.Impo
 	return client, errors.Trace(err)
 }
 
-func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, file *backup.File, rewriteRules *restore_util.RewriteRules) (*import_sstpb.SSTMeta, bool, error) {
+func (importer *FileImporter) downloadSST(
+	regionInfo *restore_util.RegionInfo,
+	file *backup.File,
+	rewriteRules *restore_util.RewriteRules,
+) (*import_sstpb.SSTMeta, bool, error) {
 	id, err := uuid.New().MarshalBinary()
 	if err != nil {
 		return nil, true, errors.Trace(err)
@@ -192,7 +197,10 @@ func (importer *FileImporter) downloadSST(regionInfo *restore_util.RegionInfo, f
 	return &sstMeta, false, nil
 }
 
-func (importer *FileImporter) ingestSST(fileMeta *import_sstpb.SSTMeta, regionInfo *restore_util.RegionInfo, rewriteRules *restore_util.RewriteRules) error {
+func (importer *FileImporter) ingestSST(
+	fileMeta *import_sstpb.SSTMeta,
+	regionInfo *restore_util.RegionInfo,
+) error {
 	leader := regionInfo.Leader
 	if leader == nil {
 		leader = regionInfo.Region.GetPeers()[0]

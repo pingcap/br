@@ -122,7 +122,9 @@ func newFullRestoreCommand() *cobra.Command {
 	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
-	command.MarkFlagRequired("connect")
+	if err := command.MarkFlagRequired("connect"); err != nil {
+		panic(err)
+	}
 
 	return command
 }
@@ -213,8 +215,12 @@ func newDbRestoreCommand() *cobra.Command {
 
 	command.Flags().String("db", "", "database name")
 
-	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("db")
+	if err := command.MarkFlagRequired("connect"); err != nil {
+		panic(err)
+	}
+	if err := command.MarkFlagRequired("db"); err != nil {
+		panic(err)
+	}
 
 	return command
 }
@@ -310,9 +316,15 @@ func newTableRestoreCommand() *cobra.Command {
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
 
-	command.MarkFlagRequired("connect")
-	command.MarkFlagRequired("db")
-	command.MarkFlagRequired("table")
+	if err := command.MarkFlagRequired("connect"); err != nil {
+		panic(err)
+	}
+	if err := command.MarkFlagRequired("db"); err != nil {
+		panic(err)
+	}
+	if err := command.MarkFlagRequired("table"); err != nil {
+		panic(err)
+	}
 
 	return command
 }

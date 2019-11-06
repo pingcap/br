@@ -4,6 +4,7 @@ CWD := $(shell pwd)
 PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
+FILES     := $$(find $$($(PACKAGE_DIRECTORIES)) -name "*.go")
 
 BR_PKG := github.com/pingcap/br
 
@@ -42,13 +43,15 @@ check: tools check-all
 static: export GO111MODULE=on
 static:
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	gofmt -s -l $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	retool do goimports -w -d -format-only -local $$($(BR_PKG)) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 	retool do govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 
-	CGO_ENABLED=0 retool do golangci-lint run --disable-all --deadline 120s \
-		--enable misspell \
-		--enable staticcheck \
-		--enable ineffassign \
+	CGO_ENABLED=0 retool do golangci-lint run --enable-all --deadline 120s \
+		--disable gochecknoglobals \
+		--disable gochecknoinits \
+		--disable interfacer \
+		--disable goimports \
+		--disable gofmt \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint:
