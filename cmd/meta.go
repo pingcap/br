@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/cobra"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewMetaCommand return a meta subcommand.

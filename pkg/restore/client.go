@@ -406,7 +406,8 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	tables := make([]*utils.Table, len(rc.databases))
+	// Assume one database one table.
+	tables := make([]*utils.Table, 0, len(rc.databases))
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
 	}

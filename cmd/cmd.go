@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
 )
 
 var (

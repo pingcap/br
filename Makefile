@@ -43,7 +43,7 @@ check: tools check-all
 static: export GO111MODULE=on
 static:
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	retool do goimports -w -d -format-only -local $$($(BR_PKG)) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	retool do goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 	retool do govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 
 	CGO_ENABLED=0 retool do golangci-lint run --enable-all --deadline 120s \

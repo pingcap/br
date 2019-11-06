@@ -3,11 +3,12 @@ package cmd
 import (
 	"context"
 
-	"github.com/pingcap/br/pkg/raw"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
+
+	"github.com/pingcap/br/pkg/raw"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewBackupCommand return a full backup subcommand.
