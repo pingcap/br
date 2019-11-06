@@ -13,7 +13,7 @@ import (
 
 // NewBackupCommand return a full backup subcommand.
 func NewBackupCommand() *cobra.Command {
-	bp := &cobra.Command{
+	command := &cobra.Command{
 		Use:   "backup",
 		Short: "backup a TiKV cluster",
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
@@ -24,20 +24,21 @@ func NewBackupCommand() *cobra.Command {
 			return nil
 		},
 	}
-	bp.AddCommand(
+	command.AddCommand(
 		newFullBackupCommand(),
 		newTableBackupCommand(),
 	)
 
-	bp.PersistentFlags().StringP(
+	command.PersistentFlags().StringP(
 		"timeago", "", "",
 		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
-	bp.PersistentFlags().Uint64P(
+	command.PersistentFlags().Uint64P(
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
-	bp.PersistentFlags().Uint32P(
+	command.PersistentFlags().Uint32P(
 		"concurrency", "", 4, "The size of thread pool on each node that execute the backup task")
-	return bp
+
+	return command
 }
 
 // newFullBackupCommand return a full backup subcommand.

@@ -55,12 +55,6 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
-	if err := cmd.MarkPersistentFlagRequired(FlagPD); err != nil {
-		panic(err)
-	}
-	if err := cmd.MarkPersistentFlagRequired(FlagStorage); err != nil {
-		panic(err)
-	}
 }
 
 // Init ...
