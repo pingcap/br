@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
@@ -415,7 +416,9 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		table := table
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
-			resp, err := rc.checksumTable(newTableID, table.Schema, data)
+			tableStart := tablecodec.EncodeTablePrefix(newTableID)
+			tableEnd := tablecodec.EncodeTablePrefix(newTableID + 1)
+			resp, err := rc.checksumRange(tableStart, tableEnd, data)
 			if err != nil {
 				errCh <- err
 				return
@@ -454,75 +457,109 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 	}
 }
 
-func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqData []byte) (*tipb.ChecksumResponse, error) {
+func (rc *Client) checksumRange(boundedStart []byte, boundedEnd []byte, reqData []byte) (*tipb.ChecksumResponse, error) {
 	checksumResp := &tipb.ChecksumResponse{}
-	start := tablecodec.EncodeTablePrefix(tableID)
-	end := tablecodec.EncodeTablePrefix(tableID + 1)
-	var nextStart []byte
-	for bytes.Compare(start, end) < 0 {
-		region, peer, err := rc.pdClient.GetRegion(rc.ctx, codec.EncodeBytes([]byte{}, start))
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
-			nextStart = end
-		} else {
-			if _, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil); e != nil {
-				return nil, errors.Trace(e)
-			} else if bytes.Compare(regionEnd, end) < 0 {
-				nextStart = regionEnd
-			} else {
-				nextStart = end
-			}
-		}
-		reqCtx := &kvrpcpb.Context{
-			RegionId:    region.GetId(),
-			RegionEpoch: region.GetRegionEpoch(),
-			Peer:        peer,
-		}
-		ranges := []*coprocessor.KeyRange{{Start: start, End: nextStart}}
-		req := &coprocessor.Request{
-			Context: reqCtx,
-			Tp:      105, // REQ_TYPE_CHECKSUM flag
-			Data:    reqData,
-			Ranges:  ranges,
-		}
-
-		// send checksum request to TiKV with retry
-		var respData []byte
-		storeID := peer.GetStoreId()
-		err = withRetry(func() error {
-			kvClient, e := rc.backer.GetTikvClient(storeID)
-			if e != nil {
-				return e
-			}
-			resp, e := kvClient.Coprocessor(rc.ctx, req)
-			if e != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
-				log.Error("Coprocessor request error",
-					zap.Any("RegionError", resp.GetRegionError()),
-					zap.String("OtherError", resp.GetOtherError()),
-					zap.Any("Locked", resp.GetLocked()))
-				return e
-			}
-			respData = resp.Data
-			return nil
-		}, func(e error) bool {
-			return rc.backer.ResetGrpcClient(storeID) == nil
-		}, tikvChecksumRetryTimes, tikvChecksumWaitInterval, tikvChecksumMaxWaitInterval)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-
-		checksum := &tipb.ChecksumResponse{}
-		if err = checksum.Unmarshal(respData); err != nil {
-			return nil, errors.Trace(err)
-		}
-		checksumResp.Checksum ^= checksum.Checksum
-		checksumResp.TotalKvs += checksum.TotalKvs
-		checksumResp.TotalBytes += checksum.TotalBytes
-		start = nextStart
+	resCh := make(chan tipb.ChecksumResponse)
+	errCh := make(chan error)
+	wg := sync.WaitGroup{}
+	regions, peers, err := rc.pdClient.ScanRegions(rc.ctx, codec.EncodeBytes([]byte{}, boundedStart), codec.EncodeBytes([]byte{}, boundedEnd), 10000)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-	return checksumResp, nil
+
+	for i, region := range regions {
+		start, end, err := getInnnerRange(&boundedStart, &boundedEnd, region)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		wg.Add(1)
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			checksum, err := rc.checksumRegion(start, end, region, peers[i], reqData)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			resCh <- *checksum
+		})
+	}
+
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+
+	for {
+		select {
+		case checksum, ok := <-resCh:
+			if !ok {
+				return checksumResp, nil
+			}
+			checksumResp.Checksum ^= checksum.Checksum
+			checksumResp.TotalKvs += checksum.TotalKvs
+			checksumResp.TotalBytes += checksum.TotalBytes
+		case err := <-errCh:
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+		}
+
+	}
+}
+
+func (rc *Client) checksumRegion(start *[]byte, end *[]byte, region *metapb.Region, peer *metapb.Peer, reqData []byte) (*tipb.ChecksumResponse, error) {
+	reqCtx := &kvrpcpb.Context{
+		RegionId:    region.GetId(),
+		RegionEpoch: region.GetRegionEpoch(),
+		Peer:        peer,
+	}
+	ranges := []*coprocessor.KeyRange{{Start: *start, End: *end}}
+	req := &coprocessor.Request{
+		Context: reqCtx,
+		Tp:      105, // REQ_TYPE_CHECKSUM flag
+		Data:    reqData,
+		Ranges:  ranges,
+	}
+
+	storeID := peer.GetStoreId()
+	kvClient, err := rc.backer.GetTikvClient(storeID)
+	if err != nil {
+		err = rc.backer.ResetGrpcClient(storeID)
+		if err != nil {
+			return nil, err
+		}
+		kvClient, err = rc.backer.GetTikvClient(storeID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	resp, err := kvClient.Coprocessor(rc.ctx, req)
+	if err != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
+		log.Error("Coprocessor request error",
+			zap.String("OtherError", resp.GetOtherError()),
+			zap.Any("Locked", resp.GetLocked()))
+		return nil, errors.Trace(err)
+	}
+
+	regionErr := resp.GetRegionError()
+	if regionErr != nil {
+		if regionErr.GetNotLeader() != nil ||
+			regionErr.GetRegionNotFound() != nil ||
+			regionErr.GetKeyNotInRegion() != nil ||
+			regionErr.GetEpochNotMatch() != nil {
+			return rc.checksumRange(*start, *end, reqData)
+		}
+		log.Error("Coprocessor request error",
+			zap.Any("RegionError", regionErr))
+		return nil, errors.Trace(err)
+	}
+
+	checksum := &tipb.ChecksumResponse{}
+	if err = checksum.Unmarshal(resp.Data); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return checksum, nil
 }
 
 func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
@@ -536,4 +573,23 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 		}
 	}
 	return nil
+}
+
+func getInnnerRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
+	if _, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil); err != nil {
+		return nil, nil, err
+	} else if bytes.Compare(regionStart, *start) < 0 {
+		innerStart = start
+	} else {
+		innerStart = &regionStart
+	}
+
+	if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
+		return nil, nil, err
+	} else if bytes.Compare(regionEnd, *end) < 0 {
+		innerEnd = &regionEnd
+	} else {
+		innerEnd = end
+	}
+	return
 }
