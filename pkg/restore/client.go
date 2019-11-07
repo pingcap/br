@@ -468,6 +468,8 @@ func (rc *Client) checksumRange(boundedStart []byte, boundedEnd []byte, reqData 
 	}
 
 	for i, region := range regions {
+		i := i
+		region := region
 		start, end, err := getInnnerRange(&boundedStart, &boundedEnd, region)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -576,7 +578,10 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 }
 
 func getInnnerRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
-	if _, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil); err != nil {
+	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
+		log.Info("region.GetStartKey()) < 9", zap.Any("s", region.GetStartKey()))
+		innerStart = start
+	} else if _, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil); err != nil {
 		return nil, nil, err
 	} else if bytes.Compare(regionStart, *start) < 0 {
 		innerStart = start
@@ -584,7 +589,10 @@ func getInnnerRange(start *[]byte, end *[]byte, region *metapb.Region) (innerSta
 		innerStart = &regionStart
 	}
 
-	if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
+	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
+		log.Info("region.GetEndKey()) < 9", zap.Any("e", region.GetEndKey()))
+		innerEnd = end
+	} else if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
 		return nil, nil, err
 	} else if bytes.Compare(regionEnd, *end) < 0 {
 		innerEnd = &regionEnd
