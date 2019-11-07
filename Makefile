@@ -4,7 +4,6 @@ CWD := $(shell pwd)
 PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
-FILES     := $$(find $$($(PACKAGE_DIRECTORIES)) -name "*.go")
 
 BR_PKG := github.com/pingcap/br
 
