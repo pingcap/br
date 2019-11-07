@@ -1,9 +1,6 @@
 linters-settings:
   gocyclo:
     min-complexity: 40
-  gocritic:
-    disabled-checks:
-      - ifElseChain
 
 issues:
   # Excluding configuration per-path, per-linter, per-text and per-source

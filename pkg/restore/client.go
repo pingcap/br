@@ -490,12 +490,12 @@ func (rc *Client) checksumTable(
 			nextStart = end
 		} else {
 			_, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil)
-			switch {
-			case e != nil:
+			if e != nil {
 				return nil, errors.Trace(e)
-			case bytes.Compare(regionEnd, end) < 0:
+			}
+			if bytes.Compare(regionEnd, end) < 0 {
 				nextStart = regionEnd
-			default:
+			} else {
 				nextStart = end
 			}
 		}
