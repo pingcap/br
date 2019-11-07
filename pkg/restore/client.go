@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -39,10 +38,10 @@ const (
 	tikvChecksumWaitInterval    = 50 * time.Millisecond
 	tikvChecksumMaxWaitInterval = 1 * time.Second
 
-  resetTSURL = "/pd/api/v1/admin/reset-ts"
-  resetTsRetryTime = 16
-  resetTSWaitInterval = 50 * time.Millisecond
-  resetTSMaxWaitInterval = 500 * time.Millisecond
+	resetTSURL             = "/pd/api/v1/admin/reset-ts"
+	resetTsRetryTime       = 16
+	resetTSWaitInterval    = 50 * time.Millisecond
+	resetTSMaxWaitInterval = 500 * time.Millisecond
 )
 
 // Client sends requests to importer to restore files
@@ -143,18 +142,11 @@ func (rc *Client) GetTS() (uint64, error) {
 
 // ResetTS resets the timestamp of PD to a bigger value
 func (rc *Client) ResetTS() error {
-	restoreTS, err := rc.GetTS()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if restoreTS >= rc.backupMeta.GetEndVersion() {
-		return nil
-	}
-	restoreTS = rc.backupMeta.GetEndVersion()
+	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	req, err := json.Marshal(struct {
-		TSO uint64 `json:"tso,omitempty"`
-	}{TSO: restoreTS})
+		TSO string `json:"tso,omitempty"`
+	}{TSO: fmt.Sprintf("%d", restoreTS)})
 	if err != nil {
 		return err
 	}
