@@ -34,9 +34,7 @@ import (
 )
 
 const (
-	tikvChecksumRetryTimes      = 3
-	tikvChecksumWaitInterval    = 50 * time.Millisecond
-	tikvChecksumMaxWaitInterval = 1 * time.Second
+	tikvChecksumRetryTimes = 5
 )
 
 // Client sends requests to importer to restore files
@@ -418,7 +416,7 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 			defer wg.Done()
 			tableStart := tablecodec.EncodeTablePrefix(newTableID)
 			tableEnd := tablecodec.EncodeTablePrefix(newTableID + 1)
-			resp, err := rc.checksumRange(tableStart, tableEnd, data)
+			resp, err := rc.checksumRange(0, tableStart, tableEnd, data)
 			if err != nil {
 				errCh <- err
 				return
@@ -457,7 +455,11 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 	}
 }
 
-func (rc *Client) checksumRange(boundedStart []byte, boundedEnd []byte, reqData []byte) (*tipb.ChecksumResponse, error) {
+// checksum key range of [boundedStart, boundedEnd)
+func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd []byte, reqData []byte) (*tipb.ChecksumResponse, error) {
+	if triedTime >= tikvChecksumRetryTimes {
+		return nil, errors.Errorf("exceeded checksum retry time")
+	}
 	checksumResp := &tipb.ChecksumResponse{}
 	resCh := make(chan tipb.ChecksumResponse)
 	errCh := make(chan error)
@@ -470,19 +472,19 @@ func (rc *Client) checksumRange(boundedStart []byte, boundedEnd []byte, reqData 
 	for i, region := range regions {
 		i := i
 		region := region
-		start, end, err := getInnnerRange(&boundedStart, &boundedEnd, region)
+		start, end, err := getIntersectRange(&boundedStart, &boundedEnd, region)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 		wg.Add(1)
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
-			checksum, err := rc.checksumRegion(start, end, region, peers[i], reqData)
+			res, err := rc.checksumRegion(triedTime, start, end, region, peers[i], reqData)
 			if err != nil {
 				errCh <- err
 				return
 			}
-			resCh <- *checksum
+			resCh <- *res
 		})
 	}
 
@@ -509,7 +511,8 @@ func (rc *Client) checksumRange(boundedStart []byte, boundedEnd []byte, reqData 
 	}
 }
 
-func (rc *Client) checksumRegion(start *[]byte, end *[]byte, region *metapb.Region, peer *metapb.Peer, reqData []byte) (*tipb.ChecksumResponse, error) {
+// checksum key range [start, end) in region with retry
+func (rc *Client) checksumRegion(triedTime int, start *[]byte, end *[]byte, region *metapb.Region, peer *metapb.Peer, reqData []byte) (*tipb.ChecksumResponse, error) {
 	reqCtx := &kvrpcpb.Context{
 		RegionId:    region.GetId(),
 		RegionEpoch: region.GetRegionEpoch(),
@@ -550,7 +553,8 @@ func (rc *Client) checksumRegion(start *[]byte, end *[]byte, region *metapb.Regi
 			regionErr.GetRegionNotFound() != nil ||
 			regionErr.GetKeyNotInRegion() != nil ||
 			regionErr.GetEpochNotMatch() != nil {
-			return rc.checksumRange(*start, *end, reqData)
+			// retry this key range
+			return rc.checksumRange(triedTime+1, *start, *end, reqData)
 		}
 		log.Error("Coprocessor request error",
 			zap.Any("RegionError", regionErr))
@@ -577,9 +581,9 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 	return nil
 }
 
-func getInnnerRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
+// get intersect key range of [start, end] and [region.StartKey, region.EndKey]
+func getIntersectRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
 	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
-		log.Info("region.GetStartKey()) < 9", zap.Any("s", region.GetStartKey()))
 		innerStart = start
 	} else if _, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil); err != nil {
 		return nil, nil, err
@@ -590,7 +594,6 @@ func getInnnerRange(start *[]byte, end *[]byte, region *metapb.Region) (innerSta
 	}
 
 	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
-		log.Info("region.GetEndKey()) < 9", zap.Any("e", region.GetEndKey()))
 		innerEnd = end
 	} else if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
 		return nil, nil, err
