@@ -2,6 +2,7 @@ package restore
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"time"
 
@@ -9,10 +10,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -74,7 +77,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 
 // getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
-func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
+func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string
 	if strings.Contains(file.GetName(), "default") {
@@ -85,7 +88,15 @@ func getSSTMetaFromFile(id []byte, file *backup.File, regionRule *import_sstpb.R
 	// Find the overlapped part between the file and the region.
 	// Here we rewrites the keys to compare with the keys of the region.
 	rangeStart := regionRule.GetNewKeyPrefix()
+	//  rangeStart = max(rangeStart, region.StartKey)
+	if bytes.Compare(rangeStart, region.GetStartKey()) < 0 {
+		rangeStart = region.GetStartKey()
+	}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
+	// rangeEnd = min(rangeEnd, region.EndKey)
+	if bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
+		rangeEnd = region.GetEndKey()
+	}
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
@@ -197,4 +208,29 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 		}
 	}
 	return []byte("")
+}
+
+func truncateTS(key []byte) []byte {
+	return key[:len(key)-8]
+}
+
+// SplitRanges splits region by
+// 1. data range after rewrite
+// 2. rewrite rules
+func SplitRanges(
+	ctx context.Context,
+	client *Client,
+	ranges []restore_util.Range,
+	rewriteRules *restore_util.RewriteRules,
+	updateCh chan<- struct{},
+) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("SplitRegion", zap.Duration("costs", elapsed))
+	}()
+	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
+	return splitter.Split(ctx, ranges, rewriteRules, func(*restore_util.Range) {
+		updateCh <- struct{}{}
+	})
 }

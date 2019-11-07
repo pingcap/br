@@ -4,14 +4,15 @@ import (
 	"context"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
+
+	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewRestoreCommand returns a restore subcommand
@@ -74,14 +75,21 @@ func newFullRestoreCommand() *cobra.Command {
 					files = append(files, table.Files...)
 				}
 			}
+			ranges := restore.GetRanges(files)
 
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
+			progress := utils.NewProgressPrinter(
+				"Full Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
 				Data:  dataRules,
 			}
-
-			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -95,7 +103,8 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules)
+			err = client.RestoreAll(
+				rewriteRules, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -159,8 +168,17 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, restore.GetRanges(files), rewriteRules)
+			ranges := restore.GetRanges(files)
+
+			progress := utils.NewProgressPrinter(
+				"Database Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -174,7 +192,8 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreDatabase(db, rewriteRules)
+			err = client.RestoreDatabase(
+				db, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -246,8 +265,17 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-			err = splitter.Split(ctx, restore.GetRanges(table.Files), rewriteRules)
+			ranges := restore.GetRanges(table.Files)
+
+			progress := utils.NewProgressPrinter(
+				"Table Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(table.Files)),
+			)
+			progress.GoPrintProgress(ctx)
+			updateCh := progress.UpdateCh()
+
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -259,7 +287,8 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules)
+			err = client.RestoreTable(
+				table, rewriteRules, progress.UpdateCh())
 			if err != nil {
 				return errors.Trace(err)
 			}

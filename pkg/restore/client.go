@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -244,7 +245,16 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 }
 
 // RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.RewriteRules) error {
+func (rc *Client) RestoreTable(
+	table *utils.Table,
+	rewriteRules *restore_util.RewriteRules,
+	updateCh chan<- struct{},
+) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+	}()
 	log.Info("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -266,6 +276,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				case <-rc.ctx.Done():
 					errCh <- nil
 				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+					updateCh <- struct{}{}
 				}
 			})
 	}
@@ -278,6 +289,7 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 				"restore table failed",
 				zap.Stringer("table", table.Schema.Name),
 				zap.Stringer("db", table.Db.Name),
+				zap.Error(err),
 			)
 			return err
 		}
@@ -291,22 +303,31 @@ func (rc *Client) RestoreTable(table *utils.Table, rewriteRules *restore_util.Re
 }
 
 // RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util.RewriteRules) error {
+func (rc *Client) RestoreDatabase(
+	db *utils.Database,
+	rewriteRules *restore_util.RewriteRules,
+	updateCh chan<- struct{},
+) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+	}()
 	errCh := make(chan error, len(db.Tables))
 	var wg sync.WaitGroup
 	defer close(errCh)
 	for _, table := range db.Tables {
 		wg.Add(1)
 		tblReplica := table
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreTable(tblReplica, rewriteRules):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreTable(
+				tblReplica, rewriteRules, updateCh):
+			}
+		})
 	}
 	for range db.Tables {
 		err := <-errCh
@@ -319,22 +340,30 @@ func (rc *Client) RestoreDatabase(db *utils.Database, rewriteRules *restore_util
 }
 
 // RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(rewriteRules *restore_util.RewriteRules) error {
+func (rc *Client) RestoreAll(
+	rewriteRules *restore_util.RewriteRules,
+	updateCh chan<- struct{},
+) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("RestoreAll", zap.Duration("take", elapsed))
+	}()
 	errCh := make(chan error, len(rc.databases))
 	var wg sync.WaitGroup
 	defer close(errCh)
 	for _, db := range rc.databases {
 		wg.Add(1)
 		dbReplica := db
-		rc.workerPool.Apply(
-			func() {
-				defer wg.Done()
-				select {
-				case <-rc.ctx.Done():
-					errCh <- nil
-				case errCh <- rc.RestoreDatabase(dbReplica, rewriteRules):
-				}
-			})
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			select {
+			case <-rc.ctx.Done():
+				errCh <- nil
+			case errCh <- rc.RestoreDatabase(
+				dbReplica, rewriteRules, updateCh):
+			}
+		})
 	}
 
 	for range rc.databases {
@@ -400,6 +429,12 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 
 //ValidateChecksum validate checksum after restore
 func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Checksum", zap.Duration("take", elapsed))
+	}()
+
 	var tables []*utils.Table
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
