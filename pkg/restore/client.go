@@ -458,7 +458,7 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 // checksum key range of [boundedStart, boundedEnd)
 func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd []byte, reqData []byte) (*tipb.ChecksumResponse, error) {
 	if triedTime >= tikvChecksumRetryTimes {
-		return nil, errors.Errorf("exceeded checksum retry time")
+		return nil, errors.New("exceeded checksum retry time")
 	}
 	checksumResp := &tipb.ChecksumResponse{}
 	resCh := make(chan tipb.ChecksumResponse)
@@ -503,9 +503,7 @@ func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd [
 			checksumResp.TotalKvs += checksum.TotalKvs
 			checksumResp.TotalBytes += checksum.TotalBytes
 		case err := <-errCh:
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
+			return nil, errors.Trace(err)
 		}
 
 	}
@@ -531,11 +529,11 @@ func (rc *Client) checksumRegion(triedTime int, start *[]byte, end *[]byte, regi
 	if err != nil {
 		err = rc.backer.ResetGrpcClient(storeID)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		kvClient, err = rc.backer.GetTikvClient(storeID)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 
@@ -583,24 +581,34 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 
 // get intersect key range of [start, end] and [region.StartKey, region.EndKey]
 func getIntersectRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
-	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
+	switch {
+	case len(region.GetStartKey()) < 9: // 8 (encode group size) + 1
 		innerStart = start
-	} else if _, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil); err != nil {
-		return nil, nil, err
-	} else if bytes.Compare(regionStart, *start) < 0 {
-		innerStart = start
-	} else {
-		innerStart = &regionStart
+	default:
+		_, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil)
+		switch {
+		case err != nil:
+			return nil, nil, errors.Trace(err)
+		case bytes.Compare(regionStart, *start) < 0:
+			innerStart = start
+		default:
+			innerStart = &regionStart
+		}
 	}
 
-	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
+	switch {
+	case len(region.GetEndKey()) < 9: // 8 (encode group size) + 1
 		innerEnd = end
-	} else if _, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil); err != nil {
-		return nil, nil, err
-	} else if bytes.Compare(regionEnd, *end) < 0 {
-		innerEnd = &regionEnd
-	} else {
-		innerEnd = end
+	default:
+		_, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil)
+		switch {
+		case err != nil:
+			return nil, nil, errors.Trace(err)
+		case bytes.Compare(regionEnd, *end) < 0:
+			innerEnd = &regionEnd
+		default:
+			innerEnd = end
+		}
 	}
 	return
 }
