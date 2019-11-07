@@ -658,12 +658,12 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 	}
 
 	for _, schema := range bc.backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
+		var dbInfo model.DBInfo
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
 			return false, err
 		}
-		tblInfo := &model.TableInfo{}
+		var tblInfo model.TableInfo
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
 			return false, err

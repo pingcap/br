@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -32,6 +31,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/pingcap/br/pkg/meta"
 
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -258,7 +259,7 @@ func (rc *Client) RestoreTable(
 		elapsed := time.Since(start)
 		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
 	}()
-	log.Info("start to restore table",
+	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 		zap.Array("files", files(table.Files)),
