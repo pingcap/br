@@ -4,12 +4,13 @@ import (
 	"context"
 	"sync"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
 )
 
 // pushDown warps a backup task.

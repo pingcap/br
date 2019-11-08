@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/meta"
 )
 
 var (
@@ -54,8 +55,6 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
-	cmd.MarkFlagRequired(FlagPD)
-	cmd.MarkFlagRequired(FlagStorage)
 }
 
 // Init ...
@@ -100,7 +99,7 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 	})
-	return
+	return err
 }
 
 // GetDefaultBacker returns the default backer for command line usage.

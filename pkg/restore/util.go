@@ -77,7 +77,12 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 
 // getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
-func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, regionRule *import_sstpb.RewriteRule) import_sstpb.SSTMeta {
+func getSSTMetaFromFile(
+	id []byte,
+	file *backup.File,
+	region *metapb.Region,
+	regionRule *import_sstpb.RewriteRule,
+) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string
 	if strings.Contains(file.GetName(), "default") {
@@ -110,7 +115,13 @@ func getSSTMetaFromFile(id []byte, file *backup.File, region *metapb.Region, reg
 type retryableFunc func() error
 type continueFunc func(error) bool
 
-func withRetry(retryableFunc retryableFunc, continueFunc continueFunc, attempts uint, delayTime time.Duration, maxDelayTime time.Duration) error {
+func withRetry(
+	retryableFunc retryableFunc,
+	continueFunc continueFunc,
+	attempts uint,
+	delayTime time.Duration,
+	maxDelayTime time.Duration,
+) error {
 	var lastErr error
 	for i := uint(0); i < attempts; i++ {
 		err := retryableFunc()
@@ -151,7 +162,10 @@ func GetRanges(files []*backup.File) []restore_util.Range {
 }
 
 // rules must be encoded
-func findRegionRewriteRule(region *metapb.Region, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+func findRegionRewriteRule(
+	region *metapb.Region,
+	rewriteRules *restore_util.RewriteRules,
+) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
 		// regions may have the new prefix
 		if bytes.HasPrefix(region.GetStartKey(), rule.GetNewKeyPrefix()) {
@@ -185,7 +199,8 @@ func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.R
 func encodeKeyPrefix(key []byte) []byte {
 	encodedPrefix := make([]byte, 0)
 	ungroupedLen := len(key) % 8
-	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
+	encodedPrefix =
+		append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 

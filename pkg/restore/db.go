@@ -194,11 +194,12 @@ func GetCreateTableSQL(t *model.TableInfo) string {
 	}
 
 	for i, idx := range publicIndices {
-		if idx.Primary {
+		switch {
+		case idx.Primary:
 			buf.WriteString("  PRIMARY KEY ")
-		} else if idx.Unique {
+		case idx.Unique:
 			fmt.Fprintf(&buf, "  UNIQUE KEY %s ", utils.EncloseName(idx.Name.String()))
-		} else {
+		default:
 			fmt.Fprintf(&buf, "  KEY %s ", utils.EncloseName(idx.Name.String()))
 		}
 

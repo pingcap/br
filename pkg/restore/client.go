@@ -62,16 +62,19 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	addrs := strings.Split(pdAddrs, ",")
 	backer, err := meta.NewBacker(ctx, addrs[0])
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	tikvCli, err := tikv.Driver{}.Open(
 		// Disable GC because TiDB enables GC already.
 		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 
@@ -403,7 +406,8 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	var tables []*utils.Table
+	// Assume one database one table.
+	tables := make([]*utils.Table, 0, len(rc.databases))
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
 	}
@@ -472,7 +476,12 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 }
 
 // checksum key range of [boundedStart, boundedEnd)
-func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd []byte, reqData []byte) (*tipb.ChecksumResponse, error) {
+func (rc *Client) checksumRange(
+	triedTime int,
+	boundedStart []byte,
+	boundedEnd []byte,
+	reqData []byte,
+) (*tipb.ChecksumResponse, error) {
 	if triedTime >= tikvChecksumRetryTimes {
 		return nil, errors.New("exceeded checksum retry time")
 	}
@@ -480,7 +489,12 @@ func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd [
 	resCh := make(chan tipb.ChecksumResponse)
 	errCh := make(chan error)
 	wg := sync.WaitGroup{}
-	regions, peers, err := rc.pdClient.ScanRegions(rc.ctx, codec.EncodeBytes([]byte{}, boundedStart), codec.EncodeBytes([]byte{}, boundedEnd), 10000)
+	regions, peers, err := rc.pdClient.ScanRegions(
+		rc.ctx,
+		codec.EncodeBytes([]byte{}, boundedStart),
+		codec.EncodeBytes([]byte{}, boundedEnd),
+		10000,
+	)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -526,7 +540,14 @@ func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd [
 }
 
 // checksum key range [start, end) in region with retry
-func (rc *Client) checksumRegion(triedTime int, start *[]byte, end *[]byte, region *metapb.Region, peer *metapb.Peer, reqData []byte) (*tipb.ChecksumResponse, error) {
+func (rc *Client) checksumRegion(
+	triedTime int,
+	start *[]byte,
+	end *[]byte,
+	region *metapb.Region,
+	peer *metapb.Peer,
+	reqData []byte,
+) (*tipb.ChecksumResponse, error) {
 	reqCtx := &kvrpcpb.Context{
 		RegionId:     region.GetId(),
 		RegionEpoch:  region.GetRegionEpoch(),
@@ -597,35 +618,37 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 }
 
 // get intersect key range of [start, end] and [region.StartKey, region.EndKey]
-func getIntersectRange(start *[]byte, end *[]byte, region *metapb.Region) (innerStart *[]byte, innerEnd *[]byte, err error) {
-	switch {
-	case len(region.GetStartKey()) < 9: // 8 (encode group size) + 1
+func getIntersectRange(
+	start *[]byte,
+	end *[]byte,
+	region *metapb.Region,
+) (innerStart *[]byte, innerEnd *[]byte, err error) {
+	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
 		innerStart = start
-	default:
+	} else {
 		_, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil)
-		switch {
-		case err != nil:
-			return nil, nil, errors.Trace(err)
-		case bytes.Compare(regionStart, *start) < 0:
+		if err != nil {
+			return nil, nil, err
+		}
+		if bytes.Compare(regionStart, *start) < 0 {
 			innerStart = start
-		default:
+		} else {
 			innerStart = &regionStart
 		}
 	}
 
-	switch {
-	case len(region.GetEndKey()) < 9: // 8 (encode group size) + 1
+	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
 		innerEnd = end
-	default:
+	} else {
 		_, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil)
-		switch {
-		case err != nil:
-			return nil, nil, errors.Trace(err)
-		case bytes.Compare(regionEnd, *end) < 0:
+		if err != nil {
+			return nil, nil, err
+		}
+		if bytes.Compare(regionEnd, *end) < 0 {
 			innerEnd = &regionEnd
-		default:
+		} else {
 			innerEnd = end
 		}
 	}
-	return
+	return innerStart, innerEnd, nil
 }

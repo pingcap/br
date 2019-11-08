@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/cobra"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewMetaCommand return a meta subcommand.
@@ -25,39 +26,6 @@ func NewMetaCommand() *cobra.Command {
 			return nil
 		},
 	}
-	meta.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "show cluster version",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			backer, err := GetDefaultBacker()
-			if err != nil {
-				return err
-			}
-			v, err := backer.GetClusterVersion()
-			if err != nil {
-				return err
-			}
-			cmd.Println(v)
-			return nil
-		},
-	})
-	meta.AddCommand(&cobra.Command{
-		Use:   "safepoint",
-		Short: "show the current GC safepoint of cluster",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			backer, err := GetDefaultBacker()
-			if err != nil {
-				return err
-			}
-			sp, err := backer.GetGCSafePoint()
-			if err != nil {
-				return err
-			}
-			cmd.Printf("Timestamp { Physical: %d, Logical: %d }\n",
-				sp.Physical, sp.Logical)
-			return nil
-		},
-	})
 	meta.AddCommand(&cobra.Command{
 		Use:   "checksum",
 		Short: "check the backup data",
@@ -94,7 +62,10 @@ func NewMetaCommand() *cobra.Command {
 				hexBytes := make([]byte, hex.EncodedLen(len(s)))
 				hex.Encode(hexBytes, s[:])
 				if !bytes.Equal(hexBytes, file.Sha256) {
-					return errors.Errorf("backup data checksum failed: %s may be changed\n calculated sha256 is %s\n, origin sha256 is %s", file.Name, s, file.Sha256)
+					return errors.Errorf(`
+backup data checksum failed: %s may be changed
+calculated sha256 is %s,
+origin sha256 is %s`, file.Name, s, file.Sha256)
 				}
 			}
 
