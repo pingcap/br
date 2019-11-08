@@ -110,10 +110,11 @@ func (s *testClientSuite) SetUpSuite(c *C) {
 	cluster := s.srv.GetRaftCluster()
 	c.Assert(cluster, NotNil)
 	for _, store := range stores {
-		s.srv.PutStore(
+		_, err := s.srv.PutStore(
 			s.ctx,
 			&pdpb.PutStoreRequest{Header: newHeader(s.srv), Store: store},
 		)
+		c.Assert(err, IsNil)
 	}
 
 	// Disable pd connection check.

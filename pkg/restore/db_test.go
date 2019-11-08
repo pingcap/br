@@ -90,11 +90,15 @@ func (s *testRestoreSchemaSuite) startServer(c *C) {
 	svr, err := server.NewServer(cfg, s.tidbdrv)
 	c.Assert(err, IsNil)
 	s.server = svr
-	go svr.Run()
+	go func() {
+		if err1 := svr.Run(); err != nil {
+			panic(err1)
+		}
+	}()
 	waitUntilServerOnline(cfg.Status.StatusPort)
 }
 
-func (s *testRestoreSchemaSuite) stopServer(c *C) {
+func (s *testRestoreSchemaSuite) stopServer(*C) {
 	if s.dom != nil {
 		s.dom.Close()
 	}
@@ -185,8 +189,9 @@ func waitUntilServerOnline(statusPort uint) {
 	for retry = 0; retry < retryTime; retry++ {
 		resp, err := http.Get(statusURL)
 		if err == nil {
-			ioutil.ReadAll(resp.Body)
-			resp.Body.Close()
+			// Ignore errors.
+			_, _ = ioutil.ReadAll(resp.Body)
+			_ = resp.Body.Close()
 			break
 		}
 		time.Sleep(time.Millisecond * 10)

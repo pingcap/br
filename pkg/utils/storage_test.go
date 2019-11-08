@@ -1,8 +1,9 @@
 package utils
 
 import (
-	. "github.com/pingcap/check"
 	"testing"
+
+	. "github.com/pingcap/check"
 )
 
 type testStorageSuite struct{}

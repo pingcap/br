@@ -13,11 +13,13 @@ import (
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
@@ -33,9 +35,7 @@ import (
 )
 
 const (
-	tikvChecksumRetryTimes      = 3
-	tikvChecksumWaitInterval    = 50 * time.Millisecond
-	tikvChecksumMaxWaitInterval = 1 * time.Second
+	tikvChecksumRetryTimes = 5
 )
 
 // Client sends requests to importer to restore files
@@ -62,16 +62,19 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	addrs := strings.Split(pdAddrs, ",")
 	backer, err := meta.NewBacker(ctx, addrs[0])
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	tikvCli, err := tikv.Driver{}.Open(
 		// Disable GC because TiDB enables GC already.
 		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 
@@ -403,7 +406,8 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	var tables []*utils.Table
+	// Assume one database one table.
+	tables := make([]*utils.Table, 0, len(rc.databases))
 	for _, db := range rc.databases {
 		tables = append(tables, db.Tables...)
 	}
@@ -430,7 +434,9 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		table := table
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
-			resp, err := rc.checksumTable(newTableID, table.Schema, data)
+			tableStart := tablecodec.EncodeTablePrefix(newTableID)
+			tableEnd := tablecodec.EncodeTablePrefix(newTableID + 1)
+			resp, err := rc.checksumRange(0, tableStart, tableEnd, data)
 			if err != nil {
 				errCh <- err
 				return
@@ -469,75 +475,133 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 	}
 }
 
-func (rc *Client) checksumTable(tableID int64, tableInfo *model.TableInfo, reqData []byte) (*tipb.ChecksumResponse, error) {
-	checksumResp := &tipb.ChecksumResponse{}
-	start := tablecodec.EncodeTablePrefix(tableID)
-	end := tablecodec.EncodeTablePrefix(tableID + 1)
-	var nextStart []byte
-	for bytes.Compare(start, end) < 0 {
-		region, peer, err := rc.pdClient.GetRegion(rc.ctx, codec.EncodeBytes([]byte{}, start))
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
-			nextStart = end
-		} else {
-			if _, regionEnd, e := codec.DecodeBytes(region.GetEndKey(), nil); e != nil {
-				return nil, errors.Trace(e)
-			} else if bytes.Compare(regionEnd, end) < 0 {
-				nextStart = regionEnd
-			} else {
-				nextStart = end
-			}
-		}
-		reqCtx := &kvrpcpb.Context{
-			RegionId:    region.GetId(),
-			RegionEpoch: region.GetRegionEpoch(),
-			Peer:        peer,
-		}
-		ranges := []*coprocessor.KeyRange{{Start: start, End: nextStart}}
-		req := &coprocessor.Request{
-			Context: reqCtx,
-			Tp:      105, // REQ_TYPE_CHECKSUM flag
-			Data:    reqData,
-			Ranges:  ranges,
-		}
-
-		// send checksum request to TiKV with retry
-		var respData []byte
-		storeID := peer.GetStoreId()
-		err = withRetry(func() error {
-			kvClient, e := rc.backer.GetTikvClient(storeID)
-			if e != nil {
-				return e
-			}
-			resp, e := kvClient.Coprocessor(rc.ctx, req)
-			if e != nil || resp.GetRegionError() != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
-				log.Error("Coprocessor request error",
-					zap.Any("RegionError", resp.GetRegionError()),
-					zap.String("OtherError", resp.GetOtherError()),
-					zap.Any("Locked", resp.GetLocked()))
-				return e
-			}
-			respData = resp.Data
-			return nil
-		}, func(e error) bool {
-			return rc.backer.ResetGrpcClient(storeID) == nil
-		}, tikvChecksumRetryTimes, tikvChecksumWaitInterval, tikvChecksumMaxWaitInterval)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-
-		checksum := &tipb.ChecksumResponse{}
-		if err = checksum.Unmarshal(respData); err != nil {
-			return nil, errors.Trace(err)
-		}
-		checksumResp.Checksum ^= checksum.Checksum
-		checksumResp.TotalKvs += checksum.TotalKvs
-		checksumResp.TotalBytes += checksum.TotalBytes
-		start = nextStart
+// checksum key range of [boundedStart, boundedEnd)
+func (rc *Client) checksumRange(
+	triedTime int,
+	boundedStart []byte,
+	boundedEnd []byte,
+	reqData []byte,
+) (*tipb.ChecksumResponse, error) {
+	if triedTime >= tikvChecksumRetryTimes {
+		return nil, errors.New("exceeded checksum retry time")
 	}
-	return checksumResp, nil
+	checksumResp := &tipb.ChecksumResponse{}
+	resCh := make(chan tipb.ChecksumResponse)
+	errCh := make(chan error)
+	wg := sync.WaitGroup{}
+	regions, peers, err := rc.pdClient.ScanRegions(
+		rc.ctx,
+		codec.EncodeBytes([]byte{}, boundedStart),
+		codec.EncodeBytes([]byte{}, boundedEnd),
+		10000,
+	)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for i, region := range regions {
+		i := i
+		region := region
+		start, end, err := getIntersectRange(&boundedStart, &boundedEnd, region)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		wg.Add(1)
+		rc.workerPool.Apply(func() {
+			defer wg.Done()
+			res, err := rc.checksumRegion(triedTime, start, end, region, peers[i], reqData)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			resCh <- *res
+		})
+	}
+
+	go func() {
+		wg.Wait()
+		close(resCh)
+	}()
+
+	for {
+		select {
+		case checksum, ok := <-resCh:
+			if !ok {
+				return checksumResp, nil
+			}
+			checksumResp.Checksum ^= checksum.Checksum
+			checksumResp.TotalKvs += checksum.TotalKvs
+			checksumResp.TotalBytes += checksum.TotalBytes
+		case err := <-errCh:
+			return nil, errors.Trace(err)
+		}
+
+	}
+}
+
+// checksum key range [start, end) in region with retry
+func (rc *Client) checksumRegion(
+	triedTime int,
+	start *[]byte,
+	end *[]byte,
+	region *metapb.Region,
+	peer *metapb.Peer,
+	reqData []byte,
+) (*tipb.ChecksumResponse, error) {
+	reqCtx := &kvrpcpb.Context{
+		RegionId:     region.GetId(),
+		RegionEpoch:  region.GetRegionEpoch(),
+		Peer:         peer,
+		NotFillCache: true, // Do not fill rocksdb block cache.
+	}
+	ranges := []*coprocessor.KeyRange{{Start: *start, End: *end}}
+	req := &coprocessor.Request{
+		Context: reqCtx,
+		Tp:      kv.ReqTypeChecksum, // REQ_TYPE_CHECKSUM flag
+		Data:    reqData,
+		Ranges:  ranges,
+	}
+
+	storeID := peer.GetStoreId()
+	kvClient, err := rc.backer.GetTikvClient(storeID)
+	if err != nil {
+		err = rc.backer.ResetGrpcClient(storeID)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		kvClient, err = rc.backer.GetTikvClient(storeID)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+
+	resp, err := kvClient.Coprocessor(rc.ctx, req)
+	if err != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
+		log.Error("Coprocessor request error",
+			zap.String("OtherError", resp.GetOtherError()),
+			zap.Any("Locked", resp.GetLocked()))
+		return nil, errors.Trace(err)
+	}
+
+	regionErr := resp.GetRegionError()
+	if regionErr != nil {
+		if regionErr.GetNotLeader() != nil ||
+			regionErr.GetRegionNotFound() != nil ||
+			regionErr.GetKeyNotInRegion() != nil ||
+			regionErr.GetEpochNotMatch() != nil {
+			// retry this key range
+			return rc.checksumRange(triedTime+1, *start, *end, reqData)
+		}
+		log.Error("Coprocessor request error",
+			zap.Any("RegionError", regionErr))
+		return nil, errors.Trace(err)
+	}
+
+	checksum := &tipb.ChecksumResponse{}
+	if err = checksum.Unmarshal(resp.Data); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return checksum, nil
 }
 
 func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
@@ -551,4 +615,40 @@ func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.Che
 		}
 	}
 	return nil
+}
+
+// get intersect key range of [start, end] and [region.StartKey, region.EndKey]
+func getIntersectRange(
+	start *[]byte,
+	end *[]byte,
+	region *metapb.Region,
+) (innerStart *[]byte, innerEnd *[]byte, err error) {
+	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
+		innerStart = start
+	} else {
+		_, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		if bytes.Compare(regionStart, *start) < 0 {
+			innerStart = start
+		} else {
+			innerStart = &regionStart
+		}
+	}
+
+	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
+		innerEnd = end
+	} else {
+		_, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil)
+		if err != nil {
+			return nil, nil, err
+		}
+		if bytes.Compare(regionEnd, *end) < 0 {
+			innerEnd = &regionEnd
+		} else {
+			innerEnd = end
+		}
+	}
+	return innerStart, innerEnd, nil
 }

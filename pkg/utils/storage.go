@@ -1,10 +1,11 @@
 package utils
 
 import (
-	"github.com/pingcap/errors"
 	"io/ioutil"
 	"net/url"
 	"path"
+
+	"github.com/pingcap/errors"
 )
 
 // ExternalStorage represents a kind of file system storage

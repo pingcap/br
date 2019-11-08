@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/spf13/cobra"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewVersionCommand returns a restore subcommand

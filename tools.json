@@ -2,7 +2,7 @@
   "Tools": [
     {
       "Repository": "golang.org/x/tools/cmd/goimports",
-      "Commit": "04b5d21e00f1f47bd824a6ade581e7189bacde87"
+      "Commit": "0133cac3176f225883c5d817146de8633ed07ebc"
     },
     {
       "Repository": "github.com/dnephin/govet",

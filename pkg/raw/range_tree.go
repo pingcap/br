@@ -35,13 +35,14 @@ func (rg *Range) intersect(
 	} else {
 		subStart = rg.StartKey
 	}
-	if len(end) == 0 {
+	switch {
+	case len(end) == 0:
 		subEnd = rg.EndKey
-	} else if len(rg.EndKey) == 0 {
+	case len(rg.EndKey) == 0:
 		subEnd = end
-	} else if bytes.Compare(end, rg.EndKey) < 0 {
+	case bytes.Compare(end, rg.EndKey) < 0:
 		subEnd = end
-	} else {
+	default:
 		subEnd = rg.EndKey
 	}
 	return
@@ -130,18 +131,6 @@ func (rangeTree *RangeTree) update(rg *Range) {
 		rangeTree.tree.Delete(item)
 	}
 	rangeTree.tree.ReplaceOrInsert(rg)
-	return
-}
-
-func (rangeTree *RangeTree) putErr(
-	startKey, endKey []byte, err *backup.Error,
-) {
-	rg := &Range{
-		StartKey: startKey,
-		EndKey:   endKey,
-		Error:    err,
-	}
-	rangeTree.update(rg)
 }
 
 func (rangeTree *RangeTree) putOk(
@@ -158,7 +147,7 @@ func (rangeTree *RangeTree) putOk(
 func (rangeTree *RangeTree) getIncompleteRange(
 	startKey, endKey []byte,
 ) []Range {
-	if len(startKey) != 0 && bytes.Compare(startKey, endKey) == 0 {
+	if len(startKey) != 0 && bytes.Equal(startKey, endKey) {
 		return []Range{}
 	}
 	incomplete := make([]Range, 0, 64)
