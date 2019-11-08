@@ -4,8 +4,6 @@ go 1.13
 
 require (
 	github.com/cheggaaa/pb/v3 v3.0.1
-	github.com/coreos/bbolt v1.3.3 // indirect
-	github.com/coreos/etcd v3.3.17+incompatible // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/cznic/sortutil v0.0.0-20181122101858-f5f958428db8 // indirect
@@ -26,7 +24,6 @@ require (
 	github.com/pingcap/tidb-tools v3.0.6-0.20191108032853-4bb0acca5cc5+incompatible
 	github.com/pingcap/tipb v0.0.0-20191101114505-cbd0e985c780
 	github.com/prometheus/client_golang v1.0.0
-	github.com/prometheus/common v0.4.1
 	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
 	github.com/shurcooL/vfsgen v0.0.0-20181202132449-6a9ea43bcacd // indirect
 	github.com/spf13/cobra v0.0.5
