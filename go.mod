@@ -19,11 +19,11 @@ require (
 	github.com/pingcap/kvproto v0.0.0-20191025022903-62abb760d9b1
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20190917040145-a90dba59f50d
-	github.com/pingcap/pd v1.1.0-beta.0.20191031081404-d0c4df68eb38
+	github.com/pingcap/pd v1.1.0-beta.0.20191108030828-0e3a054daa85
 	github.com/pingcap/tidb v0.0.0-20191022034824-9b4d7891def5
 	github.com/pingcap/tidb-tools v3.0.6-0.20191108032853-4bb0acca5cc5+incompatible
 	github.com/pingcap/tipb v0.0.0-20191101114505-cbd0e985c780
-	github.com/prometheus/client_golang v0.9.1
+	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.4.1
 	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
 	github.com/shurcooL/vfsgen v0.0.0-20181202132449-6a9ea43bcacd // indirect
