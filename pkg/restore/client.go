@@ -19,6 +19,7 @@ import (
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
@@ -527,14 +528,15 @@ func (rc *Client) checksumRange(triedTime int, boundedStart []byte, boundedEnd [
 // checksum key range [start, end) in region with retry
 func (rc *Client) checksumRegion(triedTime int, start *[]byte, end *[]byte, region *metapb.Region, peer *metapb.Peer, reqData []byte) (*tipb.ChecksumResponse, error) {
 	reqCtx := &kvrpcpb.Context{
-		RegionId:    region.GetId(),
-		RegionEpoch: region.GetRegionEpoch(),
-		Peer:        peer,
+		RegionId:     region.GetId(),
+		RegionEpoch:  region.GetRegionEpoch(),
+		Peer:         peer,
+		NotFillCache: true, // Do not fill rocksdb block cache.
 	}
 	ranges := []*coprocessor.KeyRange{{Start: *start, End: *end}}
 	req := &coprocessor.Request{
 		Context: reqCtx,
-		Tp:      105, // REQ_TYPE_CHECKSUM flag
+		Tp:      kv.ReqTypeChecksum, // REQ_TYPE_CHECKSUM flag
 		Data:    reqData,
 		Ranges:  ranges,
 	}
