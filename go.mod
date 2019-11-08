@@ -19,11 +19,10 @@ require (
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20191011160321-0c4055ef2c1d
 	github.com/pingcap/pd v1.1.0-beta.0.20191108030828-0e3a054daa85
-	github.com/pingcap/tidb v1.1.0-beta.0.20191107125739-0b1024434983
-	github.com/pingcap/tidb-tools v3.0.6-0.20191106033616-90632dda3863+incompatible
+	github.com/pingcap/tidb v1.1.0-beta.0.20191108051109-35f3653fc601
+	github.com/pingcap/tidb-tools v3.0.6-0.20191108032853-4bb0acca5cc5+incompatible
 	github.com/pingcap/tipb v0.0.0-20191101114505-cbd0e985c780
 	github.com/prometheus/client_golang v1.0.0
-	github.com/prometheus/common v0.4.1
 	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
 	github.com/shurcooL/vfsgen v0.0.0-20181202132449-6a9ea43bcacd // indirect
 	github.com/spf13/cobra v0.0.5
