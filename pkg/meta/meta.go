@@ -261,8 +261,7 @@ func (backer *Backer) CheckGCSaftpoint(ctx context.Context, ts uint64) error {
 	// TODO: use PDClient.GetGCSafePoint instead once PD client exports it.
 	safePoint, err := backer.GetGCSafePoint(ctx)
 	if err != nil {
-		log.Warn("get GC safepoint failed", zap.Error(err))
-		return nil
+		return err
 	}
 	safePointTS := EncodeTs(safePoint)
 	if ts <= safePointTS {

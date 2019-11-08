@@ -350,10 +350,12 @@ func (bc *BackupClient) BackupRanges(
 	for {
 		err := bc.backer.CheckGCSaftpoint(ctx, backupTS)
 		if err != nil {
-			return err
+			// Ignore the error since it retries every 30s.
+			log.Warn("get GC safepoint failed", zap.Error(err))
 		}
 		if finished {
-			return nil
+			// Return error (if there is any) before finishing backup.
+			return err
 		}
 		select {
 		case err, ok := <-errCh:
