@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/prometheus/common/log"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
