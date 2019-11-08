@@ -255,9 +255,9 @@ func (backer *Backer) ResetGrpcClient(storeID uint64) error {
 	return nil
 }
 
-// CheckGCSaftpoint spawns a goroutine and checks whether the ts is older
+// CheckGCSafepoint spawns a goroutine and checks whether the ts is older
 // than GC safepoint.
-func (backer *Backer) CheckGCSaftpoint(ctx context.Context, ts uint64) error {
+func (backer *Backer) CheckGCSafepoint(ctx context.Context, ts uint64) error {
 	// TODO: use PDClient.GetGCSafePoint instead once PD client exports it.
 	safePoint, err := backer.GetGCSafePoint(ctx)
 	if err != nil {
