@@ -3,11 +3,14 @@ package restore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -30,11 +33,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
+	resetTSURL             = "/pd/api/v1/admin/reset-ts"
+	resetTsRetryTime       = 16
+	resetTSWaitInterval    = 50 * time.Millisecond
+	resetTSMaxWaitInterval = 500 * time.Millisecond
+
 	tikvChecksumRetryTimes = 5
 )
 
@@ -137,6 +144,34 @@ func (rc *Client) GetTS() (uint64, error) {
 	return restoreTS, nil
 }
 
+// ResetTS resets the timestamp of PD to a bigger value
+func (rc *Client) ResetTS() error {
+	restoreTS := rc.backupMeta.GetEndVersion()
+	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
+	req, err := json.Marshal(struct {
+		TSO string `json:"tso,omitempty"`
+	}{TSO: fmt.Sprintf("%d", restoreTS)})
+	if err != nil {
+		return err
+	}
+	// TODO: Support TLS
+	reqURL := "http://" + rc.pdAddrs[0] + resetTSURL
+	return withRetry(func() error {
+		resp, err := http.Post(reqURL, "application/json", strings.NewReader(string(req)))
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if resp.StatusCode != 200 && resp.StatusCode != 403 {
+			buf := new(bytes.Buffer)
+			buf.ReadFrom(resp.Body)
+			return errors.Errorf("pd resets TS failed: req=%v, resp=%v", string(req), buf.String())
+		}
+		return nil
+	}, func(e error) bool {
+		return true
+	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
+}
+
 // GetDatabases returns all databases.
 func (rc *Client) GetDatabases() []*utils.Database {
 	dbs := make([]*utils.Database, 0, len(rc.databases))
@@ -216,7 +251,6 @@ func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, e
 func (rc *Client) RestoreTable(
 	table *utils.Table,
 	rewriteRules *restore_util.RewriteRules,
-	restoreTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -275,7 +309,6 @@ func (rc *Client) RestoreTable(
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
 	rewriteRules *restore_util.RewriteRules,
-	restoreTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -295,7 +328,7 @@ func (rc *Client) RestoreDatabase(
 			case <-rc.ctx.Done():
 				errCh <- nil
 			case errCh <- rc.RestoreTable(
-				tblReplica, rewriteRules, restoreTS, updateCh):
+				tblReplica, rewriteRules, updateCh):
 			}
 		})
 	}
@@ -312,7 +345,6 @@ func (rc *Client) RestoreDatabase(
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
 	rewriteRules *restore_util.RewriteRules,
-	restoreTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -332,7 +364,7 @@ func (rc *Client) RestoreAll(
 			case <-rc.ctx.Done():
 				errCh <- nil
 			case errCh <- rc.RestoreDatabase(
-				dbReplica, rewriteRules, restoreTS, updateCh):
+				dbReplica, rewriteRules, updateCh):
 			}
 		})
 	}
