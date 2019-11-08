@@ -576,11 +576,18 @@ func (rc *Client) checksumRegion(
 	}
 
 	resp, err := kvClient.Coprocessor(rc.ctx, req)
-	if err != nil || resp.GetOtherError() != "" || resp.GetLocked() != nil {
-		log.Error("Coprocessor request error",
-			zap.String("OtherError", resp.GetOtherError()),
-			zap.Any("Locked", resp.GetLocked()))
+	if err != nil {
 		return nil, errors.Trace(err)
+	}
+	if resp.GetOtherError() != "" {
+		log.Error("Coprocessor request error",
+			zap.String("OtherError", resp.GetOtherError()))
+		return nil, errors.Errorf("OtherError: %s", resp.GetOtherError())
+	}
+	if resp.GetLocked() != nil {
+		log.Error("Coprocessor request error",
+			zap.Any("Locked", resp.GetLocked()))
+		return nil, errors.Errorf("Locked: %s", resp.GetLocked().String())
 	}
 
 	regionErr := resp.GetRegionError()
