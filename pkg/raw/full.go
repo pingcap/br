@@ -44,8 +44,9 @@ type BackupClient struct {
 	clusterID uint64
 	pdClient  pd.Client
 
-	backupMeta backup.BackupMeta
-	storage    utils.ExternalStorage
+	backupMeta    backup.BackupMeta
+	backupSchemas BackupSchemas
+	storage       utils.ExternalStorage
 }
 
 // NewBackupClient returns a new backup client
@@ -117,6 +118,60 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
+type BackupSchemas struct {
+	meta       map[string]*backup.Schema
+	checksumCh chan *tableChecksum
+	errCh      chan error
+	wg         sync.WaitGroup
+}
+
+func (bs *BackupSchemas) startTableChecksum(ctx context.Context, schema *backup.Schema, dbSession session.Session, dbName string, tableName string) {
+	name := fmt.Sprintf("%s.%s", dbName, tableName)
+	bs.meta[name] = schema
+	bs.wg.Add(1)
+	go func() {
+		defer bs.wg.Done()
+		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
+		if err != nil {
+			bs.errCh <- errors.Trace(err)
+			return
+		}
+		bs.checksumCh <- checksum
+	}()
+}
+
+func (bs *BackupSchemas) getSchemas() (*[]*backup.Schema, error) {
+	go func() {
+		bs.wg.Wait()
+		close(bs.checksumCh)
+	}()
+	var schemas []*backup.Schema
+	for {
+		select {
+		case checksum, ok := <-bs.checksumCh:
+			if !ok {
+				return &schemas, nil
+			}
+			s := bs.meta[checksum.name]
+			s.Crc64Xor = checksum.checksum
+			s.TotalKvs = checksum.totalKvs
+			s.TotalBytes = checksum.totalBytes
+			schemas = append(schemas, s)
+		case err := <-bs.errCh:
+			return nil, err
+		}
+	}
+}
+
+func (bc *BackupClient) CompleteMeta() error {
+	schemas, err := bc.backupSchemas.getSchemas()
+	if err != nil {
+		return err
+	}
+	bc.backupMeta.Schemas = *schemas
+	return nil
+}
+
 // GetBackupTableRanges gets the range of table
 func (bc *BackupClient) GetBackupTableRanges(
 	dbName, tableName string,
@@ -155,12 +210,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	}
 	tableInfo.AutoIncID = globalAutoID
 
-	dbSession.GetSessionVars().SnapshotTS = backupTS
-	tblChecksum, err := bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -173,18 +222,17 @@ func (bc *BackupClient) GetBackupTableRanges(
 
 	// Save schema.
 	backupSchema := &backup.Schema{
-		Db:         dbData,
-		Table:      tableData,
-		Crc64Xor:   tblChecksum.checksum,
-		TotalKvs:   tblChecksum.totalKvs,
-		TotalBytes: tblChecksum.totalBytes,
+		Db:    dbData,
+		Table: tableData,
 	}
+	dbSession.GetSessionVars().SnapshotTS = backupTS
+	bc.backupSchemas.startTableChecksum(bc.ctx, backupSchema, dbSession, dbInfo.Name.L, tableInfo.Name.L)
+
 	log.Info("save table schema",
 		zap.Stringer("db", dbInfo.Name),
 		zap.Stringer("table", tableInfo.Name),
 		zap.Int64("auto_inc_id", globalAutoID),
 	)
-	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
 	log.Info("backup table meta",
 		zap.Reflect("Schema", dbInfo),
 		zap.Reflect("Table", tableInfo))
@@ -270,11 +318,6 @@ LoadDb:
 		}
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
-			tblChecksum, err := bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -286,18 +329,15 @@ LoadDb:
 			}
 			// Save schema.
 			backupSchema := &backup.Schema{
-				Db:         dbData,
-				Table:      tableData,
-				Crc64Xor:   tblChecksum.checksum,
-				TotalKvs:   tblChecksum.totalKvs,
-				TotalBytes: tblChecksum.totalBytes,
+				Db:    dbData,
+				Table: tableData,
 			}
 			log.Info("save table schema",
 				zap.Stringer("db", dbInfo.Name),
 				zap.Stringer("table", tableInfo.Name),
 				zap.Int64("auto_inc_id", globalAutoID),
 			)
-			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+			bc.backupSchemas.startTableChecksum(bc.ctx, backupSchema, dbSession, dbInfo.Name.L, tableInfo.Name.L)
 
 			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 			//       backup global index.
@@ -699,33 +739,35 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 }
 
 type tableChecksum struct {
+	name       string
 	checksum   uint64
 	totalKvs   uint64
 	totalBytes uint64
 }
 
-func (bc *BackupClient) getChecksumFromTiDB(
+func getChecksumFromTiDB(
+	ctx context.Context,
 	dbSession session.Session,
-	dbl *model.DBInfo,
-	tbl *model.TableInfo,
+	dbName string,
+	tableName string,
 ) (*tableChecksum, error) {
 	var recordSets []sqlexec.RecordSet
 	// TODO figure out why
 	// must set to true to avoid load global vars, otherwise we got error
 	dbSession.GetSessionVars().CommonGlobalLoaded = true
 
-	recordSets, err := dbSession.Execute(bc.ctx, fmt.Sprintf(
-		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbl.Name.L), utils.EncloseName(tbl.Name.L)))
+	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
+		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbName), utils.EncloseName(tableName)))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	records, err := utils.ResultSetToStringSlice(bc.ctx, dbSession, recordSets[0])
+	records, err := utils.ResultSetToStringSlice(ctx, dbSession, recordSets[0])
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	log.Info("tidb table checksum",
-		zap.String("db", dbl.Name.L),
-		zap.String("table", tbl.Name.L),
+		zap.String("db", dbName),
+		zap.String("table", tableName),
 		zap.Reflect("records", records),
 	)
 
@@ -743,6 +785,7 @@ func (bc *BackupClient) getChecksumFromTiDB(
 		return nil, errors.Trace(err)
 	}
 	return &tableChecksum{
+		name:       fmt.Sprintf("%s.%s", dbName, tableName),
 		checksum:   checksum,
 		totalKvs:   totalKvs,
 		totalBytes: totalBytes,

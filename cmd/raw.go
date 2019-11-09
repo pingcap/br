@@ -91,10 +91,6 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			if err != nil {
-				return err
-			}
-
 			ranges, err := client.GetAllBackupTableRanges(backupTS)
 			if err != nil {
 				return err
@@ -114,6 +110,11 @@ func newFullBackupCommand() *cobra.Command {
 
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+			if err != nil {
+				return err
+			}
+
+			err = client.CompleteMeta()
 			if err != nil {
 				return err
 			}
@@ -197,10 +198,6 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			if err != nil {
-				return err
-			}
-
 			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS, rate, concurrency)
 			if err != nil {
 				return err
@@ -224,6 +221,11 @@ func newTableBackupCommand() *cobra.Command {
 
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+			if err != nil {
+				return err
+			}
+
+			err = client.CompleteMeta()
 			if err != nil {
 				return err
 			}
