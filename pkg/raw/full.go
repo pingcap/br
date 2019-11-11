@@ -135,8 +135,8 @@ func (bc *BackupClient) GetBackupTableRanges(
 		return nil, errors.Trace(err)
 	}
 
-	dbInfo := &model.DBInfo{}
-	tableInfo := &model.TableInfo{}
+	var dbInfo *model.DBInfo
+	var tableInfo *model.TableInfo
 	cDBName := model.NewCIStr(dbName)
 	dbInfo, exist := info.SchemaByName(cDBName)
 	if !exist {
