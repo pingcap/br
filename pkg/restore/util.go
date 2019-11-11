@@ -47,10 +47,16 @@ func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableRule := &import_sstpb.RewriteRule{
+	tableRules := make([]*import_sstpb.RewriteRule, 0, 2)
+	tableRules = append(tableRules, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-	}
+	})
+	// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
+	tableRules = append(tableRules, &import_sstpb.RewriteRule{
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID + 1),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID + 1),
+	})
 
 	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
 	dataRules = append(dataRules, &import_sstpb.RewriteRule{
@@ -70,7 +76,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	}
 
 	return &restore_util.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{tableRule},
+		Table: tableRules,
 		Data:  dataRules,
 	}
 }

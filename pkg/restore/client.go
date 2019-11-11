@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,7 +34,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/meta"
-
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -215,36 +215,38 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
-	for _, table := range tables {
-		rules, err := rc.CreateTable(table)
-		if err != nil {
-			return nil, errors.Trace(err)
+	openDBs := make(map[string]*sql.DB)
+	defer func() {
+		for _, db := range openDBs {
+			_ = db.Close()
 		}
+	}()
+	for _, table := range tables {
+		var err error
+		db, ok := openDBs[table.Db.Name.String()]
+		if !ok {
+			db, err = OpenDatabase(table.Db.Name.String(), rc.dbDSN)
+			if err != nil {
+				return nil, err
+			}
+			openDBs[table.Db.Name.String()] = db
+		}
+		err = CreateTable(db, table)
+		if err != nil {
+			return nil, err
+		}
+		err = AlterAutoIncID(db, table)
+		if err != nil {
+			return nil, err
+		}
+		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+		if err != nil {
+			return nil, err
+		}
+		rules := GetRewriteRules(newTableInfo, table.Schema)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 	}
-	return rewriteRules, nil
-}
-
-// CreateTable creates a table, and returns its rewrite rules.
-func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, error) {
-	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
-	if err != nil {
-		return nil, err
-	}
-	err = CreateTable(db, table)
-	if err != nil {
-		return nil, err
-	}
-	err = AlterAutoIncID(db, table)
-	if err != nil {
-		return nil, err
-	}
-	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
-	if err != nil {
-		return nil, err
-	}
-	rewriteRules := GetRewriteRules(newTableInfo, table.Schema)
 	return rewriteRules, nil
 }
 

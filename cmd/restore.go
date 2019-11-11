@@ -267,7 +267,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.New("not exists table")
 			}
 			// The rules here is raw key.
-			rewriteRules, err := client.CreateTable(table)
+			rewriteRules, err := client.CreateTables([]*utils.Table{table})
 			if err != nil {
 				return errors.Trace(err)
 			}
