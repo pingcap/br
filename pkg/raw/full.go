@@ -825,7 +825,9 @@ func (bs *backupSchemas) finishTableChecksum() (*[]*backup.Schema, error) {
 			}
 			log.Info("admin checksum from TiDB finished",
 				zap.String("table", checksum.name),
-				zap.Any("admin checksum", checksum))
+				zap.Uint64("Crc64Xor", checksum.checksum),
+				zap.Uint64("TotalKvs", checksum.totalKvs),
+				zap.Uint64("TotalBytes", checksum.totalBytes))
 			s := bs.meta[checksum.name]
 			s.Crc64Xor = checksum.checksum
 			s.TotalKvs = checksum.totalKvs
