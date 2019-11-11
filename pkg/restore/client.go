@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
@@ -34,6 +33,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
 )
 

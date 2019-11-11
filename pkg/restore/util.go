@@ -54,8 +54,8 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	})
 	// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
 	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID+1),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID+1),
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID + 1),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID + 1),
 	})
 
 	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
