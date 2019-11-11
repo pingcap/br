@@ -454,7 +454,7 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 			return errors.Trace(err)
 		}
 		for _, req := range reqs {
-			resp, err := handleChecksumRequest(rc.ctx, rc.tikvCli.GetClient(), req)
+			resp, err := sendChecksumRequest(rc.ctx, rc.tikvCli.GetClient(), req)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -569,7 +569,7 @@ func buildIndexRequest(
 		Build()
 }
 
-func handleChecksumRequest(
+func sendChecksumRequest(
 	ctx context.Context,
 	client kv.Client,
 	req *kv.Request) (resp *tipb.ChecksumResponse, err error) {
