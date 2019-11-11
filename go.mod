@@ -15,7 +15,6 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/failpoint v0.0.0-20190708053854-e7b1061e6e81 // indirect
 	github.com/pingcap/kvproto v0.0.0-20191025022903-62abb760d9b1
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20191011160321-0c4055ef2c1d

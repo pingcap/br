@@ -32,6 +32,7 @@ const (
 
 // Backer backups a TiDB/TiKV cluster.
 type Backer struct {
+	// TODO: remove the context.
 	Ctx      context.Context
 	PDClient pd.Client
 
@@ -69,7 +70,7 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s", resp.StatusCode, res)
+		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, url)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -162,9 +163,8 @@ func (backer *Backer) GetRegionCount() (int, error) {
 
 // GetGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
-func (backer *Backer) GetGCSafePoint() (Timestamp, error) {
-	safePoint, err := backer.PDClient.UpdateGCSafePoint(backer.Ctx, 0)
-	println(safePoint)
+func (backer *Backer) GetGCSafePoint(ctx context.Context) (Timestamp, error) {
+	safePoint, err := backer.PDClient.UpdateGCSafePoint(ctx, 0)
 	if err != nil {
 		return Timestamp{}, errors.Trace(err)
 	}
@@ -249,6 +249,21 @@ func (backer *Backer) ResetGrpcClient(storeID uint64) error {
 		if err := conn.Close(); err != nil {
 			return errors.Trace(err)
 		}
+	}
+	return nil
+}
+
+// CheckGCSafepoint spawns a goroutine and checks whether the ts is older
+// than GC safepoint.
+func (backer *Backer) CheckGCSafepoint(ctx context.Context, ts uint64) error {
+	// TODO: use PDClient.GetGCSafePoint instead once PD client exports it.
+	safePoint, err := backer.GetGCSafePoint(ctx)
+	if err != nil {
+		return err
+	}
+	safePointTS := EncodeTs(safePoint)
+	if ts <= safePointTS {
+		return errors.Errorf("GC safepoint %d exceed TS %d", safePointTS, ts)
 	}
 	return nil
 }
