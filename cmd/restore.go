@@ -67,7 +67,9 @@ func newFullRestoreCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				rules, nt, err := client.CreateTables(db.Tables)
+				var rules *restore_util.RewriteRules
+				var nt []*model.TableInfo
+				rules, nt, err = client.CreateTables(db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
