@@ -788,7 +788,11 @@ type backupSchemas struct {
 	wg         sync.WaitGroup
 }
 
-func (bs *backupSchemas) startTableChecksum(ctx context.Context, dbSession session.Session, schema *backup.Schema, dbName string, tableName string) {
+func (bs *backupSchemas) startTableChecksum(
+	ctx context.Context,
+	dbSession session.Session,
+	schema *backup.Schema,
+	dbName, tableName string) {
 	name := fmt.Sprintf("%s.%s", dbName, tableName)
 	log.Info("admin checksum from TiDB start",
 		zap.String("table", name),
