@@ -171,6 +171,10 @@ func (bc *BackupClient) PreBackupTableRanges(
 		Db:    dbData,
 		Table: tableData,
 	}
+
+	// TODO figure out why
+	// must set to true to avoid load global vars, otherwise we got error
+	dbSession.GetSessionVars().CommonGlobalLoaded = true
 	dbSession.GetSessionVars().SnapshotTS = backupTS
 	bc.backupSchemas = backupSchemas{
 		meta:       make(map[string]*backup.Schema),
@@ -285,16 +289,19 @@ LoadDb:
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			// Save schema.
+
+			dbSession, err = session.CreateSession(bc.backer.GetTiKV())
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			// TODO figure out why
+			// must set to true to avoid load global vars, otherwise we got error
+			dbSession.GetSessionVars().CommonGlobalLoaded = true
+			dbSession.GetSessionVars().SnapshotTS = backupTS
 			backupSchema := &backup.Schema{
 				Db:    dbData,
 				Table: tableData,
 			}
-			log.Info("save table schema",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tableInfo.Name),
-				zap.Int64("auto_inc_id", globalAutoID),
-			)
 			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
@@ -720,10 +727,6 @@ func getChecksumFromTiDB(
 	tableName string,
 ) (*tableChecksum, error) {
 	var recordSets []sqlexec.RecordSet
-	// TODO figure out why
-	// must set to true to avoid load global vars, otherwise we got error
-	dbSession.GetSessionVars().CommonGlobalLoaded = true
-
 	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
 		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbName), utils.EncloseName(tableName)))
 	if err != nil {
