@@ -135,8 +135,8 @@ func (bc *BackupClient) GetBackupTableRanges(
 		return nil, errors.Trace(err)
 	}
 
-	var dbInfo *model.DBInfo
-	var tableInfo *model.TableInfo
+	dbInfo := &model.DBInfo{}
+	tableInfo := &model.TableInfo{}
 	cDBName := model.NewCIStr(dbName)
 	dbInfo, exist := info.SchemaByName(cDBName)
 	if !exist {
@@ -658,12 +658,12 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 	}
 
 	for _, schema := range bc.backupMeta.Schemas {
-		var dbInfo *model.DBInfo
+		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
 			return false, err
 		}
-		var tblInfo *model.TableInfo
+		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
 			return false, err

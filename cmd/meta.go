@@ -62,12 +62,12 @@ func NewMetaCommand() *cobra.Command {
 			}
 
 			for _, schema := range backupMeta.Schemas {
-				var dbInfo *model.DBInfo
+				dbInfo := &model.DBInfo{}
 				err = json.Unmarshal(schema.Db, dbInfo)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				var tblInfo *model.TableInfo
+				tblInfo := &model.TableInfo{}
 				err = json.Unmarshal(schema.Table, tblInfo)
 				if err != nil {
 					return errors.Trace(err)
