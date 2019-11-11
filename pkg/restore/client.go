@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -179,36 +180,32 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
+	openDBs := make(map[string]*sql.DB)
 	for _, table := range tables {
-		rules, err := rc.CreateTable(table)
-		if err != nil {
-			return nil, errors.Trace(err)
+		var err error
+		db, ok := openDBs[table.Db.Name.String()]
+		if !ok {
+			db, err = OpenDatabase(table.Db.Name.String(), rc.dbDSN)
+			if err != nil {
+				return nil, err
+			}
 		}
+		err = CreateTable(db, table)
+		if err != nil {
+			return nil, err
+		}
+		err = AlterAutoIncID(db, table)
+		if err != nil {
+			return nil, err
+		}
+		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+		if err != nil {
+			return nil, err
+		}
+		rules := GetRewriteRules(newTableInfo, table.Schema)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 	}
-	return rewriteRules, nil
-}
-
-// CreateTable creates a table, and returns its rewrite rules.
-func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, error) {
-	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
-	if err != nil {
-		return nil, err
-	}
-	err = CreateTable(db, table)
-	if err != nil {
-		return nil, err
-	}
-	err = AlterAutoIncID(db, table)
-	if err != nil {
-		return nil, err
-	}
-	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
-	if err != nil {
-		return nil, err
-	}
-	rewriteRules := GetRewriteRules(newTableInfo, table.Schema)
 	return rewriteRules, nil
 }
 
