@@ -60,6 +60,12 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		ctx:       ctx,
 		cancel:    cancel,
 		pdClient:  backer.GetPDClient(),
+		backupSchemas: backupSchemas{
+			meta:       make(map[string]*backup.Schema),
+			checksumCh: make(chan *tableChecksum),
+			errCh:      make(chan error),
+			wg:         sync.WaitGroup{},
+		},
 	}, nil
 }
 
@@ -164,22 +170,14 @@ func (bc *BackupClient) PreBackupTableRanges(
 		return nil, errors.Trace(err)
 	}
 
-	// Save schema.
 	backupSchema := &backup.Schema{
 		Db:    dbData,
 		Table: tableData,
 	}
-
 	// TODO figure out why
 	// must set to true to avoid load global vars, otherwise we got error
 	dbSession.GetSessionVars().CommonGlobalLoaded = true
 	dbSession.GetSessionVars().SnapshotTS = backupTS
-	bc.backupSchemas = backupSchemas{
-		meta:       make(map[string]*backup.Schema),
-		checksumCh: make(chan *tableChecksum),
-		errCh:      make(chan error),
-		wg:         sync.WaitGroup{},
-	}
 	bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 	log.Info("save table schema",
@@ -258,12 +256,6 @@ func (bc *BackupClient) PreBackupAllTableRanges(backupTS uint64) ([]Range, error
 
 	dbInfos := info.AllSchemas()
 	ranges := make([]Range, 0)
-	bc.backupSchemas = backupSchemas{
-		meta:       make(map[string]*backup.Schema),
-		checksumCh: make(chan *tableChecksum),
-		errCh:      make(chan error),
-		wg:         sync.WaitGroup{},
-	}
 LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
@@ -288,18 +280,16 @@ LoadDb:
 				return nil, errors.Trace(err)
 			}
 
-			dbSession, err = session.CreateSession(bc.backer.GetTiKV())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			// TODO figure out why
-			// must set to true to avoid load global vars, otherwise we got error
-			dbSession.GetSessionVars().CommonGlobalLoaded = true
-			dbSession.GetSessionVars().SnapshotTS = backupTS
 			backupSchema := &backup.Schema{
 				Db:    dbData,
 				Table: tableData,
 			}
+			dbSession, err = session.CreateSession(bc.backer.GetTiKV())
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			dbSession.GetSessionVars().CommonGlobalLoaded = true
+			dbSession.GetSessionVars().SnapshotTS = backupTS
 			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
@@ -739,7 +729,7 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta
 func (bc *BackupClient) CompleteMeta() error {
-	schemas, err := bc.backupSchemas.getSchemas()
+	schemas, err := bc.backupSchemas.finishTableChecksum()
 	if err != nil {
 		return err
 	}
@@ -770,11 +760,6 @@ func getChecksumFromTiDB(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	log.Info("tidb table checksum",
-		zap.String("db", dbName),
-		zap.String("table", tableName),
-		zap.Reflect("records", records),
-	)
 
 	record := records[0]
 	checksum, err := strconv.ParseUint(record[2], 10, 64)
@@ -805,6 +790,9 @@ type backupSchemas struct {
 
 func (bs *backupSchemas) startTableChecksum(ctx context.Context, dbSession session.Session, schema *backup.Schema, dbName string, tableName string) {
 	name := fmt.Sprintf("%s.%s", dbName, tableName)
+	log.Info("admin checksum from TiDB start",
+		zap.String("table", name),
+	)
 	bs.meta[name] = schema
 	bs.wg.Add(1)
 	go func() {
@@ -819,7 +807,7 @@ func (bs *backupSchemas) startTableChecksum(ctx context.Context, dbSession sessi
 	}()
 }
 
-func (bs *backupSchemas) getSchemas() (*[]*backup.Schema, error) {
+func (bs *backupSchemas) finishTableChecksum() (*[]*backup.Schema, error) {
 	go func() {
 		bs.wg.Wait()
 		close(bs.checksumCh)
@@ -831,6 +819,9 @@ func (bs *backupSchemas) getSchemas() (*[]*backup.Schema, error) {
 			if !ok {
 				return &schemas, nil
 			}
+			log.Info("admin checksum from TiDB finished",
+				zap.String("table", checksum.name),
+				zap.Any("admin checksum", checksum))
 			s := bs.meta[checksum.name]
 			s.Crc64Xor = checksum.checksum
 			s.TotalKvs = checksum.totalKvs
