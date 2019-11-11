@@ -54,6 +54,11 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 	log.Info("new backup client")
 	ctx, cancel := context.WithCancel(backer.Context())
 	pdClient := backer.GetPDClient()
+	stores, err := pdClient.GetAllStores(ctx)
+	if err != nil {
+		cancel()
+		return nil, errors.Trace(err)
+	}
 	return &BackupClient{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
@@ -65,6 +70,7 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 			checksumCh: make(chan *tableChecksum),
 			errCh:      make(chan error),
 			wg:         sync.WaitGroup{},
+			workerPool: utils.NewWorkerPool(uint(len(stores)*8), "restore"),
 		},
 	}, nil
 }
@@ -786,6 +792,7 @@ type backupSchemas struct {
 	checksumCh chan *tableChecksum
 	errCh      chan error
 	wg         sync.WaitGroup
+	workerPool *utils.WorkerPool
 }
 
 func (bs *backupSchemas) startTableChecksum(
@@ -799,7 +806,7 @@ func (bs *backupSchemas) startTableChecksum(
 	)
 	bs.meta[name] = schema
 	bs.wg.Add(1)
-	go func() {
+	bs.workerPool.Apply(func() {
 		defer bs.wg.Done()
 		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
 		if err != nil {
@@ -808,7 +815,7 @@ func (bs *backupSchemas) startTableChecksum(
 		}
 		checksum.name = name
 		bs.checksumCh <- checksum
-	}()
+	})
 }
 
 func (bs *backupSchemas) finishTableChecksum() (*[]*backup.Schema, error) {
