@@ -478,9 +478,10 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 				zap.Uint64("origin tidb total bytes", table.TotalBytes),
 				zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
 			)
-			return errors.New("failed to  validate checksum")
+			return errors.New("failed to validate checksum")
 		}
 	}
+	log.Info("validate checksum passed!!")
 	return nil
 }
 
