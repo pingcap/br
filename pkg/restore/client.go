@@ -13,21 +13,20 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -42,8 +41,6 @@ const (
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
-
-	tikvChecksumRetryTimes = 5
 )
 
 // Client sends requests to importer to restore files
@@ -443,8 +440,6 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	wg := sync.WaitGroup{}
-	errCh := make(chan error, len(tables))
 	for i, t := range tables {
 		table := t
 		newTable := newTables[i]
@@ -452,229 +447,165 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 			OldPrefix: tablecodec.EncodeTablePrefix(table.Schema.ID),
 			NewPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
 		}
-		checksumReq := tipb.ChecksumRequest{
-			StartTs:   rc.backupMeta.GetEndVersion(),
-			ScanOn:    tipb.ChecksumScanOn_Table,
-			Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
-			Rule:      rule,
-		}
-		data, err := checksumReq.Marshal()
+
+		checksumResp := &tipb.ChecksumResponse{}
+		reqs, err := buildChecksumRequest(newTable, rule, rc.backupMeta.GetEndVersion())
 		if err != nil {
 			return errors.Trace(err)
 		}
-
-		wg.Add(1)
-		rc.workerPool.Apply(func() {
-			defer wg.Done()
-			tableStart := tablecodec.EncodeTablePrefix(newTable.ID)
-			tableEnd := tablecodec.EncodeTablePrefix(newTable.ID + 1)
-			resp, err := rc.checksumRange(0, tableStart, tableEnd, data)
+		for _, req := range reqs {
+			resp, err := handleChecksumRequest(rc.ctx, rc.tikvCli.GetClient(), req)
 			if err != nil {
-				errCh <- err
-				return
+				return errors.Trace(err)
 			}
-			if resp.Checksum != table.Crc64Xor ||
-				resp.TotalKvs != table.TotalKvs ||
-				resp.TotalBytes != table.TotalBytes {
-				log.Error("failed in validate checksum",
-					zap.String("database", table.Db.Name.L),
-					zap.String("table", table.Schema.Name.L),
-					zap.Uint64("origin tidb crc64", table.Crc64Xor),
-					zap.Uint64("calculated crc64", resp.Checksum),
-					zap.Uint64("origin tidb total kvs", table.TotalKvs),
-					zap.Uint64("calculated total kvs", resp.TotalKvs),
-					zap.Uint64("origin tidb total bytes", table.TotalBytes),
-					zap.Uint64("calculated total bytes", resp.TotalBytes),
-				)
-				errCh <- errors.Errorf("failed in validate checksum")
-				return
-			}
-		})
+			updateChecksumResponse(checksumResp, resp)
+		}
+
+		if checksumResp.Checksum != table.Crc64Xor ||
+			checksumResp.TotalKvs != table.TotalKvs ||
+			checksumResp.TotalBytes != table.TotalBytes {
+			log.Error("failed in validate checksum",
+				zap.String("database", table.Db.Name.L),
+				zap.String("table", table.Schema.Name.L),
+				zap.Uint64("origin tidb crc64", table.Crc64Xor),
+				zap.Uint64("calculated crc64", checksumResp.Checksum),
+				zap.Uint64("origin tidb total kvs", table.TotalKvs),
+				zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
+				zap.Uint64("origin tidb total bytes", table.TotalBytes),
+				zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+			)
+			return errors.New("failed to  validate checksum")
+		}
 	}
-	go func() {
-		wg.Wait()
-		close(errCh)
+	return nil
+}
+
+func buildChecksumRequest(
+	tableInfo *model.TableInfo,
+	rule *tipb.ChecksumRewriteRule,
+	startTs uint64) ([]*kv.Request, error) {
+	var partDefs []model.PartitionDefinition
+	if part := tableInfo.Partition; part != nil {
+		partDefs = part.Definitions
+	}
+
+	reqs := make([]*kv.Request, 0, (len(tableInfo.Indices)+1)*(len(partDefs)+1))
+	if err := appendRequest(tableInfo, tableInfo.ID, &reqs, rule, startTs); err != nil {
+		return nil, err
+	}
+
+	for _, partDef := range partDefs {
+		if err := appendRequest(tableInfo, partDef.ID, &reqs, rule, startTs); err != nil {
+			return nil, err
+		}
+	}
+	return reqs, nil
+}
+
+func appendRequest(
+	tableInfo *model.TableInfo,
+	tableID int64,
+	reqs *[]*kv.Request,
+	rule *tipb.ChecksumRewriteRule,
+	startTs uint64) error {
+	req, err := buildTableRequest(tableID, rule, startTs)
+	if err != nil {
+		return err
+	}
+
+	*reqs = append(*reqs, req)
+	for _, indexInfo := range tableInfo.Indices {
+		if indexInfo.State != model.StatePublic {
+			continue
+		}
+		req, err = buildIndexRequest(tableID, indexInfo, rule, startTs)
+		if err != nil {
+			return err
+		}
+		*reqs = append(*reqs, req)
+	}
+
+	return nil
+}
+
+func buildTableRequest(
+	tableID int64,
+	rule *tipb.ChecksumRewriteRule,
+	startTs uint64) (*kv.Request, error) {
+	checksum := &tipb.ChecksumRequest{
+		StartTs:   startTs,
+		ScanOn:    tipb.ChecksumScanOn_Table,
+		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
+		Rule:      rule,
+	}
+
+	ranges := ranger.FullIntRange(false)
+
+	var builder distsql.RequestBuilder
+	return builder.SetTableRanges(tableID, ranges, nil).
+		SetChecksumRequest(checksum).
+		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		Build()
+}
+
+func buildIndexRequest(
+	tableID int64,
+	indexInfo *model.IndexInfo,
+	rule *tipb.ChecksumRewriteRule,
+	startTs uint64) (*kv.Request, error) {
+	checksum := &tipb.ChecksumRequest{
+		StartTs:   startTs,
+		ScanOn:    tipb.ChecksumScanOn_Index,
+		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
+		Rule:      rule,
+	}
+
+	ranges := ranger.FullRange()
+
+	var builder distsql.RequestBuilder
+	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
+		SetChecksumRequest(checksum).
+		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		Build()
+}
+
+func handleChecksumRequest(
+	ctx context.Context,
+	client kv.Client,
+	req *kv.Request) (resp *tipb.ChecksumResponse, err error) {
+	res, err := distsql.Checksum(ctx, client, req, nil)
+	if err != nil {
+		return nil, err
+	}
+	res.Fetch(ctx)
+	defer func() {
+		if err1 := res.Close(); err1 != nil {
+			err = err1
+		}
 	}()
 
-	for {
-		err, ok := <-errCh
-		if !ok {
-			log.Info("validate checksum passed")
-			return nil
-		} else if err != nil {
-			return errors.Trace(err)
-		}
-	}
-}
-
-// checksum key range of [boundedStart, boundedEnd)
-func (rc *Client) checksumRange(
-	triedTime int,
-	boundedStart []byte,
-	boundedEnd []byte,
-	reqData []byte,
-) (*tipb.ChecksumResponse, error) {
-	if triedTime >= tikvChecksumRetryTimes {
-		return nil, errors.New("exceeded checksum retry time")
-	}
-	checksumResp := &tipb.ChecksumResponse{}
-	resCh := make(chan tipb.ChecksumResponse)
-	errCh := make(chan error)
-	wg := sync.WaitGroup{}
-	regions, peers, err := rc.pdClient.ScanRegions(
-		rc.ctx,
-		codec.EncodeBytes([]byte{}, boundedStart),
-		codec.EncodeBytes([]byte{}, boundedEnd),
-		10000,
-	)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	for i, region := range regions {
-		i := i
-		region := region
-		start, end, err := getIntersectRange(&boundedStart, &boundedEnd, region)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		wg.Add(1)
-		rc.workerPool.Apply(func() {
-			defer wg.Done()
-			res, err := rc.checksumRegion(triedTime, start, end, region, peers[i], reqData)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			resCh <- *res
-		})
-	}
-
-	go func() {
-		wg.Wait()
-		close(resCh)
-	}()
+	resp = &tipb.ChecksumResponse{}
 
 	for {
-		select {
-		case checksum, ok := <-resCh:
-			if !ok {
-				return checksumResp, nil
-			}
-			checksumResp.Checksum ^= checksum.Checksum
-			checksumResp.TotalKvs += checksum.TotalKvs
-			checksumResp.TotalBytes += checksum.TotalBytes
-		case err := <-errCh:
-			return nil, errors.Trace(err)
+		data, err := res.NextRaw(ctx)
+		if err != nil {
+			return nil, err
 		}
-
+		if data == nil {
+			break
+		}
+		checksum := &tipb.ChecksumResponse{}
+		if err = checksum.Unmarshal(data); err != nil {
+			return nil, err
+		}
+		updateChecksumResponse(resp, checksum)
 	}
+
+	return resp, nil
 }
 
-// checksum key range [start, end) in region with retry
-func (rc *Client) checksumRegion(
-	triedTime int,
-	start *[]byte,
-	end *[]byte,
-	region *metapb.Region,
-	peer *metapb.Peer,
-	reqData []byte,
-) (*tipb.ChecksumResponse, error) {
-	reqCtx := &kvrpcpb.Context{
-		RegionId:     region.GetId(),
-		RegionEpoch:  region.GetRegionEpoch(),
-		Peer:         peer,
-		NotFillCache: true, // Do not fill rocksdb block cache.
-	}
-	ranges := []*coprocessor.KeyRange{{Start: *start, End: *end}}
-	req := &coprocessor.Request{
-		Context: reqCtx,
-		Tp:      kv.ReqTypeChecksum, // REQ_TYPE_CHECKSUM flag
-		Data:    reqData,
-		Ranges:  ranges,
-	}
-
-	storeID := peer.GetStoreId()
-	kvClient, err := rc.backer.GetTikvClient(storeID)
-	if err != nil {
-		err = rc.backer.ResetGrpcClient(storeID)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		kvClient, err = rc.backer.GetTikvClient(storeID)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-
-	resp, err := kvClient.Coprocessor(rc.ctx, req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if resp.GetOtherError() != "" {
-		log.Error("Coprocessor request error",
-			zap.String("OtherError", resp.GetOtherError()))
-		return nil, errors.Errorf("OtherError: %s", resp.GetOtherError())
-	}
-	if resp.GetLocked() != nil {
-		log.Error("Coprocessor request error",
-			zap.Any("Locked", resp.GetLocked()))
-		return nil, errors.Errorf("Locked: %s", resp.GetLocked().String())
-	}
-
-	regionErr := resp.GetRegionError()
-	if regionErr != nil {
-		if regionErr.GetNotLeader() != nil ||
-			regionErr.GetRegionNotFound() != nil ||
-			regionErr.GetKeyNotInRegion() != nil ||
-			regionErr.GetEpochNotMatch() != nil {
-			// retry this key range
-			return rc.checksumRange(triedTime+1, *start, *end, reqData)
-		}
-		log.Error("Coprocessor request error",
-			zap.Any("RegionError", regionErr))
-		return nil, errors.Trace(err)
-	}
-
-	checksum := &tipb.ChecksumResponse{}
-	if err = checksum.Unmarshal(resp.Data); err != nil {
-		return nil, errors.Trace(err)
-	}
-	return checksum, nil
-}
-
-// get intersect key range of [start, end] and [region.StartKey, region.EndKey]
-func getIntersectRange(
-	start *[]byte,
-	end *[]byte,
-	region *metapb.Region,
-) (innerStart *[]byte, innerEnd *[]byte, err error) {
-	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
-		innerStart = start
-	} else {
-		_, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		if bytes.Compare(regionStart, *start) < 0 {
-			innerStart = start
-		} else {
-			innerStart = &regionStart
-		}
-	}
-
-	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
-		innerEnd = end
-	} else {
-		_, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		if bytes.Compare(regionEnd, *end) < 0 {
-			innerEnd = &regionEnd
-		} else {
-			innerEnd = end
-		}
-	}
-	return innerStart, innerEnd, nil
+func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
+	resp.Checksum ^= update.Checksum
+	resp.TotalKvs += update.TotalKvs
+	resp.TotalBytes += update.TotalBytes
 }
