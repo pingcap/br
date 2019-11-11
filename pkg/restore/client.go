@@ -216,6 +216,11 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	openDBs := make(map[string]*sql.DB)
+	defer func() {
+		for _, db := range openDBs {
+			_ = db.Close()
+		}
+	}()
 	for _, table := range tables {
 		var err error
 		db, ok := openDBs[table.Db.Name.String()]
@@ -224,6 +229,7 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 			if err != nil {
 				return nil, err
 			}
+			openDBs[table.Db.Name.String()] = db
 		}
 		err = CreateTable(db, table)
 		if err != nil {
