@@ -45,7 +45,7 @@ type BackupClient struct {
 	pdClient  pd.Client
 
 	backupMeta    backup.BackupMeta
-	backupSchemas BackupSchemas
+	backupSchemas backupSchemas
 	storage       utils.ExternalStorage
 }
 
@@ -118,62 +118,8 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
-type BackupSchemas struct {
-	meta       map[string]*backup.Schema
-	checksumCh chan *tableChecksum
-	errCh      chan error
-	wg         sync.WaitGroup
-}
-
-func (bs *BackupSchemas) startTableChecksum(ctx context.Context, schema *backup.Schema, dbSession session.Session, dbName string, tableName string) {
-	name := fmt.Sprintf("%s.%s", dbName, tableName)
-	bs.meta[name] = schema
-	bs.wg.Add(1)
-	go func() {
-		defer bs.wg.Done()
-		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
-		if err != nil {
-			bs.errCh <- errors.Trace(err)
-			return
-		}
-		bs.checksumCh <- checksum
-	}()
-}
-
-func (bs *BackupSchemas) getSchemas() (*[]*backup.Schema, error) {
-	go func() {
-		bs.wg.Wait()
-		close(bs.checksumCh)
-	}()
-	var schemas []*backup.Schema
-	for {
-		select {
-		case checksum, ok := <-bs.checksumCh:
-			if !ok {
-				return &schemas, nil
-			}
-			s := bs.meta[checksum.name]
-			s.Crc64Xor = checksum.checksum
-			s.TotalKvs = checksum.totalKvs
-			s.TotalBytes = checksum.totalBytes
-			schemas = append(schemas, s)
-		case err := <-bs.errCh:
-			return nil, err
-		}
-	}
-}
-
-func (bc *BackupClient) CompleteMeta() error {
-	schemas, err := bc.backupSchemas.getSchemas()
-	if err != nil {
-		return err
-	}
-	bc.backupMeta.Schemas = *schemas
-	return nil
-}
-
-// GetBackupTableRanges gets the range of table
-func (bc *BackupClient) GetBackupTableRanges(
+// PreBackupTableRanges gets the range of table and request admin checksum from TiDB.
+func (bc *BackupClient) PreBackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
@@ -226,7 +172,13 @@ func (bc *BackupClient) GetBackupTableRanges(
 		Table: tableData,
 	}
 	dbSession.GetSessionVars().SnapshotTS = backupTS
-	bc.backupSchemas.startTableChecksum(bc.ctx, backupSchema, dbSession, dbInfo.Name.L, tableInfo.Name.L)
+	bc.backupSchemas = backupSchemas{
+		meta:       make(map[string]*backup.Schema),
+		checksumCh: make(chan *tableChecksum),
+		errCh:      make(chan error),
+		wg:         sync.WaitGroup{},
+	}
+	bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 	log.Info("save table schema",
 		zap.Stringer("db", dbInfo.Name),
@@ -279,8 +231,8 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
+// PreBackupAllTableRanges gets the range of all tables and request admin checksum from TiDB.
+func (bc *BackupClient) PreBackupAllTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -304,6 +256,12 @@ func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error
 
 	dbInfos := info.AllSchemas()
 	ranges := make([]Range, 0)
+	bc.backupSchemas = backupSchemas{
+		meta:       make(map[string]*backup.Schema),
+		checksumCh: make(chan *tableChecksum),
+		errCh:      make(chan error),
+		wg:         sync.WaitGroup{},
+	}
 LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
@@ -337,7 +295,7 @@ LoadDb:
 				zap.Stringer("table", tableInfo.Name),
 				zap.Int64("auto_inc_id", globalAutoID),
 			)
-			bc.backupSchemas.startTableChecksum(bc.ctx, backupSchema, dbSession, dbInfo.Name.L, tableInfo.Name.L)
+			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 			//       backup global index.
@@ -738,6 +696,16 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 	return true, nil
 }
 
+// CompleteMeta wait response of admin checksum from TiDB to complete backup meta
+func (bc *BackupClient) CompleteMeta() error {
+	schemas, err := bc.backupSchemas.getSchemas()
+	if err != nil {
+		return err
+	}
+	bc.backupMeta.Schemas = *schemas
+	return nil
+}
+
 type tableChecksum struct {
 	name       string
 	checksum   uint64
@@ -785,9 +753,54 @@ func getChecksumFromTiDB(
 		return nil, errors.Trace(err)
 	}
 	return &tableChecksum{
-		name:       fmt.Sprintf("%s.%s", dbName, tableName),
 		checksum:   checksum,
 		totalKvs:   totalKvs,
 		totalBytes: totalBytes,
 	}, nil
+}
+
+type backupSchemas struct {
+	meta       map[string]*backup.Schema
+	checksumCh chan *tableChecksum
+	errCh      chan error
+	wg         sync.WaitGroup
+}
+
+func (bs *backupSchemas) startTableChecksum(ctx context.Context, dbSession session.Session, schema *backup.Schema, dbName string, tableName string) {
+	name := fmt.Sprintf("%s.%s", dbName, tableName)
+	bs.meta[name] = schema
+	bs.wg.Add(1)
+	go func() {
+		defer bs.wg.Done()
+		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
+		if err != nil {
+			bs.errCh <- err
+			return
+		}
+		checksum.name = name
+		bs.checksumCh <- checksum
+	}()
+}
+
+func (bs *backupSchemas) getSchemas() (*[]*backup.Schema, error) {
+	go func() {
+		bs.wg.Wait()
+		close(bs.checksumCh)
+	}()
+	var schemas []*backup.Schema
+	for {
+		select {
+		case checksum, ok := <-bs.checksumCh:
+			if !ok {
+				return &schemas, nil
+			}
+			s := bs.meta[checksum.name]
+			s.Crc64Xor = checksum.checksum
+			s.TotalKvs = checksum.totalKvs
+			s.TotalBytes = checksum.totalBytes
+			schemas = append(schemas, s)
+		case err := <-bs.errCh:
+			return nil, errors.Trace(err)
+		}
+	}
 }
