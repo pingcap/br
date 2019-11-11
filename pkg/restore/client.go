@@ -210,11 +210,12 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
-func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, error) {
+func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
+	newTables := make([]*model.TableInfo, 0, len(tables))
 	openDBs := make(map[string]*sql.DB)
 	defer func() {
 		for _, db := range openDBs {
@@ -227,27 +228,28 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		if !ok {
 			db, err = OpenDatabase(table.Db.Name.String(), rc.dbDSN)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			openDBs[table.Db.Name.String()] = db
 		}
 		err = CreateTable(db, table)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		err = AlterAutoIncID(db, table)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		rules := GetRewriteRules(newTableInfo, table.Schema)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
+		newTables = append(newTables, newTableInfo)
 	}
-	return rewriteRules, nil
+	return rewriteRules, newTables, nil
 }
 
 // RestoreTable tries to restore the data of a table.
@@ -434,25 +436,21 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 }
 
 //ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
+func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.TableInfo) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	// Assume one database one table.
-	tables := make([]*utils.Table, 0, len(rc.databases))
-	for _, db := range rc.databases {
-		tables = append(tables, db.Tables...)
-	}
 	wg := sync.WaitGroup{}
 	errCh := make(chan error, len(tables))
-	for _, table := range tables {
-		rule := getTableRewriteRule(table.Schema.ID, rewriteRules)
-		newTableID := tablecodec.DecodeTableID(rule.GetNewPrefix())
-		if newTableID == 0 || rule == nil {
-			return errors.Errorf("failed to get rewrite rule for %v", table.Schema.ID)
+	for i, t := range tables {
+		table := t
+		newTable := newTables[i]
+		rule := &tipb.ChecksumRewriteRule{
+			OldPrefix: tablecodec.EncodeTablePrefix(table.Schema.ID),
+			NewPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
 		}
 		checksumReq := tipb.ChecksumRequest{
 			StartTs:   rc.backupMeta.GetEndVersion(),
@@ -466,11 +464,10 @@ func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) err
 		}
 
 		wg.Add(1)
-		table := table
 		rc.workerPool.Apply(func() {
 			defer wg.Done()
-			tableStart := tablecodec.EncodeTablePrefix(newTableID)
-			tableEnd := tablecodec.EncodeTablePrefix(newTableID + 1)
+			tableStart := tablecodec.EncodeTablePrefix(newTable.ID)
+			tableEnd := tablecodec.EncodeTablePrefix(newTable.ID + 1)
 			resp, err := rc.checksumRange(0, tableStart, tableEnd, data)
 			if err != nil {
 				errCh <- err
@@ -644,19 +641,6 @@ func (rc *Client) checksumRegion(
 		return nil, errors.Trace(err)
 	}
 	return checksum, nil
-}
-
-func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
-	for _, r := range rules {
-		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
-		if tableID == tid {
-			return &tipb.ChecksumRewriteRule{
-				OldPrefix: r.GetOldKeyPrefix(),
-				NewPrefix: r.GetNewKeyPrefix(),
-			}
-		}
-	}
-	return nil
 }
 
 // get intersect key range of [start, end] and [region.StartKey, region.EndKey]
