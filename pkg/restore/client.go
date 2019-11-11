@@ -164,7 +164,7 @@ func (rc *Client) ResetTS() error {
 		}
 		if resp.StatusCode != 200 && resp.StatusCode != 403 {
 			buf := new(bytes.Buffer)
-			buf.ReadFrom(resp.Body)
+			_, _ = buf.ReadFrom(resp.Body)
 			return errors.Errorf("pd resets TS failed: req=%v, resp=%v", string(req), buf.String())
 		}
 		return nil
