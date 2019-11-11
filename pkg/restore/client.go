@@ -449,7 +449,11 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 		}
 
 		checksumResp := &tipb.ChecksumResponse{}
-		reqs, err := buildChecksumRequest(newTable, rule, rc.backupMeta.GetEndVersion())
+		startTS, err := rc.GetTS()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		reqs, err := buildChecksumRequest(newTable, rule, startTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
