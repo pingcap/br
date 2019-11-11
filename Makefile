@@ -51,7 +51,6 @@ static:
 		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
-		--disable gosec \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint:
