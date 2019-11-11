@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -52,23 +56,52 @@ func NewMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			for _, file := range backupMeta.Files {
-				var data []byte
-				data, err = storage.Read(file.Name)
+			dbs, err := utils.LoadBackupTables(backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			for _, schema := range backupMeta.Schemas {
+				dbInfo := &model.DBInfo{}
+				err = json.Unmarshal(schema.Db, dbInfo)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				s := sha256.Sum256(data)
-				hexBytes := make([]byte, hex.EncodedLen(len(s)))
-				hex.Encode(hexBytes, s[:])
-				if !bytes.Equal(hexBytes, file.Sha256) {
-					return errors.Errorf(`
+				tblInfo := &model.TableInfo{}
+				err = json.Unmarshal(schema.Table, tblInfo)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
+
+				for _, file := range tbl.Files {
+					log.Info("file info", zap.Stringer("table", tblInfo.Name),
+						zap.String("file", file.GetName()),
+						zap.Uint64("crc64xor", file.GetCrc64Xor()),
+						zap.Uint64("totalKvs", file.GetTotalKvs()),
+						zap.Uint64("totalBytes", file.GetTotalBytes()),
+						zap.Uint64("startVersion", file.GetStartVersion()),
+						zap.Uint64("endVersion", file.GetEndVersion()),
+						zap.Binary("startKey", file.GetStartKey()),
+						zap.Binary("endKey", file.GetEndKey()),
+					)
+
+					var data []byte
+					data, err = storage.Read(file.Name)
+					if err != nil {
+						return errors.Trace(err)
+					}
+					s := sha256.Sum256(data)
+					hexBytes := make([]byte, hex.EncodedLen(len(s)))
+					hex.Encode(hexBytes, s[:])
+					if !bytes.Equal(hexBytes, file.Sha256) {
+						return errors.Errorf(`
 backup data checksum failed: %s may be changed
 calculated sha256 is %s,
 origin sha256 is %s`, file.Name, s, file.Sha256)
+					}
 				}
 			}
-
 			cmd.Println("backup data checksum succeed!")
 			return nil
 		},

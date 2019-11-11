@@ -5,7 +5,7 @@ linters-settings:
 issues:
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
-    - path: _test\.go
+    - path: .go
       text: "Potential HTTP request made with variable url"
       linters:
         - gosec
