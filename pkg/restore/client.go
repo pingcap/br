@@ -443,6 +443,7 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
+	log.Info("Start to validate checksum")
 	wg := sync.WaitGroup{}
 	errCh := make(chan error, len(tables))
 	for i, t := range tables {

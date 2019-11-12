@@ -17,9 +17,10 @@ import (
 )
 
 var (
-	errNotLeader           error = errors.New("not leader")
-	errEpochNotMatch       error = errors.New("epoch not match")
-	errRewriteRuleNotFound error = errors.New("rewrite rule not found")
+	errNotLeader           = errors.New("not leader")
+	errEpochNotMatch       = errors.New("epoch not match")
+	errRewriteRuleNotFound = errors.New("rewrite rule not found")
+	errRangeIsEmpty        = errors.New("range is empty")
 )
 
 const (
@@ -104,15 +105,18 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						zap.Stringer("file", file),
 						zap.Stringer("region", regionInfo.Region),
 					)
+					return errRangeIsEmpty
 				}
 				return nil
 			}, func(e error) bool {
 				// Scan regions may return some regions which cannot match any rewrite rule,
 				// like [t{tableID}, t{tableID}_r), those regions should be skipped
-				return e != errRewriteRuleNotFound
+				return e != errRewriteRuleNotFound &&
+				// Skip empty files
+					e != errRangeIsEmpty
 			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			if err != nil {
-				if err == errRewriteRuleNotFound {
+				if err == errRewriteRuleNotFound || err == errRangeIsEmpty {
 					// Skip this region
 					continue
 				}
