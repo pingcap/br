@@ -30,7 +30,7 @@ func NewMetaCommand() *cobra.Command {
 			return nil
 		},
 	}
-	meta.AddCommand(&cobra.Command{
+	checksumCmd := &cobra.Command{
 		Use:   "checksum",
 		Short: "check the backup data",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -118,6 +118,8 @@ origin sha256 is %s`, file.Name, s, file.Sha256)
 			cmd.Println("backup data checksum succeed!")
 			return nil
 		},
-	})
+	}
+	checksumCmd.Hidden = true
+	meta.AddCommand(checksumCmd)
 	return meta
 }
