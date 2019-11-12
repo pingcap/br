@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"net/http"
+	"net/http/pprof"
 	"sync"
 
 	"github.com/pingcap/errors"
@@ -83,15 +84,16 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		if len(statusAddr) != 0 {
-			go func() {
+		go func() {
+			// Make sure pprof is registered.
+			_ = pprof.Handler
+			if len(statusAddr) != 0 {
+				log.Info("start pprof", zap.String("addr", statusAddr))
 				if e := http.ListenAndServe(statusAddr, nil); e != nil {
 					log.Warn("fail to start pprof", zap.String("addr", statusAddr), zap.Error(e))
-				} else {
-					log.Info("start pprof", zap.String("addr", statusAddr))
 				}
-			}()
-		}
+			}
+		}()
 		// Set the PD server address.
 		pdAddress, e = cmd.Flags().GetString(FlagPD)
 		if e != nil {
