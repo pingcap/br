@@ -41,6 +41,7 @@ func NewBackupCommand() *cobra.Command {
 	command.PersistentFlags().BoolP("checksum", "", false,
 		"fast checksum backup sst file by calculate all sst file")
 
+	_ = command.PersistentFlags().MarkHidden("checksum")
 	return command
 }
 
