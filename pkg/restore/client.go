@@ -443,17 +443,13 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 	for i, t := range tables {
 		table := t
 		newTable := newTables[i]
-		rule := &tipb.ChecksumRewriteRule{
-			OldPrefix: tablecodec.EncodeTablePrefix(table.Schema.ID),
-			NewPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-		}
 
 		checksumResp := &tipb.ChecksumResponse{}
 		startTS, err := rc.GetTS()
 		if err != nil {
 			return errors.Trace(err)
 		}
-		reqs, err := buildChecksumRequest(newTable, rule, startTS)
+		reqs, err := buildChecksumRequest(newTable, table, startTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -486,21 +482,21 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 }
 
 func buildChecksumRequest(
-	tableInfo *model.TableInfo,
-	rule *tipb.ChecksumRewriteRule,
+	newTable *model.TableInfo,
+	oldTable *utils.Table,
 	startTs uint64) ([]*kv.Request, error) {
 	var partDefs []model.PartitionDefinition
-	if part := tableInfo.Partition; part != nil {
+	if part := newTable.Partition; part != nil {
 		partDefs = part.Definitions
 	}
 
-	reqs := make([]*kv.Request, 0, (len(tableInfo.Indices)+1)*(len(partDefs)+1))
-	if err := appendRequest(tableInfo, tableInfo.ID, &reqs, rule, startTs); err != nil {
+	reqs := make([]*kv.Request, 0, (len(newTable.Indices)+1)*(len(partDefs)+1))
+	if err := appendRequest(newTable, newTable.ID, &reqs, oldTable, startTs); err != nil {
 		return nil, err
 	}
 
 	for _, partDef := range partDefs {
-		if err := appendRequest(tableInfo, partDef.ID, &reqs, rule, startTs); err != nil {
+		if err := appendRequest(newTable, partDef.ID, &reqs, oldTable, startTs); err != nil {
 			return nil, err
 		}
 	}
@@ -511,9 +507,9 @@ func appendRequest(
 	tableInfo *model.TableInfo,
 	tableID int64,
 	reqs *[]*kv.Request,
-	rule *tipb.ChecksumRewriteRule,
+	oldTable *utils.Table,
 	startTs uint64) error {
-	req, err := buildTableRequest(tableID, rule, startTs)
+	req, err := buildTableRequest(tableID, oldTable, startTs)
 	if err != nil {
 		return err
 	}
@@ -523,11 +519,15 @@ func appendRequest(
 		if indexInfo.State != model.StatePublic {
 			continue
 		}
-		req, err = buildIndexRequest(tableID, indexInfo, rule, startTs)
-		if err != nil {
-			return err
+		for _, oldIndexInfo := range oldTable.Schema.Indices {
+			if oldIndexInfo.Name == indexInfo.Name {
+				req, err = buildIndexRequest(tableID, indexInfo, oldIndexInfo, startTs)
+				if err != nil {
+					return err
+				}
+				*reqs = append(*reqs, req)
+			}
 		}
-		*reqs = append(*reqs, req)
 	}
 
 	return nil
@@ -535,8 +535,13 @@ func appendRequest(
 
 func buildTableRequest(
 	tableID int64,
-	rule *tipb.ChecksumRewriteRule,
+	oldTable *utils.Table,
 	startTs uint64) (*kv.Request, error) {
+	rule := &tipb.ChecksumRewriteRule{
+		OldPrefix: tablecodec.EncodeTablePrefix(oldTable.Schema.ID),
+		NewPrefix: tablecodec.EncodeTablePrefix(tableID),
+	}
+
 	checksum := &tipb.ChecksumRequest{
 		StartTs:   startTs,
 		ScanOn:    tipb.ChecksumScanOn_Table,
@@ -556,8 +561,12 @@ func buildTableRequest(
 func buildIndexRequest(
 	tableID int64,
 	indexInfo *model.IndexInfo,
-	rule *tipb.ChecksumRewriteRule,
+	oldIndexInfo *model.IndexInfo,
 	startTs uint64) (*kv.Request, error) {
+	rule := &tipb.ChecksumRewriteRule{
+		OldPrefix: tablecodec.EncodeTablePrefix(oldIndexInfo.ID),
+		NewPrefix: tablecodec.EncodeTablePrefix(indexInfo.ID),
+	}
 	checksum := &tipb.ChecksumRequest{
 		StartTs:   startTs,
 		ScanOn:    tipb.ChecksumScanOn_Index,
