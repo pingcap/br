@@ -7,6 +7,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/util/logutil"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -39,6 +41,8 @@ const (
 	FlagLogFile = "log-file"
 	// FlagStatusAddr is the name of status-addr flag.
 	FlagStatusAddr = "status-addr"
+	// FlagSlowLogFile is the name of slow-log-file flag.
+	FlagSlowLogFile = "slow-log-file"
 )
 
 // AddFlags adds flags to the given cmd.
@@ -55,6 +59,10 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
+
+	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
+		"Set the slow log file path. If not set, discard slow logs")
+	_ = cmd.PersistentFlags().MarkHidden(FlagSlowLogFile)
 }
 
 // Init ...
@@ -76,6 +84,23 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 		log.ReplaceGlobals(lg, p)
+
+		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
+		if e != nil {
+			err = e
+			return
+		}
+		if len(slowLogFilename) != 0 {
+			slowCfg := logutil.LogConfig{SlowQueryFile: slowLogFilename}
+			e = logutil.InitLogger(&slowCfg)
+			if e != nil {
+				err = e
+				return
+			}
+		} else {
+			// Hack! Discard slow log by setting log level to PanicLevel
+			logutil.SlowQueryLogger.SetLevel(logrus.PanicLevel)
+		}
 
 		// Initialize the pprof server.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
