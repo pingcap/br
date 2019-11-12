@@ -84,12 +84,12 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	}
 
 	return &Client{
-		ctx:      ctx,
-		cancel:   cancel,
-		pdClient: pdClient,
-		pdAddrs:  addrs,
-		tikvCli:  tikvCli.(tikv.Storage),
-		backer:   backer,
+		ctx:             ctx,
+		cancel:          cancel,
+		pdClient:        pdClient,
+		pdAddrs:         addrs,
+		tikvCli:         tikvCli.(tikv.Storage),
+		backer:          backer,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 	}, nil
 }
