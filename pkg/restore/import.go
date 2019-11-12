@@ -63,12 +63,12 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	// Rewrite the start key and end key of file to scan regions
 	scanStartKey, ok := rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules)
 	if !ok {
-		log.Error("cannot find a rewrite rule for file start key", zap.Reflect("file", file))
+		log.Error("cannot find a rewrite rule for file start key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
 	scanEndKey, ok := rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules)
 	if !ok {
-		log.Error("cannot find a rewrite rule for file end key", zap.Reflect("file", file))
+		log.Error("cannot find a rewrite rule for file end key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
 	err := withRetry(func() error {

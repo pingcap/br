@@ -267,7 +267,6 @@ func (rc *Client) RestoreTable(
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 		zap.Array("files", files(table.Files)),
-		zap.Reflect("rewriteRules", rewriteRules),
 	)
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
