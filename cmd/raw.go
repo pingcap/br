@@ -38,6 +38,10 @@ func NewBackupCommand() *cobra.Command {
 	command.PersistentFlags().Uint32P(
 		"concurrency", "", 4, "The size of thread pool on each node that execute the backup task")
 
+	command.PersistentFlags().BoolP("checksum", "", false,
+		"fast checksum backup sst file by calculate all sst file")
+
+	_ = command.PersistentFlags().MarkHidden("checksum")
 	return command
 }
 
@@ -118,15 +122,21 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			valid, err := client.FastChecksum()
+			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
+			if checksumSwitch {
+				valid, err := client.FastChecksum()
+				if err != nil {
+					return err
+				}
 
-			if !valid {
-				log.Error("backup FastChecksum not passed!")
+				if !valid {
+					log.Error("backup FastChecksum not passed!")
+				}
+
 			}
-
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -228,13 +238,18 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
-			valid, err := client.FastChecksum()
+			checksumSwitch, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
-
-			if !valid {
-				log.Error("backup FastChecksum not passed!")
+			if checksumSwitch {
+				valid, err := client.FastChecksum()
+				if err != nil {
+					return err
+				}
+				if !valid {
+					log.Error("backup FastChecksum not passed!")
+				}
 			}
 
 			return client.SaveBackupMeta(u)

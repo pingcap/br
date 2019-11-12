@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	errNotLeader           error = errors.New("not leader")
-	errEpochNotMatch       error = errors.New("epoch not match")
-	errRewriteRuleNotFound error = errors.New("rewrite rule not found")
+	errNotLeader           = errors.New("not leader")
+	errEpochNotMatch       = errors.New("epoch not match")
+	errRewriteRuleNotFound = errors.New("rewrite rule not found")
 )
 
 const (
