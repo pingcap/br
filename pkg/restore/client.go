@@ -521,7 +521,7 @@ func appendRequest(
 		}
 		for _, oldIndexInfo := range oldTable.Schema.Indices {
 			if oldIndexInfo.Name == indexInfo.Name {
-				req, err = buildIndexRequest(tableID, indexInfo, oldIndexInfo, startTs)
+				req, err = buildIndexRequest(tableID, indexInfo, oldTable.Schema.ID, oldIndexInfo, startTs)
 				if err != nil {
 					return err
 				}
@@ -561,11 +561,12 @@ func buildTableRequest(
 func buildIndexRequest(
 	tableID int64,
 	indexInfo *model.IndexInfo,
+	oldTableID int64,
 	oldIndexInfo *model.IndexInfo,
 	startTs uint64) (*kv.Request, error) {
 	rule := &tipb.ChecksumRewriteRule{
-		OldPrefix: tablecodec.GenTableIndexPrefix(oldIndexInfo.ID),
-		NewPrefix: tablecodec.GenTableIndexPrefix(indexInfo.ID),
+		OldPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexInfo.ID),
+		NewPrefix: tablecodec.EncodeTableIndexPrefix(tableID, indexInfo.ID),
 	}
 	checksum := &tipb.ChecksumRequest{
 		StartTs:   startTs,
