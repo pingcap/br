@@ -82,16 +82,17 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		// Try to download and ingest the file in every region
 		for _, regionInfo := range regionInfos {
 			var downloadMeta *import_sstpb.SSTMeta
+			info := regionInfo
 			// Try to download file.
 			err = withRetry(func() error {
 				var err error
 				var isEmpty bool
-				downloadMeta, isEmpty, err = importer.downloadSST(regionInfo, file, rewriteRules)
+				downloadMeta, isEmpty, err = importer.downloadSST(info, file, rewriteRules)
 				if err != nil {
 					if err != errRewriteRuleNotFound {
 						log.Warn("download file failed",
 							zap.Stringer("file", file),
-							zap.Stringer("region", regionInfo.Region),
+							zap.Stringer("region", info.Region),
 							zap.ByteString("scanStartKey", scanStartKey),
 							zap.ByteString("scanEndKey", scanEndKey),
 							zap.Error(err),
@@ -103,7 +104,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 					log.Info(
 						"file don't have any key in this region, skip it",
 						zap.Stringer("file", file),
-						zap.Stringer("region", regionInfo.Region),
+						zap.Stringer("region", info.Region),
 					)
 					return errRangeIsEmpty
 				}
@@ -112,7 +113,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				// Scan regions may return some regions which cannot match any rewrite rule,
 				// like [t{tableID}, t{tableID}_r), those regions should be skipped
 				return e != errRewriteRuleNotFound &&
-				// Skip empty files
+					// Skip empty files
 					e != errRangeIsEmpty
 			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			if err != nil {
@@ -122,12 +123,12 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				}
 				return err
 			}
-			err = importer.ingestSST(downloadMeta, regionInfo)
+			err = importer.ingestSST(downloadMeta, info)
 			if err != nil {
 				log.Warn("ingest file failed",
 					zap.Stringer("file", file),
 					zap.Stringer("range", downloadMeta.GetRange()),
-					zap.Stringer("region", regionInfo.Region),
+					zap.Stringer("region", info.Region),
 					zap.Error(err),
 				)
 				return err

@@ -33,18 +33,6 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
-type rules []*import_sstpb.RewriteRule
-
-func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range rs {
-		err := arr.AppendReflected(rs[i])
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
 	tableRules := make([]*import_sstpb.RewriteRule, 0, 2)
