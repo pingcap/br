@@ -210,7 +210,9 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
+// Encode a raw key and find a rewrite rule to rewrite it.
+// Return false if cannot find a related rewrite rule.
+func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, bool) {
 	if len(key) > 0 {
 		ret := make([]byte, len(key))
 		copy(ret, key)
@@ -218,17 +220,17 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 		for _, rule := range rewriteRules.Data {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
 			}
 		}
 		for _, rule := range rewriteRules.Table {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
 			}
 		}
 	}
-	return []byte("")
+	return []byte(""), false
 }
 
 func truncateTS(key []byte) []byte {
