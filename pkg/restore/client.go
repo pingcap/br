@@ -48,12 +48,12 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient         pd.Client
-	pdAddrs          []string
-	tikvCli          tikv.Storage
-	fileImporter     FileImporter
-	workerPool       *utils.WorkerPool
-	regionWorkerPool *utils.WorkerPool
+	pdClient        pd.Client
+	pdAddrs         []string
+	tikvCli         tikv.Storage
+	fileImporter    FileImporter
+	workerPool      *utils.WorkerPool
+	tableWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -90,6 +90,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		pdAddrs:  addrs,
 		tikvCli:  tikvCli.(tikv.Storage),
 		backer:   backer,
+		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 	}, nil
 }
 
@@ -124,8 +125,7 @@ func (rc *Client) GetDbDSN() string {
 
 // SetConcurrency sets the concurrency of dbs tables files
 func (rc *Client) SetConcurrency(c uint) {
-	rc.workerPool = utils.NewWorkerPool(c/2, "restore")
-	rc.regionWorkerPool = utils.NewWorkerPool(c/2, "restore_region")
+	rc.workerPool = utils.NewWorkerPool(c, "file")
 }
 
 // GetTS gets a new timestamp from PD
@@ -323,7 +323,7 @@ func (rc *Client) RestoreDatabase(
 	for _, table := range db.Tables {
 		wg.Add(1)
 		tblReplica := table
-		rc.workerPool.Apply(func() {
+		rc.tableWorkerPool.Apply(func() {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
@@ -359,7 +359,7 @@ func (rc *Client) RestoreAll(
 	for _, db := range rc.databases {
 		wg.Add(1)
 		dbReplica := db
-		rc.workerPool.Apply(func() {
+		rc.tableWorkerPool.Apply(func() {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
