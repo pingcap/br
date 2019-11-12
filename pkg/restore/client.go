@@ -538,8 +538,8 @@ func buildTableRequest(
 	oldTable *utils.Table,
 	startTs uint64) (*kv.Request, error) {
 	rule := &tipb.ChecksumRewriteRule{
-		OldPrefix: tablecodec.EncodeTablePrefix(oldTable.Schema.ID),
-		NewPrefix: tablecodec.EncodeTablePrefix(tableID),
+		OldPrefix: tablecodec.GenTableRecordPrefix(oldTable.Schema.ID),
+		NewPrefix: tablecodec.GenTableRecordPrefix(tableID),
 	}
 
 	checksum := &tipb.ChecksumRequest{
@@ -564,8 +564,8 @@ func buildIndexRequest(
 	oldIndexInfo *model.IndexInfo,
 	startTs uint64) (*kv.Request, error) {
 	rule := &tipb.ChecksumRewriteRule{
-		OldPrefix: tablecodec.EncodeTablePrefix(oldIndexInfo.ID),
-		NewPrefix: tablecodec.EncodeTablePrefix(indexInfo.ID),
+		OldPrefix: tablecodec.GenTableIndexPrefix(oldIndexInfo.ID),
+		NewPrefix: tablecodec.GenTableIndexPrefix(indexInfo.ID),
 	}
 	checksum := &tipb.ChecksumRequest{
 		StartTs:   startTs,
