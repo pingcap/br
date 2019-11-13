@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -26,9 +27,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, NotNil)
 	c.Assert(err, ErrorMatches, "storage net not support yet")
 
-	rawURL = "local:///tmp/storage"
+	rawURL = fmt.Sprintf("local://%s/storage", os.TempDir())
 	_, err = CreateStorage(rawURL)
-	c.Assert(err, IsNil)
-	err = os.RemoveAll("/tmp/storage")
 	c.Assert(err, IsNil)
 }
