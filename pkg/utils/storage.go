@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"syscall"
 
 	"github.com/pingcap/errors"
 )
@@ -61,7 +62,9 @@ func pathExists(path string) (bool, error) {
 func newLocalStorage(base string) (*LocalStorage, error) {
 	ok, _ := pathExists(base)
 	if !ok {
-		err := os.MkdirAll(base, 0644)
+		mask := syscall.Umask(0)
+		defer syscall.Umask(mask)
+		err := os.MkdirAll(base, os.ModePerm)
 		if err != nil {
 			return nil, err
 		}
