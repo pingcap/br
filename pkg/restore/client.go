@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,28 +13,26 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/kvproto/pkg/kvrpcpb"
-	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/meta"
-
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -42,8 +41,6 @@ const (
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
-
-	tikvChecksumRetryTimes = 5
 )
 
 // Client sends requests to importer to restore files
@@ -51,12 +48,12 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient         pd.Client
-	pdAddrs          []string
-	tikvCli          tikv.Storage
-	fileImporter     FileImporter
-	workerPool       *utils.WorkerPool
-	regionWorkerPool *utils.WorkerPool
+	pdClient        pd.Client
+	pdAddrs         []string
+	tikvCli         tikv.Storage
+	fileImporter    FileImporter
+	workerPool      *utils.WorkerPool
+	tableWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	dbDSN      string
@@ -87,12 +84,13 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	}
 
 	return &Client{
-		ctx:      ctx,
-		cancel:   cancel,
-		pdClient: pdClient,
-		pdAddrs:  addrs,
-		tikvCli:  tikvCli.(tikv.Storage),
-		backer:   backer,
+		ctx:             ctx,
+		cancel:          cancel,
+		pdClient:        pdClient,
+		pdAddrs:         addrs,
+		tikvCli:         tikvCli.(tikv.Storage),
+		backer:          backer,
+		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 	}, nil
 }
 
@@ -127,8 +125,7 @@ func (rc *Client) GetDbDSN() string {
 
 // SetConcurrency sets the concurrency of dbs tables files
 func (rc *Client) SetConcurrency(c uint) {
-	rc.workerPool = utils.NewWorkerPool(c/2, "restore")
-	rc.regionWorkerPool = utils.NewWorkerPool(c/2, "restore_region")
+	rc.workerPool = utils.NewWorkerPool(c, "file")
 }
 
 // GetTS gets a new timestamp from PD
@@ -210,42 +207,46 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
-func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, error) {
+func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
-	for _, table := range tables {
-		rules, err := rc.CreateTable(table)
-		if err != nil {
-			return nil, errors.Trace(err)
+	newTables := make([]*model.TableInfo, 0, len(tables))
+	openDBs := make(map[string]*sql.DB)
+	defer func() {
+		for _, db := range openDBs {
+			_ = db.Close()
 		}
+	}()
+	for _, table := range tables {
+		var err error
+		db, ok := openDBs[table.Db.Name.String()]
+		if !ok {
+			db, err = OpenDatabase(table.Db.Name.String(), rc.dbDSN)
+			if err != nil {
+				return nil, nil, err
+			}
+			openDBs[table.Db.Name.String()] = db
+		}
+		err = CreateTable(db, table)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = AlterAutoIncID(db, table)
+		if err != nil {
+			return nil, nil, err
+		}
+		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+		if err != nil {
+			return nil, nil, err
+		}
+		rules := GetRewriteRules(newTableInfo, table.Schema)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
+		newTables = append(newTables, newTableInfo)
 	}
-	return rewriteRules, nil
-}
-
-// CreateTable creates a table, and returns its rewrite rules.
-func (rc *Client) CreateTable(table *utils.Table) (*restore_util.RewriteRules, error) {
-	db, err := OpenDatabase(table.Db.Name.String(), rc.dbDSN)
-	if err != nil {
-		return nil, err
-	}
-	err = CreateTable(db, table)
-	if err != nil {
-		return nil, err
-	}
-	err = AlterAutoIncID(db, table)
-	if err != nil {
-		return nil, err
-	}
-	newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
-	if err != nil {
-		return nil, err
-	}
-	rewriteRules := GetRewriteRules(newTableInfo, table.Schema)
-	return rewriteRules, nil
+	return rewriteRules, newTables, nil
 }
 
 // RestoreTable tries to restore the data of a table.
@@ -263,7 +264,6 @@ func (rc *Client) RestoreTable(
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
 		zap.Array("files", files(table.Files)),
-		zap.Reflect("rewriteRules", rewriteRules),
 	)
 	errCh := make(chan error, len(table.Files))
 	var wg sync.WaitGroup
@@ -323,7 +323,7 @@ func (rc *Client) RestoreDatabase(
 	for _, table := range db.Tables {
 		wg.Add(1)
 		tblReplica := table
-		rc.workerPool.Apply(func() {
+		rc.tableWorkerPool.Apply(func() {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
@@ -359,7 +359,7 @@ func (rc *Client) RestoreAll(
 	for _, db := range rc.databases {
 		wg.Add(1)
 		dbReplica := db
-		rc.workerPool.Apply(func() {
+		rc.tableWorkerPool.Apply(func() {
 			defer wg.Done()
 			select {
 			case <-rc.ctx.Done():
@@ -432,263 +432,195 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 }
 
 //ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(rewriteRules []*import_sstpb.RewriteRule) error {
+func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.TableInfo) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Checksum", zap.Duration("take", elapsed))
 	}()
 
-	// Assume one database one table.
-	tables := make([]*utils.Table, 0, len(rc.databases))
-	for _, db := range rc.databases {
-		tables = append(tables, db.Tables...)
-	}
-	wg := sync.WaitGroup{}
-	errCh := make(chan error, len(tables))
-	for _, table := range tables {
-		rule := getTableRewriteRule(table.Schema.ID, rewriteRules)
-		newTableID := tablecodec.DecodeTableID(rule.GetNewPrefix())
-		if newTableID == 0 || rule == nil {
-			return errors.Errorf("failed to get rewrite rule for %v", table.Schema.ID)
-		}
-		checksumReq := tipb.ChecksumRequest{
-			StartTs:   rc.backupMeta.GetEndVersion(),
-			ScanOn:    tipb.ChecksumScanOn_Table,
-			Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
-			Rule:      rule,
-		}
-		data, err := checksumReq.Marshal()
+	log.Info("Start to validate checksum")
+	for i, t := range tables {
+		table := t
+		newTable := newTables[i]
+
+		checksumResp := &tipb.ChecksumResponse{}
+		startTS, err := rc.GetTS()
 		if err != nil {
 			return errors.Trace(err)
 		}
-
-		wg.Add(1)
-		table := table
-		rc.workerPool.Apply(func() {
-			defer wg.Done()
-			tableStart := tablecodec.EncodeTablePrefix(newTableID)
-			tableEnd := tablecodec.EncodeTablePrefix(newTableID + 1)
-			resp, err := rc.checksumRange(0, tableStart, tableEnd, data)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if resp.Checksum != table.Crc64Xor ||
-				resp.TotalKvs != table.TotalKvs ||
-				resp.TotalBytes != table.TotalBytes {
-				log.Error("failed in validate checksum",
-					zap.String("database", table.Db.Name.L),
-					zap.String("table", table.Schema.Name.L),
-					zap.Uint64("origin tidb crc64", table.Crc64Xor),
-					zap.Uint64("calculated crc64", resp.Checksum),
-					zap.Uint64("origin tidb total kvs", table.TotalKvs),
-					zap.Uint64("calculated total kvs", resp.TotalKvs),
-					zap.Uint64("origin tidb total bytes", table.TotalBytes),
-					zap.Uint64("calculated total bytes", resp.TotalBytes),
-				)
-				errCh <- errors.Errorf("failed in validate checksum")
-				return
-			}
-		})
-	}
-	go func() {
-		wg.Wait()
-		close(errCh)
-	}()
-
-	for {
-		err, ok := <-errCh
-		if !ok {
-			log.Info("validate checksum passed")
-			return nil
-		} else if err != nil {
+		reqs, err := buildChecksumRequest(newTable, table, startTS)
+		if err != nil {
 			return errors.Trace(err)
 		}
-	}
-}
-
-// checksum key range of [boundedStart, boundedEnd)
-func (rc *Client) checksumRange(
-	triedTime int,
-	boundedStart []byte,
-	boundedEnd []byte,
-	reqData []byte,
-) (*tipb.ChecksumResponse, error) {
-	if triedTime >= tikvChecksumRetryTimes {
-		return nil, errors.New("exceeded checksum retry time")
-	}
-	checksumResp := &tipb.ChecksumResponse{}
-	resCh := make(chan tipb.ChecksumResponse)
-	errCh := make(chan error)
-	wg := sync.WaitGroup{}
-	regions, peers, err := rc.pdClient.ScanRegions(
-		rc.ctx,
-		codec.EncodeBytes([]byte{}, boundedStart),
-		codec.EncodeBytes([]byte{}, boundedEnd),
-		10000,
-	)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	for i, region := range regions {
-		i := i
-		region := region
-		start, end, err := getIntersectRange(&boundedStart, &boundedEnd, region)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		wg.Add(1)
-		rc.workerPool.Apply(func() {
-			defer wg.Done()
-			res, err := rc.checksumRegion(triedTime, start, end, region, peers[i], reqData)
+		for _, req := range reqs {
+			resp, err := sendChecksumRequest(rc.ctx, rc.tikvCli.GetClient(), req)
 			if err != nil {
-				errCh <- err
-				return
+				return errors.Trace(err)
 			}
-			resCh <- *res
-		})
-	}
-
-	go func() {
-		wg.Wait()
-		close(resCh)
-	}()
-
-	for {
-		select {
-		case checksum, ok := <-resCh:
-			if !ok {
-				return checksumResp, nil
-			}
-			checksumResp.Checksum ^= checksum.Checksum
-			checksumResp.TotalKvs += checksum.TotalKvs
-			checksumResp.TotalBytes += checksum.TotalBytes
-		case err := <-errCh:
-			return nil, errors.Trace(err)
+			updateChecksumResponse(checksumResp, resp)
 		}
 
-	}
-}
-
-// checksum key range [start, end) in region with retry
-func (rc *Client) checksumRegion(
-	triedTime int,
-	start *[]byte,
-	end *[]byte,
-	region *metapb.Region,
-	peer *metapb.Peer,
-	reqData []byte,
-) (*tipb.ChecksumResponse, error) {
-	reqCtx := &kvrpcpb.Context{
-		RegionId:     region.GetId(),
-		RegionEpoch:  region.GetRegionEpoch(),
-		Peer:         peer,
-		NotFillCache: true, // Do not fill rocksdb block cache.
-	}
-	ranges := []*coprocessor.KeyRange{{Start: *start, End: *end}}
-	req := &coprocessor.Request{
-		Context: reqCtx,
-		Tp:      kv.ReqTypeChecksum, // REQ_TYPE_CHECKSUM flag
-		Data:    reqData,
-		Ranges:  ranges,
-	}
-
-	storeID := peer.GetStoreId()
-	kvClient, err := rc.backer.GetTikvClient(storeID)
-	if err != nil {
-		err = rc.backer.ResetGrpcClient(storeID)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		kvClient, err = rc.backer.GetTikvClient(storeID)
-		if err != nil {
-			return nil, errors.Trace(err)
+		if checksumResp.Checksum != table.Crc64Xor ||
+			checksumResp.TotalKvs != table.TotalKvs ||
+			checksumResp.TotalBytes != table.TotalBytes {
+			log.Error("failed in validate checksum",
+				zap.String("database", table.Db.Name.L),
+				zap.String("table", table.Schema.Name.L),
+				zap.Uint64("origin tidb crc64", table.Crc64Xor),
+				zap.Uint64("calculated crc64", checksumResp.Checksum),
+				zap.Uint64("origin tidb total kvs", table.TotalKvs),
+				zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
+				zap.Uint64("origin tidb total bytes", table.TotalBytes),
+				zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+			)
+			return errors.New("failed to validate checksum")
 		}
 	}
-
-	resp, err := kvClient.Coprocessor(rc.ctx, req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if resp.GetOtherError() != "" {
-		log.Error("Coprocessor request error",
-			zap.String("OtherError", resp.GetOtherError()))
-		return nil, errors.Errorf("OtherError: %s", resp.GetOtherError())
-	}
-	if resp.GetLocked() != nil {
-		log.Error("Coprocessor request error",
-			zap.Any("Locked", resp.GetLocked()))
-		return nil, errors.Errorf("Locked: %s", resp.GetLocked().String())
-	}
-
-	regionErr := resp.GetRegionError()
-	if regionErr != nil {
-		if regionErr.GetNotLeader() != nil ||
-			regionErr.GetRegionNotFound() != nil ||
-			regionErr.GetKeyNotInRegion() != nil ||
-			regionErr.GetEpochNotMatch() != nil {
-			// retry this key range
-			return rc.checksumRange(triedTime+1, *start, *end, reqData)
-		}
-		log.Error("Coprocessor request error",
-			zap.Any("RegionError", regionErr))
-		return nil, errors.Trace(err)
-	}
-
-	checksum := &tipb.ChecksumResponse{}
-	if err = checksum.Unmarshal(resp.Data); err != nil {
-		return nil, errors.Trace(err)
-	}
-	return checksum, nil
-}
-
-func getTableRewriteRule(tid int64, rules []*import_sstpb.RewriteRule) *tipb.ChecksumRewriteRule {
-	for _, r := range rules {
-		tableID := tablecodec.DecodeTableID(r.GetOldKeyPrefix())
-		if tableID == tid {
-			return &tipb.ChecksumRewriteRule{
-				OldPrefix: r.GetOldKeyPrefix(),
-				NewPrefix: r.GetNewKeyPrefix(),
-			}
-		}
-	}
+	log.Info("validate checksum passed!!")
 	return nil
 }
 
-// get intersect key range of [start, end] and [region.StartKey, region.EndKey]
-func getIntersectRange(
-	start *[]byte,
-	end *[]byte,
-	region *metapb.Region,
-) (innerStart *[]byte, innerEnd *[]byte, err error) {
-	if len(region.GetStartKey()) < 9 { // 8 (encode group size) + 1
-		innerStart = start
-	} else {
-		_, regionStart, err := codec.DecodeBytes(region.GetStartKey(), nil)
-		if err != nil {
-			return nil, nil, err
+func buildChecksumRequest(
+	newTable *model.TableInfo,
+	oldTable *utils.Table,
+	startTs uint64) ([]*kv.Request, error) {
+	var partDefs []model.PartitionDefinition
+	if part := newTable.Partition; part != nil {
+		partDefs = part.Definitions
+	}
+
+	reqs := make([]*kv.Request, 0, (len(newTable.Indices)+1)*(len(partDefs)+1))
+	if err := appendRequest(newTable, newTable.ID, &reqs, oldTable, startTs); err != nil {
+		return nil, err
+	}
+
+	for _, partDef := range partDefs {
+		if err := appendRequest(newTable, partDef.ID, &reqs, oldTable, startTs); err != nil {
+			return nil, err
 		}
-		if bytes.Compare(regionStart, *start) < 0 {
-			innerStart = start
-		} else {
-			innerStart = &regionStart
+	}
+	return reqs, nil
+}
+
+func appendRequest(
+	tableInfo *model.TableInfo,
+	tableID int64,
+	reqs *[]*kv.Request,
+	oldTable *utils.Table,
+	startTs uint64) error {
+	req, err := buildTableRequest(tableID, oldTable, startTs)
+	if err != nil {
+		return err
+	}
+
+	*reqs = append(*reqs, req)
+	for _, indexInfo := range tableInfo.Indices {
+		if indexInfo.State != model.StatePublic {
+			continue
+		}
+		for _, oldIndexInfo := range oldTable.Schema.Indices {
+			if oldIndexInfo.Name == indexInfo.Name {
+				req, err = buildIndexRequest(tableID, indexInfo, oldTable.Schema.ID, oldIndexInfo, startTs)
+				if err != nil {
+					return err
+				}
+				*reqs = append(*reqs, req)
+			}
 		}
 	}
 
-	if len(region.GetEndKey()) < 9 { // 8 (encode group size) + 1
-		innerEnd = end
-	} else {
-		_, regionEnd, err := codec.DecodeBytes(region.GetEndKey(), nil)
-		if err != nil {
-			return nil, nil, err
-		}
-		if bytes.Compare(regionEnd, *end) < 0 {
-			innerEnd = &regionEnd
-		} else {
-			innerEnd = end
-		}
+	return nil
+}
+
+func buildTableRequest(
+	tableID int64,
+	oldTable *utils.Table,
+	startTs uint64) (*kv.Request, error) {
+	rule := &tipb.ChecksumRewriteRule{
+		OldPrefix: tablecodec.GenTableRecordPrefix(oldTable.Schema.ID),
+		NewPrefix: tablecodec.GenTableRecordPrefix(tableID),
 	}
-	return innerStart, innerEnd, nil
+
+	checksum := &tipb.ChecksumRequest{
+		StartTs:   startTs,
+		ScanOn:    tipb.ChecksumScanOn_Table,
+		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
+		Rule:      rule,
+	}
+
+	ranges := ranger.FullIntRange(false)
+
+	var builder distsql.RequestBuilder
+	return builder.SetTableRanges(tableID, ranges, nil).
+		SetChecksumRequest(checksum).
+		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		Build()
+}
+
+func buildIndexRequest(
+	tableID int64,
+	indexInfo *model.IndexInfo,
+	oldTableID int64,
+	oldIndexInfo *model.IndexInfo,
+	startTs uint64) (*kv.Request, error) {
+	rule := &tipb.ChecksumRewriteRule{
+		OldPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexInfo.ID),
+		NewPrefix: tablecodec.EncodeTableIndexPrefix(tableID, indexInfo.ID),
+	}
+	checksum := &tipb.ChecksumRequest{
+		StartTs:   startTs,
+		ScanOn:    tipb.ChecksumScanOn_Index,
+		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
+		Rule:      rule,
+	}
+
+	ranges := ranger.FullRange()
+
+	var builder distsql.RequestBuilder
+	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
+		SetChecksumRequest(checksum).
+		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		Build()
+}
+
+func sendChecksumRequest(
+	ctx context.Context,
+	client kv.Client,
+	req *kv.Request) (resp *tipb.ChecksumResponse, err error) {
+	res, err := distsql.Checksum(ctx, client, req, nil)
+	if err != nil {
+		return nil, err
+	}
+	res.Fetch(ctx)
+	defer func() {
+		if err1 := res.Close(); err1 != nil {
+			err = err1
+		}
+	}()
+
+	resp = &tipb.ChecksumResponse{}
+
+	for {
+		data, err := res.NextRaw(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if data == nil {
+			break
+		}
+		checksum := &tipb.ChecksumResponse{}
+		if err = checksum.Unmarshal(data); err != nil {
+			return nil, err
+		}
+		updateChecksumResponse(resp, checksum)
+	}
+
+	return resp, nil
+}
+
+func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
+	resp.Checksum ^= update.Checksum
+	resp.TotalKvs += update.TotalKvs
+	resp.TotalBytes += update.TotalBytes
 }

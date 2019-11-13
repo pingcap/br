@@ -33,24 +33,18 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
-type rules []*import_sstpb.RewriteRule
-
-func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range rs {
-		err := arr.AppendReflected(rs[i])
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableRule := &import_sstpb.RewriteRule{
+	tableRules := make([]*import_sstpb.RewriteRule, 0, 2)
+	tableRules = append(tableRules, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-	}
+	})
+	// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
+	tableRules = append(tableRules, &import_sstpb.RewriteRule{
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID + 1),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID + 1),
+	})
 
 	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
 	dataRules = append(dataRules, &import_sstpb.RewriteRule{
@@ -70,7 +64,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	}
 
 	return &restore_util.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{tableRule},
+		Table: tableRules,
 		Data:  dataRules,
 	}
 }
@@ -204,7 +198,9 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) []byte {
+// Encode a raw key and find a rewrite rule to rewrite it.
+// Return false if cannot find a related rewrite rule.
+func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, bool) {
 	if len(key) > 0 {
 		ret := make([]byte, len(key))
 		copy(ret, key)
@@ -212,17 +208,17 @@ func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRu
 		for _, rule := range rewriteRules.Data {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
 			}
 		}
 		for _, rule := range rewriteRules.Table {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
 			}
 		}
 	}
-	return []byte("")
+	return []byte(""), false
 }
 
 func truncateTS(key []byte) []byte {

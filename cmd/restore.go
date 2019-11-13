@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/parser/model"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
@@ -59,21 +60,26 @@ func newFullRestoreCommand() *cobra.Command {
 			tableRules := make([]*import_sstpb.RewriteRule, 0)
 			dataRules := make([]*import_sstpb.RewriteRule, 0)
 			files := make([]*backup.File, 0)
+			tables := make([]*utils.Table, 0)
+			newTables := make([]*model.TableInfo, 0)
 			for _, db := range client.GetDatabases() {
 				err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
 				if err != nil {
 					return errors.Trace(err)
 				}
 				var rules *restore_util.RewriteRules
-				rules, err = client.CreateTables(db.Tables)
+				var nt []*model.TableInfo
+				rules, nt, err = client.CreateTables(db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
+				newTables = append(newTables, nt...)
 				tableRules = append(tableRules, rules.Table...)
 				dataRules = append(dataRules, rules.Data...)
 				for _, table := range db.Tables {
 					files = append(files, table.Files...)
 				}
+				tables = append(tables, db.Tables...)
 			}
 			ranges := restore.GetRanges(files)
 
@@ -113,7 +119,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRules.Table)
+			err = client.ValidateChecksum(tables, newTables)
 			return errors.Trace(err)
 		},
 	}
@@ -162,7 +168,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rewriteRules, err := client.CreateTables(db.Tables)
+			rewriteRules, newTables, err := client.CreateTables(db.Tables)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -204,7 +210,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRules.Table)
+			err = client.ValidateChecksum(db.Tables, newTables)
 			return errors.Trace(err)
 		},
 	}
@@ -267,7 +273,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.New("not exists table")
 			}
 			// The rules here is raw key.
-			rewriteRules, err := client.CreateTable(table)
+			rewriteRules, newTables, err := client.CreateTables([]*utils.Table{table})
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -302,7 +308,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(rewriteRules.Table)
+			err = client.ValidateChecksum([]*utils.Table{table}, newTables)
 			return errors.Trace(err)
 		},
 	}
