@@ -101,12 +101,14 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 func (bc *BackupClient) SetStorage(base string) error {
 	var err error
 	bc.storage, err = utils.CreateStorage(base)
+	if err != nil {
+		return err
+	}
 	// backupmeta already exists
 	if _, err = bc.storage.Read(utils.MetaFile); err == nil {
-		return errors.New("backup meta already exists")
+		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
-
-	return err
+	return nil
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.

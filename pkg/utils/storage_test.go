@@ -29,5 +29,6 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	rawURL = "local:///tmp/storage"
 	_, err = CreateStorage(rawURL)
 	c.Assert(err, IsNil)
-	os.RemoveAll("/tmp/storagk ke")
+	err = os.RemoveAll("/tmp/storage")
+	c.Assert(err, IsNil)
 }
