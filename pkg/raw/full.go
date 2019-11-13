@@ -59,6 +59,10 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
+	poolSize := uint(len(stores) * 8)
+	if poolSize > 100 {
+		poolSize = 100
+	}
 	return &BackupClient{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
@@ -70,7 +74,7 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 			checksumCh: make(chan *tableChecksum),
 			errCh:      make(chan error),
 			wg:         sync.WaitGroup{},
-			workerPool: utils.NewWorkerPool(uint(len(stores)*8), "restore"),
+			workerPool: utils.NewWorkerPool(poolSize, "restore"),
 		},
 	}, nil
 }
