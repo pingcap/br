@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"os"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -25,7 +26,8 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, NotNil)
 	c.Assert(err, ErrorMatches, "storage net not support yet")
 
-	rawURL = "local://storage"
+	rawURL = "local:///tmp/storage"
 	_, err = CreateStorage(rawURL)
 	c.Assert(err, IsNil)
+	os.RemoveAll("/tmp/storage")
 }

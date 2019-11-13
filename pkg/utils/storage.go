@@ -3,6 +3,7 @@ package utils
 import (
 	"io/ioutil"
 	"net/url"
+	"os"
 	"path"
 
 	"github.com/pingcap/errors"
@@ -25,7 +26,7 @@ func CreateStorage(rawURL string) (ExternalStorage, error) {
 
 	switch u.Scheme {
 	case "local":
-		return newLocalStorage(u.Path), nil
+		return newLocalStorage(u.Path)
 	default:
 		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
 	}
@@ -46,6 +47,24 @@ func (l *LocalStorage) Read(name string) ([]byte, error) {
 	return ioutil.ReadFile(filepath)
 }
 
-func newLocalStorage(base string) *LocalStorage {
-	return &LocalStorage{base}
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func newLocalStorage(base string) (*LocalStorage, error) {
+	ok, _ := pathExists(base)
+	if !ok {
+		err := os.MkdirAll(base, 0644)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &LocalStorage{base}, nil
 }
