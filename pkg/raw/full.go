@@ -44,8 +44,9 @@ type BackupClient struct {
 	clusterID uint64
 	pdClient  pd.Client
 
-	backupMeta backup.BackupMeta
-	storage    utils.ExternalStorage
+	backupMeta    backup.BackupMeta
+	backupSchemas backupSchemas
+	storage       utils.ExternalStorage
 }
 
 // NewBackupClient returns a new backup client
@@ -53,12 +54,28 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 	log.Info("new backup client")
 	ctx, cancel := context.WithCancel(backer.Context())
 	pdClient := backer.GetPDClient()
+	stores, err := pdClient.GetAllStores(ctx)
+	if err != nil {
+		cancel()
+		return nil, errors.Trace(err)
+	}
+	poolSize := uint(len(stores) * 8)
+	if poolSize > 100 {
+		poolSize = 100
+	}
 	return &BackupClient{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
 		ctx:       ctx,
 		cancel:    cancel,
 		pdClient:  backer.GetPDClient(),
+		backupSchemas: backupSchemas{
+			meta:       make(map[string]*backup.Schema),
+			checksumCh: make(chan *tableChecksum),
+			errCh:      make(chan error),
+			wg:         sync.WaitGroup{},
+			workerPool: utils.NewWorkerPool(poolSize, "restore"),
+		},
 	}, nil
 }
 
@@ -117,8 +134,8 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
-// GetBackupTableRanges gets the range of table
-func (bc *BackupClient) GetBackupTableRanges(
+// PreBackupTableRanges gets the range of table and request admin checksum from TiDB.
+func (bc *BackupClient) PreBackupTableRanges(
 	dbName, tableName string,
 	path string,
 	backupTS uint64,
@@ -153,12 +170,6 @@ func (bc *BackupClient) GetBackupTableRanges(
 	}
 	tableInfo.AutoIncID = globalAutoID
 
-	dbSession.GetSessionVars().SnapshotTS = backupTS
-	tblChecksum, err := bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -169,20 +180,21 @@ func (bc *BackupClient) GetBackupTableRanges(
 		return nil, errors.Trace(err)
 	}
 
-	// Save schema.
 	backupSchema := &backup.Schema{
-		Db:         dbData,
-		Table:      tableData,
-		Crc64Xor:   tblChecksum.checksum,
-		TotalKvs:   tblChecksum.totalKvs,
-		TotalBytes: tblChecksum.totalBytes,
+		Db:    dbData,
+		Table: tableData,
 	}
+	// TODO figure out why
+	// must set to true to avoid load global vars, otherwise we got error
+	dbSession.GetSessionVars().CommonGlobalLoaded = true
+	dbSession.GetSessionVars().SnapshotTS = backupTS
+	bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
+
 	log.Info("save table schema",
 		zap.Stringer("db", dbInfo.Name),
 		zap.Stringer("table", tableInfo.Name),
 		zap.Int64("auto_inc_id", globalAutoID),
 	)
-	bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
 	log.Info("backup table meta",
 		zap.Reflect("Schema", dbInfo),
 		zap.Reflect("Table", tableInfo))
@@ -229,8 +241,8 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// GetAllBackupTableRanges gets the range of all tables.
-func (bc *BackupClient) GetAllBackupTableRanges(backupTS uint64) ([]Range, error) {
+// PreBackupAllTableRanges gets the range of all tables and request admin checksum from TiDB.
+func (bc *BackupClient) PreBackupAllTableRanges(backupTS uint64) ([]Range, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -268,11 +280,6 @@ LoadDb:
 		}
 		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
-			tblChecksum, err := bc.getChecksumFromTiDB(dbSession, dbInfo, tableInfo)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -282,20 +289,18 @@ LoadDb:
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			// Save schema.
+
 			backupSchema := &backup.Schema{
-				Db:         dbData,
-				Table:      tableData,
-				Crc64Xor:   tblChecksum.checksum,
-				TotalKvs:   tblChecksum.totalKvs,
-				TotalBytes: tblChecksum.totalBytes,
+				Db:    dbData,
+				Table: tableData,
 			}
-			log.Info("save table schema",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tableInfo.Name),
-				zap.Int64("auto_inc_id", globalAutoID),
-			)
-			bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, backupSchema)
+			dbSession, err = session.CreateSession(bc.backer.GetTiKV())
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+			dbSession.GetSessionVars().CommonGlobalLoaded = true
+			dbSession.GetSessionVars().SnapshotTS = backupTS
+			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 			//       backup global index.
@@ -732,36 +737,39 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 	return true, nil
 }
 
+// CompleteMeta wait response of admin checksum from TiDB to complete backup meta
+func (bc *BackupClient) CompleteMeta() error {
+	schemas, err := bc.backupSchemas.finishTableChecksum()
+	if err != nil {
+		return err
+	}
+	bc.backupMeta.Schemas = schemas
+	return nil
+}
+
 type tableChecksum struct {
+	name       string
 	checksum   uint64
 	totalKvs   uint64
 	totalBytes uint64
 }
 
-func (bc *BackupClient) getChecksumFromTiDB(
+func getChecksumFromTiDB(
+	ctx context.Context,
 	dbSession session.Session,
-	dbl *model.DBInfo,
-	tbl *model.TableInfo,
+	dbName string,
+	tableName string,
 ) (*tableChecksum, error) {
 	var recordSets []sqlexec.RecordSet
-	// TODO figure out why
-	// must set to true to avoid load global vars, otherwise we got error
-	dbSession.GetSessionVars().CommonGlobalLoaded = true
-
-	recordSets, err := dbSession.Execute(bc.ctx, fmt.Sprintf(
-		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbl.Name.L), utils.EncloseName(tbl.Name.L)))
+	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
+		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbName), utils.EncloseName(tableName)))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	records, err := utils.ResultSetToStringSlice(bc.ctx, dbSession, recordSets[0])
+	records, err := utils.ResultSetToStringSlice(ctx, dbSession, recordSets[0])
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	log.Info("tidb table checksum",
-		zap.String("db", dbl.Name.L),
-		zap.String("table", tbl.Name.L),
-		zap.Reflect("records", records),
-	)
 
 	record := records[0]
 	checksum, err := strconv.ParseUint(record[2], 10, 64)
@@ -781,4 +789,64 @@ func (bc *BackupClient) getChecksumFromTiDB(
 		totalKvs:   totalKvs,
 		totalBytes: totalBytes,
 	}, nil
+}
+
+type backupSchemas struct {
+	meta       map[string]*backup.Schema
+	checksumCh chan *tableChecksum
+	errCh      chan error
+	wg         sync.WaitGroup
+	workerPool *utils.WorkerPool
+}
+
+func (bs *backupSchemas) startTableChecksum(
+	ctx context.Context,
+	dbSession session.Session,
+	schema *backup.Schema,
+	dbName, tableName string) {
+	name := fmt.Sprintf("%s.%s", dbName, tableName)
+	log.Info("admin checksum from TiDB start",
+		zap.String("table", name),
+	)
+	bs.meta[name] = schema
+	bs.wg.Add(1)
+	// TODO: It may block backup if len(table) > len(workers).
+	bs.workerPool.Apply(func() {
+		defer bs.wg.Done()
+		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
+		if err != nil {
+			bs.errCh <- err
+			return
+		}
+		checksum.name = name
+		bs.checksumCh <- checksum
+	})
+}
+
+func (bs *backupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
+	go func() {
+		bs.wg.Wait()
+		close(bs.checksumCh)
+	}()
+	var schemas []*backup.Schema
+	for {
+		select {
+		case checksum, ok := <-bs.checksumCh:
+			if !ok {
+				return schemas, nil
+			}
+			log.Info("admin checksum from TiDB finished",
+				zap.String("table", checksum.name),
+				zap.Uint64("Crc64Xor", checksum.checksum),
+				zap.Uint64("TotalKvs", checksum.totalKvs),
+				zap.Uint64("TotalBytes", checksum.totalBytes))
+			s := bs.meta[checksum.name]
+			s.Crc64Xor = checksum.checksum
+			s.TotalKvs = checksum.totalKvs
+			s.TotalBytes = checksum.totalBytes
+			schemas = append(schemas, s)
+		case err := <-bs.errCh:
+			return nil, errors.Trace(err)
+		}
+	}
 }
