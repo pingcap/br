@@ -743,7 +743,7 @@ func (bc *BackupClient) CompleteMeta() error {
 	if err != nil {
 		return err
 	}
-	bc.backupMeta.Schemas = *schemas
+	bc.backupMeta.Schemas = schemas
 	return nil
 }
 
@@ -810,6 +810,7 @@ func (bs *backupSchemas) startTableChecksum(
 	)
 	bs.meta[name] = schema
 	bs.wg.Add(1)
+	// TODO: It may block backup if len(table) > len(workers).
 	bs.workerPool.Apply(func() {
 		defer bs.wg.Done()
 		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
@@ -822,7 +823,7 @@ func (bs *backupSchemas) startTableChecksum(
 	})
 }
 
-func (bs *backupSchemas) finishTableChecksum() (*[]*backup.Schema, error) {
+func (bs *backupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
 	go func() {
 		bs.wg.Wait()
 		close(bs.checksumCh)
@@ -832,7 +833,7 @@ func (bs *backupSchemas) finishTableChecksum() (*[]*backup.Schema, error) {
 		select {
 		case checksum, ok := <-bs.checksumCh:
 			if !ok {
-				return &schemas, nil
+				return schemas, nil
 			}
 			log.Info("admin checksum from TiDB finished",
 				zap.String("table", checksum.name),
