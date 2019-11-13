@@ -47,6 +47,7 @@ func (pp *ProgressPrinter) goPrintProgress(
 	if pp.redirectLog || testWriter != nil {
 		tmpl := `{{percent .}}`
 		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
+		bar.SetRefreshRate(time.Second * 10)
 		bar.Set(pb.Static, false)       // Do not update automatically
 		bar.Set(pb.ReturnSymbol, false) // Do not append '\r'
 		bar.Set(pb.Terminal, false)     // Do not use terminal width
