@@ -2,25 +2,34 @@ package utils
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
 )
 
 // ProgressPrinter prints a progress bar
 type ProgressPrinter struct {
-	name  string
-	total int64
+	name        string
+	total       int64
+	redirectLog bool
 
 	updateCh chan struct{}
 }
 
 // NewProgressPrinter returns a new progress printer
-func NewProgressPrinter(name string, total int64) *ProgressPrinter {
+func NewProgressPrinter(
+	name string,
+	total int64,
+	redirectLog bool,
+) *ProgressPrinter {
 	return &ProgressPrinter{
-		name:     name,
-		total:    total,
-		updateCh: make(chan struct{}, total/2),
+		name:        name,
+		total:       total,
+		redirectLog: redirectLog,
+		updateCh:    make(chan struct{}, total/2),
 	}
 }
 
@@ -29,11 +38,29 @@ func (pp *ProgressPrinter) UpdateCh() chan<- struct{} {
 	return pp.updateCh
 }
 
-// GoPrintProgress starts a gorouinte and prints progress
-func (pp *ProgressPrinter) GoPrintProgress(ctx context.Context) {
-	tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "↖" "↗" "↘" "↙" ) "." ">"}} {{percent .}}`
-	bar := pb.ProgressBarTemplate(tmpl).Start64(pp.total)
-	bar.Set("barName", pp.name)
+// goPrintProgress starts a gorouinte and prints progress
+func (pp *ProgressPrinter) goPrintProgress(
+	ctx context.Context,
+	testWriter io.Writer, // Only for tests
+) {
+	var bar *pb.ProgressBar
+	if pp.redirectLog || testWriter != nil {
+		tmpl := `{{percent .}}`
+		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
+		bar.Set(pb.Static, false)       // Do not update automatically
+		bar.Set(pb.ReturnSymbol, false) // Do not append '\r'
+		bar.Set(pb.Terminal, false)     // Do not use terminal width
+		// Hack! set Color to avoid separate progress string
+		bar.Set(pb.Color, true)
+		bar.SetWriter(&wrappedWriter{name: pp.name})
+	} else {
+		tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "-" "\\" "|" "/" ) "." ">"}} {{percent .}}`
+		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
+		bar.Set("barName", pp.name)
+	}
+	if testWriter != nil {
+		bar.SetWriter(testWriter)
+	}
 	bar.Start()
 
 	go func() {
@@ -59,4 +86,25 @@ func (pp *ProgressPrinter) GoPrintProgress(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+type wrappedWriter struct {
+	name string
+}
+
+func (ww *wrappedWriter) Write(p []byte) (int, error) {
+	log.Info(ww.name, zap.String("progress", string(p)))
+	return len(p), nil
+}
+
+// StartProgress starts progress bar.
+func StartProgress(
+	ctx context.Context,
+	name string,
+	total int64,
+	redirectLog bool,
+) chan<- struct{} {
+	progress := NewProgressPrinter(name, total, redirectLog)
+	progress.goPrintProgress(ctx, nil)
+	return progress.UpdateCh()
 }

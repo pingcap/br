@@ -110,14 +110,14 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			progress := utils.NewProgressPrinter(
-				"Full Backup", int64(approximateRegions))
 			ctx, cancel := context.WithCancel(defaultBacker.Context())
 			defer cancel()
-			progress.GoPrintProgress(ctx)
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
 
 			err = client.BackupRanges(
-				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -207,10 +207,7 @@ func newTableBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			if err != nil {
-				return err
-			}
-
+			// TODO: include admin check in progress bar.
 			ranges, err := client.GetBackupTableRanges(db, table, u, backupTS)
 			if err != nil {
 				return err
@@ -226,14 +223,14 @@ func newTableBackupCommand() *cobra.Command {
 				approximateRegions += regionCount
 			}
 
-			progress := utils.NewProgressPrinter(
-				"Table Backup", int64(approximateRegions))
 			ctx, cancel := context.WithCancel(defaultBacker.Context())
 			defer cancel()
-			progress.GoPrintProgress(ctx)
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
 
 			err = client.BackupRanges(
-				ranges, u, backupTS, rate, concurrency, progress.UpdateCh())
+				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
