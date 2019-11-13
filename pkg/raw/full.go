@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	//"os"
+	//"path"
 	"strconv"
 	"sync"
 	"time"
@@ -98,9 +100,14 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *BackupClient) SetStorage(path string) error {
+func (bc *BackupClient) SetStorage(base string) error {
 	var err error
-	bc.storage, err = utils.CreateStorage(path)
+	bc.storage, err = utils.CreateStorage(base)
+	//// backupmeta already exists
+	//if _, err = os.Stat(path.Join(base, utils.MetaFile)); err == nil {
+	//	fmt.Println(err)
+	//	return errors.New("backup meta already exists")
+	//}
 	return err
 }
 

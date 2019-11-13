@@ -25,13 +25,13 @@ row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print 
 
 # backup table
 echo "backup start..."
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
+br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
 
 run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore table
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB/" --pd $PD_ADDR
+br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
