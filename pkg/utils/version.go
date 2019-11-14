@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/pingcap/log"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 )
 
@@ -30,4 +32,11 @@ func PrintBRInfo() {
 	fmt.Println("Git Commit Hash:", BRGitHash)
 	fmt.Println("Git Branch:", BRGitBranch)
 	fmt.Println("UTC Build Time: ", BRBuildTS)
+}
+
+// LogArguments prints origin command arguments
+func LogArguments(cmd *cobra.Command) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		log.Info("argument", zap.Stringer(f.Name, f.Value))
+	})
 }

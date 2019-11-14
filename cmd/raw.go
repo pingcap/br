@@ -21,6 +21,7 @@ func NewBackupCommand() *cobra.Command {
 				return err
 			}
 			utils.LogBRInfo()
+			utils.LogArguments(c)
 			return nil
 		},
 	}
