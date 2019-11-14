@@ -2,7 +2,6 @@ package utils
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -27,7 +26,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, NotNil)
 	c.Assert(err, ErrorMatches, "storage net not support yet")
 
-	rawURL = fmt.Sprintf("local://%s/storage", os.TempDir())
+	rawURL = fmt.Sprintf("local://%s/storage", c.MkDir())
 	_, err = CreateStorage(rawURL)
 	c.Assert(err, IsNil)
 }
