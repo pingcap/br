@@ -105,7 +105,7 @@ func (bc *BackupClient) SetStorage(base string) error {
 		return err
 	}
 	// backupmeta already exists
-	if _, err = bc.storage.Read(utils.MetaFile); err == nil {
+	if exist := bc.storage.FileExists(utils.MetaFile); exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
 	return nil

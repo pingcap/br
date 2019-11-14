@@ -16,6 +16,8 @@ type ExternalStorage interface {
 	Write(name string, data []byte) error
 	// Read storage file
 	Read(name string) ([]byte, error)
+	// FileExists return true if file exists
+	FileExists(name string) bool
 }
 
 // CreateStorage create ExternalStorage
@@ -48,23 +50,26 @@ func (l *LocalStorage) Read(name string) ([]byte, error) {
 	return ioutil.ReadFile(filepath)
 }
 
-func pathExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
+// FileExists implement ExternalStorage.FileExists
+func (l *LocalStorage) FileExists(name string) bool {
+	filepath := path.Join(l.base, name)
+	return pathExists(filepath)
+}
+
+func pathExists(_path string) bool {
+	_, err := os.Stat(_path)
+	if err != nil && os.IsNotExist(err) {
+		return false
 	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return false, err
+	return true
 }
 
 func newLocalStorage(base string) (*LocalStorage, error) {
-	ok, _ := pathExists(base)
+	ok := pathExists(base)
 	if !ok {
 		mask := syscall.Umask(0)
 		defer syscall.Umask(mask)
-		err := os.MkdirAll(base, os.ModePerm)
+		err := os.MkdirAll(base, 0755)
 		if err != nil {
 			return nil, err
 		}
