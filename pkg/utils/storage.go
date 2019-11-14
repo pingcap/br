@@ -3,7 +3,9 @@ package utils
 import (
 	"io/ioutil"
 	"net/url"
+	"os"
 	"path"
+	"syscall"
 
 	"github.com/pingcap/errors"
 )
@@ -14,6 +16,8 @@ type ExternalStorage interface {
 	Write(name string, data []byte) error
 	// Read storage file
 	Read(name string) ([]byte, error)
+	// FileExists return true if file exists
+	FileExists(name string) bool
 }
 
 // CreateStorage create ExternalStorage
@@ -25,7 +29,7 @@ func CreateStorage(rawURL string) (ExternalStorage, error) {
 
 	switch u.Scheme {
 	case "local":
-		return newLocalStorage(u.Path), nil
+		return newLocalStorage(u.Path)
 	default:
 		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
 	}
@@ -46,6 +50,29 @@ func (l *LocalStorage) Read(name string) ([]byte, error) {
 	return ioutil.ReadFile(filepath)
 }
 
-func newLocalStorage(base string) *LocalStorage {
-	return &LocalStorage{base}
+// FileExists implement ExternalStorage.FileExists
+func (l *LocalStorage) FileExists(name string) bool {
+	filepath := path.Join(l.base, name)
+	return pathExists(filepath)
+}
+
+func pathExists(_path string) bool {
+	_, err := os.Stat(_path)
+	if err != nil && os.IsNotExist(err) {
+		return false
+	}
+	return true
+}
+
+func newLocalStorage(base string) (*LocalStorage, error) {
+	ok := pathExists(base)
+	if !ok {
+		mask := syscall.Umask(0)
+		defer syscall.Umask(mask)
+		err := os.MkdirAll(base, 0755)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &LocalStorage{base}, nil
 }

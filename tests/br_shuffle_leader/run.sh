@@ -29,13 +29,13 @@ echo "-u $PD_ADDR -d sched add shuffle-leader-scheduler" | pd-ctl
 
 # backup with shuffle leader
 echo "backup start..."
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/backupdata" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
+br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
 
 run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore with shuffle leader
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB/backupdata" --pd $PD_ADDR
+br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 # remove shuffle leader scheduler
 echo "-u $PD_ADDR -d sched remove shuffle-leader-scheduler" | pd-ctl
