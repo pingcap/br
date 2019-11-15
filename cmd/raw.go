@@ -60,6 +60,7 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return nil
 			}
+			defer client.Close()
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -159,6 +160,7 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer client.Close()
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err

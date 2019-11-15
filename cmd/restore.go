@@ -53,6 +53,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.Close()
 			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
@@ -150,6 +151,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.Close()
 			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
@@ -246,6 +248,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+			defer client.Close()
 			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
