@@ -16,12 +16,21 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
+DB_COUNT=3
+TABLE_COUNT=3
 
-run_sql "CREATE DATABASE $DB;"
+for i in $(seq $DB_COUNT); do
+    run_sql "CREATE DATABASE $DB${i};"
+    for j in $(seq $TABLE_COUNT); do
+        go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i} -p table=$TABLE${j}
+    done
+done
 
-go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
-
-row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+for i in $(seq $DB_COUNT); do
+    for j in $(seq $TABLE_COUNT); do
+      row_count_ori[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE${j};" | awk '/COUNT/{print $2}')
+    done
+done
 
 # add shuffle region scheduler
 echo "add shuffle-region-scheduler"
@@ -40,13 +49,26 @@ br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "l
 # remove shuffle region scheduler
 echo "-u $PD_ADDR -d sched remove shuffle-region-scheduler" | pd-ctl
 
-row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+for i in $(seq $DB_COUNT); do
+    for j in $(seq $TABLE_COUNT); do
+        row_count_new[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+    done
+done
 
-echo "[original] row count: $row_count_ori, [after br] row count: $row_count_new"
+fail=false
+for i in $(seq $DB_COUNT); do
+    for j in $(seq $TABLE_COUNT); do
+        if [ "${row_count_ori[i*TABLE_COUNT+j]}" != "${row_count_new[i*TABLE_COUNT+j]}" ];then
+            fail=true
+            echo "TEST: [$TEST_NAME] fail on database $DB${i} $TABLE${j}"
+        fi
+        echo "database $DB${i} $TABLE${j} [original] row count: ${row_count_ori[i*TABLE_COUNT+j]}, [after br] row count: ${row_count_new[i*TABLE_COUNT+j]}"
+    done
+done
 
-if [ "$row_count_ori" -eq "$row_count_new" ];then
-    echo "TEST: [$TEST_NAME] successed!"
-else
+if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
+else
+    echo "TEST: [$TEST_NAME] successed!"
 fi

@@ -26,10 +26,8 @@ for i in $(seq $DB_COUNT); do
     done
 done
 
-for i in $(seq $DB_COUNT); do
-    for j in $(seq $TABLE_COUNT); do
-      row_count_ori[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE${j};" | awk '/COUNT/{print $2}')
-    done
+for i in $(seq $TABLE_COUNT); do
+  row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${1}.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 # backup full
@@ -42,23 +40,19 @@ done
 
 # restore full
 echo "restore start..."
-br restore full --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+br restore full --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --table {$TABLE}1
 
-for i in $(seq $DB_COUNT); do
-    for j in $(seq $TABLE_COUNT); do
-        row_count_new[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE${j};" | awk '/COUNT/{print $2}')
-    done
+for i in $(seq $TABLE_COUNT); do
+    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${1}.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 fail=false
-for i in $(seq $DB_COUNT); do
-    for j in $(seq $TABLE_COUNT); do
-        if [ "${row_count_ori[i*TABLE_COUNT+j]}" != "${row_count_new[i*TABLE_COUNT+j]}" ];then
-            fail=true
-            echo "TEST: [$TEST_NAME] fail on database $DB${i} $TABLE${j}"
-        fi
-        echo "database $DB${i} $TABLE${j} [original] row count: ${row_count_ori[i*TABLE_COUNT+j]}, [after br] row count: ${row_count_new[i*TABLE_COUNT+j]}"
-    done
+for i in $(seq $TABLE_COUNT); do
+    if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
+        fail=true
+        echo "TEST: [$TEST_NAME] fail on database {$DB}1 $TABLE${i}"
+    fi
+    echo "database $DB${1} $TABLE${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
 done
 
 if $fail; then
