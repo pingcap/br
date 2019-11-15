@@ -7,9 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/pingcap/br/cmd"
 	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
+
+	"github.com/pingcap/br/cmd"
 )
 
 func main() {

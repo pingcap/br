@@ -759,6 +759,7 @@ type tableChecksum struct {
 	checksum   uint64
 	totalKvs   uint64
 	totalBytes uint64
+	duration   time.Duration
 }
 
 func getChecksumFromTiDB(
@@ -767,6 +768,7 @@ func getChecksumFromTiDB(
 	dbName string,
 	tableName string,
 ) (*tableChecksum, error) {
+	start := time.Now()
 	var recordSets []sqlexec.RecordSet
 	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
 		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbName), utils.EncloseName(tableName)))
@@ -795,6 +797,7 @@ func getChecksumFromTiDB(
 		checksum:   checksum,
 		totalKvs:   totalKvs,
 		totalBytes: totalBytes,
+		duration:   time.Since(start),
 	}, nil
 }
 
@@ -846,7 +849,8 @@ func (bs *backupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
 				zap.String("table", checksum.name),
 				zap.Uint64("Crc64Xor", checksum.checksum),
 				zap.Uint64("TotalKvs", checksum.totalKvs),
-				zap.Uint64("TotalBytes", checksum.totalBytes))
+				zap.Uint64("TotalBytes", checksum.totalBytes),
+				zap.Duration("take", checksum.duration))
 			s := bs.meta[checksum.name]
 			s.Crc64Xor = checksum.checksum
 			s.TotalKvs = checksum.totalKvs
