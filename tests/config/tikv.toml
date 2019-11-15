@@ -6,8 +6,28 @@ region-split-keys = 12
 
 [rocksdb]
 max-open-files = 4096
+
+[rocksdb.writecf]
+force-consistency-checks = false
+
+[rocksdb.defaultcf]
+force-consistency-checks = false
+
+[rocksdb.lockcf]
+force-consistency-checks = false
+
 [raftdb]
 max-open-files = 4096
+
+[raftdb.writecf]
+force-consistency-checks = false
+
+[raftdb.defaultcf]
+force-consistency-checks = false
+
+[raftdb.lockcf]
+force-consistency-checks = false
+
 [raftstore]
 # true (default value) for high reliability, this can prevent data loss when power failure.
 sync-log = false
