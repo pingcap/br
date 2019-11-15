@@ -83,13 +83,13 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			ranges := restore.GetRanges(files)
 
-			progress := utils.NewProgressPrinter(
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
 				"Full Restore",
 				// Split/Scatter + Download/Ingest
 				int64(len(ranges)+len(files)),
-			)
-			progress.GoPrintProgress(ctx)
-			updateCh := progress.UpdateCh()
+				!HasLogFile())
 
 			rewriteRules := &restore_util.RewriteRules{
 				Table: tableRules,
@@ -109,8 +109,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(
-				rewriteRules, progress.UpdateCh())
+			err = client.RestoreAll(rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -178,13 +177,13 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 			ranges := restore.GetRanges(files)
 
-			progress := utils.NewProgressPrinter(
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
 				"Database Restore",
 				// Split/Scatter + Download/Ingest
 				int64(len(ranges)+len(files)),
-			)
-			progress.GoPrintProgress(ctx)
-			updateCh := progress.UpdateCh()
+				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
@@ -279,13 +278,13 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			ranges := restore.GetRanges(table.Files)
 
-			progress := utils.NewProgressPrinter(
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
 				"Table Restore",
 				// Split/Scatter + Download/Ingest
 				int64(len(ranges)+len(table.Files)),
-			)
-			progress.GoPrintProgress(ctx)
-			updateCh := progress.UpdateCh()
+				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
@@ -299,8 +298,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(
-				table, rewriteRules, progress.UpdateCh())
+			err = client.RestoreTable(table, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
