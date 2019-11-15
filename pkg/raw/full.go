@@ -3,8 +3,6 @@ package raw
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -18,12 +16,12 @@ import (
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/pingcap/tidb/util/sqlexec"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/meta"
@@ -45,9 +43,8 @@ type BackupClient struct {
 	pdClient  pd.Client
 	dom       *domain.Domain
 
-	backupMeta    backup.BackupMeta
-	backupSchemas backupSchemas
-	storage       utils.ExternalStorage
+	backupMeta backup.BackupMeta
+	storage    utils.ExternalStorage
 }
 
 // NewBackupClient returns a new backup client
@@ -55,11 +52,6 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 	log.Info("new backup client")
 	ctx, cancel := context.WithCancel(backer.Context())
 	pdClient := backer.GetPDClient()
-	stores, err := pdClient.GetAllStores(ctx)
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
 	// Do not run ddl worker in BR.
 	ddl.RunWorker = false
 	// Do not run stat worker in BR.
@@ -69,10 +61,6 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-	poolSize := uint(len(stores) * 8)
-	if poolSize > 100 {
-		poolSize = 100
-	}
 	return &BackupClient{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
@@ -80,13 +68,6 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		cancel:    cancel,
 		pdClient:  backer.GetPDClient(),
 		dom:       dom,
-		backupSchemas: backupSchemas{
-			meta:       make(map[string]*backup.Schema),
-			checksumCh: make(chan *tableChecksum),
-			errCh:      make(chan error),
-			wg:         sync.WaitGroup{},
-			workerPool: utils.NewWorkerPool(poolSize, "restore"),
-		},
 	}, nil
 }
 
@@ -94,6 +75,11 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 func (bc *BackupClient) Close() {
 	bc.dom.Close()
 	bc.cancel()
+}
+
+// GetDomain returns a domain
+func (bc *BackupClient) GetDomain() *domain.Domain {
+	return bc.dom
 }
 
 // GetTS returns the latest timestamp.
@@ -158,19 +144,16 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
-// PreBackupTableRanges gets the range of table and request admin checksum from TiDB.
-func (bc *BackupClient) PreBackupTableRanges(
-	dbName, tableName string,
-	path string,
+// BuildBackupRangeAndSchema gets table range and schema.
+func BuildBackupRangeAndSchema(
+	dom *domain.Domain,
+	storage kv.Storage,
 	backupTS uint64,
-) ([]Range, error) {
-	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
+	dbName, tableName string,
+) ([]Range, *BackupSchemas, error) {
+	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	info, err := bc.dom.GetSnapshotInfoSchema(backupTS)
-	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 
 	var dbInfo *model.DBInfo
@@ -178,49 +161,43 @@ func (bc *BackupClient) PreBackupTableRanges(
 	cDBName := model.NewCIStr(dbName)
 	dbInfo, exist := info.SchemaByName(cDBName)
 	if !exist {
-		return nil, errors.Errorf("schema %s not found", dbName)
+		return nil, nil, errors.Errorf("schema %s not found", dbName)
 	}
 	cTableName := model.NewCIStr(tableName)
 	table, err := info.TableByName(cDBName, cTableName)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 	tableInfo = table.Meta()
-	idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
+	idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
 	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 	tableInfo.AutoIncID = globalAutoID
 
 	dbData, err := json.Marshal(dbInfo)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 
 	tableData, err := json.Marshal(tableInfo)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 
-	backupSchema := &backup.Schema{
+	backupSchemas := newBackupSchemas()
+	backupSchema := backup.Schema{
 		Db:    dbData,
 		Table: tableData,
 	}
-	// TODO figure out why
-	// must set to true to avoid load global vars, otherwise we got error
-	dbSession.GetSessionVars().CommonGlobalLoaded = true
-	dbSession.GetSessionVars().SnapshotTS = backupTS
-	bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
+	backupSchemas.pushPending(backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
 	log.Info("save table schema",
 		zap.Stringer("db", dbInfo.Name),
 		zap.Stringer("table", tableInfo.Name),
 		zap.Int64("auto_inc_id", globalAutoID),
 	)
-	log.Info("backup table meta",
-		zap.Reflect("Schema", dbInfo),
-		zap.Reflect("Table", tableInfo))
 
 	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
 	//       backup global index.
@@ -229,7 +206,7 @@ func (bc *BackupClient) PreBackupTableRanges(
 	for _, r := range tableRanges {
 		ranges = append(ranges, r.Range())
 	}
-	return ranges, nil
+	return ranges, backupSchemas, nil
 }
 
 type tableRange struct {
@@ -264,21 +241,26 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// PreBackupAllTableRanges gets the range of all tables and request admin checksum from TiDB.
-func (bc *BackupClient) PreBackupAllTableRanges(backupTS uint64) ([]Range, error) {
+// BuildAllBackupRangeAndSchema gets the range of all tables and request admin checksum from TiDB.
+func BuildAllBackupRangeAndSchema(
+	dom *domain.Domain,
+	storage kv.Storage,
+	backupTS uint64,
+) ([]Range, *BackupSchemas, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
 		"mysql",
 	}
 
-	info, err := bc.dom.GetSnapshotInfoSchema(backupTS)
+	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
-
 	dbInfos := info.AllSchemas()
 	ranges := make([]Range, 0)
+	backupSchemas := newBackupSchemas()
+
 LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
@@ -289,42 +271,35 @@ LoadDb:
 		}
 		dbData, err := json.Marshal(dbInfo)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, nil, errors.Trace(err)
 		}
-		idAlloc := autoid.NewAllocator(bc.backer.GetTiKV(), dbInfo.ID, false)
+		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, nil, errors.Trace(err)
 			}
 			tableInfo.AutoIncID = globalAutoID
 			tableData, err := json.Marshal(tableInfo)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, nil, errors.Trace(err)
 			}
 
-			backupSchema := &backup.Schema{
+			schema := backup.Schema{
 				Db:    dbData,
 				Table: tableData,
 			}
-			dbSession, err := session.CreateSession(bc.backer.GetTiKV())
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-			dbSession.GetSessionVars().CommonGlobalLoaded = true
-			// make FastChecksum snapshot is same as backup snapshot
-			dbSession.GetSessionVars().SnapshotTS = backupTS
-			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
+			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
-			// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
-			//       backup global index.
+			// TODO: We may need to include [t<tableID>, t<tableID+1>)
+			//       in order to backup global index.
 			tableRanges := buildTableRanges(tableInfo)
 			for _, r := range tableRanges {
 				ranges = append(ranges, r.Range())
 			}
 		}
 	}
-	return ranges, nil
+	return ranges, backupSchemas, nil
 }
 
 // BackupRanges make a backup of the given key ranges.
@@ -752,119 +727,11 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 }
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta
-func (bc *BackupClient) CompleteMeta() error {
-	schemas, err := bc.backupSchemas.finishTableChecksum()
+func (bc *BackupClient) CompleteMeta(backupSchemas *BackupSchemas) error {
+	schemas, err := backupSchemas.finishTableChecksum()
 	if err != nil {
 		return err
 	}
 	bc.backupMeta.Schemas = schemas
 	return nil
-}
-
-type tableChecksum struct {
-	name       string
-	checksum   uint64
-	totalKvs   uint64
-	totalBytes uint64
-	duration   time.Duration
-}
-
-func getChecksumFromTiDB(
-	ctx context.Context,
-	dbSession session.Session,
-	dbName string,
-	tableName string,
-) (*tableChecksum, error) {
-	start := time.Now()
-	var recordSets []sqlexec.RecordSet
-	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
-		"ADMIN CHECKSUM TABLE %s.%s", utils.EncloseName(dbName), utils.EncloseName(tableName)))
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	records, err := utils.ResultSetToStringSlice(ctx, dbSession, recordSets[0])
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	record := records[0]
-	checksum, err := strconv.ParseUint(record[2], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	totalKvs, err := strconv.ParseUint(record[3], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	totalBytes, err := strconv.ParseUint(record[4], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &tableChecksum{
-		checksum:   checksum,
-		totalKvs:   totalKvs,
-		totalBytes: totalBytes,
-		duration:   time.Since(start),
-	}, nil
-}
-
-type backupSchemas struct {
-	meta       map[string]*backup.Schema
-	checksumCh chan *tableChecksum
-	errCh      chan error
-	wg         sync.WaitGroup
-	workerPool *utils.WorkerPool
-}
-
-func (bs *backupSchemas) startTableChecksum(
-	ctx context.Context,
-	dbSession session.Session,
-	schema *backup.Schema,
-	dbName, tableName string) {
-	name := fmt.Sprintf("%s.%s", dbName, tableName)
-	log.Info("admin checksum from TiDB start",
-		zap.String("table", name),
-	)
-	bs.meta[name] = schema
-	bs.wg.Add(1)
-	// TODO: It may block backup if len(table) > len(workers).
-	bs.workerPool.Apply(func() {
-		defer bs.wg.Done()
-		checksum, err := getChecksumFromTiDB(ctx, dbSession, dbName, tableName)
-		if err != nil {
-			bs.errCh <- err
-			return
-		}
-		checksum.name = name
-		bs.checksumCh <- checksum
-	})
-}
-
-func (bs *backupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
-	go func() {
-		bs.wg.Wait()
-		close(bs.checksumCh)
-	}()
-	var schemas []*backup.Schema
-	for {
-		select {
-		case checksum, ok := <-bs.checksumCh:
-			if !ok {
-				return schemas, nil
-			}
-			log.Info("admin checksum from TiDB finished",
-				zap.String("table", checksum.name),
-				zap.Uint64("Crc64Xor", checksum.checksum),
-				zap.Uint64("TotalKvs", checksum.totalKvs),
-				zap.Uint64("TotalBytes", checksum.totalBytes),
-				zap.Duration("take", checksum.duration))
-			s := bs.meta[checksum.name]
-			s.Crc64Xor = checksum.checksum
-			s.TotalKvs = checksum.totalKvs
-			s.TotalBytes = checksum.totalBytes
-			schemas = append(schemas, s)
-		case err := <-bs.errCh:
-			return nil, errors.Trace(err)
-		}
-	}
 }
