@@ -36,7 +36,9 @@ func PrintBRInfo() {
 
 // LogArguments prints origin command arguments
 func LogArguments(cmd *cobra.Command) {
+	var fields []zap.Field
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		log.Info("argument", zap.Stringer(f.Name, f.Value))
+		fields = append(fields, zap.Stringer(f.Name, f.Value))
 	})
+	log.Info("arguments", fields...)
 }
