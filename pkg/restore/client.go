@@ -18,11 +18,11 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
@@ -59,6 +59,7 @@ type Client struct {
 	dbDSN      string
 	backupMeta *backup.BackupMeta
 	backer     *meta.Backer
+	dom        *domain.Domain
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -75,9 +76,13 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-	tikvCli, err := tikv.Driver{}.Open(
-		// Disable GC because TiDB enables GC already.
-		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
+
+	// Do not run ddl worker in BR.
+	// BR sends create table sql to tidb instance instead of using the DDL package.
+	ddl.RunWorker = false
+	// Do not run stat worker in BR.
+	session.DisableStats4Test()
+	dom, err := session.BootstrapSession(backer.GetTiKV())
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -88,15 +93,22 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		cancel:          cancel,
 		pdClient:        pdClient,
 		pdAddrs:         addrs,
-		tikvCli:         tikvCli.(tikv.Storage),
+		tikvCli:         backer.GetTiKV().(tikv.Storage),
 		backer:          backer,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
+		dom:             dom,
 	}, nil
 }
 
 // GetPDClient returns a pd client.
 func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
+}
+
+// Close a client
+func (rc *Client) Close() {
+	rc.dom.Close()
+	rc.cancel()
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
@@ -186,16 +198,11 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	dbSession, err := session.CreateSession(rc.tikvCli)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	do := domain.GetDomain(dbSession.(sessionctx.Context))
 	ts, err := rc.GetTS()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	info, err := do.GetSnapshotInfoSchema(ts)
+	info, err := rc.dom.GetSnapshotInfoSchema(ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

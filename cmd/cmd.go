@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -20,6 +21,7 @@ var (
 	initOnce       = sync.Once{}
 	defaultContext context.Context
 	pdAddress      string
+	hasLogFile     uint64
 
 	backerOnce    = sync.Once{}
 	defaultBacker *meta.Backer
@@ -79,6 +81,9 @@ func Init(cmd *cobra.Command) (err error) {
 		if err != nil {
 			return
 		}
+		if len(conf.File.Filename) != 0 {
+			atomic.StoreUint64(&hasLogFile, 1)
+		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
 			err = e
@@ -127,6 +132,11 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 	})
 	return err
+}
+
+// HasLogFile returns whether we set a log file
+func HasLogFile() bool {
+	return atomic.LoadUint64(&hasLogFile) != uint64(0)
 }
 
 // GetDefaultBacker returns the default backer for command line usage.
