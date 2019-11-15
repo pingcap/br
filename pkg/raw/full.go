@@ -16,10 +16,10 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -43,6 +43,7 @@ type BackupClient struct {
 	backer    *meta.Backer
 	clusterID uint64
 	pdClient  pd.Client
+	dom       *domain.Domain
 
 	backupMeta    backup.BackupMeta
 	backupSchemas backupSchemas
@@ -59,6 +60,15 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
+	// Do not run ddl worker in BR.
+	ddl.RunWorker = false
+	// Do not run stat worker in BR.
+	session.DisableStats4Test()
+	dom, err := session.BootstrapSession(backer.GetTiKV())
+	if err != nil {
+		cancel()
+		return nil, errors.Trace(err)
+	}
 	poolSize := uint(len(stores) * 8)
 	if poolSize > 100 {
 		poolSize = 100
@@ -69,6 +79,7 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		ctx:       ctx,
 		cancel:    cancel,
 		pdClient:  backer.GetPDClient(),
+		dom:       dom,
 		backupSchemas: backupSchemas{
 			meta:       make(map[string]*backup.Schema),
 			checksumCh: make(chan *tableChecksum),
@@ -77,6 +88,12 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 			workerPool: utils.NewWorkerPool(poolSize, "restore"),
 		},
 	}, nil
+}
+
+// Close a backup client
+func (bc *BackupClient) Close() {
+	bc.dom.Close()
+	bc.cancel()
 }
 
 // GetTS returns the latest timestamp.
@@ -151,8 +168,7 @@ func (bc *BackupClient) PreBackupTableRanges(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	do := domain.GetDomain(dbSession.(sessionctx.Context))
-	info, err := do.GetSnapshotInfoSchema(backupTS)
+	info, err := bc.dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -256,17 +272,7 @@ func (bc *BackupClient) PreBackupAllTableRanges(backupTS uint64) ([]Range, error
 		"mysql",
 	}
 
-	dbSession, err := session.CreateSession(bc.backer.GetTiKV())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	// make FastChecksum snapshot is same as backup snapshot
-	dbSession.GetSessionVars().SnapshotTS = backupTS
-
-	do := domain.GetDomain(dbSession.(sessionctx.Context))
-
-	info, err := do.GetSnapshotInfoSchema(backupTS)
+	info, err := bc.dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -301,11 +307,12 @@ LoadDb:
 				Db:    dbData,
 				Table: tableData,
 			}
-			dbSession, err = session.CreateSession(bc.backer.GetTiKV())
+			dbSession, err := session.CreateSession(bc.backer.GetTiKV())
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
 			dbSession.GetSessionVars().CommonGlobalLoaded = true
+			// make FastChecksum snapshot is same as backup snapshot
 			dbSession.GetSessionVars().SnapshotTS = backupTS
 			bc.backupSchemas.startTableChecksum(bc.ctx, dbSession, backupSchema, dbInfo.Name.L, tableInfo.Name.L)
 
