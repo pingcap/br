@@ -41,7 +41,7 @@ func NewRestoreCommand() *cobra.Command {
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
 	command.PersistentFlags().BoolP("checksum", "", true,
-		"Run checksum after backup")
+		"Run checksum after restore")
 
 	if err := command.MarkPersistentFlagRequired("connect"); err != nil {
 		panic(err)
