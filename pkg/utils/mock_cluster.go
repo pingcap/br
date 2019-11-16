@@ -6,11 +6,15 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/http/pprof"
+	"net/url"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pingcap/log"
+	"github.com/pingcap/pd/pkg/tempurl"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -31,6 +35,7 @@ type MockCluster struct {
 	kv.Storage
 	*server.TiDBDriver
 	*domain.Domain
+	DSN string
 }
 
 // NewMockCluster create a new mock cluster.
@@ -73,11 +78,30 @@ func NewMockCluster() (*MockCluster, error) {
 
 // Start runs a mock cluster
 func (mock *MockCluster) Start() error {
+	statusURL, err := url.Parse(tempurl.Alloc())
+	if err != nil {
+		return err
+	}
+	statusPort, err := strconv.ParseInt(statusURL.Port(), 10, 32)
+	if err != nil {
+		return err
+	}
+
+	addrURL, err := url.Parse(tempurl.Alloc())
+	if err != nil {
+		return err
+	}
+	addrPort, err := strconv.ParseInt(addrURL.Port(), 10, 32)
+	if err != nil {
+		return err
+	}
+	_ = addrPort
+
 	mock.TiDBDriver = server.NewTiDBDriver(mock.Storage)
 	cfg := config.NewConfig()
-	cfg.Port = 4001
+	cfg.Port = uint(addrPort)
 	cfg.Store = "tikv"
-	cfg.Status.StatusPort = 10090
+	cfg.Status.StatusPort = uint(statusPort)
 	cfg.Status.ReportStatus = true
 
 	svr, err := server.NewServer(cfg, mock.TiDBDriver)
@@ -90,7 +114,7 @@ func (mock *MockCluster) Start() error {
 			panic(err1)
 		}
 	}()
-	waitUntilServerOnline(cfg.Status.StatusPort)
+	mock.DSN = waitUntilServerOnline(addrURL.Host, cfg.Status.StatusPort)
 	return nil
 }
 
@@ -128,12 +152,15 @@ func getDSN(overriders ...configOverrider) string {
 	return cfg.FormatDSN()
 }
 
-func waitUntilServerOnline(statusPort uint) {
+func waitUntilServerOnline(addr string, statusPort uint) string {
 	// connect server
 	retry := 0
+	dsn := getDSN(func(cfg *mysql.Config) {
+		cfg.Addr = addr
+	})
 	for ; retry < retryTime; retry++ {
 		time.Sleep(time.Millisecond * 10)
-		db, err := sql.Open("mysql", getDSN())
+		db, err := sql.Open("mysql", dsn)
 		if err == nil {
 			db.Close()
 			break
@@ -155,6 +182,8 @@ func waitUntilServerOnline(statusPort uint) {
 		time.Sleep(time.Millisecond * 10)
 	}
 	if retry == retryTime {
-		log.Fatal("failed to connect HTTP status in every 10 ms", zap.Int("retryTime", retryTime))
+		log.Fatal("failed to connect HTTP status in every 10 ms",
+			zap.Int("retryTime", retryTime))
 	}
+	return strings.SplitAfter(dsn, "/")[0]
 }

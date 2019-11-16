@@ -18,7 +18,7 @@ import (
 
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
-	bp := &cobra.Command{
+	command := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
@@ -30,12 +30,24 @@ func NewRestoreCommand() *cobra.Command {
 			return nil
 		},
 	}
-	bp.AddCommand(
+	command.AddCommand(
 		newFullRestoreCommand(),
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
 	)
-	return bp
+
+	command.PersistentFlags().String("connect", "",
+		"the address to connect tidb, format: username:password@protocol(address)/")
+	command.PersistentFlags().Uint("concurrency", 128,
+		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().BoolP("checksum", "", true,
+		"Run checksum after backup")
+
+	if err := command.MarkPersistentFlagRequired("connect"); err != nil {
+		panic(err)
+	}
+
+	return command
 }
 
 func newFullRestoreCommand() *cobra.Command {
@@ -120,16 +132,17 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(tables, newTables)
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum(tables, newTables, updateCh)
+			close(updateCh)
+
 			return errors.Trace(err)
 		},
-	}
-
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
-
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
 	}
 
 	return command
@@ -212,19 +225,21 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(db.Tables, newTables)
+
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum(db.Tables, newTables, updateCh)
+			close(updateCh)
+
 			return errors.Trace(err)
 		},
 	}
-
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
-
 	command.Flags().String("db", "", "database name")
 
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
-	}
 	if err := command.MarkFlagRequired("db"); err != nil {
 		panic(err)
 	}
@@ -310,20 +325,22 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum([]*utils.Table{table}, newTables)
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum([]*utils.Table{table}, newTables, updateCh)
+			close(updateCh)
+
 			return errors.Trace(err)
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
-
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
 
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
-	}
 	if err := command.MarkFlagRequired("db"); err != nil {
 		panic(err)
 	}

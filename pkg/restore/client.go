@@ -439,7 +439,11 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 }
 
 //ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.TableInfo) error {
+func (rc *Client) ValidateChecksum(
+	tables []*utils.Table,
+	newTables []*model.TableInfo,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -483,6 +487,8 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 			)
 			return errors.New("failed to validate checksum")
 		}
+
+		updateCh <- struct{}{}
 	}
 	log.Info("validate checksum passed!!")
 	return nil

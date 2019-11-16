@@ -121,17 +121,18 @@ func newFullBackupCommand() *cobra.Command {
 			}
 
 			// Backup
-			bpctx, bpcancel := context.WithCancel(defaultBacker.Context())
+			ctx, cancel := context.WithCancel(defaultBacker.Context())
+			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
-				bpctx, "Full Backup", int64(approximateRegions), !HasLogFile())
+				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
-				bpcancel()
 				return err
 			}
-			bpcancel()
+			// Backup has finished
+			close(updateCh)
 
 			// Checksum
 			backupSchemasConcurrency := 128
@@ -160,6 +161,9 @@ func newFullBackupCommand() *cobra.Command {
 					log.Error("backup FastChecksum not passed!")
 				}
 			}
+			// Checksum has finished
+			close(updateCh)
+
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -257,17 +261,18 @@ func newTableBackupCommand() *cobra.Command {
 			}
 
 			// Backup
-			bpctx, bpcancel := context.WithCancel(defaultBacker.Context())
+			ctx, cancel := context.WithCancel(defaultBacker.Context())
+			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
-				bpctx, "Table Backup", int64(approximateRegions), !HasLogFile())
+				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
-				bpcancel()
 				return err
 			}
-			bpcancel()
+			// Backup has finished
+			close(updateCh)
 
 			// Checksum
 			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())
@@ -292,6 +297,8 @@ func newTableBackupCommand() *cobra.Command {
 					log.Error("backup FastChecksum not passed!")
 				}
 			}
+			// Checksum has finished
+			close(updateCh)
 
 			return client.SaveBackupMeta(u)
 		},
