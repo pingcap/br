@@ -58,7 +58,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(len(schemas), Equals, 0)
 
 	tk.MustExec("use test")
-	tk.MustExec("drop table if exists t;")
+	tk.MustExec("drop table if exists t1;")
 	tk.MustExec("create table t1 (a int);")
 	tk.MustExec("insert into t1 values (10);")
 
@@ -76,7 +76,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0, Commentf("%v", schemas[0]))
 
-	tk.MustExec("drop table if exists t;")
+	tk.MustExec("drop table if exists t2;")
 	tk.MustExec("create table t2 (a int);")
 	tk.MustExec("insert into t2 values (10);")
 	tk.MustExec("insert into t2 values (11);")

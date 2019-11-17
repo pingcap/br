@@ -138,10 +138,13 @@ func newFullRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(tables, newTables, updateCh)
+			err = client.ValidateChecksum(ctx, tables, newTables, updateCh)
+			if err != nil {
+				return err
+			}
 			close(updateCh)
 
-			return errors.Trace(err)
+			return nil
 		},
 	}
 
@@ -232,10 +235,13 @@ func newDbRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(db.Tables, newTables, updateCh)
+			err = client.ValidateChecksum(ctx, db.Tables, newTables, updateCh)
+			if err != nil {
+				return err
+			}
 			close(updateCh)
 
-			return errors.Trace(err)
+			return nil
 		},
 	}
 	command.Flags().String("db", "", "database name")
@@ -331,10 +337,14 @@ func newTableRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum([]*utils.Table{table}, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, []*utils.Table{table}, newTables, updateCh)
+			if err != nil {
+				return err
+			}
 			close(updateCh)
 
-			return errors.Trace(err)
+			return nil
 		},
 	}
 

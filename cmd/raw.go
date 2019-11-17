@@ -135,8 +135,8 @@ func newFullBackupCommand() *cobra.Command {
 			close(updateCh)
 
 			// Checksum
-			backupSchemasConcurrency := 128
-			if backupSchemas.Len() < 128 {
+			backupSchemasConcurrency := 64
+			if backupSchemas.Len() < 64 {
 				backupSchemasConcurrency = backupSchemas.Len()
 			}
 			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())

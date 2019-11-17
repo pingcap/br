@@ -2,19 +2,20 @@ package raw
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/util/sqlexec"
+	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -61,7 +62,7 @@ func (pending *BackupSchemas) Start(
 	workerPool := utils.NewWorkerPool(concurrency, fmt.Sprintf("BackupSchemas"))
 	go func() {
 		for n, s := range pending.schemas {
-			log.Info("admin checksum from TiDB start", zap.String("table", n))
+			log.Info("admin checksum start", zap.String("table", n))
 			name := n
 			schema := s
 			pending.wg.Add(1)
@@ -74,32 +75,27 @@ func (pending *BackupSchemas) Start(
 					return
 				}
 
-				dbSession, err := session.CreateSession(store)
-				if err != nil {
-					pending.errCh <- errors.Trace(err)
-					return
-				}
-				defer dbSession.Close()
 				start := time.Now()
-
-				// TODO figure out why
-				// must set to true to avoid load global vars, otherwise we got error
-				dbSession.GetSessionVars().CommonGlobalLoaded = true
-				// make FastChecksum snapshot is same as backup snapshot
-				dbSession.GetSessionVars().SnapshotTS = backupTS
-				checksum, err := getChecksumFromTiDB(ctx, dbSession, name)
+				table := model.TableInfo{}
+				err := json.Unmarshal(schema.Table, &table)
 				if err != nil {
 					pending.errCh <- err
 					return
 				}
-				schema.Crc64Xor = checksum.checksum
-				schema.TotalKvs = checksum.totalKvs
-				schema.TotalBytes = checksum.totalBytes
-				log.Info("admin checksum from TiDB finished",
+				checksumResp, err := cacleChecksum(
+					ctx, &table, store.GetClient(), backupTS)
+				if err != nil {
+					pending.errCh <- err
+					return
+				}
+				schema.Crc64Xor = checksumResp.Checksum
+				schema.TotalKvs = checksumResp.TotalKvs
+				schema.TotalBytes = checksumResp.TotalBytes
+				log.Info("admin checksum finished",
 					zap.String("table", name),
-					zap.Uint64("Crc64Xor", checksum.checksum),
-					zap.Uint64("TotalKvs", checksum.totalKvs),
-					zap.Uint64("TotalBytes", checksum.totalBytes),
+					zap.Uint64("Crc64Xor", checksumResp.Checksum),
+					zap.Uint64("TotalKvs", checksumResp.TotalKvs),
+					zap.Uint64("TotalBytes", checksumResp.TotalBytes),
 					zap.Duration("take", time.Since(start)))
 				pending.backupSchemaCh <- schema
 
@@ -131,44 +127,21 @@ func (pending *BackupSchemas) Len() int {
 	return len(pending.schemas)
 }
 
-type tableChecksum struct {
-	checksum   uint64
-	totalKvs   uint64
-	totalBytes uint64
-}
-
-func getChecksumFromTiDB(
+func cacleChecksum(
 	ctx context.Context,
-	dbSession session.Session,
-	name string,
-) (*tableChecksum, error) {
-	var recordSets []sqlexec.RecordSet
-	recordSets, err := dbSession.Execute(ctx, fmt.Sprintf(
-		"ADMIN CHECKSUM TABLE %s", name))
+	table *model.TableInfo,
+	client kv.Client,
+	backupTS uint64,
+) (*tipb.ChecksumResponse, error) {
+	exe, err := checksum.NewExecutorBuilder(table, backupTS).Build()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	records, err := utils.ResultSetToStringSlice(ctx, dbSession, recordSets[0])
+	checksumResp, err := exe.Execute(ctx, client, func() {
+		// TODO: update progress here.
+	})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
-	record := records[0]
-	checksum, err := strconv.ParseUint(record[2], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	totalKvs, err := strconv.ParseUint(record[3], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	totalBytes, err := strconv.ParseUint(record[4], 10, 64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &tableChecksum{
-		checksum:   checksum,
-		totalKvs:   totalKvs,
-		totalBytes: totalBytes,
-	}, nil
+	return checksumResp, nil
 }
