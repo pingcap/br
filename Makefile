@@ -20,7 +20,6 @@ build:
 test:
 	GO111MODULE=on go test -race ./...
 
-testcover: SHELL:=/bin/bash
 testcover:
 	GO111MODULE=on retool do overalls \
 		-project=$(BR_PKG) \
