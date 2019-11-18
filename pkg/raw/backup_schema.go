@@ -61,8 +61,9 @@ func (pending *BackupSchemas) Start(
 ) {
 	workerPool := utils.NewWorkerPool(concurrency, fmt.Sprintf("BackupSchemas"))
 	go func() {
+		startAll := time.Now()
 		for n, s := range pending.schemas {
-			log.Info("admin checksum start", zap.String("table", n))
+			log.Info("table checksum start", zap.String("table", n))
 			name := n
 			schema := s
 			pending.wg.Add(1)
@@ -91,7 +92,7 @@ func (pending *BackupSchemas) Start(
 				schema.Crc64Xor = checksumResp.Checksum
 				schema.TotalKvs = checksumResp.TotalKvs
 				schema.TotalBytes = checksumResp.TotalBytes
-				log.Info("admin checksum finished",
+				log.Info("table checksum finished",
 					zap.String("table", name),
 					zap.Uint64("Crc64Xor", checksumResp.Checksum),
 					zap.Uint64("TotalKvs", checksumResp.TotalKvs),
@@ -104,6 +105,8 @@ func (pending *BackupSchemas) Start(
 		}
 		pending.wg.Wait()
 		close(pending.backupSchemaCh)
+		log.Info("backup checksum finished",
+			zap.Duration("take", time.Since(startAll)))
 	}()
 }
 
