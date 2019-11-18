@@ -5,3 +5,5 @@ _tools/
 backupmeta
 *.log
 *.ngo
+*.coverprofile
+coverage.txt
