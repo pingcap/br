@@ -20,6 +20,17 @@ build:
 test:
 	GO111MODULE=on go test -race ./...
 
+testcover: SHELL:=/bin/bash
+testcover:
+	GO111MODULE=on retool do overalls \
+		-project=$(BR_PKG) \
+		-covermode=count \
+		-ignore='.git,vendor,tests,_tools' \
+		-debug \
+		-- -coverpkg=./...
+	mv overalls.coverprofile coverage.txt
+	bash <(curl -s https://codecov.io/bash)
+
 integration_test: build
 	@which bin/tidb-server
 	@which bin/tikv-server
