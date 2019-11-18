@@ -38,20 +38,22 @@ echo "-u $PD_ADDR -d sched add shuffle-leader-scheduler" | pd-ctl
 
 # backup with shuffle leader
 echo "backup start..."
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
+br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 1 --concurrency 4
 
-run_sql "DROP TABLE $DB.$TABLE;"
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
+done
 
 # restore with shuffle leader
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+br restore full --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 # remove shuffle leader scheduler
 echo "-u $PD_ADDR -d sched remove shuffle-leader-scheduler" | pd-ctl
 
 for i in $(seq $DB_COUNT); do
     for j in $(seq $TABLE_COUNT); do
-        row_count_new[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+        row_count_new[(${i}*$TABLE_COUNT+${j})]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE${j};" | awk '/COUNT/{print $2}')
     done
 done
 

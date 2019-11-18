@@ -26,7 +26,7 @@ for i in $(seq $DB_COUNT); do
     done
 done
 
-row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB${1}.$TABLE${1};" | awk '/COUNT/{print $2}')
+row_count_ori=$(run_sql "SELECT COUNT(*) FROM ${DB}1.${TABLE}1;" | awk '/COUNT/{print $2}')
 
 # backup full
 echo "backup start..."
@@ -36,22 +36,15 @@ for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
 
-# restore full
+# restore table
 echo "restore start..."
-br restore full --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+br restore table --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --db ${DB}1 --table ${TABLE}1
 
-row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB${1}.$TABLE${1};" | awk '/COUNT/{print $2}')
+row_count_new=$(run_sql "SELECT COUNT(*) FROM ${DB}1.${TABLE}1;" | awk '/COUNT/{print $2}')
 
-fail=false
-if [ "${row_count_ori}" != "${row_count_new}" ];then
-    fail=true
-    echo "TEST: [$TEST_NAME] fail on database $DB${1} $TABLE${1}"
-fi
-echo "database $DB${1} $TABLE${1} [original] row count: ${row_count_ori}, [after br] row count: ${row_count_new}"
-
-if $fail; then
+if [ "$row_count_ori" -eq "$row_count_new" ];then
+    echo "TEST: [$TEST_NAME] successed!"
+else
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
