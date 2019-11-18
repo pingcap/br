@@ -144,6 +144,8 @@ func buildTableRequest(
 	ranges := ranger.FullIntRange(false)
 
 	var builder distsql.RequestBuilder
+	// Use low priority to reducing impact to other requests.
+	builder.Request.Priority = kv.PriorityLow
 	return builder.SetTableRanges(tableID, ranges, nil).
 		SetChecksumRequest(checksum).
 		SetConcurrency(variable.DefDistSQLScanConcurrency).
@@ -174,6 +176,8 @@ func buildIndexRequest(
 	ranges := ranger.FullRange()
 
 	var builder distsql.RequestBuilder
+	// Use low priority to reducing impact to other requests.
+	builder.Request.Priority = kv.PriorityLow
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetChecksumRequest(checksum).
 		SetConcurrency(variable.DefDistSQLScanConcurrency).
