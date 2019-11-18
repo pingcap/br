@@ -19,6 +19,10 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
+const (
+	DefaultBackupSchemasConcurrency = 64
+)
+
 // BackupSchemas is task for backuping schemas
 type BackupSchemas struct {
 	// name -> schema
