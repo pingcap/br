@@ -36,6 +36,10 @@ const (
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
+
+	// defaultChecksumConcurrency is the default number of the concurrent
+	// checksum tasks.
+	defaultChecksumConcurrency = 64
 )
 
 // Client sends requests to importer to restore files
@@ -447,8 +451,8 @@ func (rc *Client) ValidateChecksum(
 	}()
 
 	log.Info("Start to validate checksum")
-	checksumConcurrency := 64
-	if len(tables) < 64 {
+	checksumConcurrency := defaultChecksumConcurrency
+	if len(tables) < checksumConcurrency {
 		checksumConcurrency = len(tables)
 	}
 	wg := sync.WaitGroup{}

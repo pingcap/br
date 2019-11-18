@@ -20,7 +20,9 @@ import (
 )
 
 const (
-	DefaultBackupSchemasConcurrency = 64
+	// DefaultSchemaConcurrency is the default number of the concurrent
+	// backup schema tasks.
+	DefaultSchemaConcurrency = 64
 )
 
 // BackupSchemas is task for backuping schemas
