@@ -28,8 +28,6 @@ testcover:
 		-ignore='.git,vendor,tests,_tools' \
 		-debug \
 		-- -coverpkg=./...
-	mv overalls.coverprofile coverage.txt
-	bash <(curl -s https://codecov.io/bash)
 
 integration_test: build
 	@which bin/tidb-server
