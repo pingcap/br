@@ -25,11 +25,11 @@ var (
 
 const (
 	importScanResgionTime     = 10 * time.Second
-	importFileRetryTimes      = 16
+	importFileRetryTimes      = 64
 	importFileWaitInterval    = 10 * time.Millisecond
 	importFileMaxWaitInterval = 1 * time.Second
 
-	downloadSSTRetryTimes      = 8
+	downloadSSTRetryTimes      = 16
 	downloadSSTWaitInterval    = 10 * time.Millisecond
 	downloadSSTMaxWaitInterval = 1 * time.Second
 )
