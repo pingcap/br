@@ -65,7 +65,7 @@ func (pending *BackupSchemas) Start(
 	concurrency uint,
 	updateCh chan<- struct{},
 ) {
-	workerPool := utils.NewWorkerPool(concurrency, fmt.Sprintf("BackupSchemas"))
+	workerPool := utils.NewWorkerPool(concurrency, "BackupSchemas")
 	go func() {
 		startAll := time.Now()
 		for n, s := range pending.schemas {
@@ -89,7 +89,7 @@ func (pending *BackupSchemas) Start(
 					pending.errCh <- err
 					return
 				}
-				checksumResp, err := cacleChecksum(
+				checksumResp, err := calculateChecksum(
 					ctx, &table, store.GetClient(), backupTS)
 				if err != nil {
 					pending.errCh <- err
@@ -136,7 +136,7 @@ func (pending *BackupSchemas) Len() int {
 	return len(pending.schemas)
 }
 
-func cacleChecksum(
+func calculateChecksum(
 	ctx context.Context,
 	table *model.TableInfo,
 	client kv.Client,

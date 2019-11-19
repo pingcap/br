@@ -91,12 +91,12 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	req := tipb.ChecksumRequest{}
 	err = proto.Unmarshal(exe2.reqs[0].Data, &req)
 	c.Assert(err, IsNil)
-	c.Assert(req.Rule, Not(IsNil))
+	c.Assert(req.Rule, NotNil)
 	req = tipb.ChecksumRequest{}
 	err = proto.Unmarshal(exe2.reqs[1].Data, &req)
 	c.Assert(err, IsNil)
-	c.Assert(req.Rule, Not(IsNil))
+	c.Assert(req.Rule, NotNil)
 	resp2, err = exe2.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
-	c.Assert(resp2, Not(IsNil))
+	c.Assert(resp2, NotNil)
 }

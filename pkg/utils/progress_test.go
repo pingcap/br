@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"strings"
 
 	. "github.com/pingcap/check"
 )
@@ -32,13 +31,13 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh2 := progress2.UpdateCh()
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(strings.Contains(p, "50"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*50.*")
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(strings.Contains(p, "100"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*100.*")
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(strings.Contains(p, "100"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*100.*")
 
 	pCh4 := make(chan string, 4)
 	progress4 := NewProgressPrinter("test", 4, false)
@@ -48,11 +47,11 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh4 := progress4.UpdateCh()
 	updateCh4 <- struct{}{}
 	p = <-pCh4
-	c.Assert(strings.Contains(p, "25"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*25.*")
 	updateCh4 <- struct{}{}
 	close(updateCh4)
 	p = <-pCh4
-	c.Assert(strings.Contains(p, "100"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*100.*")
 
 	pCh8 := make(chan string, 8)
 	progress8 := NewProgressPrinter("test", 8, false)
@@ -64,10 +63,10 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh8 <- struct{}{}
 	<-pCh8
 	p = <-pCh8
-	c.Assert(strings.Contains(p, "25"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*25.*")
 
 	// Cancel should stop progress at the current position.
 	cancel()
 	p = <-pCh8
-	c.Assert(strings.Contains(p, "25"), IsTrue, Commentf("%s", p))
+	c.Assert(p, Matches, ".*25.*")
 }

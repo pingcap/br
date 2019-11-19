@@ -451,13 +451,9 @@ func (rc *Client) ValidateChecksum(
 	}()
 
 	log.Info("Start to validate checksum")
-	checksumConcurrency := defaultChecksumConcurrency
-	if len(tables) < checksumConcurrency {
-		checksumConcurrency = len(tables)
-	}
 	wg := sync.WaitGroup{}
 	errCh := make(chan error)
-	workers := utils.NewWorkerPool(uint(checksumConcurrency), "RestoreChecksum")
+	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
 		for i, t := range tables {
 			table := t
