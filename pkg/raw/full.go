@@ -144,71 +144,6 @@ func (bc *BackupClient) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
-// BuildBackupRangeAndSchema gets table range and schema.
-func BuildBackupRangeAndSchema(
-	dom *domain.Domain,
-	storage kv.Storage,
-	backupTS uint64,
-	dbName, tableName string,
-) ([]Range, *BackupSchemas, error) {
-	info, err := dom.GetSnapshotInfoSchema(backupTS)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-
-	var dbInfo *model.DBInfo
-	var tableInfo *model.TableInfo
-	cDBName := model.NewCIStr(dbName)
-	dbInfo, exist := info.SchemaByName(cDBName)
-	if !exist {
-		return nil, nil, errors.Errorf("schema %s not found", dbName)
-	}
-	cTableName := model.NewCIStr(tableName)
-	table, err := info.TableByName(cDBName, cTableName)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-	tableInfo = table.Meta()
-	idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
-	globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-	tableInfo.AutoIncID = globalAutoID
-
-	dbData, err := json.Marshal(dbInfo)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-
-	tableData, err := json.Marshal(tableInfo)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
-
-	backupSchemas := newBackupSchemas()
-	backupSchema := backup.Schema{
-		Db:    dbData,
-		Table: tableData,
-	}
-	backupSchemas.pushPending(backupSchema, dbInfo.Name.L, tableInfo.Name.L)
-
-	log.Info("save table schema",
-		zap.Stringer("db", dbInfo.Name),
-		zap.Stringer("table", tableInfo.Name),
-		zap.Int64("auto_inc_id", globalAutoID),
-	)
-
-	// TODO: We may need to include [t<tableID>, t<tableID+1>) in order to
-	//       backup global index.
-	tableRanges := buildTableRanges(tableInfo)
-	ranges := make([]Range, 0, len(tableRanges))
-	for _, r := range tableRanges {
-		ranges = append(ranges, r.Range())
-	}
-	return ranges, backupSchemas, nil
-}
-
 type tableRange struct {
 	startID, endID int64
 }
@@ -241,11 +176,12 @@ func buildTableRanges(tbl *model.TableInfo) []tableRange {
 	return ranges
 }
 
-// BuildAllBackupRangeAndSchema gets the range of all tables and request admin checksum from TiDB.
-func BuildAllBackupRangeAndSchema(
+// BuildBackupRangeAndSchema gets the range and schema of tables.
+func BuildBackupRangeAndSchema(
 	dom *domain.Domain,
 	storage kv.Storage,
 	backupTS uint64,
+	dbName, tableName string,
 ) ([]Range, *BackupSchemas, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
@@ -257,10 +193,29 @@ func BuildAllBackupRangeAndSchema(
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	dbInfos := info.AllSchemas()
+	var dbInfos []*model.DBInfo
+	var cTableName model.CIStr
+	switch {
+	case len(dbName) == 0 && len(tableName) != 0:
+		return nil, nil, errors.New("no database is not specified")
+	case len(dbName) != 0 && len(tableName) == 0:
+		return nil, nil, errors.New("backup database is not supported")
+	case len(dbName) != 0 && len(tableName) != 0:
+		// backup table
+		cTableName = model.NewCIStr(tableName)
+		cDBName := model.NewCIStr(dbName)
+		dbInfo, exist := info.SchemaByName(cDBName)
+		if !exist {
+			return nil, nil, errors.Errorf("schema %s not found", dbName)
+		}
+		dbInfos = append(dbInfos, dbInfo)
+	case len(dbName) == 0 && len(tableName) == 0:
+		// backup full
+		dbInfos = info.AllSchemas()
+	}
+
 	ranges := make([]Range, 0)
 	backupSchemas := newBackupSchemas()
-
 LoadDb:
 	for _, dbInfo := range dbInfos {
 		// skip system databases
@@ -275,11 +230,20 @@ LoadDb:
 		}
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
 		for _, tableInfo := range dbInfo.Tables {
+			if len(cTableName.L) != 0 && cTableName.L != tableInfo.Name.L {
+				// Skip tables other than the given table.
+				continue
+			}
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
 			tableInfo.AutoIncID = globalAutoID
+			log.Info("change table AutoIncID",
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tableInfo.Name),
+				zap.Int64("AutoIncID", globalAutoID))
+
 			tableData, err := json.Marshal(tableInfo)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
@@ -297,6 +261,13 @@ LoadDb:
 			for _, r := range tableRanges {
 				ranges = append(ranges, r.Range())
 			}
+		}
+	}
+
+	if len(cTableName.L) != 0 {
+		// Must find the given table.
+		if backupSchemas.Len() == 0 {
+			return nil, nil, errors.Errorf("table %s not found", cTableName)
 		}
 	}
 	return ranges, backupSchemas, nil

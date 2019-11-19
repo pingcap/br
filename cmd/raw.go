@@ -108,8 +108,8 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			ranges, backupSchemas, err := raw.BuildAllBackupRangeAndSchema(
-				client.GetDomain(), backer.GetTiKV(), backupTS)
+			ranges, backupSchemas, err := raw.BuildBackupRangeAndSchema(
+				client.GetDomain(), backer.GetTiKV(), backupTS, "", "")
 			if err != nil {
 				return err
 			}

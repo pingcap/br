@@ -46,8 +46,8 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(backupSchemas, IsNil)
 
 	// Empty databse.
-	_, backupSchemas, err = BuildAllBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64)
+	_, backupSchemas, err = BuildBackupRangeAndSchema(
+		s.mock.Domain, s.mock.Storage, math.MaxUint64, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, NotNil)
 	c.Assert(backupSchemas.Len(), Equals, 0)
@@ -81,8 +81,8 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t2 values (10);")
 	tk.MustExec("insert into t2 values (11);")
 
-	_, backupSchemas, err = BuildAllBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64)
+	_, backupSchemas, err = BuildBackupRangeAndSchema(
+		s.mock.Domain, s.mock.Storage, math.MaxUint64, "", "")
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, updateCh)
