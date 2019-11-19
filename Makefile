@@ -20,6 +20,14 @@ build:
 test:
 	GO111MODULE=on go test -race ./...
 
+testcover:
+	GO111MODULE=on retool do overalls \
+		-project=$(BR_PKG) \
+		-covermode=count \
+		-ignore='.git,vendor,tests,_tools' \
+		-debug \
+		-- -coverpkg=./...
+
 integration_test: build
 	@which bin/tidb-server
 	@which bin/tikv-server
