@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -18,20 +19,19 @@ import (
 
 var (
 	errNotLeader           = errors.New("not leader")
-	errEpochNotMatch       = errors.New("epoch not match")
 	errRewriteRuleNotFound = errors.New("rewrite rule not found")
 	errRangeIsEmpty        = errors.New("range is empty")
 )
 
 const (
 	importScanResgionTime     = 10 * time.Second
-	importFileRetryTimes      = 64
-	importFileWaitInterval    = 10 * time.Millisecond
-	importFileMaxWaitInterval = 1 * time.Second
+	importFileRetryTimes      = 128
+	importFileWaitInterval    = 200 * time.Millisecond
+	importFileMaxWaitInterval = 4 * time.Second
 
 	downloadSSTRetryTimes      = 16
-	downloadSSTWaitInterval    = 10 * time.Millisecond
-	downloadSSTMaxWaitInterval = 1 * time.Second
+	downloadSSTWaitInterval    = 100 * time.Millisecond
+	downloadSSTMaxWaitInterval = 2 * time.Second
 )
 
 // FileImporter used to import a file to TiKV.
@@ -227,17 +227,14 @@ func (importer *FileImporter) ingestSST(
 	}
 	resp, err := client.Ingest(importer.ctx, req)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	respErr := resp.GetError()
 	if respErr != nil {
-		if respErr.EpochNotMatch != nil {
-			return errEpochNotMatch
-		}
 		if respErr.NotLeader != nil {
 			return errNotLeader
 		}
-		return errors.Errorf("ingest failed: %v", respErr)
+		return fmt.Errorf("ingest failed: %v", respErr)
 	}
 	return nil
 }
