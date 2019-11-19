@@ -67,15 +67,18 @@ func (pp *ProgressPrinter) goPrintProgress(
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
+		defer bar.Finish()
 
 		var counter int64
 		for {
 			select {
 			case <-ctx.Done():
-				bar.SetCurrent(pp.total)
-				bar.Finish()
 				return
-			case <-pp.updateCh:
+			case _, ok := <-pp.updateCh:
+				if !ok {
+					bar.SetCurrent(pp.total)
+					return
+				}
 				counter++
 			case <-t.C:
 			}

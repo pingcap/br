@@ -30,6 +30,8 @@ func CreateStorage(rawURL string) (ExternalStorage, error) {
 	switch u.Scheme {
 	case "local":
 		return newLocalStorage(u.Path)
+	case "noop":
+		return newNoopStorage(), nil
 	default:
 		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
 	}
@@ -75,4 +77,25 @@ func newLocalStorage(base string) (*LocalStorage, error) {
 		}
 	}
 	return &LocalStorage{base}, nil
+}
+
+type noopStorage struct{}
+
+// Write file to storage
+func (*noopStorage) Write(name string, data []byte) error {
+	return nil
+}
+
+// Read storage file
+func (*noopStorage) Read(name string) ([]byte, error) {
+	return []byte{}, nil
+}
+
+// FileExists return true if file exists
+func (*noopStorage) FileExists(name string) bool {
+	return false
+}
+
+func newNoopStorage() *noopStorage {
+	return &noopStorage{}
 }
