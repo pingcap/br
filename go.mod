@@ -13,6 +13,8 @@ require (
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
+	github.com/onsi/ginkgo v1.10.3 // indirect
+	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
 	github.com/pingcap/kvproto v0.0.0-20191025022903-62abb760d9b1
@@ -23,8 +25,6 @@ require (
 	github.com/pingcap/tidb-tools v3.0.6-0.20191113022349-48d5e90d3271+incompatible
 	github.com/pingcap/tipb v0.0.0-20191101114505-cbd0e985c780
 	github.com/prometheus/client_golang v1.0.0
-	github.com/shurcooL/httpfs v0.0.0-20190707220628-8d4bc4ba7749 // indirect
-	github.com/shurcooL/vfsgen v0.0.0-20181202132449-6a9ea43bcacd // indirect
 	github.com/sirupsen/logrus v1.2.0
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.3

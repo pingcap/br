@@ -65,7 +65,7 @@ func newFullRestoreCommand() *cobra.Command {
 			tables := make([]*utils.Table, 0)
 			newTables := make([]*model.TableInfo, 0)
 			for _, db := range client.GetDatabases() {
-				err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+				err = client.CreateDatabase(db.Schema)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -125,13 +125,7 @@ func newFullRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
-
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
-	}
-
 	return command
 }
 
@@ -165,7 +159,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.New("not exists database")
 			}
-			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+			err = client.CreateDatabase(db.Schema)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -217,14 +211,10 @@ func newDbRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
-	}
 	if err := command.MarkFlagRequired("db"); err != nil {
 		panic(err)
 	}
@@ -262,7 +252,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.New("not exists database")
 			}
-			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+			err = client.CreateDatabase(db.Schema)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -315,15 +305,11 @@ func newTableRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().String("connect", "", "the address to connect tidb, format: username:password@protocol(address)/")
 	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")
 
-	if err := command.MarkFlagRequired("connect"); err != nil {
-		panic(err)
-	}
 	if err := command.MarkFlagRequired("db"); err != nil {
 		panic(err)
 	}
@@ -356,12 +342,6 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	dsn, err := flagSet.GetString("connect")
-	if err != nil {
-		return err
-	}
-	client.SetDbDSN(dsn)
 
 	concurrency, err := flagSet.GetUint("concurrency")
 	if err != nil {
