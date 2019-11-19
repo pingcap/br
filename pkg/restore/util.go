@@ -33,33 +33,72 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
+type idPair struct {
+	oldID int64
+	newID int64
+}
+
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableRules := make([]*import_sstpb.RewriteRule, 0, 2)
-	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
+	tableIDs := make([]idPair, 0)
+	tableIDs = append(tableIDs, idPair{
+		oldID: oldTable.ID,
+		newID: newTable.ID,
 	})
-	// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
-	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID + 1),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID + 1),
+	tableIDs = append(tableIDs, idPair{
+		oldID: oldTable.ID + 1,
+		newID: newTable.ID + 1,
 	})
-
-	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
-	dataRules = append(dataRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
-		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
-	})
-
-	for _, srcIndex := range oldTable.Indices {
-		for _, destIndex := range newTable.Indices {
-			if srcIndex.Name == destIndex.Name {
-				dataRules = append(dataRules, &import_sstpb.RewriteRule{
-					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
-					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
+	for _, oldPart := range oldTable.Partition.Definitions {
+		for _, newPart := range newTable.Partition.Definitions {
+			if oldPart.Name == newPart.Name {
+				tableIDs = append(tableIDs, idPair{
+					oldID: oldPart.ID,
+					newID: newPart.ID,
+				})
+				tableIDs = append(tableIDs, idPair{
+					oldID: oldPart.ID + 1,
+					newID: newPart.ID + 1,
 				})
 			}
+		}
+	}
+	indexIDs := make([]idPair, 0)
+	for _, newIndex := range oldTable.Indices {
+		for _, oldIndex := range newTable.Indices {
+			if newIndex.Name == oldIndex.Name {
+				indexIDs = append(indexIDs, idPair{
+					oldID: newIndex.ID,
+					newID: oldIndex.ID,
+				})
+			}
+		}
+	}
+
+	tableRules := make([]*import_sstpb.RewriteRule, 0)
+	dataRules := make([]*import_sstpb.RewriteRule, 0)
+
+	for _, tablePair := range tableIDs {
+		tableRules = append(tableRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.oldID),
+			NewKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.newID),
+		})
+		// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
+		tableRules = append(tableRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.oldID + 1),
+			NewKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.newID + 1),
+		})
+
+		dataRules = append(dataRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(tablePair.oldID), recordPrefixSep...),
+			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(tablePair.newID), recordPrefixSep...),
+		})
+
+		for _, indexPair := range indexIDs {
+			dataRules = append(dataRules, &import_sstpb.RewriteRule{
+				OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(tablePair.oldID, indexPair.oldID),
+				NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(tablePair.newID, indexPair.newID),
+			})
 		}
 	}
 

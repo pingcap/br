@@ -65,10 +65,14 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			databases[dbInfo.Name.String()] = db
 		}
 		// Parse the table schema.
-		tableInfo := &model.TableInfo{}
+		tableInfo := new(model.TableInfo)
 		err = json.Unmarshal(schema.Table, tableInfo)
 		if err != nil {
 			return nil, errors.Trace(err)
+		}
+		partitions := make(map[int64]bool)
+		for _, p := range tableInfo.Partition.Definitions {
+			partitions[p.ID] = true
 		}
 		// Find the files belong to the table
 		tableFiles := make([]*backup.File, 0)
@@ -80,7 +84,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 			startTableID := tablecodec.DecodeTableID(file.GetStartKey())
 			// If the file contains a part of the data of the table, append it to the slice.
-			if startTableID == tableInfo.ID {
+			if ok := partitions[startTableID]; ok || startTableID == tableInfo.ID {
 				tableFiles = append(tableFiles, file)
 			}
 		}

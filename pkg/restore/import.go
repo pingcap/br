@@ -24,7 +24,7 @@ var (
 )
 
 const (
-	importScanResgionTime     = 10 * time.Second
+	importScanRegionTime      = 10 * time.Second
 	importFileRetryTimes      = 16
 	importFileWaitInterval    = 10 * time.Millisecond
 	importFileMaxWaitInterval = 1 * time.Second
@@ -72,7 +72,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		return errRewriteRuleNotFound
 	}
 	err := withRetry(func() error {
-		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
+		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, err := importer.client.ScanRegions(ctx, scanStartKey, scanEndKey, 0)
