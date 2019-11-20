@@ -1,5 +1,10 @@
 package utils
 
+import (
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
+)
+
 // WorkerPool contains a pool of workers
 type WorkerPool struct {
 	limit   uint
@@ -29,7 +34,13 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 
 // Apply executes a task
 func (pool *WorkerPool) Apply(fn taskFunc) {
-	worker := <-pool.workers
+	var worker *Worker
+	select {
+	case worker = <-pool.workers:
+	default:
+		log.Info("wait for workers", zap.String("pool", pool.name))
+		worker = <-pool.workers
+	}
 	go func() {
 		fn()
 		pool.recycle(worker)

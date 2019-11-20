@@ -18,7 +18,7 @@ import (
 
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
-	bp := &cobra.Command{
+	command := &cobra.Command{
 		Use:   "restore",
 		Short: "restore a TiKV cluster from a backup",
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
@@ -30,12 +30,18 @@ func NewRestoreCommand() *cobra.Command {
 			return nil
 		},
 	}
-	bp.AddCommand(
+	command.AddCommand(
 		newFullRestoreCommand(),
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
 	)
-	return bp
+
+	command.PersistentFlags().Uint("concurrency", 128,
+		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().BoolP("checksum", "", true,
+		"Run checksum after restore")
+
+	return command
 }
 
 func newFullRestoreCommand() *cobra.Command {
@@ -120,12 +126,21 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(tables, newTables)
-			return errors.Trace(err)
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum(ctx, tables, newTables, updateCh)
+			if err != nil {
+				return err
+			}
+			close(updateCh)
+
+			return nil
 		},
 	}
-
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 	return command
 }
 
@@ -206,13 +221,17 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum(db.Tables, newTables)
-			return errors.Trace(err)
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum(ctx, db.Tables, newTables, updateCh)
+			if err != nil {
+				return err
+			}
+			close(updateCh)
+			return nil
 		},
 	}
-
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
-
 	command.Flags().String("db", "", "database name")
 
 	if err := command.MarkFlagRequired("db"); err != nil {
@@ -300,12 +319,22 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ValidateChecksum([]*utils.Table{table}, newTables)
-			return errors.Trace(err)
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			updateCh = utils.StartProgress(
+				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			err = client.ValidateChecksum(
+				ctx, []*utils.Table{table}, newTables, updateCh)
+			if err != nil {
+				return err
+			}
+			close(updateCh)
+
+			return nil
 		},
 	}
-
-	command.Flags().Uint("concurrency", 128, "The size of thread pool that execute the restore task")
 
 	command.Flags().String("db", "", "database name")
 	command.Flags().String("table", "", "table name")

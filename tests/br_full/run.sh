@@ -29,7 +29,7 @@ done
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
