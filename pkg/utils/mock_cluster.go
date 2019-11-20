@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/log"
 	"github.com/pingcap/pd/pkg/tempurl"
 	"github.com/pingcap/tidb/config"
@@ -36,7 +35,6 @@ type MockCluster struct {
 	kv.Storage
 	*server.TiDBDriver
 	*domain.Domain
-	*restore.DB
 	DSN string
 }
 
@@ -66,10 +64,6 @@ func NewMockCluster() (*MockCluster, error) {
 	}
 	session.SetSchemaLease(0)
 	session.DisableStats4Test()
-	db, err := restore.NewDB(storage)
-	if err != nil {
-		return nil, err
-	}
 	dom, err := session.BootstrapSession(storage)
 	if err != nil {
 		return nil, err
@@ -79,7 +73,6 @@ func NewMockCluster() (*MockCluster, error) {
 		MVCCStore: mvccStore,
 		Storage:   storage,
 		Domain:    dom,
-		DB:        db,
 	}, nil
 }
 
@@ -135,9 +128,6 @@ func (mock *MockCluster) Stop() {
 	}
 	if mock.Server != nil {
 		mock.Server.Close()
-	}
-	if mock.DB != nil {
-		mock.DB.Close()
 	}
 }
 

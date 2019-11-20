@@ -64,7 +64,9 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
 	table.Schema.AutoIncID = globalAutoID + 100
-	err = s.mock.DB.AlterAutoIncID(context.Background(), &table)
+	db, err := NewDB(s.mock.Storage)
+	c.Assert(err, IsNil, Commentf("Error create DB"))
+	err = db.AlterAutoIncID(context.Background(), &table)
 	c.Assert(err, IsNil, Commentf("Error alter auto inc id: %s %s", err, s.mock.DSN))
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
