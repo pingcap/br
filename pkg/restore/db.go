@@ -22,7 +22,7 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-// DB connects to a TiDB
+// DB is a TiDB instance, not thread-safe.
 type DB struct {
 	store kv.Storage
 	dom   *domain.Domain
