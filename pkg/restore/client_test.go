@@ -49,7 +49,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	tables := make([]*utils.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
 	intField.Charset = "utf8mb4"
-	for i := 0; i < len(tables); i++ {
+	for i := len(tables) - 1; i >= 0; i-- {
 		tables[i] = &utils.Table{
 			Db: dbSchema,
 			Schema: &model.TableInfo{

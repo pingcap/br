@@ -204,6 +204,9 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
+	// Sort the tables by id for ensuring the new tables has same id ordering as the old tables.
+	// We require this constrain since newTableID of tableID+1 must be not bigger
+	// than newTableID of tableID.
 	sort.Sort(utils.Tables(tables))
 	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
@@ -225,6 +228,7 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
 	}
+	// If tableID + 1 has already exist, then we don't need to add a new rewrite rule for it.
 	for oldID, newID := range tableIDMap {
 		if _, ok := tableIDMap[oldID+1]; !ok {
 			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
