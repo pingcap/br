@@ -35,8 +35,17 @@ const (
 )
 
 type ImporterClient interface {
-	DownloadSST(ctx context.Context, storeID uint64, req *import_sstpb.DownloadRequest) (*import_sstpb.DownloadResponse, error)
-	IngestSST(ctx context.Context, storeID uint64, req *import_sstpb.IngestRequest) (*import_sstpb.IngestResponse, error)
+	DownloadSST(
+		ctx context.Context,
+		storeID uint64,
+		req *import_sstpb.DownloadRequest,
+	) (*import_sstpb.DownloadResponse, error)
+
+	IngestSST(
+		ctx context.Context,
+		storeID uint64,
+		req *import_sstpb.IngestRequest,
+	) (*import_sstpb.IngestResponse, error)
 }
 
 type importClient struct {
@@ -52,7 +61,11 @@ func NewImportClient(metaClient restore_util.Client) ImporterClient {
 	}
 }
 
-func (ic *importClient) DownloadSST(ctx context.Context, storeID uint64, req *import_sstpb.DownloadRequest) (*import_sstpb.DownloadResponse, error) {
+func (ic *importClient) DownloadSST(
+	ctx context.Context,
+	storeID uint64,
+	req *import_sstpb.DownloadRequest,
+) (*import_sstpb.DownloadResponse, error) {
 	client, err := ic.getImportClient(ctx, storeID)
 	if err != nil {
 		return nil, err
@@ -60,7 +73,11 @@ func (ic *importClient) DownloadSST(ctx context.Context, storeID uint64, req *im
 	return client.Download(ctx, req)
 }
 
-func (ic *importClient) IngestSST(ctx context.Context, storeID uint64, req *import_sstpb.IngestRequest) (*import_sstpb.IngestResponse, error) {
+func (ic *importClient) IngestSST(
+	ctx context.Context,
+	storeID uint64,
+	req *import_sstpb.IngestRequest,
+) (*import_sstpb.IngestResponse, error) {
 	client, err := ic.getImportClient(ctx, storeID)
 	if err != nil {
 		return nil, err
@@ -102,7 +119,12 @@ type FileImporter struct {
 }
 
 // NewFileImporter returns a new file importClient.
-func NewFileImporter(ctx context.Context, metaClient restore_util.Client, importClient ImporterClient, fileURL string) FileImporter {
+func NewFileImporter(
+	ctx context.Context,
+	metaClient restore_util.Client,
+	importClient ImporterClient,
+	fileURL string,
+) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
 		metaClient:   metaClient,

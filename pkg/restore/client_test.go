@@ -3,16 +3,19 @@ package restore
 import (
 	"context"
 	"math"
+	"strconv"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/types"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/utils"
 )
 
-var _ = Suite(&testRestoreSchemaSuite{})
+var _ = Suite(&testRestoreClientSuite{})
 
 type testRestoreClientSuite struct {
 	mock *utils.MockCluster
@@ -44,12 +47,21 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	c.Assert(isExist, IsTrue)
 
 	tables := make([]*utils.Table, 4)
+	intField := types.NewFieldType(mysql.TypeLong)
+	intField.Charset = "utf8mb4"
 	for i := 0; i < len(tables); i++ {
 		tables[i] = &utils.Table{
 			Db: dbSchema,
 			Schema: &model.TableInfo{
 				ID:   int64(i),
-				Name: model.NewCIStr("test" + string(i)),
+				Name: model.NewCIStr("test" + strconv.Itoa(i)),
+				Columns: []*model.ColumnInfo{{
+					ID:        1,
+					Name:      model.NewCIStr("id"),
+					FieldType: *intField,
+					State:     model.StatePublic,
+				}},
+				Charset: "utf8mb4",
 			},
 		}
 	}
@@ -62,16 +74,16 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	newTableIDExist := make(map[int64]bool)
 	for _, tr := range rules.Table {
 		oldTableID := tablecodec.DecodeTableID(tr.GetOldKeyPrefix())
-		c.Assert(oldTableIDExist[oldTableID], IsFalse, "table rule duplicate old table id")
+		c.Assert(oldTableIDExist[oldTableID], IsFalse, Commentf("table rule duplicate old table id"))
 		oldTableIDExist[oldTableID] = true
 
 		newTableID := tablecodec.DecodeTableID(tr.GetNewKeyPrefix())
-		c.Assert(newTableIDExist[newTableID], IsFalse, "table rule duplicate new table id")
+		c.Assert(newTableIDExist[newTableID], IsFalse, Commentf("table rule duplicate new table id"))
 		newTableIDExist[newTableID] = true
 	}
 
 	for i := 0; i < len(tables); i++ {
-		c.Assert(oldTableIDExist[int64(i)], IsTrue, "table rule does not exist")
-		c.Assert(oldTableIDExist[int64(i+1)], IsTrue, "table rule does not exist")
+		c.Assert(oldTableIDExist[int64(i)], IsTrue, Commentf("table rule does not exist"))
+		c.Assert(oldTableIDExist[int64(i+1)], IsTrue, Commentf("table rule does not exist"))
 	}
 }

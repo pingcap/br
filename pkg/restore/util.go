@@ -88,7 +88,7 @@ func getSSTMetaFromFile(
 	}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
 	// rangeEnd = min(rangeEnd, region.EndKey)
-	if bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
+	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
 		rangeEnd = region.GetEndKey()
 	}
 	return import_sstpb.SSTMeta{

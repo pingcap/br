@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -180,11 +181,7 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	ts, err := rc.GetTS(rc.ctx)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	info, err := rc.db.dom.GetSnapshotInfoSchema(ts)
+	info, err := rc.db.dom.GetSnapshotInfoSchema(math.MaxInt64)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
