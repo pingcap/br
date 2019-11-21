@@ -34,6 +34,7 @@ const (
 	downloadSSTMaxWaitInterval = 1 * time.Second
 )
 
+// ImporterClient is used to import a file to TiKV
 type ImporterClient interface {
 	DownloadSST(
 		ctx context.Context,
@@ -54,6 +55,7 @@ type importClient struct {
 	clients    map[uint64]import_sstpb.ImportSSTClient
 }
 
+// NewImportClient returns a new ImporterClient
 func NewImportClient(metaClient restore_util.Client) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
