@@ -33,44 +33,27 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
-type idPair struct {
-	oldID int64
-	newID int64
-}
-
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
-func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableIDs := make([]idPair, 0)
-	tableIDs = append(tableIDs, idPair{
-		oldID: oldTable.ID,
-		newID: newTable.ID,
-	})
-	tableIDs = append(tableIDs, idPair{
-		oldID: oldTable.ID + 1,
-		newID: newTable.ID + 1,
-	})
-	for _, oldPart := range oldTable.Partition.Definitions {
-		for _, newPart := range newTable.Partition.Definitions {
-			if oldPart.Name == newPart.Name {
-				tableIDs = append(tableIDs, idPair{
-					oldID: oldPart.ID,
-					newID: newPart.ID,
-				})
-				tableIDs = append(tableIDs, idPair{
-					oldID: oldPart.ID + 1,
-					newID: newPart.ID + 1,
-				})
+func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) (map[int64]int64, *restore_util.RewriteRules) {
+	// old table id -> new table id
+	tableIDs := make(map[int64]int64)
+	tableIDs[oldTable.ID] = newTable.ID
+	// Add table partition id to map.
+	if oldTable.Partition != nil {
+		for _, oldPart := range oldTable.Partition.Definitions {
+			for _, newPart := range newTable.Partition.Definitions {
+				if oldPart.Name == newPart.Name {
+					tableIDs[oldPart.ID] = newPart.ID
+				}
 			}
 		}
 	}
-	indexIDs := make([]idPair, 0)
-	for _, newIndex := range oldTable.Indices {
-		for _, oldIndex := range newTable.Indices {
-			if newIndex.Name == oldIndex.Name {
-				indexIDs = append(indexIDs, idPair{
-					oldID: newIndex.ID,
-					newID: oldIndex.ID,
-				})
+	// old index id -> new index id
+	indexIDs := make(map[int64]int64)
+	for _, oldIndex := range oldTable.Indices {
+		for _, newIndex := range newTable.Indices {
+			if oldIndex.Name == newIndex.Name {
+				indexIDs[oldIndex.ID] = newIndex.ID
 			}
 		}
 	}
@@ -78,31 +61,26 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	tableRules := make([]*import_sstpb.RewriteRule, 0)
 	dataRules := make([]*import_sstpb.RewriteRule, 0)
 
-	for _, tablePair := range tableIDs {
+	for oldTableID, newTableID := range tableIDs {
 		tableRules = append(tableRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.oldID),
-			NewKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.newID),
-		})
-		// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
-		tableRules = append(tableRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.oldID + 1),
-			NewKeyPrefix: tablecodec.EncodeTablePrefix(tablePair.newID + 1),
+			OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTableID),
+			NewKeyPrefix: tablecodec.EncodeTablePrefix(newTableID),
 		})
 
 		dataRules = append(dataRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(tablePair.oldID), recordPrefixSep...),
-			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(tablePair.newID), recordPrefixSep...),
+			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTableID), recordPrefixSep...),
+			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTableID), recordPrefixSep...),
 		})
 
-		for _, indexPair := range indexIDs {
+		for oldIndexID, newIndexID := range indexIDs {
 			dataRules = append(dataRules, &import_sstpb.RewriteRule{
-				OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(tablePair.oldID, indexPair.oldID),
-				NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(tablePair.newID, indexPair.newID),
+				OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexID),
+				NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTableID, newIndexID),
 			})
 		}
 	}
 
-	return &restore_util.RewriteRules{
+	return tableIDs, &restore_util.RewriteRules{
 		Table: tableRules,
 		Data:  dataRules,
 	}
@@ -132,7 +110,7 @@ func getSSTMetaFromFile(
 	}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
 	// rangeEnd = min(rangeEnd, region.EndKey)
-	if bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
+	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
 		rangeEnd = region.GetEndKey()
 	}
 	return import_sstpb.SSTMeta{
@@ -241,9 +219,7 @@ func encodeKeyPrefix(key []byte) []byte {
 // Return false if cannot find a related rewrite rule.
 func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, bool) {
 	if len(key) > 0 {
-		ret := make([]byte, len(key))
-		copy(ret, key)
-		ret = codec.EncodeBytes([]byte{}, ret)
+		ret := codec.EncodeBytes([]byte{}, key)
 		for _, rule := range rewriteRules.Data {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {

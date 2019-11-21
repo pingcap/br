@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/util/israce"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -24,6 +25,7 @@ func LogBRInfo() {
 	log.Info("BR", zap.String("git-hash", BRGitHash))
 	log.Info("BR", zap.String("git-branch", BRGitBranch))
 	log.Info("BR", zap.String("utc-build-time", BRBuildTS))
+	log.Info("BR", zap.Bool("race-enabled", israce.RaceEnabled))
 }
 
 // PrintBRInfo prints the BR version information without log info.
@@ -32,6 +34,7 @@ func PrintBRInfo() {
 	fmt.Println("Git Commit Hash:", BRGitHash)
 	fmt.Println("Git Branch:", BRGitBranch)
 	fmt.Println("UTC Build Time: ", BRBuildTS)
+	fmt.Println("Race Enabled: ", israce.RaceEnabled)
 }
 
 // LogArguments prints origin command arguments

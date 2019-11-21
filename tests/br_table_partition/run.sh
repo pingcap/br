@@ -17,11 +17,10 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
+PATH="tests/$TEST_NAME:bin:$PATH"
 
-for i in $(seq $DB_COUNT); do
-    run_sql "CREATE DATABASE $DB${i};"
-    go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i}
-done
+echo "load data..."
+DB=$DB TABLE=$TABLE DB_COUNT=$DB_COUNT prepare.sh
 
 for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')

@@ -29,13 +29,13 @@ echo "-u $PD_ADDR -d sched add shuffle-region-scheduler" | pd-ctl
 
 # backup with shuffle region
 echo "backup start..."
-br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4 --fastchecksum true
 
 run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore with shuffle region
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 # remove shuffle region scheduler
 echo "-u $PD_ADDR -d sched remove shuffle-region-scheduler" | pd-ctl

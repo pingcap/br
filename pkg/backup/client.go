@@ -1,4 +1,4 @@
-package raw
+package backup
 
 import (
 	"context"
@@ -33,8 +33,8 @@ const (
 	backupFineGrainedMaxBackoff = 80000
 )
 
-// BackupClient is a client instructs TiKV how to do a backup.
-type BackupClient struct {
+// Client is a client instructs TiKV how to do a backup.
+type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -48,7 +48,7 @@ type BackupClient struct {
 }
 
 // NewBackupClient returns a new backup client
-func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
+func NewBackupClient(backer *meta.Backer) (*Client, error) {
 	log.Info("new backup client")
 	ctx, cancel := context.WithCancel(backer.Context())
 	pdClient := backer.GetPDClient()
@@ -61,7 +61,7 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-	return &BackupClient{
+	return &Client{
 		clusterID: pdClient.GetClusterID(ctx),
 		backer:    backer,
 		ctx:       ctx,
@@ -72,18 +72,18 @@ func NewBackupClient(backer *meta.Backer) (*BackupClient, error) {
 }
 
 // Close a backup client
-func (bc *BackupClient) Close() {
+func (bc *Client) Close() {
 	bc.dom.Close()
 	bc.cancel()
 }
 
 // GetDomain returns a domain
-func (bc *BackupClient) GetDomain() *domain.Domain {
+func (bc *Client) GetDomain() *domain.Domain {
 	return bc.dom
 }
 
 // GetTS returns the latest timestamp.
-func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
+func (bc *Client) GetTS(timeAgo string) (uint64, error) {
 	p, l, err := bc.pdClient.GetTS(bc.ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -118,7 +118,7 @@ func (bc *BackupClient) GetTS(timeAgo string) (uint64, error) {
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *BackupClient) SetStorage(base string) error {
+func (bc *Client) SetStorage(base string) error {
 	var err error
 	bc.storage, err = utils.CreateStorage(base)
 	if err != nil {
@@ -132,7 +132,7 @@ func (bc *BackupClient) SetStorage(base string) error {
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *BackupClient) SaveBackupMeta(path string) error {
+func (bc *Client) SaveBackupMeta(path string) error {
 	bc.backupMeta.Path = path
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
@@ -182,7 +182,7 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	backupTS uint64,
 	dbName, tableName string,
-) ([]Range, *BackupSchemas, error) {
+) ([]Range, *Schemas, error) {
 	SystemDatabases := [3]string{
 		"information_schema",
 		"performance_schema",
@@ -274,7 +274,7 @@ LoadDb:
 }
 
 // BackupRanges make a backup of the given key ranges.
-func (bc *BackupClient) BackupRanges(
+func (bc *Client) BackupRanges(
 	ranges []Range,
 	path string,
 	backupTS uint64,
@@ -334,7 +334,7 @@ func (bc *BackupClient) BackupRanges(
 }
 
 // backupRange make a backup of the given key range.
-func (bc *BackupClient) backupRange(
+func (bc *Client) backupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	path string,
@@ -405,7 +405,7 @@ func (bc *BackupClient) backupRange(
 	return nil
 }
 
-func (bc *BackupClient) findRegionLeader(key []byte) (*metapb.Peer, error) {
+func (bc *Client) findRegionLeader(key []byte) (*metapb.Peer, error) {
 	// Keys are saved in encoded format in TiKV, so the key must be encoded
 	// in order to find the correct region.
 	key = codec.EncodeBytes([]byte{}, key)
@@ -429,7 +429,7 @@ func (bc *BackupClient) findRegionLeader(key []byte) (*metapb.Peer, error) {
 	return nil, errors.Errorf("can not find region for key %v", key)
 }
 
-func (bc *BackupClient) fineGrainedBackup(
+func (bc *Client) fineGrainedBackup(
 	startKey, endKey []byte,
 	backupTS uint64,
 	path string,
@@ -590,7 +590,7 @@ func onBackupResponse(
 	}
 }
 
-func (bc *BackupClient) handleFineGrained(
+func (bc *Client) handleFineGrained(
 	bo *tikv.Backoffer,
 	rg Range,
 	backupTS uint64,
@@ -639,12 +639,12 @@ func (bc *BackupClient) handleFineGrained(
 }
 
 // GetRangeRegionCount get region count by pd http api
-func (bc *BackupClient) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
+func (bc *Client) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
 	return bc.backer.GetRegionCount()
 }
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table
-func (bc *BackupClient) FastChecksum() (bool, error) {
+func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -698,7 +698,7 @@ func (bc *BackupClient) FastChecksum() (bool, error) {
 }
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta
-func (bc *BackupClient) CompleteMeta(backupSchemas *BackupSchemas) error {
+func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 	schemas, err := backupSchemas.finishTableChecksum()
 	if err != nil {
 		return err

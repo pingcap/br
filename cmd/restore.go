@@ -36,16 +36,10 @@ func NewRestoreCommand() *cobra.Command {
 		newTableRestoreCommand(),
 	)
 
-	command.PersistentFlags().String("connect", "",
-		"the address to connect tidb, format: username:password@protocol(address)/")
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
-
-	if err := command.MarkPersistentFlagRequired("connect"); err != nil {
-		panic(err)
-	}
 
 	return command
 }
@@ -77,7 +71,7 @@ func newFullRestoreCommand() *cobra.Command {
 			tables := make([]*utils.Table, 0)
 			newTables := make([]*model.TableInfo, 0)
 			for _, db := range client.GetDatabases() {
-				err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+				err = client.CreateDatabase(db.Schema)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -147,7 +141,6 @@ func newFullRestoreCommand() *cobra.Command {
 			return nil
 		},
 	}
-
 	return command
 }
 
@@ -181,7 +174,7 @@ func newDbRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.New("not exists database")
 			}
-			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+			err = client.CreateDatabase(db.Schema)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -228,10 +221,6 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-
-			// Restore has finished.
-			close(updateCh)
-
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
@@ -240,7 +229,6 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-
 			return nil
 		},
 	}
@@ -283,7 +271,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if db == nil {
 				return errors.New("not exists database")
 			}
-			err = restore.CreateDatabase(db.Schema, client.GetDbDSN())
+			err = client.CreateDatabase(db.Schema)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -383,12 +371,6 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	dsn, err := flagSet.GetString("connect")
-	if err != nil {
-		return err
-	}
-	client.SetDbDSN(dsn)
 
 	concurrency, err := flagSet.GetUint("concurrency")
 	if err != nil {

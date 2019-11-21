@@ -3,10 +3,11 @@ package restore
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,10 +19,8 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
-	"github.com/pingcap/tidb/ddl"
-	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -42,23 +41,21 @@ const (
 	defaultChecksumConcurrency = 64
 )
 
-// Client sends requests to importer to restore files
+// Client sends requests to restore files
 type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	pdClient        pd.Client
 	pdAddrs         []string
-	tikvCli         tikv.Storage
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
-	dbDSN      string
 	backupMeta *backup.BackupMeta
 	backer     *meta.Backer
-	dom        *domain.Domain
+	db         *DB
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -75,27 +72,23 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-
-	// Do not run ddl worker in BR.
-	// BR sends create table sql to tidb instance instead of using the DDL package.
-	ddl.RunWorker = false
-	// Do not run stat worker in BR.
-	session.DisableStats4Test()
-	dom, err := session.BootstrapSession(backer.GetTiKV())
+	db, err := NewDB(backer.GetTiKV())
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
 	}
+
+	// Do not run stat worker in BR.
+	session.DisableStats4Test()
 
 	return &Client{
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
 		pdAddrs:         addrs,
-		tikvCli:         backer.GetTiKV().(tikv.Storage),
 		backer:          backer,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
-		dom:             dom,
+		db:              db,
 	}, nil
 }
 
@@ -106,7 +99,7 @@ func (rc *Client) GetPDClient() pd.Client {
 
 // Close a client
 func (rc *Client) Close() {
-	rc.dom.Close()
+	rc.db.Close()
 	rc.cancel()
 }
 
@@ -119,19 +112,10 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	client := restore_util.NewClient(rc.pdClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, client, backupMeta.GetPath())
+	metaClient := restore_util.NewClient(rc.pdClient)
+	importClient := NewImportClient(metaClient)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backupMeta.GetPath())
 	return nil
-}
-
-// SetDbDSN sets the DSN to connect the database to a new value
-func (rc *Client) SetDbDSN(dsn string) {
-	rc.dbDSN = dsn
-}
-
-// GetDbDSN returns a DSN to connect the database
-func (rc *Client) GetDbDSN() string {
-	return rc.dbDSN
 }
 
 // SetConcurrency sets the concurrency of dbs tables files
@@ -197,11 +181,7 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	ts, err := rc.GetTS(rc.ctx)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	info, err := rc.dom.GetSnapshotInfoSchema(ts)
+	info, err := rc.db.dom.GetSnapshotInfoSchema(math.MaxInt64)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -212,6 +192,11 @@ func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*mo
 	return table.Meta(), nil
 }
 
+// CreateDatabase creates a database.
+func (rc *Client) CreateDatabase(db *model.DBInfo) error {
+	return rc.db.CreateDatabase(rc.ctx, db)
+}
+
 // CreateTables creates multiple tables, and returns their rewrite rules.
 func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
@@ -219,27 +204,17 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	openDBs := make(map[string]*sql.DB)
-	defer func() {
-		for _, db := range openDBs {
-			_ = db.Close()
-		}
-	}()
+	// Sort the tables by id for ensuring the new tables has same id ordering as the old tables.
+	// We require this constrain since newTableID of tableID+1 must be not bigger than newTableID of tableID.
+	// Note: here we assume the allocation of table id and partition id is **not** concurrent.
+	sort.Sort(utils.Tables(tables))
+	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
-		var err error
-		db, ok := openDBs[table.Db.Name.String()]
-		if !ok {
-			db, err = OpenDatabase(table.Db.Name.String(), rc.dbDSN)
-			if err != nil {
-				return nil, nil, err
-			}
-			openDBs[table.Db.Name.String()] = db
-		}
-		err = CreateTable(db, table)
+		err := rc.db.CreateTable(rc.ctx, table)
 		if err != nil {
 			return nil, nil, err
 		}
-		err = AlterAutoIncID(db, table)
+		err = rc.db.AlterAutoIncID(rc.ctx, table)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -247,10 +222,22 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema)
+		idMap, rules := GetRewriteRules(newTableInfo, table.Schema)
+		for k, v := range idMap {
+			tableIDMap[k] = v
+		}
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
+	}
+	// If tableID + 1 has already exist, then we don't need to add a new rewrite rule for it.
+	for oldID, newID := range tableIDMap {
+		if _, ok := tableIDMap[oldID+1]; !ok {
+			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
+				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
+				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
+			})
+		}
 	}
 	return rewriteRules, newTables, nil
 }
@@ -474,7 +461,7 @@ func (rc *Client) ValidateChecksum(
 					errCh <- errors.Trace(err)
 					return
 				}
-				checksumResp, err := exe.Execute(ctx, rc.tikvCli.GetClient(), func() {
+				checksumResp, err := exe.Execute(ctx, rc.db.store.GetClient(), func() {
 					// TODO: update progress here.
 				})
 				if err != nil {
