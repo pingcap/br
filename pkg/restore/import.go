@@ -34,26 +34,82 @@ const (
 	downloadSSTMaxWaitInterval = 1 * time.Second
 )
 
+type ImporterClient interface {
+	DownloadSST(ctx context.Context, storeID uint64, req *import_sstpb.DownloadRequest) (*import_sstpb.DownloadResponse, error)
+	IngestSST(ctx context.Context, storeID uint64, req *import_sstpb.IngestRequest) (*import_sstpb.IngestResponse, error)
+}
+
+type importClient struct {
+	mu         sync.Mutex
+	metaClient restore_util.Client
+	clients    map[uint64]import_sstpb.ImportSSTClient
+}
+
+func NewImportClient(metaClient restore_util.Client) ImporterClient {
+	return &importClient{
+		metaClient: metaClient,
+		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
+	}
+}
+
+func (ic *importClient) DownloadSST(ctx context.Context, storeID uint64, req *import_sstpb.DownloadRequest) (*import_sstpb.DownloadResponse, error) {
+	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.Download(ctx, req)
+}
+
+func (ic *importClient) IngestSST(ctx context.Context, storeID uint64, req *import_sstpb.IngestRequest) (*import_sstpb.IngestResponse, error) {
+	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.Ingest(ctx, req)
+}
+
+func (ic *importClient) getImportClient(
+	ctx context.Context,
+	storeID uint64,
+) (import_sstpb.ImportSSTClient, error) {
+	ic.mu.Lock()
+	defer ic.mu.Unlock()
+	client, ok := ic.clients[storeID]
+	if ok {
+		return client, nil
+	}
+	store, err := ic.metaClient.GetStore(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
+	if err != nil {
+		return nil, err
+	}
+	client = import_sstpb.NewImportSSTClient(conn)
+	ic.clients[storeID] = client
+	return client, err
+}
+
 // FileImporter used to import a file to TiKV.
 type FileImporter struct {
-	mu            sync.Mutex
-	client        restore_util.Client
-	fileURL       string
-	importClients map[uint64]import_sstpb.ImportSSTClient
+	metaClient   restore_util.Client
+	importClient ImporterClient
+	fileURL      string
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// NewFileImporter returns a new file importer.
-func NewFileImporter(ctx context.Context, client restore_util.Client, fileURL string) FileImporter {
+// NewFileImporter returns a new file importClient.
+func NewFileImporter(ctx context.Context, metaClient restore_util.Client, importClient ImporterClient, fileURL string) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
-		client:        client,
-		fileURL:       fileURL,
-		ctx:           ctx,
-		cancel:        cancel,
-		importClients: make(map[uint64]import_sstpb.ImportSSTClient),
+		metaClient:   metaClient,
+		fileURL:      fileURL,
+		ctx:          ctx,
+		cancel:       cancel,
+		importClient: importClient,
 	}
 }
 
@@ -75,7 +131,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err := importer.client.ScanRegions(ctx, scanStartKey, scanEndKey, 0)
+		regionInfos, err := importer.metaClient.ScanRegions(ctx, scanStartKey, scanEndKey, 0)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -113,7 +169,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				// Scan regions may return some regions which cannot match any rewrite rule,
 				// like [t{tableID}, t{tableID}_r), those regions should be skipped
 				return e != errRewriteRuleNotFound &&
-					// Skip empty files
+				// Skip empty files
 					e != errRangeIsEmpty
 			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			if err != nil {
@@ -141,28 +197,6 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	return err
 }
 
-func (importer *FileImporter) getImportClient(
-	storeID uint64,
-) (import_sstpb.ImportSSTClient, error) {
-	importer.mu.Lock()
-	defer importer.mu.Unlock()
-	client, ok := importer.importClients[storeID]
-	if ok {
-		return client, nil
-	}
-	store, err := importer.client.GetStore(importer.ctx, storeID)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	client = import_sstpb.NewImportSSTClient(conn)
-	importer.importClients[storeID] = client
-	return client, errors.Trace(err)
-}
-
 func (importer *FileImporter) downloadSST(
 	regionInfo *restore_util.RegionInfo,
 	file *backup.File,
@@ -187,11 +221,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
-		client, err := importer.getImportClient(peer.GetStoreId())
-		if err != nil {
-			return nil, true, err
-		}
-		resp, err = client.Download(importer.ctx, req)
+		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
 			return nil, true, err
 		}
@@ -212,10 +242,6 @@ func (importer *FileImporter) ingestSST(
 	if leader == nil {
 		leader = regionInfo.Region.GetPeers()[0]
 	}
-	client, err := importer.getImportClient(leader.GetStoreId())
-	if err != nil {
-		return err
-	}
 	reqCtx := &kvrpcpb.Context{
 		RegionId:    regionInfo.Region.GetId(),
 		RegionEpoch: regionInfo.Region.GetRegionEpoch(),
@@ -225,9 +251,9 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     fileMeta,
 	}
-	resp, err := client.Ingest(importer.ctx, req)
+	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	respErr := resp.GetError()
 	if respErr != nil {

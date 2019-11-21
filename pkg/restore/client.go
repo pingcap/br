@@ -40,7 +40,7 @@ const (
 	defaultChecksumConcurrency = 64
 )
 
-// Client sends requests to importer to restore files
+// Client sends requests to restore files
 type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -111,8 +111,9 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	client := restore_util.NewClient(rc.pdClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, client, backupMeta.GetPath())
+	metaClient := restore_util.NewClient(rc.pdClient)
+	importClient := NewImportClient(metaClient)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backupMeta.GetPath())
 	return nil
 }
 
