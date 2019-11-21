@@ -59,11 +59,11 @@ func NewMockCluster() (*MockCluster, error) {
 		mockstore.WithCluster(cluster),
 		mockstore.WithMVCCStore(mvccStore),
 	)
-	session.SetSchemaLease(0)
-	session.DisableStats4Test()
 	if err != nil {
 		return nil, err
 	}
+	session.SetSchemaLease(0)
+	session.DisableStats4Test()
 	dom, err := session.BootstrapSession(storage)
 	if err != nil {
 		return nil, err

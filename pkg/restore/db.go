@@ -2,9 +2,8 @@ package restore
 
 import (
 	"bytes"
-	"database/sql"
+	"context"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -12,6 +11,9 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/session"
 	tidbTable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/format"
@@ -20,25 +22,34 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-// OpenDatabase opens a database with dsn.
-func OpenDatabase(dbName string, dsn string) (*sql.DB, error) {
-	dbDSN := dsn + url.QueryEscape(dbName)
-	db, err := sql.Open("mysql", dbDSN)
+// DB is a TiDB instance, not thread-safe.
+type DB struct {
+	store kv.Storage
+	dom   *domain.Domain
+	se    session.Session
+}
+
+// NewDB returns a new DB
+func NewDB(store kv.Storage) (*DB, error) {
+	dom, err := session.BootstrapSession(store)
 	if err != nil {
-		log.Error("open database failed", zap.String("addr", dbDSN), zap.Error(err))
+		return nil, errors.Trace(err)
 	}
-	return db, err
+	se, err := session.CreateSession(store)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &DB{
+		store: store,
+		dom:   dom,
+		se:    se,
+	}, nil
 }
 
 // CreateDatabase executes a CREATE DATABASE SQL.
-func CreateDatabase(schema *model.DBInfo, dsn string) error {
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		log.Error("open database failed", zap.String("addr", dsn), zap.Error(err))
-		return errors.Trace(err)
-	}
+func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	createSQL := GetCreateDatabaseSQL(schema)
-	_, err = db.Exec(createSQL)
+	_, err := db.se.Execute(ctx, createSQL)
 	if err != nil {
 		log.Error("create database failed", zap.String("SQL", createSQL), zap.Error(err))
 		return errors.Trace(err)
@@ -47,9 +58,9 @@ func CreateDatabase(schema *model.DBInfo, dsn string) error {
 }
 
 // CreateTable executes a CREATE TABLE SQL.
-func CreateTable(db *sql.DB, table *utils.Table) error {
-	createSQL := GetCreateTableSQL(table.Schema)
-	_, err := db.Exec(createSQL)
+func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
+	createSQL := GetCreateTableSQL(table.Db.Name.String(), table.Schema)
+	_, err := db.se.Execute(ctx, createSQL)
 	if err != nil {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
@@ -60,25 +71,15 @@ func CreateTable(db *sql.DB, table *utils.Table) error {
 	return nil
 }
 
-// AnalyzeTable executes a ANALYZE TABLE SQL.
-func AnalyzeTable(db *sql.DB, table *utils.Table) error {
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", utils.EncloseName(table.Schema.Name.String()))
-	_, err := db.Exec(analyzeSQL)
-	if err != nil {
-		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
-}
-
 // AlterAutoIncID alters max auto-increment id of table.
-func AlterAutoIncID(db *sql.DB, table *utils.Table) error {
+func (db *DB) AlterAutoIncID(ctx context.Context, table *utils.Table) error {
 	alterIDSQL := fmt.Sprintf(
-		"ALTER TABLE %s auto_increment = %d",
+		"ALTER TABLE %s.%s auto_increment = %d",
+		utils.EncloseName(table.Db.Name.String()),
 		utils.EncloseName(table.Schema.Name.String()),
 		table.Schema.AutoIncID,
 	)
-	_, err := db.Exec(alterIDSQL)
+	_, err := db.se.Execute(ctx, alterIDSQL)
 	if err != nil {
 		log.Error("alter auto inc id failed",
 			zap.String("SQL", alterIDSQL),
@@ -95,6 +96,13 @@ func AlterAutoIncID(db *sql.DB, table *utils.Table) error {
 	return nil
 }
 
+// Close closes the connection
+func (db *DB) Close() {
+	db.se.Close()
+	db.dom.Close()
+	db.store.Close()
+}
+
 // GetCreateDatabaseSQL generates a CREATE DATABASE SQL from DBInfo.
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
@@ -106,12 +114,12 @@ func GetCreateDatabaseSQL(db *model.DBInfo) string {
 }
 
 // GetCreateTableSQL generates a CREATE TABLE SQL from TableInfo.
-func GetCreateTableSQL(t *model.TableInfo) string {
+func GetCreateTableSQL(dbName string, t *model.TableInfo) string {
 	var buf bytes.Buffer
 
 	tblCharset := t.Charset
 	tblCollate := t.Collate
-	fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s (\n", t.Name)
+	fmt.Fprintf(&buf, "CREATE TABLE IF NOT EXISTS %s.%s (\n", dbName, t.Name)
 	var pkCol *model.ColumnInfo
 	for i, col := range t.Columns {
 		fmt.Fprintf(&buf, "  %s %s", utils.EncloseName(col.Name.String()), getColumnTypeDesc(col))

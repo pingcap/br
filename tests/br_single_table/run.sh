@@ -31,7 +31,7 @@ run_sql "DROP TABLE $DB.$TABLE;"
 
 # restore table
 echo "restore start..."
-br restore table --db $DB --table $TABLE --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
