@@ -71,8 +71,10 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			return nil, errors.Trace(err)
 		}
 		partitions := make(map[int64]bool)
-		for _, p := range tableInfo.Partition.Definitions {
-			partitions[p.ID] = true
+		if tableInfo.Partition != nil {
+			for _, p := range tableInfo.Partition.Definitions {
+				partitions[p.ID] = true
+			}
 		}
 		// Find the files belong to the table
 		tableFiles := make([]*backup.File, 0)
