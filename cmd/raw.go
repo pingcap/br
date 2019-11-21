@@ -38,11 +38,13 @@ func NewBackupCommand() *cobra.Command {
 		"ratelimit", "", 0, "The rate limit of the backup task, MB/s per node")
 	command.PersistentFlags().Uint32P(
 		"concurrency", "", 4, "The size of thread pool on each node that execute the backup task")
+	command.PersistentFlags().BoolP("checksum", "", true,
+		"Run checksum after backup")
 
-	command.PersistentFlags().BoolP("checksum", "", false,
+	command.PersistentFlags().BoolP("fastchecksum", "", false,
 		"fast checksum backup sst file by calculate all sst file")
 
-	_ = command.PersistentFlags().MarkHidden("checksum")
+	_ = command.PersistentFlags().MarkHidden("fastchecksum")
 	return command
 }
 
@@ -97,7 +99,17 @@ func newFullBackupCommand() *cobra.Command {
 				return errors.New("at least one thread required")
 			}
 
-			ranges, err := client.PreBackupAllTableRanges(backupTS)
+			checksum, err := command.Flags().GetBool("checksum")
+			if err != nil {
+				return err
+			}
+			fastChecksum, err := command.Flags().GetBool("fastchecksum")
+			if err != nil {
+				return err
+			}
+
+			ranges, backupSchemas, err := raw.BuildBackupRangeAndSchema(
+				client.GetDomain(), backer.GetTiKV(), backupTS, "", "")
 			if err != nil {
 				return err
 			}
@@ -108,38 +120,50 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
+			// Backup
 			ctx, cancel := context.WithCancel(defaultBacker.Context())
 			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
-
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
+			// Backup has finished
+			close(updateCh)
 
-			err = client.CompleteMeta()
+			// Checksum
+			backupSchemasConcurrency := raw.DefaultSchemaConcurrency
+			if backupSchemas.Len() < backupSchemasConcurrency {
+				backupSchemasConcurrency = backupSchemas.Len()
+			}
+			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())
+			defer ckscancel()
+			updateCh = utils.StartProgress(
+				cksctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
+			backupSchemas.SetSkipChecksum(!checksum)
+			backupSchemas.Start(
+				cksctx, backer.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+
+			err = client.CompleteMeta(backupSchemas)
 			if err != nil {
 				return err
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
-			if err != nil {
-				return err
-			}
-			if checksumSwitch {
+			if fastChecksum {
 				valid, err := client.FastChecksum()
 				if err != nil {
 					return err
 				}
-
 				if !valid {
 					log.Error("backup FastChecksum not passed!")
 				}
-
 			}
+			// Checksum has finished
+			close(updateCh)
+
 			return client.SaveBackupMeta(u)
 		},
 	}
@@ -210,13 +234,22 @@ func newTableBackupCommand() *cobra.Command {
 			if concurrency == 0 {
 				return errors.New("at least one thread required")
 			}
-
-			// TODO: include admin check in progress bar.
-			ranges, err := client.PreBackupTableRanges(db, table, u, backupTS)
+			checksum, err := command.Flags().GetBool("checksum")
 			if err != nil {
 				return err
 			}
-			// the count of regions need to backup
+			fastChecksum, err := command.Flags().GetBool("fastchecksum")
+			if err != nil {
+				return err
+			}
+
+			ranges, backupSchemas, err := raw.BuildBackupRangeAndSchema(
+				client.GetDomain(), backer.GetTiKV(), backupTS, db, table)
+			if err != nil {
+				return err
+			}
+
+			// The number of regions need to backup
 			approximateRegions := 0
 			for _, r := range ranges {
 				var regionCount int
@@ -227,28 +260,35 @@ func newTableBackupCommand() *cobra.Command {
 				approximateRegions += regionCount
 			}
 
+			// Backup
 			ctx, cancel := context.WithCancel(defaultBacker.Context())
 			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
-
 			err = client.BackupRanges(
 				ranges, u, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
+			// Backup has finished
+			close(updateCh)
 
-			err = client.CompleteMeta()
+			// Checksum
+			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())
+			defer ckscancel()
+			updateCh = utils.StartProgress(
+				cksctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
+			backupSchemas.SetSkipChecksum(!checksum)
+			backupSchemas.Start(
+				cksctx, backer.GetTiKV(), backupTS, 1, updateCh)
+
+			err = client.CompleteMeta(backupSchemas)
 			if err != nil {
 				return err
 			}
 
-			checksumSwitch, err := command.Flags().GetBool("checksum")
-			if err != nil {
-				return err
-			}
-			if checksumSwitch {
+			if fastChecksum {
 				valid, err := client.FastChecksum()
 				if err != nil {
 					return err
@@ -257,6 +297,8 @@ func newTableBackupCommand() *cobra.Command {
 					log.Error("backup FastChecksum not passed!")
 				}
 			}
+			// Checksum has finished
+			close(updateCh)
 
 			return client.SaveBackupMeta(u)
 		},

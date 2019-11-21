@@ -19,19 +19,14 @@ import (
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/ddl"
-	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/ranger"
-	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -41,6 +36,10 @@ const (
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
+
+	// defaultChecksumConcurrency is the default number of the concurrent
+	// checksum tasks.
+	defaultChecksumConcurrency = 64
 )
 
 // Client sends requests to importer to restore files
@@ -141,8 +140,8 @@ func (rc *Client) SetConcurrency(c uint) {
 }
 
 // GetTS gets a new timestamp from PD
-func (rc *Client) GetTS() (uint64, error) {
-	p, l, err := rc.pdClient.GetTS(rc.ctx)
+func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
+	p, l, err := rc.pdClient.GetTS(ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -198,7 +197,7 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	ts, err := rc.GetTS()
+	ts, err := rc.GetTS(rc.ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -439,7 +438,12 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 }
 
 //ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.TableInfo) error {
+func (rc *Client) ValidateChecksum(
+	ctx context.Context,
+	tables []*utils.Table,
+	newTables []*model.TableInfo,
+	updateCh chan<- struct{},
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -447,187 +451,65 @@ func (rc *Client) ValidateChecksum(tables []*utils.Table, newTables []*model.Tab
 	}()
 
 	log.Info("Start to validate checksum")
-	for i, t := range tables {
-		table := t
-		newTable := newTables[i]
+	wg := sync.WaitGroup{}
+	errCh := make(chan error)
+	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
+	go func() {
+		for i, t := range tables {
+			table := t
+			newTable := newTables[i]
+			wg.Add(1)
+			workers.Apply(func() {
+				defer wg.Done()
 
-		checksumResp := &tipb.ChecksumResponse{}
-		startTS, err := rc.GetTS()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		reqs, err := buildChecksumRequest(newTable, table, startTS)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		for _, req := range reqs {
-			resp, err := sendChecksumRequest(rc.ctx, rc.tikvCli.GetClient(), req)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			updateChecksumResponse(checksumResp, resp)
-		}
+				startTS, err := rc.GetTS(ctx)
+				if err != nil {
+					errCh <- errors.Trace(err)
+					return
+				}
+				exe, err := checksum.NewExecutorBuilder(newTable, startTS).
+					SetOldTable(table).
+					Build()
+				if err != nil {
+					errCh <- errors.Trace(err)
+					return
+				}
+				checksumResp, err := exe.Execute(ctx, rc.tikvCli.GetClient(), func() {
+					// TODO: update progress here.
+				})
+				if err != nil {
+					errCh <- errors.Trace(err)
+					return
+				}
 
-		if checksumResp.Checksum != table.Crc64Xor ||
-			checksumResp.TotalKvs != table.TotalKvs ||
-			checksumResp.TotalBytes != table.TotalBytes {
-			log.Error("failed in validate checksum",
-				zap.String("database", table.Db.Name.L),
-				zap.String("table", table.Schema.Name.L),
-				zap.Uint64("origin tidb crc64", table.Crc64Xor),
-				zap.Uint64("calculated crc64", checksumResp.Checksum),
-				zap.Uint64("origin tidb total kvs", table.TotalKvs),
-				zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
-				zap.Uint64("origin tidb total bytes", table.TotalBytes),
-				zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
-			)
-			return errors.New("failed to validate checksum")
+				if checksumResp.Checksum != table.Crc64Xor ||
+					checksumResp.TotalKvs != table.TotalKvs ||
+					checksumResp.TotalBytes != table.TotalBytes {
+					log.Error("failed in validate checksum",
+						zap.String("database", table.Db.Name.L),
+						zap.String("table", table.Schema.Name.L),
+						zap.Uint64("origin tidb crc64", table.Crc64Xor),
+						zap.Uint64("calculated crc64", checksumResp.Checksum),
+						zap.Uint64("origin tidb total kvs", table.TotalKvs),
+						zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
+						zap.Uint64("origin tidb total bytes", table.TotalBytes),
+						zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+					)
+					errCh <- errors.New("failed to validate checksum")
+					return
+				}
+
+				updateCh <- struct{}{}
+			})
+		}
+		wg.Wait()
+		close(errCh)
+	}()
+	for err := range errCh {
+		if err != nil {
+			return err
 		}
 	}
 	log.Info("validate checksum passed!!")
 	return nil
-}
-
-func buildChecksumRequest(
-	newTable *model.TableInfo,
-	oldTable *utils.Table,
-	startTs uint64) ([]*kv.Request, error) {
-	var partDefs []model.PartitionDefinition
-	if part := newTable.Partition; part != nil {
-		partDefs = part.Definitions
-	}
-
-	reqs := make([]*kv.Request, 0, (len(newTable.Indices)+1)*(len(partDefs)+1))
-	if err := appendRequest(newTable, newTable.ID, &reqs, oldTable, startTs); err != nil {
-		return nil, err
-	}
-
-	for _, partDef := range partDefs {
-		if err := appendRequest(newTable, partDef.ID, &reqs, oldTable, startTs); err != nil {
-			return nil, err
-		}
-	}
-	return reqs, nil
-}
-
-func appendRequest(
-	tableInfo *model.TableInfo,
-	tableID int64,
-	reqs *[]*kv.Request,
-	oldTable *utils.Table,
-	startTs uint64) error {
-	req, err := buildTableRequest(tableID, oldTable, startTs)
-	if err != nil {
-		return err
-	}
-
-	*reqs = append(*reqs, req)
-	for _, indexInfo := range tableInfo.Indices {
-		if indexInfo.State != model.StatePublic {
-			continue
-		}
-		for _, oldIndexInfo := range oldTable.Schema.Indices {
-			if oldIndexInfo.Name == indexInfo.Name {
-				req, err = buildIndexRequest(tableID, indexInfo, oldTable.Schema.ID, oldIndexInfo, startTs)
-				if err != nil {
-					return err
-				}
-				*reqs = append(*reqs, req)
-			}
-		}
-	}
-
-	return nil
-}
-
-func buildTableRequest(
-	tableID int64,
-	oldTable *utils.Table,
-	startTs uint64) (*kv.Request, error) {
-	rule := &tipb.ChecksumRewriteRule{
-		OldPrefix: tablecodec.GenTableRecordPrefix(oldTable.Schema.ID),
-		NewPrefix: tablecodec.GenTableRecordPrefix(tableID),
-	}
-
-	checksum := &tipb.ChecksumRequest{
-		StartTs:   startTs,
-		ScanOn:    tipb.ChecksumScanOn_Table,
-		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
-		Rule:      rule,
-	}
-
-	ranges := ranger.FullIntRange(false)
-
-	var builder distsql.RequestBuilder
-	return builder.SetTableRanges(tableID, ranges, nil).
-		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
-		Build()
-}
-
-func buildIndexRequest(
-	tableID int64,
-	indexInfo *model.IndexInfo,
-	oldTableID int64,
-	oldIndexInfo *model.IndexInfo,
-	startTs uint64) (*kv.Request, error) {
-	rule := &tipb.ChecksumRewriteRule{
-		OldPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexInfo.ID),
-		NewPrefix: tablecodec.EncodeTableIndexPrefix(tableID, indexInfo.ID),
-	}
-	checksum := &tipb.ChecksumRequest{
-		StartTs:   startTs,
-		ScanOn:    tipb.ChecksumScanOn_Index,
-		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
-		Rule:      rule,
-	}
-
-	ranges := ranger.FullRange()
-
-	var builder distsql.RequestBuilder
-	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
-		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
-		Build()
-}
-
-func sendChecksumRequest(
-	ctx context.Context,
-	client kv.Client,
-	req *kv.Request) (resp *tipb.ChecksumResponse, err error) {
-	res, err := distsql.Checksum(ctx, client, req, nil)
-	if err != nil {
-		return nil, err
-	}
-	res.Fetch(ctx)
-	defer func() {
-		if err1 := res.Close(); err1 != nil {
-			err = err1
-		}
-	}()
-
-	resp = &tipb.ChecksumResponse{}
-
-	for {
-		data, err := res.NextRaw(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if data == nil {
-			break
-		}
-		checksum := &tipb.ChecksumResponse{}
-		if err = checksum.Unmarshal(data); err != nil {
-			return nil, err
-		}
-		updateChecksumResponse(resp, checksum)
-	}
-
-	return resp, nil
-}
-
-func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
-	resp.Checksum ^= update.Checksum
-	resp.TotalKvs += update.TotalKvs
-	resp.TotalBytes += update.TotalBytes
 }

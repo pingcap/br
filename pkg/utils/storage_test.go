@@ -2,7 +2,6 @@ package utils
 
 import (
 	"fmt"
-	"testing"
 
 	. "github.com/pingcap/check"
 )
@@ -10,10 +9,6 @@ import (
 type testStorageSuite struct{}
 
 var _ = Suite(&testStorageSuite{})
-
-func TestT(t *testing.T) {
-	TestingT(t)
-}
 
 func (r *testStorageSuite) TestCreateStorage(c *C) {
 	rawURL := "1invalid:"
