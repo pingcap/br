@@ -168,9 +168,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 			}, func(e error) bool {
 				// Scan regions may return some regions which cannot match any rewrite rule,
 				// like [t{tableID}, t{tableID}_r), those regions should be skipped
-				return e != errRewriteRuleNotFound &&
-				// Skip empty files
-					e != errRangeIsEmpty
+				return e != errRewriteRuleNotFound && e != errRangeIsEmpty
 			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 			if err != nil {
 				if err == errRewriteRuleNotFound || err == errRangeIsEmpty {

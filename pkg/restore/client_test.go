@@ -4,11 +4,12 @@ import (
 	"context"
 	"math"
 
-	"github.com/pingcap/br/pkg/utils"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/testleak"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreSchemaSuite{})
@@ -47,7 +48,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 		tables[i] = &utils.Table{
 			Db: dbSchema,
 			Schema: &model.TableInfo{
-				ID: int64(i),
+				ID:   int64(i),
 				Name: model.NewCIStr("test" + string(i)),
 			},
 		}
