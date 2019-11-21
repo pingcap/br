@@ -71,17 +71,6 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	return nil
 }
 
-// AnalyzeTable executes a ANALYZE TABLE SQL.
-func (db *DB) AnalyzeTable(ctx context.Context, table *utils.Table) error {
-	analyzeSQL := fmt.Sprintf("ANALYZE TABLE %s", utils.EncloseName(table.Schema.Name.String()))
-	_, err := db.se.Execute(ctx, analyzeSQL)
-	if err != nil {
-		log.Error("analyze table failed", zap.String("SQL", analyzeSQL), zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
-}
-
 // AlterAutoIncID alters max auto-increment id of table.
 func (db *DB) AlterAutoIncID(ctx context.Context, table *utils.Table) error {
 	alterIDSQL := fmt.Sprintf(
