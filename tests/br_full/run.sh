@@ -29,7 +29,7 @@ done
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -37,7 +37,7 @@ done
 
 # restore full
 echo "restore start..."
-br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')

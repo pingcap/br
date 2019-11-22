@@ -12,13 +12,18 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
-all: check build test
+all: check test build
 
 release:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -o bin/br
 
 build:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -race -o bin/br
+
+build_for_integration_test:
+	GO111MODULE=on go test -c -cover -covermode=count \
+		-coverpkg=$(BR_PKG)/... \
+		-o bin/br.test
 
 test:
 	GO111MODULE=on go test -race ./...
@@ -31,7 +36,7 @@ testcover:
 		-debug \
 		-- -coverpkg=./...
 
-integration_test: build
+integration_test: build build_for_integration_test
 	@which bin/tidb-server
 	@which bin/tikv-server
 	@which bin/pd-server
