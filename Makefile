@@ -14,6 +14,9 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-re
 
 all: check build test
 
+release:
+	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -o bin/br
+
 build:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -race -o bin/br
 
