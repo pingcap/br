@@ -35,15 +35,10 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableRules := make([]*import_sstpb.RewriteRule, 0, 2)
+	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)
 	tableRules = append(tableRules, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-	})
-	// Backup range is [t{tableID}, t{tableID+1}), here is for covering the t{tableID+1} prefix.
-	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID + 1),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID + 1),
 	})
 
 	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
@@ -93,7 +88,7 @@ func getSSTMetaFromFile(
 	}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
 	// rangeEnd = min(rangeEnd, region.EndKey)
-	if bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
+	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
 		rangeEnd = region.GetEndKey()
 	}
 	return import_sstpb.SSTMeta{
@@ -202,9 +197,7 @@ func encodeKeyPrefix(key []byte) []byte {
 // Return false if cannot find a related rewrite rule.
 func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, bool) {
 	if len(key) > 0 {
-		ret := make([]byte, len(key))
-		copy(ret, key)
-		ret = codec.EncodeBytes([]byte{}, ret)
+		ret := codec.EncodeBytes([]byte{}, key)
 		for _, rule := range rewriteRules.Data {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
