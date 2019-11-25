@@ -30,7 +30,7 @@ row_count_ori=$(run_sql "SELECT COUNT(*) FROM ${DB}1.${TABLE}1;" | awk '/COUNT/{
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -38,7 +38,7 @@ done
 
 # restore table
 echo "restore start..."
-br restore table --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --db ${DB}1 --table ${TABLE}1
+run_br restore table -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --db ${DB}1 --table ${TABLE}1
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM ${DB}1.${TABLE}1;" | awk '/COUNT/{print $2}')
 

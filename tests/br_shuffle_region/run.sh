@@ -38,7 +38,7 @@ echo "-u $PD_ADDR -d sched add shuffle-region-scheduler" | pd-ctl
 
 # backup with shuffle region
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 1 --concurrency 4 --fastchecksum true
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"

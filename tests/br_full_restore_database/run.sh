@@ -32,7 +32,7 @@ done
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -40,7 +40,7 @@ done
 
 # restore database
 echo "restore start..."
-br restore db --connect "root@tcp($TIDB_ADDR)/" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --db ${DB}1
+run_br restore db -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --db ${DB}1
 
 for i in $(seq $TABLE_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM ${DB}1.$TABLE${i};" | awk '/COUNT/{print $2}')
