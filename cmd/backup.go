@@ -7,7 +7,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 
-	"github.com/pingcap/br/pkg/raw"
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -58,7 +58,7 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client, err := raw.NewBackupClient(backer)
+			client, err := backup.NewBackupClient(backer)
 			if err != nil {
 				return nil
 			}
@@ -108,7 +108,7 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			ranges, backupSchemas, err := raw.BuildBackupRangeAndSchema(
+			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 				client.GetDomain(), backer.GetTiKV(), backupTS, "", "")
 			if err != nil {
 				return err
@@ -135,7 +135,7 @@ func newFullBackupCommand() *cobra.Command {
 			close(updateCh)
 
 			// Checksum
-			backupSchemasConcurrency := raw.DefaultSchemaConcurrency
+			backupSchemasConcurrency := backup.DefaultSchemaConcurrency
 			if backupSchemas.Len() < backupSchemasConcurrency {
 				backupSchemasConcurrency = backupSchemas.Len()
 			}
@@ -180,7 +180,7 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client, err := raw.NewBackupClient(backer)
+			client, err := backup.NewBackupClient(backer)
 			if err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
-			ranges, backupSchemas, err := raw.BuildBackupRangeAndSchema(
+			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 				client.GetDomain(), backer.GetTiKV(), backupTS, db, table)
 			if err != nil {
 				return err
