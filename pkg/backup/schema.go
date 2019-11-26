@@ -1,4 +1,4 @@
-package raw
+package backup
 
 import (
 	"context"
@@ -25,8 +25,8 @@ const (
 	DefaultSchemaConcurrency = 64
 )
 
-// BackupSchemas is task for backuping schemas
-type BackupSchemas struct {
+// Schemas is task for backuping schemas
+type Schemas struct {
 	// name -> schema
 	schemas        map[string]backup.Schema
 	backupSchemaCh chan backup.Schema
@@ -35,15 +35,15 @@ type BackupSchemas struct {
 	skipChecksum   bool
 }
 
-func newBackupSchemas() *BackupSchemas {
-	return &BackupSchemas{
+func newBackupSchemas() *Schemas {
+	return &Schemas{
 		schemas:        make(map[string]backup.Schema),
 		backupSchemaCh: make(chan backup.Schema),
 		errCh:          make(chan error),
 	}
 }
 
-func (pending *BackupSchemas) pushPending(
+func (pending *Schemas) pushPending(
 	schema backup.Schema,
 	dbName, tableName string,
 ) {
@@ -53,19 +53,19 @@ func (pending *BackupSchemas) pushPending(
 }
 
 // SetSkipChecksum sets whether it should skip checksum
-func (pending *BackupSchemas) SetSkipChecksum(skip bool) {
+func (pending *Schemas) SetSkipChecksum(skip bool) {
 	pending.skipChecksum = skip
 }
 
 // Start backups schemas
-func (pending *BackupSchemas) Start(
+func (pending *Schemas) Start(
 	ctx context.Context,
 	store kv.Storage,
 	backupTS uint64,
 	concurrency uint,
 	updateCh chan<- struct{},
 ) {
-	workerPool := utils.NewWorkerPool(concurrency, "BackupSchemas")
+	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	go func() {
 		startAll := time.Now()
 		for n, s := range pending.schemas {
@@ -116,7 +116,7 @@ func (pending *BackupSchemas) Start(
 	}()
 }
 
-func (pending *BackupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
+func (pending *Schemas) finishTableChecksum() ([]*backup.Schema, error) {
 	schemas := make([]*backup.Schema, 0, len(pending.schemas))
 	for {
 		select {
@@ -132,7 +132,7 @@ func (pending *BackupSchemas) finishTableChecksum() ([]*backup.Schema, error) {
 }
 
 // Len returns the number of schemas.
-func (pending *BackupSchemas) Len() int {
+func (pending *Schemas) Len() int {
 	return len(pending.schemas)
 }
 
