@@ -3,6 +3,7 @@ module github.com/pingcap/br
 go 1.13
 
 require (
+	github.com/aws/aws-sdk-go v1.25.42
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect

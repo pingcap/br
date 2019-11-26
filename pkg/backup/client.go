@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -125,8 +126,12 @@ func (bc *Client) SetStorage(base string) error {
 		return err
 	}
 	// backupmeta already exists
-	if exist := bc.storage.FileExists(utils.MetaFile); exist {
-		return errors.New("backup meta exists, may be some backup files in the path already")
+	exist, err := bc.storage.FileExists(utils.MetaFile)
+	if err != nil {
+		return fmt.Errorf("error occurred when check file: %v", err)
+	}
+	if exist {
+		return fmt.Errorf("backup meta exists, may be some backup files in the path already")
 	}
 	return nil
 }

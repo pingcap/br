@@ -17,7 +17,7 @@ type ExternalStorage interface {
 	// Read storage file
 	Read(name string) ([]byte, error)
 	// FileExists return true if file exists
-	FileExists(name string) bool
+	FileExists(name string) (bool, error)
 }
 
 // CreateStorage create ExternalStorage
@@ -30,6 +30,8 @@ func CreateStorage(rawURL string) (ExternalStorage, error) {
 	switch u.Scheme {
 	case "local":
 		return newLocalStorage(u.Path)
+	case "s3":
+		return newS3Storage(u)
 	case "noop":
 		return newNoopStorage(), nil
 	default:
@@ -53,21 +55,24 @@ func (l *LocalStorage) Read(name string) ([]byte, error) {
 }
 
 // FileExists implement ExternalStorage.FileExists
-func (l *LocalStorage) FileExists(name string) bool {
+func (l *LocalStorage) FileExists(name string) (bool, error) {
 	filepath := path.Join(l.base, name)
 	return pathExists(filepath)
 }
 
-func pathExists(_path string) bool {
+func pathExists(_path string) (bool, error) {
 	_, err := os.Stat(_path)
 	if err != nil && os.IsNotExist(err) {
-		return false
+		return false, nil
 	}
-	return true
+	return true, err
 }
 
 func newLocalStorage(base string) (*LocalStorage, error) {
-	ok := pathExists(base)
+	ok, errP := pathExists(base)
+	if errP != nil {
+		return nil, errP
+	}
 	if !ok {
 		mask := syscall.Umask(0)
 		defer syscall.Umask(mask)
@@ -92,8 +97,8 @@ func (*noopStorage) Read(name string) ([]byte, error) {
 }
 
 // FileExists return true if file exists
-func (*noopStorage) FileExists(name string) bool {
-	return false
+func (*noopStorage) FileExists(name string) (bool, error) {
+	return false, nil
 }
 
 func newNoopStorage() *noopStorage {
