@@ -1,4 +1,4 @@
-package raw
+package backup
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 )
 
 type testBackup struct {
-	backupClient *BackupClient
+	backupClient *Client
 }
 
 var _ = Suite(&testBackup{})
@@ -31,7 +31,7 @@ func (r *testBackup) SetUpSuite(c *C) {
 		PDClient: mockPDClient,
 	}
 	mockBacker.SetPDHTTP([]string{"test"}, nil)
-	r.backupClient = &BackupClient{
+	r.backupClient = &Client{
 		clusterID: mockPDClient.GetClusterID(ctx),
 		backer:    mockBacker,
 		ctx:       ctx,
