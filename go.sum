@@ -218,8 +218,8 @@ github.com/pingcap/parser v0.0.0-20191121045207-8b5639e42f59 h1:D422KNsb0XuoDX0X
 github.com/pingcap/parser v0.0.0-20191121045207-8b5639e42f59/go.mod h1:1FNvfp9+J0wvc4kl8eGNh7Rqrxveg15jJoWo/a0uHwA=
 github.com/pingcap/pd v1.1.0-beta.0.20191115131715-6b7dc037010e h1:6En0+9KDJ6CjkuzbGwHgo+P1YjEt22jn+nujl6cSAXA=
 github.com/pingcap/pd v1.1.0-beta.0.20191115131715-6b7dc037010e/go.mod h1:ribyi6AyFNOElWgb6VnUsky4JFciEoGApSUzIcJxGSI=
-github.com/pingcap/tidb v1.1.0-beta.0.20191126042000-551a190ab38b h1:KQyE1mbYNpoeLQb2SMf6ax96psZUlcvdDEVltGXF0Q8=
-github.com/pingcap/tidb v1.1.0-beta.0.20191126042000-551a190ab38b/go.mod h1:tV67qE016QGvbW2CAVmFiEbdDJf4gGZHW1ISO2XQNlE=
+github.com/pingcap/tidb v1.1.0-beta.0.20191127051612-b8000b1b9d2d h1:17Y7CNz5SD5lD6tMY0+Lg9np8+AE06Z4HX6W+u8e0hw=
+github.com/pingcap/tidb v1.1.0-beta.0.20191127051612-b8000b1b9d2d/go.mod h1:tV67qE016QGvbW2CAVmFiEbdDJf4gGZHW1ISO2XQNlE=
 github.com/pingcap/tidb-tools v3.0.6-0.20191119150227-ff0a3c6e5763+incompatible/go.mod h1:XGdcy9+yqlDSEMTpOXnwf3hiTeqrV6MN/u1se9N8yIM=
 github.com/pingcap/tidb-tools v3.0.6-0.20191126140929-617bc410fa59+incompatible h1:MtymeGrVvKJ/npfarFNqAkj2vQMnHQ2/snXSUZmRD90=
 github.com/pingcap/tidb-tools v3.0.6-0.20191126140929-617bc410fa59+incompatible/go.mod h1:XGdcy9+yqlDSEMTpOXnwf3hiTeqrV6MN/u1se9N8yIM=
