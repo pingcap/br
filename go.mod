@@ -30,6 +30,7 @@ require (
 	github.com/spf13/pflag v1.0.3
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738 // indirect
 	go.uber.org/zap v1.10.0
+	gocloud.dev v0.18.0
 	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550 // indirect
 	golang.org/x/net v0.0.0-20191011234655-491137f69257 // indirect
 	golang.org/x/time v0.0.0-20190308202827-9d24e82272b4 // indirect

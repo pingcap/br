@@ -31,7 +31,7 @@ func CreateStorage(rawURL string) (ExternalStorage, error) {
 	case "local":
 		return newLocalStorage(u.Path)
 	case "s3":
-		return newS3Storage(u)
+		return newRemoteStorage(u)
 	case "noop":
 		return newNoopStorage(), nil
 	default:
