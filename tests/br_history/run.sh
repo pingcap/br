@@ -29,7 +29,7 @@ done
 
 sleep 10
 
-run_sql "USE ${DB}0; DROP TABLE $TABLE;"
+run_sql "USE ${DB}1; DROP TABLE $TABLE;"
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE ${DB}${i};"
 done
