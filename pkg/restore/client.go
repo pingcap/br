@@ -104,7 +104,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
-func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
+func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, storagePath string) error {
 	databases, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -114,7 +114,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backupMeta.GetPath())
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, storagePath)
 	return nil
 }
 

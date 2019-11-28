@@ -367,7 +367,7 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = client.InitBackupMeta(backupMeta)
+	err = client.InitBackupMeta(backupMeta, u)
 	if err != nil {
 		return errors.Trace(err)
 	}
