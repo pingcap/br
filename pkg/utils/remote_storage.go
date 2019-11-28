@@ -17,7 +17,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"path"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -28,7 +28,6 @@ import (
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/s3blob"
 
-	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 )
 
@@ -50,7 +49,6 @@ const (
 // RemoteStorage info for remote storage
 type RemoteStorage struct {
 	bucket *blob.Bucket
-	path   string
 }
 
 type s3Query struct {
@@ -59,14 +57,16 @@ type s3Query struct {
 	region          string
 	endpoint        string
 	bucket          string
-	path            string
+	prefix          string
 	provider        string
 }
 
 // newRemoteStorage creates new remote storage for metadata
 // rawURL will be in format of:
-// s3:///bucket_name/prefix?access_key=xxx&secret_access_key=yyy&
-// region=zzz&provider=aws&region=zzz&insecure=true&endpoint=172.6.4.3:3000
+// s3:///bucket_name?access_key=xxx&secret_access_key=yyy&
+// provider=aws&region=zzz&prefix=aaa
+// s3:///bucket_name?access_key=xxx&secret_access_key=yyy&
+// insecure=true&endpoint=172.6.4.3:3000&prefix=aaa
 func newRemoteStorage(u *url.URL) (*RemoteStorage, error) {
 	switch u.Scheme {
 	case "s3":
@@ -80,10 +80,9 @@ func newRemoteStorage(u *url.URL) (*RemoteStorage, error) {
 		}
 		return &RemoteStorage{
 			bucket: bucket,
-			path:   qs.path,
 		}, nil
 	default:
-		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
+		return nil, fmt.Errorf("storage %s not support yet", u.Scheme)
 	}
 }
 
@@ -91,35 +90,28 @@ func newRemoteStorage(u *url.URL) (*RemoteStorage, error) {
 func (rs *RemoteStorage) Write(file string, data []byte) error {
 	ctx := context.Background()
 
-	// Create a cancelable context from the existing context.
-	writeCtx, cancelWrite := context.WithCancel(ctx)
-	defer cancelWrite()
-
 	// Open the key for writing with the default options.
-	err := rs.bucket.WriteAll(writeCtx, path.Join(rs.path, file), data, nil)
+	err := rs.bucket.WriteAll(ctx, file, data, nil)
 	if err != nil {
 		return err
 	}
 
-	log.Info("Write to remote storage successfully", zap.String("key", path.Join(rs.path, file)))
+	log.Info("Write to remote storage successfully", zap.String("key", file))
 	return nil
 }
 
 // Read read file from remote storage
 func (rs *RemoteStorage) Read(file string) ([]byte, error) {
 	ctx := context.Background()
-	// Create a cancelable context from the existing context.
-	readCtx, cancelRead := context.WithCancel(ctx)
-	defer cancelRead()
 	// Read from the key.
-	return rs.bucket.ReadAll(readCtx, path.Join(rs.path, file))
+	return rs.bucket.ReadAll(ctx, file)
 }
 
 // FileExists check if file exists on s3 storage
 func (rs *RemoteStorage) FileExists(file string) (bool, error) {
 	ctx := context.Background()
 	// Check the key.
-	return rs.bucket.Exists(ctx, path.Join(rs.path, file))
+	return rs.bucket.Exists(ctx, file)
 }
 
 // newS3Storage initialize a new s3 storage for metadata
@@ -168,7 +160,11 @@ func newS3Storage(qs *s3Query) (*blob.Bucket, error) {
 		return nil, err
 	}
 	// Create a *blob.Bucket.
-	return s3blob.OpenBucket(context.Background(), ses, qs.bucket, nil)
+	bkt, err := s3blob.OpenBucket(context.Background(), ses, qs.bucket, nil)
+	if err != nil {
+		return nil, err
+	}
+	return blob.PrefixedBucket(bkt, qs.prefix), nil
 
 }
 
@@ -211,8 +207,11 @@ func checkS3Config(u *url.URL) (*s3Query, error) {
 	}
 	pfs, ok := qs[prefixKey]
 	if ok && len(pfs) >= 1 {
-		sqs.path = pfs[0]
+		sqs.prefix = pfs[0]
 	}
+	sqs.prefix = strings.Trim(sqs.prefix, "/")
+	sqs.prefix += "/"
+
 	eps, ok := qs[endpointKey]
 	if ok && len(eps) >= 1 {
 		sqs.endpoint = eps[0]
