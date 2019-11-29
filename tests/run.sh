@@ -20,6 +20,7 @@ TEST_DIR=/tmp/backup_restore_test
 PD_ADDR="127.0.0.1:2379"
 TIDB_IP="127.0.0.1"
 TIDB_PORT="4000"
+TIDB_STATUS_ADDR="127.0.0.1:10080"
 TIDB_ADDR="127.0.0.1:4000"
 # actaul tikv_addr are TIKV_ADDR${i}
 TIKV_ADDR="127.0.0.1:2016"
@@ -63,6 +64,7 @@ start_services() {
     echo "Starting TiDB..."
     bin/tidb-server \
         -P 4000 \
+        --status 10080 \
         --store tikv \
         --path "$PD_ADDR" \
         --config "tests/config/tidb.toml" \
