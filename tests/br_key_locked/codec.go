@@ -11,8 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// This file is copied from
-// https://github.com/tikv/client-go/blob/a72c652ef3f8f5d8b51855c14b4f63143413ce8f/locate/codec.go
+// This file is copied from pingcap/tidb/store/tikv/pd_codec.go https://git.io/Je1Ww
 
 package main
 
