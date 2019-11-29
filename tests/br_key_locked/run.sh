@@ -15,9 +15,6 @@
 
 set -eu
 
-# build key locker first
-GO111MODULE=on go build -race -o bin/locker tests/br_key_locked/*.go
-
 DB="$TEST_NAME"
 TABLE="usertable"
 

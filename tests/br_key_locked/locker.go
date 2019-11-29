@@ -126,8 +126,8 @@ type Locker struct {
 }
 
 // generateLocks sends Prewrite requests to TiKV to generate locks, without committing and rolling back.
-func (c *Locker) generateLocks(ctx context.Context) error {
-	log.Info("genLock thread started")
+func (c *Locker) generateLocks(pctx context.Context) error {
+	log.Info("genLock started")
 
 	const maxTxnSize = 1000
 
@@ -138,9 +138,12 @@ func (c *Locker) generateLocks(ctx context.Context) error {
 	scannedKeys := 0
 	var batch []int64
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for rowID := int64(0); ; rowID = (rowID + 1) % c.tableSize {
 		select {
-		case <-ctx.Done():
+		case <-pctx.Done():
+			log.Info("genLock done")
 			return nil
 		default:
 		}
