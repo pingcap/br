@@ -20,8 +20,8 @@ TEST_DIR=/tmp/backup_restore_test
 PD_ADDR="127.0.0.1:2379"
 TIDB_IP="127.0.0.1"
 TIDB_PORT="4000"
-TIDB_STATUS_ADDR="127.0.0.1:10080"
 TIDB_ADDR="127.0.0.1:4000"
+TIDB_STATUS_ADDR="127.0.0.1:10080"
 # actaul tikv_addr are TIKV_ADDR${i}
 TIKV_ADDR="127.0.0.1:2016"
 TIKV_COUNT=4
@@ -107,6 +107,7 @@ for script in tests/*/run.sh; do
     TIDB_IP="$TIDB_IP" \
     TIDB_PORT="$TIDB_PORT" \
     TIDB_ADDR="$TIDB_ADDR" \
+    TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
