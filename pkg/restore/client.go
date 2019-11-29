@@ -257,7 +257,7 @@ func (rc *Client) RestoreTable(
 		zap.Array("files", files(table.Files)),
 	)
 	errCh := make(chan error, len(table.Files))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
@@ -309,7 +309,7 @@ func (rc *Client) RestoreDatabase(
 		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	for _, table := range db.Tables {
 		wg.Add(1)
@@ -345,7 +345,7 @@ func (rc *Client) RestoreAll(
 		log.Info("RestoreAll", zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(rc.databases))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	for _, db := range rc.databases {
 		wg.Add(1)
@@ -436,7 +436,7 @@ func (rc *Client) ValidateChecksum(
 	}()
 
 	log.Info("Start to validate checksum")
-	wg := sync.WaitGroup{}
+	wg := new(sync.WaitGroup)
 	errCh := make(chan error)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
