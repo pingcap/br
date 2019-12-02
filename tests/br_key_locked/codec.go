@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2019 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,13 +31,13 @@ type codecPDClient struct {
 // GetRegion encodes the key before send requests to pd-server and decodes the
 // returned StartKey && EndKey from pd-server.
 func (c *codecPDClient) GetRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error) {
-	encodedKey := codec.EncodeBytes([]byte(nil), key)
+	encodedKey := codec.EncodeBytes(nil, key)
 	region, peer, err := c.Client.GetRegion(ctx, encodedKey)
 	return processRegionResult(region, peer, err)
 }
 
 func (c *codecPDClient) GetPrevRegion(ctx context.Context, key []byte) (*metapb.Region, *metapb.Peer, error) {
-	encodedKey := codec.EncodeBytes([]byte(nil), key)
+	encodedKey := codec.EncodeBytes(nil, key)
 	region, peer, err := c.Client.GetPrevRegion(ctx, encodedKey)
 	return processRegionResult(region, peer, err)
 }
@@ -55,9 +55,9 @@ func (c *codecPDClient) ScanRegions(
 	endKey []byte,
 	limit int,
 ) ([]*metapb.Region, []*metapb.Peer, error) {
-	startKey = codec.EncodeBytes([]byte(nil), startKey)
+	startKey = codec.EncodeBytes(nil, startKey)
 	if len(endKey) > 0 {
-		endKey = codec.EncodeBytes([]byte(nil), endKey)
+		endKey = codec.EncodeBytes(nil, endKey)
 	}
 
 	regions, peers, err := c.Client.ScanRegions(ctx, startKey, endKey, limit)

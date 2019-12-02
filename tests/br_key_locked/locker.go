@@ -1,3 +1,16 @@
+// Copyright 2019 PingCAP, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 // Test backup with key locked errors.
 //
 // This file is copied from pingcap/schrodinger-test#428 https://git.io/Je1md
@@ -12,13 +25,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
@@ -88,13 +102,18 @@ func main() {
 
 // getTableID of the table with specified table name.
 func getTableID(dbAddr, dbName, table string) (int64, error) {
-	dbStatusAddr := strings.Split(dbAddr, ":")[0] + ":10080"
+	dbHost, _, err := net.SplitHostPort(dbAddr)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
+	dbStatusAddr := net.JoinHostPort(dbHost, "10080")
 	url := fmt.Sprintf("http://%s/schema/%s/%s", dbStatusAddr, dbName, table)
 
 	resp, err := http.Get(url)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -105,14 +124,12 @@ func getTableID(dbAddr, dbName, table string) (int64, error) {
 		return 0, errors.Errorf("HTTP request to TiDB status reporter returns %v. Body: %v", resp.StatusCode, string(body))
 	}
 
-	var data map[string]interface{}
+	var data model.TableInfo
 	err = json.Unmarshal(body, &data)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-
-	id := int64(data["id"].(float64))
-	return id, nil
+	return data.ID, nil
 }
 
 // Locker leaves locks on a table.
@@ -287,7 +304,7 @@ func randStr() string {
 	length := rand.Intn(128)
 	res := ""
 	for i := 0; i < length; i++ {
-		res += string('a' + (rand.Int() % 26))
+		res += string('a' + rand.Intn(26))
 	}
 	return res
 }
