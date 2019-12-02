@@ -216,8 +216,8 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 	// TiKV client doesn't expose Prewrite interface directly. We need to manually locate the region and send the
 	// Prewrite requests.
 
+	bo := tikv.NewBackoffer(ctx, 20000)
 	for {
-		bo := tikv.NewBackoffer(ctx, 20000)
 		loc, err := c.kv.GetRegionCache().LocateKey(bo, keys[0])
 		if err != nil {
 			return 0, errors.Trace(err)
