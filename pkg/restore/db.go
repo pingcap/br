@@ -107,7 +107,12 @@ func (db *DB) Close() {
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", utils.EncloseName(db.Name.String()))
-	fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", db.Charset, db.Collate)
+	if len(db.Charset) != 0 {
+		fmt.Fprintf(&buf, " CHARACTER SET %s ", db.Charset)
+	}
+	if len(db.Collate) != 0 {
+		fmt.Fprintf(&buf, "COLLATE %s", db.Collate)
+	}
 	buf.WriteString(";")
 
 	return buf.String()
