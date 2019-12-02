@@ -455,7 +455,7 @@ func (bc *Client) fineGrainedBackup(
 			ms int
 			mu sync.Mutex
 		}{}
-		wg := sync.WaitGroup{}
+		wg := new(sync.WaitGroup)
 		for i := 0; i < 4; i++ {
 			wg.Add(1)
 			fork, _ := bo.Fork()

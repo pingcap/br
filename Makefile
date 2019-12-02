@@ -24,6 +24,8 @@ build_for_integration_test:
 	GO111MODULE=on go test -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
 		-o bin/br.test
+	# build key locker
+	GO111MODULE=on go build -race -o bin/locker tests/br_key_locked/*.go
 
 test:
 	GO111MODULE=on go test -race ./...

@@ -31,7 +31,7 @@ type Schemas struct {
 	schemas        map[string]backup.Schema
 	backupSchemaCh chan backup.Schema
 	errCh          chan error
-	wg             sync.WaitGroup
+	wg             *sync.WaitGroup
 	skipChecksum   bool
 }
 
@@ -40,6 +40,7 @@ func newBackupSchemas() *Schemas {
 		schemas:        make(map[string]backup.Schema),
 		backupSchemaCh: make(chan backup.Schema),
 		errCh:          make(chan error),
+		wg:             new(sync.WaitGroup),
 	}
 }
 
