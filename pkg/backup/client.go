@@ -271,16 +271,6 @@ LoadDb:
 					EndKey:   r.EndKey,
 				})
 			}
-			for _, r := range ranges {
-				t, h, _ := tablecodec.DecodeRecordKey(r.StartKey)
-				et, eh, _ := tablecodec.DecodeRecordKey(r.EndKey)
-				log.Info("range:",
-					zap.Int64("st", t),
-					zap.Int64("sh", h),
-					zap.Int64("et", et),
-					zap.Int64("et", eh))
-				log.Info("tableRanges:", zap.Binary("s",r.StartKey), zap.Binary("e", r.EndKey))
-			}
 		}
 	}
 
