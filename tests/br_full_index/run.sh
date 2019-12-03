@@ -19,8 +19,6 @@ TABLE="usertable"
 DB_COUNT=3
 LOG=/$TEST_DIR/$DB/backup.log
 
-run_sql "DROP DATABASE IF EXISTS $DB;"
-
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
     go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i}
@@ -75,3 +73,5 @@ if $fail; then
 else
     echo "TEST: [$TEST_NAME] successed!"
 fi
+
+run_sql "DROP DATABASE $DB;"
