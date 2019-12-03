@@ -158,6 +158,7 @@ func ValidateFileRanges(
 	return ranges, nil
 }
 
+// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKeyWithOriginalRules(file.GetStartKey(), rewriteRules)

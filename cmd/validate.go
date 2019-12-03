@@ -40,6 +40,7 @@ func NewValidateCommand() *cobra.Command {
 		},
 	}
 	meta.AddCommand(newCheckSumCommand())
+	meta.AddCommand(newBackupMetaCommand())
 	return meta
 }
 
@@ -233,5 +234,6 @@ func newBackupMetaCommand() *cobra.Command {
 		},
 	}
 	command.Flags().String("path", "", "the path of backupmeta")
+	command.Hidden = true
 	return command
 }
