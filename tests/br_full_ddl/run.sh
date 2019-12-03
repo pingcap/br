@@ -17,6 +17,9 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DDL_COUNT=10
+LOG=/$TEST_DIR/$DB/backup.log
+
+run_sql "DROP DATABASE IF EXISTS $DB;"
 
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
@@ -31,11 +34,17 @@ run_sql "USE $DB; ALTER TABLE $TABLE DROP INDEX FIELD1;"
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
+br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true --log-file $LOG
 
-for i in $(seq $DB_COUNT); do
-    run_sql "DROP DATABASE $DB;"
-done
+checksum_count=$(cat $LOG | grep "fast checksum success" | wc -l | xargs)
+
+if [ "${checksum_count}" != "1" ];then
+    echo "TEST: [$TEST_NAME] fail on fast checksum"
+    echo $(cat $LOG | grep checksum)
+    exit 1
+fi
+
+run_sql "DROP DATABASE $DB;"
 
 # restore full
 echo "restore start..."
