@@ -74,4 +74,4 @@ else
     echo "TEST: [$TEST_NAME] successed!"
 fi
 
-run_sql "DROP DATABASE $DB;"
+run_sql "DROP DATABASE IF EXISTS $DB;"
