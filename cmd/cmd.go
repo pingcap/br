@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/conn"
 )
 
 var (
@@ -23,8 +23,8 @@ var (
 	pdAddress      string
 	hasLogFile     uint64
 
-	backerOnce    = sync.Once{}
-	defaultBacker *meta.Backer
+	connOnce   = sync.Once{}
+	defaultMgr *conn.Mgr
 )
 
 const (
@@ -139,21 +139,21 @@ func HasLogFile() bool {
 	return atomic.LoadUint64(&hasLogFile) != uint64(0)
 }
 
-// GetDefaultBacker returns the default backer for command line usage.
-func GetDefaultBacker() (*meta.Backer, error) {
+// GetDefaultMgr returns the default mgr for command line usage.
+func GetDefaultMgr() (*conn.Mgr, error) {
 	if pdAddress == "" {
 		return nil, errors.New("pd address can not be empty")
 	}
 
-	// Lazy initialize and defaultBacker
+	// Lazy initialize and defaultMgr
 	var err error
-	backerOnce.Do(func() {
-		defaultBacker, err = meta.NewBacker(defaultContext, pdAddress)
+	connOnce.Do(func() {
+		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return defaultBacker, nil
+	return defaultMgr, nil
 }
 
 // SetDefaultContext sets the default context for command line usage.

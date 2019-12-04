@@ -1,18 +1,15 @@
-package meta
+package conn
 
 import (
 	"context"
-	"math/rand"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
-	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/pd/pkg/mock/mockid"
 	"github.com/pingcap/pd/server"
 	"google.golang.org/grpc"
@@ -20,18 +17,6 @@ import (
 
 func TestT(t *testing.T) {
 	TestingT(t)
-}
-
-func TestTimestampEncodeDecode(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-	for i := 0; i < 10; i++ {
-		ts := rand.Uint64()
-		tp := DecodeTs(ts)
-		ts1 := EncodeTs(tp)
-		if ts != ts1 {
-			t.Fatalf("%d != %d", ts, ts1)
-		}
-	}
 }
 
 func TestClient(t *testing.T) {
@@ -88,8 +73,8 @@ type testClientSuite struct {
 	cancel  context.CancelFunc
 	cleanup server.CleanupFunc
 
-	srv    *server.Server
-	backer *Backer
+	srv *server.Server
+	mgr *Mgr
 }
 
 func (s *testClientSuite) SetUpSuite(c *C) {
@@ -121,7 +106,7 @@ func (s *testClientSuite) SetUpSuite(c *C) {
 	pdGet = func(string, string, *http.Client) ([]byte, error) {
 		return []byte{}, nil
 	}
-	s.backer, err = NewBacker(
+	s.mgr, err = NewMgr(
 		s.ctx, strings.TrimPrefix(s.srv.GetAddr(), "http://"))
 	c.Assert(err, IsNil)
 }
@@ -168,41 +153,4 @@ func bootstrapServer(c *C, header *pdpb.RequestHeader, client pdpb.PDClient) {
 	}
 	_, err := client.Bootstrap(context.Background(), req)
 	c.Assert(err, IsNil)
-}
-
-type mockGC struct {
-	pd.Client
-}
-
-func (mockGC) UpdateGCSafePoint(ctx context.Context, safePoint uint64) (uint64, error) {
-	return 0, errors.Errorf("UpdateGCSafePoint error")
-}
-
-func (s *testClientSuite) TestUpdateGCSafePoint(c *C) {
-	{
-		newSafePoint, err := s.backer.PDClient.UpdateGCSafePoint(s.ctx, 2333)
-		c.Assert(err, IsNil)
-		c.Assert(newSafePoint, Equals, uint64(2333))
-	}
-	{
-		err := s.backer.CheckGCSafepoint(s.ctx, 2333+1)
-		c.Assert(err, IsNil)
-	}
-	{
-		err := s.backer.CheckGCSafepoint(s.ctx, 2333)
-		c.Assert(err, NotNil)
-	}
-	{
-		err := s.backer.CheckGCSafepoint(s.ctx, 2333-1)
-		c.Assert(err, NotNil)
-	}
-	{
-		backer := Backer{
-			Ctx:      s.backer.Ctx,
-			PDClient: mockGC{s.backer.PDClient},
-		}
-
-		err := backer.CheckGCSafepoint(s.ctx, 0)
-		c.Assert(err, ErrorMatches, "UpdateGCSafePoint error")
-	}
 }

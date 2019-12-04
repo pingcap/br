@@ -64,7 +64,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	}
 }
 
-// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
+// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
 func getSSTMetaFromFile(
 	id []byte,

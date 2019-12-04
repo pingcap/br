@@ -26,7 +26,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
-	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -54,7 +54,7 @@ type Client struct {
 
 	databases  map[string]*utils.Database
 	backupMeta *backup.BackupMeta
-	backer     *meta.Backer
+	mgr        *conn.Mgr
 	db         *DB
 }
 
@@ -62,7 +62,7 @@ type Client struct {
 func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	addrs := strings.Split(pdAddrs, ",")
-	backer, err := meta.NewBacker(ctx, addrs[0])
+	mgr, err := conn.NewMgr(ctx, addrs[0])
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -72,7 +72,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-	db, err := NewDB(backer.GetTiKV())
+	db, err := NewDB(mgr.GetTiKV())
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -86,7 +86,7 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 		cancel:          cancel,
 		pdClient:        pdClient,
 		pdAddrs:         addrs,
-		backer:          backer,
+		mgr:             mgr,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
@@ -129,11 +129,11 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := meta.Timestamp{
+	ts := utils.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
-	restoreTS := meta.EncodeTs(ts)
+	restoreTS := utils.EncodeTs(ts)
 	return restoreTS, nil
 }
 

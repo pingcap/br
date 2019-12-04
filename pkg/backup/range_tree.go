@@ -133,7 +133,7 @@ func (rangeTree *RangeTree) update(rg *Range) {
 	rangeTree.tree.ReplaceOrInsert(rg)
 }
 
-func (rangeTree *RangeTree) putOk(
+func (rangeTree *RangeTree) put(
 	startKey, endKey []byte, files []*backup.File,
 ) {
 	rg := &Range{
