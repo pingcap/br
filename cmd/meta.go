@@ -122,5 +122,91 @@ origin sha256 is %s`, file.Name, s, file.Sha256)
 	}
 	checksumCmd.Hidden = true
 	meta.AddCommand(checksumCmd)
+
+	decodeBackupMetaCmd := &cobra.Command{
+		Use:   "decode",
+		Short: "decode backupmeta to json",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			u, err := cmd.Flags().GetString("storage")
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if u == "" {
+				return errors.New("empty backup store is not allowed")
+			}
+			storage, err := utils.CreateStorage(u)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaData, err := storage.Read(utils.MetaFile)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			backupMeta := &backup.BackupMeta{}
+			err = proto.Unmarshal(metaData, backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			backupMetaJSON, err := json.Marshal(backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = storage.Write(utils.MetaJSONFile, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			return nil
+		},
+	}
+	meta.AddCommand(decodeBackupMetaCmd)
+
+	loadBackupMetaCmd := &cobra.Command{
+		Use:   "load",
+		Short: "load backupmeta json file to backupmeta",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			u, err := cmd.Flags().GetString("storage")
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if u == "" {
+				return errors.New("empty backup store is not allowed")
+			}
+			storage, err := utils.CreateStorage(u)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaData, err := storage.Read(utils.MetaJSONFile)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			backupMetaJSON := &backup.BackupMeta{}
+			err = json.Unmarshal(metaData, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			backupMeta, err := proto.Marshal(backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			fileName := utils.MetaFile
+			if storage.FileExists(fileName) {
+				// Do not overwrite origin meta file
+				fileName += "_from_json"
+			}
+			err = storage.Write(fileName, backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			return nil
+		},
+	}
+	meta.AddCommand(loadBackupMetaCmd)
+
 	return meta
 }
