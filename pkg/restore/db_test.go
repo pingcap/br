@@ -40,9 +40,15 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("use test")
+	tk.MustExec("set @@sql_mode=''")
 	tk.MustExec("drop table if exists t;")
-	tk.MustExec("create table t (a int not null auto_increment, primary key (a));")
-	tk.MustExec("insert into t values (10);")
+	// Test SQL Mode
+	tk.MustExec("create table t (" +
+		"a int not null auto_increment," +
+		"time timestamp not null default '0000-00-00 00:00:00'," +
+		"primary key (a));",
+	)
+	tk.MustExec("insert into t values (10, '0000-00-00 00:00:00');")
 	// Query the current AutoIncID
 	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
