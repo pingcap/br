@@ -40,9 +40,15 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("use test")
+	tk.MustExec("set @@sql_mode=''")
 	tk.MustExec("drop table if exists t;")
-	tk.MustExec("create table t (a int);")
-	tk.MustExec("insert into t values (10);")
+	// Test SQL Mode
+	tk.MustExec("create table t (" +
+		"a int not null auto_increment," +
+		"time timestamp not null default '0000-00-00 00:00:00'," +
+		"primary key (a));",
+	)
+	tk.MustExec("insert into t values (10, '0000-00-00 00:00:00');")
 	// Query the current AutoIncID
 	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
@@ -66,8 +72,21 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	table.Schema.AutoIncID = globalAutoID + 100
 	db, err := NewDB(s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
-	err = db.AlterAutoIncID(context.Background(), &table)
-	c.Assert(err, IsNil, Commentf("Error alter auto inc id: %s %s", err, s.mock.DSN))
+	tk.MustExec("drop database if exists test;")
+	// Test empty collate value
+	table.Db.Charset = "utf8mb4"
+	table.Db.Collate = ""
+	err = db.CreateDatabase(context.Background(), table.Db)
+	c.Assert(err, IsNil, Commentf("Error create empty collate db: %s %s", err, s.mock.DSN))
+	tk.MustExec("drop database if exists test;")
+	// Test empty charset value
+	table.Db.Charset = ""
+	table.Db.Collate = "utf8mb4_bin"
+	err = db.CreateDatabase(context.Background(), table.Db)
+	c.Assert(err, IsNil, Commentf("Error create empty charset db: %s %s", err, s.mock.DSN))
+	err = db.CreateTable(context.Background(), &table)
+	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
+	tk.MustExec("use test")
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))

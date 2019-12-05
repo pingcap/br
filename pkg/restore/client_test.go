@@ -48,7 +48,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 
 	tables := make([]*utils.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
-	intField.Charset = "utf8mb4"
+	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
 		tables[i] = &utils.Table{
 			Db: dbSchema,
@@ -62,6 +62,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 					State:     model.StatePublic,
 				}},
 				Charset: "utf8mb4",
+				Collate: "utf8mb4_bin",
 			},
 		}
 	}

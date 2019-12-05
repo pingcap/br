@@ -101,6 +101,7 @@ func (rc *Client) GetPDClient() pd.Client {
 func (rc *Client) Close() {
 	rc.db.Close()
 	rc.cancel()
+	log.Info("Restore client closed")
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
@@ -211,10 +212,6 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
 		err := rc.db.CreateTable(rc.ctx, table)
-		if err != nil {
-			return nil, nil, err
-		}
-		err = rc.db.AlterAutoIncID(rc.ctx, table)
 		if err != nil {
 			return nil, nil, err
 		}
