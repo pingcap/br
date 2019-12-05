@@ -41,7 +41,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t;")
-	tk.MustExec("create table t (a int);")
+	tk.MustExec("create table t (a int not null auto_increment, primary key (a));")
 	tk.MustExec("insert into t values (10);")
 	// Query the current AutoIncID
 	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
@@ -66,8 +66,12 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	table.Schema.AutoIncID = globalAutoID + 100
 	db, err := NewDB(s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
-	err = db.AlterAutoIncID(context.Background(), &table)
-	c.Assert(err, IsNil, Commentf("Error alter auto inc id: %s %s", err, s.mock.DSN))
+	tk.MustExec("drop database if exists test;")
+	err = db.CreateDatabase(context.Background(), table.Db)
+	c.Assert(err, IsNil, Commentf("Error create db: %s %s", err, s.mock.DSN))
+	err = db.CreateTable(context.Background(), &table)
+	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
+	tk.MustExec("use test")
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))

@@ -214,10 +214,6 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		if err != nil {
 			return nil, nil, err
 		}
-		err = rc.db.AlterAutoIncID(rc.ctx, table)
-		if err != nil {
-			return nil, nil, err
-		}
 		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
 		if err != nil {
 			return nil, nil, err
