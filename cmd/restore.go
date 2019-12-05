@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -57,7 +58,7 @@ func newFullRestoreCommand() *cobra.Command {
 			defer cancel()
 
 			client, err := restore.NewRestoreClient(
-				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -109,7 +110,8 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -159,7 +161,7 @@ func newDbRestoreCommand() *cobra.Command {
 			defer cancel()
 
 			client, err := restore.NewRestoreClient(
-				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -204,7 +206,8 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -257,7 +260,7 @@ func newTableRestoreCommand() *cobra.Command {
 			defer cancel()
 
 			client, err := restore.NewRestoreClient(
-				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -307,7 +310,8 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}

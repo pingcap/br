@@ -1,14 +1,9 @@
 package restore
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"math"
-	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,7 +26,6 @@ import (
 )
 
 const (
-	resetTSURL             = "/pd/api/v1/admin/reset-ts"
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
@@ -47,7 +41,6 @@ type Client struct {
 	cancel context.CancelFunc
 
 	pdClient        pd.Client
-	pdAddrs         []string
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
@@ -60,7 +53,6 @@ type Client struct {
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
-	pdAddrs string,
 	pdClient pd.Client,
 	store kv.Storage,
 ) (*Client, error) {
@@ -74,12 +66,10 @@ func NewRestoreClient(
 	// Do not run stat worker in BR.
 	session.DisableStats4Test()
 
-	addrs := strings.Split(pdAddrs, ",")
 	return &Client{
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
-		pdAddrs:         addrs,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
@@ -131,29 +121,15 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 }
 
 // ResetTS resets the timestamp of PD to a bigger value
-func (rc *Client) ResetTS() error {
+func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
-	req, err := json.Marshal(struct {
-		TSO string `json:"tso,omitempty"`
-	}{TSO: fmt.Sprintf("%d", restoreTS)})
-	if err != nil {
-		return err
-	}
-	// TODO: Support TLS
-	reqURL := "http://" + rc.pdAddrs[0] + resetTSURL
+	i := 0
 	return withRetry(func() error {
-		resp, err := http.Post(reqURL, "application/json", strings.NewReader(string(req)))
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if resp.StatusCode != 200 && resp.StatusCode != 403 {
-			buf := new(bytes.Buffer)
-			_, err := buf.ReadFrom(resp.Body)
-			return errors.Errorf("pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
-		}
-		return nil
+		idx := i % len(pdAddrs)
+		return utils.ResetTS(pdAddrs[idx], restoreTS)
 	}, func(e error) bool {
+		i++
 		return true
 	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
 }
