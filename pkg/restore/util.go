@@ -62,7 +62,6 @@ func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
 	return alloc.id, nil
 }
 
-
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
 	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)

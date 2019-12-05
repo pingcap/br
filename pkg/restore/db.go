@@ -91,6 +91,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
 			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Schema.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
