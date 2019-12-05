@@ -164,7 +164,7 @@ origin sha256 is %s`, file.Name, s, file.Sha256)
 	meta.AddCommand(decodeBackupMetaCmd)
 
 	loadBackupMetaCmd := &cobra.Command{
-		Use:   "load",
+		Use:   "encode",
 		Short: "load backupmeta json file to backupmeta",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			u, err := cmd.Flags().GetString("storage")
