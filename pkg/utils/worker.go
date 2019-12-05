@@ -38,7 +38,7 @@ func (pool *WorkerPool) Apply(fn taskFunc) {
 	select {
 	case worker = <-pool.workers:
 	default:
-		log.Info("wait for workers", zap.String("pool", pool.name))
+		log.Debug("wait for workers", zap.String("pool", pool.name))
 		worker = <-pool.workers
 	}
 	go func() {

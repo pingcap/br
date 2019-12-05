@@ -104,7 +104,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
-func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
+func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, storagePath string) error {
 	databases, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -114,7 +114,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta) error {
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backupMeta.GetPath())
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, storagePath)
 	return nil
 }
 
@@ -249,7 +249,7 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -257,7 +257,7 @@ func (rc *Client) RestoreTable(
 		zap.Array("files", files(table.Files)),
 	)
 	errCh := make(chan error, len(table.Files))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
@@ -306,10 +306,10 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	for _, table := range db.Tables {
 		wg.Add(1)
@@ -342,10 +342,10 @@ func (rc *Client) RestoreAll(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreAll", zap.Duration("take", elapsed))
+		log.Info("Restore All", zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(rc.databases))
-	var wg sync.WaitGroup
+	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	for _, db := range rc.databases {
 		wg.Add(1)
@@ -436,7 +436,7 @@ func (rc *Client) ValidateChecksum(
 	}()
 
 	log.Info("Start to validate checksum")
-	wg := sync.WaitGroup{}
+	wg := new(sync.WaitGroup)
 	errCh := make(chan error)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {

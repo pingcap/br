@@ -39,7 +39,7 @@ func (push *pushDown) pushBackup(
 	updateCh chan<- struct{},
 ) (RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
-	wg := sync.WaitGroup{}
+	wg := new(sync.WaitGroup)
 	for _, s := range stores {
 		storeID := s.GetId()
 		wg.Add(1)
