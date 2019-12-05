@@ -245,7 +245,7 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreTable", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -302,7 +302,7 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreDatabase", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -338,7 +338,7 @@ func (rc *Client) RestoreAll(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("RestoreAll", zap.Duration("take", elapsed))
+		log.Info("Restore All", zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)

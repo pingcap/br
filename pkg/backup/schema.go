@@ -112,7 +112,7 @@ func (pending *Schemas) Start(
 		}
 		pending.wg.Wait()
 		close(pending.backupSchemaCh)
-		log.Info("backup checksum finished",
+		log.Info("Backup Checksum",
 			zap.Duration("take", time.Since(startAll)))
 	}()
 }
