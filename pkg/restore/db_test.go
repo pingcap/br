@@ -73,8 +73,17 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	db, err := NewDB(s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
+	// Test empty collate value
+	table.Db.Charset = "utf8mb4"
+	table.Db.Collate = ""
 	err = db.CreateDatabase(context.Background(), table.Db)
-	c.Assert(err, IsNil, Commentf("Error create db: %s %s", err, s.mock.DSN))
+	c.Assert(err, IsNil, Commentf("Error create empty collate db: %s %s", err, s.mock.DSN))
+	tk.MustExec("drop database if exists test;")
+	// Test empty charset value
+	table.Db.Charset = ""
+	table.Db.Collate = "utf8mb4_bin"
+	err = db.CreateDatabase(context.Background(), table.Db)
+	c.Assert(err, IsNil, Commentf("Error create empty charset db: %s %s", err, s.mock.DSN))
 	err = db.CreateTable(context.Background(), &table)
 	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
 	tk.MustExec("use test")
