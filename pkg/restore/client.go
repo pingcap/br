@@ -101,6 +101,7 @@ func (rc *Client) GetPDClient() pd.Client {
 func (rc *Client) Close() {
 	rc.db.Close()
 	rc.cancel()
+	log.Info("Restore client closed")
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient

@@ -34,6 +34,7 @@ func NewDB(store kv.Storage) (*DB, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	// Set SQL mode to None for avoiding SQL compatibility problem
 	_, err = se.Execute(context.Background(), "set @@sql_mode=''")
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -43,34 +44,6 @@ func NewDB(store kv.Storage) (*DB, error) {
 		dom:   dom,
 		se:    se,
 	}, nil
-}
-
-type idAllocator struct {
-	id int64
-}
-
-func newIDAllocator(id int64) *idAllocator {
-	return &idAllocator{id: id}
-}
-
-func (alloc *idAllocator) Alloc(tableID int64, n uint64) (int64, int64, error) {
-	return alloc.id, alloc.id, nil
-}
-
-func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {
-	return nil
-}
-
-func (alloc *idAllocator) Base() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) End() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
-	return alloc.id, nil
 }
 
 // CreateDatabase executes a CREATE DATABASE SQL.
