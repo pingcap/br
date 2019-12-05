@@ -55,7 +55,9 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+
+			client, err := restore.NewRestoreClient(
+				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -156,7 +158,8 @@ func newDbRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			client, err := restore.NewRestoreClient(
+				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -253,7 +256,8 @@ func newTableRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			client, err := restore.NewRestoreClient(
+				ctx, pdAddr, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}

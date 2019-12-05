@@ -13,7 +13,6 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/store/tikv"
@@ -39,7 +38,7 @@ type Mgr struct {
 		addrs []string
 		cli   *http.Client
 	}
-	tikvCli  tikv.Storage
+	storage  tikv.Storage
 	grpcClis struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
@@ -77,7 +76,7 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 }
 
 // NewMgr creates a new Mgr.
-func NewMgr(ctx context.Context, pdAddrs string) (*Mgr, error) {
+func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
@@ -98,16 +97,10 @@ func NewMgr(ctx context.Context, pdAddrs string) (*Mgr, error) {
 		return nil, errors.Trace(err)
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
-	tikvCli, err := tikv.Driver{}.Open(
-		// Disable GC because TiDB enables GC already.
-		fmt.Sprintf("tikv://%s?disableGC=true", pdAddrs))
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	mgr := &Mgr{
 		PDClient: pdClient,
-		tikvCli:  tikvCli.(tikv.Storage),
+		storage:  storage,
 	}
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
@@ -202,23 +195,6 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 	return backup.NewBackupClient(conn), nil
 }
 
-// GetTikvClient get or create a coprocessor client.
-func (mgr *Mgr) GetTikvClient(ctx context.Context, storeID uint64) (tikvpb.TikvClient, error) {
-	mgr.grpcClis.mu.Lock()
-	defer mgr.grpcClis.mu.Unlock()
-
-	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
-		// Find a cached backup client.
-		return tikvpb.NewTikvClient(conn), nil
-	}
-
-	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return tikvpb.NewTikvClient(conn), nil
-}
-
 // GetPDClient returns a pd client.
 func (mgr *Mgr) GetPDClient() pd.Client {
 	return mgr.PDClient
@@ -226,10 +202,10 @@ func (mgr *Mgr) GetPDClient() pd.Client {
 
 // GetTiKV returns a tikv storage.
 func (mgr *Mgr) GetTiKV() tikv.Storage {
-	return mgr.tikvCli
+	return mgr.storage
 }
 
 // GetLockResolver gets the LockResolver.
 func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
-	return mgr.tikvCli.GetLockResolver()
+	return mgr.storage.GetLockResolver()
 }

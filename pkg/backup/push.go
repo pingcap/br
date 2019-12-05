@@ -9,20 +9,18 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/conn"
 )
 
 // pushDown warps a backup task.
 type pushDown struct {
 	ctx    context.Context
-	mgr    *conn.Mgr
+	mgr    ClientMgr
 	respCh chan *backup.BackupResponse
 	errCh  chan error
 }
 
 // newPushDown creates a push down backup.
-func newPushDown(ctx context.Context, mgr *conn.Mgr, cap int) *pushDown {
+func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
 	log.Info("new backup client")
 	return &pushDown{
 		ctx:    ctx,

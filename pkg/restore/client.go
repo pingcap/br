@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
@@ -26,7 +27,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -54,25 +54,18 @@ type Client struct {
 
 	databases  map[string]*utils.Database
 	backupMeta *backup.BackupMeta
-	mgr        *conn.Mgr
 	db         *DB
 }
 
 // NewRestoreClient returns a new RestoreClient
-func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
+func NewRestoreClient(
+	ctx context.Context,
+	pdAddrs string,
+	pdClient pd.Client,
+	store kv.Storage,
+) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	addrs := strings.Split(pdAddrs, ",")
-	mgr, err := conn.NewMgr(ctx, addrs[0])
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
-	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
-	db, err := NewDB(mgr.GetTiKV())
+	db, err := NewDB(store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -81,12 +74,12 @@ func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
 	// Do not run stat worker in BR.
 	session.DisableStats4Test()
 
+	addrs := strings.Split(pdAddrs, ",")
 	return &Client{
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
 		pdAddrs:         addrs,
-		mgr:             mgr,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil

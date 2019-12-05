@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"sync"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -148,7 +151,11 @@ func GetDefaultMgr() (*conn.Mgr, error) {
 	// Lazy initialize and defaultMgr
 	var err error
 	connOnce.Do(func() {
-		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress)
+		var storage kv.Storage
+		storage, err = tikv.Driver{}.Open(
+			// Disable GC because TiDB enables GC already.
+			fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress, storage.(tikv.Storage))
 	})
 	if err != nil {
 		return nil, err

@@ -25,9 +25,17 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/utils"
 )
+
+// ClientMgr manages connections needed by backup.
+type ClientMgr interface {
+	GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error)
+	GetPDClient() pd.Client
+	GetTiKV() tikv.Storage
+	GetLockResolver() *tikv.LockResolver
+	GetRegionCount() (int, error)
+}
 
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
@@ -36,7 +44,7 @@ const (
 
 // Client is a client instructs TiKV how to do a backup.
 type Client struct {
-	mgr       *conn.Mgr
+	mgr       ClientMgr
 	clusterID uint64
 	pdClient  pd.Client
 	dom       *domain.Domain
@@ -46,7 +54,7 @@ type Client struct {
 }
 
 // NewBackupClient returns a new backup client
-func NewBackupClient(ctx context.Context, mgr *conn.Mgr) (*Client, error) {
+func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
 	// Do not run ddl worker in BR.
@@ -624,10 +632,10 @@ func (bc *Client) handleFineGrained(
 		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
 		func(resp *backup.BackupResponse) error {
-			response, backoffMs, err :=
+			response, backoffMs, err1 :=
 				onBackupResponse(bo, lockResolver, resp)
-			if err != nil {
-				return err
+			if err1 != nil {
+				return err1
 			}
 			if max < backoffMs {
 				max = backoffMs

@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"net/http"
 	"testing"
 	"time"
 
@@ -126,20 +125,4 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	ranges := buildTableRanges(tbl)
 	c.Assert(ranges, DeepEquals, []tableRange{{startID: 7, endID: 8}})
 
-}
-
-func (r *testBackup) TestPDHTTP(c *C) {
-	r.backupClient.mgr.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
-		return []byte(`{"count":6,"regions":null}`), nil
-	}
-	resp, err := r.backupClient.mgr.GetRegionCount()
-	c.Assert(err, IsNil)
-	c.Assert(resp, Equals, 6)
-
-	r.backupClient.mgr.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
-		return []byte(`test`), nil
-	}
-	respString, err := r.backupClient.mgr.GetClusterVersion()
-	c.Assert(err, IsNil)
-	c.Assert(respString, Equals, "test")
 }
