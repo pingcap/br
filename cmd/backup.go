@@ -5,6 +5,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/ddl"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/backup"
@@ -22,6 +24,11 @@ func NewBackupCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			utils.LogArguments(c)
+
+			// Do not run ddl worker in BR.
+			ddl.RunWorker = false
+			// Do not run stat worker in BR.
+			session.DisableStats4Test()
 			return nil
 		},
 	}
@@ -61,11 +68,12 @@ func newFullBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer mgr.Close()
+
 			client, err := backup.NewBackupClient(ctx, mgr)
 			if err != nil {
 				return nil
 			}
-			defer client.Close()
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -112,7 +120,7 @@ func newFullBackupCommand() *cobra.Command {
 			}
 
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-				client.GetDomain(), mgr.GetTiKV(), backupTS, "", "")
+				mgr.GetDomain(), mgr.GetTiKV(), backupTS, "", "")
 			if err != nil {
 				return err
 			}
@@ -184,11 +192,12 @@ func newTableBackupCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer mgr.Close()
+
 			client, err := backup.NewBackupClient(ctx, mgr)
 			if err != nil {
 				return err
 			}
-			defer client.Close()
 			u, err := command.Flags().GetString(FlagStorage)
 			if err != nil {
 				return err
@@ -248,7 +257,7 @@ func newTableBackupCommand() *cobra.Command {
 			}
 
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-				client.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
+				mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
 			if err != nil {
 				return err
 			}

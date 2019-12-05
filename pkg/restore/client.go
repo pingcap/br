@@ -14,8 +14,8 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -62,9 +62,6 @@ func NewRestoreClient(
 		cancel()
 		return nil, errors.Trace(err)
 	}
-
-	// Do not run stat worker in BR.
-	session.DisableStats4Test()
 
 	return &Client{
 		ctx:             ctx,
@@ -149,8 +146,12 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 }
 
 // GetTableSchema returns the schema of a table from TiDB.
-func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	info, err := rc.db.dom.GetSnapshotInfoSchema(math.MaxInt64)
+func (rc *Client) GetTableSchema(
+	dom *domain.Domain,
+	dbName model.CIStr,
+	tableName model.CIStr,
+) (*model.TableInfo, error) {
+	info, err := dom.GetSnapshotInfoSchema(math.MaxInt64)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -167,7 +168,10 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
-func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, []*model.TableInfo, error) {
+func (rc *Client) CreateTables(
+	dom *domain.Domain,
+	tables []*utils.Table,
+) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
@@ -187,7 +191,7 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		if err != nil {
 			return nil, nil, err
 		}
-		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Schema.Name)
 		if err != nil {
 			return nil, nil, err
 		}

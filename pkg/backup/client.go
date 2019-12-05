@@ -15,11 +15,9 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
-	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -35,6 +33,7 @@ type ClientMgr interface {
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
 	GetRegionCount() (int, error)
+	Close()
 }
 
 // Maximum total sleep time(in ms) for kv/cop commands.
@@ -46,8 +45,6 @@ const (
 type Client struct {
 	mgr       ClientMgr
 	clusterID uint64
-	pdClient  pd.Client
-	dom       *domain.Domain
 
 	backupMeta backup.BackupMeta
 	storage    utils.ExternalStorage
@@ -57,36 +54,16 @@ type Client struct {
 func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
-	// Do not run ddl worker in BR.
-	ddl.RunWorker = false
-	// Do not run stat worker in BR.
-	session.DisableStats4Test()
-	dom, err := session.BootstrapSession(mgr.GetTiKV())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	clusterID := pdClient.GetClusterID(ctx)
 	return &Client{
 		clusterID: clusterID,
 		mgr:       mgr,
-		pdClient:  mgr.GetPDClient(),
-		dom:       dom,
 	}, nil
-}
-
-// Close a backup client
-func (bc *Client) Close() {
-	bc.dom.Close()
-}
-
-// GetDomain returns a domain
-func (bc *Client) GetDomain() *domain.Domain {
-	return bc.dom
 }
 
 // GetTS returns the latest timestamp.
 func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
-	p, l, err := bc.pdClient.GetTS(ctx)
+	p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -100,7 +77,7 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
 
 		// check backup time do not exceed GCSafePoint
-		safePoint, err := GetGCSafePoint(ctx, bc.pdClient)
+		safePoint, err := GetGCSafePoint(ctx, bc.mgr.GetPDClient())
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -312,7 +289,7 @@ func (bc *Client) BackupRanges(
 
 	finished := false
 	for {
-		err := CheckGCSafepoint(ctx, bc.pdClient, backupTS)
+		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
 			// Ignore the error since it retries every 30s.
 			log.Warn("get GC safepoint failed", zap.Error(err))
@@ -357,7 +334,7 @@ func (bc *Client) backupRange(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	allStores, err := bc.pdClient.GetAllStores(ctx)
+	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -416,7 +393,7 @@ func (bc *Client) findRegionLeader(
 	key = codec.EncodeBytes([]byte{}, key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
-		_, leader, err := bc.pdClient.GetRegion(ctx, key)
+		_, leader, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
 		if err != nil {
 			log.Error("find leader failed", zap.Error(err))
 			time.Sleep(time.Millisecond * time.Duration(100*i))

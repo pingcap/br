@@ -29,14 +29,12 @@ func TestT(t *testing.T) {
 func (r *testBackup) SetUpSuite(c *C) {
 	mockPDClient := mocktikv.NewPDClient(mocktikv.NewCluster())
 	r.ctx, r.cancel = context.WithCancel(context.Background())
-	mockMgr := &conn.Mgr{
-		PDClient: mockPDClient,
-	}
+	mockMgr := &conn.Mgr{}
+	mockMgr.SetPDClient(mockPDClient)
 	mockMgr.SetPDHTTP([]string{"test"}, nil)
 	r.backupClient = &Client{
 		clusterID: mockPDClient.GetClusterID(r.ctx),
 		mgr:       mockMgr,
-		pdClient:  mockPDClient,
 	}
 }
 

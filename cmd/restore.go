@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 
@@ -28,6 +29,9 @@ func NewRestoreCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			utils.LogArguments(c)
+
+			// Do not run stat worker in BR.
+			session.DisableStats4Test()
 			return nil
 		},
 	}
@@ -57,8 +61,14 @@ func newFullRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
 			client, err := restore.NewRestoreClient(
-				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -80,7 +90,7 @@ func newFullRestoreCommand() *cobra.Command {
 				}
 				var rules *restore_util.RewriteRules
 				var nt []*model.TableInfo
-				rules, nt, err = client.CreateTables(db.Tables)
+				rules, nt, err = client.CreateTables(mgr.GetDomain(), db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -160,8 +170,14 @@ func newDbRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
 			client, err := restore.NewRestoreClient(
-				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -184,7 +200,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rewriteRules, newTables, err := client.CreateTables(db.Tables)
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -259,8 +275,14 @@ func newTableRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
 			client, err := restore.NewRestoreClient(
-				ctx, defaultMgr.GetPDClient(), defaultMgr.GetTiKV())
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -292,7 +314,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.New("not exists table")
 			}
 			// The rules here is raw key.
-			rewriteRules, newTables, err := client.CreateTables([]*utils.Table{table})
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
 			if err != nil {
 				return errors.Trace(err)
 			}

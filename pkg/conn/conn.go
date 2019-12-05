@@ -15,6 +15,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -29,7 +31,7 @@ const (
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
-	PDClient pd.Client
+	pdClient pd.Client
 
 	// make it public for unit test to mock
 	PDHTTPGet func(string, string, *http.Client) ([]byte, error)
@@ -38,6 +40,7 @@ type Mgr struct {
 		addrs []string
 		cli   *http.Client
 	}
+	dom      *domain.Domain
 	storage  tikv.Storage
 	grpcClis struct {
 		mu   sync.Mutex
@@ -98,9 +101,15 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
+	dom, err := session.BootstrapSession(storage)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	mgr := &Mgr{
-		PDClient: pdClient,
+		pdClient: pdClient,
 		storage:  storage,
+		dom:      dom,
 	}
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
@@ -113,6 +122,11 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 func (mgr *Mgr) SetPDHTTP(addrs []string, cli *http.Client) {
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
+}
+
+// SetPDClient set pd addrs and cli for test
+func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
+	mgr.pdClient = pdClient
 }
 
 // GetClusterVersion returns the current cluster version.
@@ -150,7 +164,7 @@ func (mgr *Mgr) GetRegionCount() (int, error) {
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := mgr.PDClient.GetStore(ctx, storeID)
+	store, err := mgr.pdClient.GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -197,7 +211,7 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 
 // GetPDClient returns a pd client.
 func (mgr *Mgr) GetPDClient() pd.Client {
-	return mgr.PDClient
+	return mgr.pdClient
 }
 
 // GetTiKV returns a tikv storage.
@@ -208,4 +222,23 @@ func (mgr *Mgr) GetTiKV() tikv.Storage {
 // GetLockResolver gets the LockResolver.
 func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
 	return mgr.storage.GetLockResolver()
+}
+
+// GetDomain returns a tikv storage.
+func (mgr *Mgr) GetDomain() *domain.Domain {
+	return mgr.dom
+}
+
+// Close closes all client in Mgr.
+func (mgr *Mgr) Close() {
+	mgr.pdClient.Close()
+	mgr.storage.Close()
+	mgr.grpcClis.mu.Lock()
+	for _, cli := range mgr.grpcClis.clis {
+		err := cli.Close()
+		if err != nil {
+			log.Error("fail to close Mgr", zap.Error(err))
+		}
+	}
+	mgr.grpcClis.mu.Unlock()
 }
