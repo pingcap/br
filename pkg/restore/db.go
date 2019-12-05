@@ -60,6 +60,7 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	createSQL := GetCreateTableSQL(table.Db.Name.String(), table.Schema)
+	db.se.GetSessionVars().SQLMode = mysql.ModeNone
 	_, err := db.se.Execute(ctx, createSQL)
 	if err != nil {
 		log.Error("create table failed",
@@ -107,7 +108,12 @@ func (db *DB) Close() {
 func GetCreateDatabaseSQL(db *model.DBInfo) string {
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "CREATE DATABASE IF NOT EXISTS %s", utils.EncloseName(db.Name.String()))
-	fmt.Fprintf(&buf, " CHARACTER SET %s COLLATE %s", db.Charset, db.Collate)
+	if len(db.Charset) == 0 {
+		fmt.Fprintf(&buf, " CHARACTER SET %s", db.Charset)
+	}
+	if len(db.Collate) == 0 {
+		fmt.Fprintf(&buf, " COLLATE %s", db.Collate)
+	}
 	buf.WriteString(";")
 
 	return buf.String()
