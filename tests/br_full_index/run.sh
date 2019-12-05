@@ -74,4 +74,6 @@ else
     echo "TEST: [$TEST_NAME] successed!"
 fi
 
-run_sql "DROP DATABASE IF EXISTS $DB;"
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
+done
