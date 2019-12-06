@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -86,6 +87,22 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		return errors.Trace(err)
 	}
 	createSQL := buf.String()
+	// Insert `IF NOT EXISTS` statement to skip the created tables
+	words := strings.Split(createSQL, " ")
+	if len(words) > 2 && strings.ToUpper(words[0]) == "CREATE" && strings.ToUpper(words[1]) == "TABLE" {
+		resWords := append([]string{}, words[:2]...)
+		resWords = append(resWords, "IF NOT EXISTS")
+		resWords = append(resWords, words[2:]...)
+		createSQL = strings.Join(resWords, " ")
+	} else {
+		log.Error(
+			"build create table SQL error",
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", schema.Name),
+			zap.String("SQL", createSQL),
+			zap.Error(err))
+		return errors.New("build create table SQL failed")
+	}
 	_, err = db.se.Execute(ctx, createSQL)
 	if err != nil {
 		log.Error("create table failed",
