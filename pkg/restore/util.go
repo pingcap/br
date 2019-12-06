@@ -33,6 +33,35 @@ func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	return nil
 }
 
+// idAllocator always returns a specified ID
+type idAllocator struct {
+	id int64
+}
+
+func newIDAllocator(id int64) *idAllocator {
+	return &idAllocator{id: id}
+}
+
+func (alloc *idAllocator) Alloc(tableID int64, n uint64) (min int64, max int64, err error) {
+	return alloc.id, alloc.id, nil
+}
+
+func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {
+	return nil
+}
+
+func (alloc *idAllocator) Base() int64 {
+	return alloc.id
+}
+
+func (alloc *idAllocator) End() int64 {
+	return alloc.id
+}
+
+func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
+	return alloc.id, nil
+}
+
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
 	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)

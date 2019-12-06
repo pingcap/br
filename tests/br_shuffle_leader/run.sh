@@ -50,3 +50,5 @@ else
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
 fi
+
+run_sql "DROP DATABASE $DB;"

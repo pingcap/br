@@ -2,15 +2,19 @@ package backup
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
-	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/utils"
-
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/codec"
+
+	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
@@ -94,18 +98,22 @@ func (r *testBackup) TestGetTS(c *C) {
 func (r *testBackup) TestBuildTableRange(c *C) {
 	type Case struct {
 		ids []int64
-		trs []tableRange
+		trs []kv.KeyRange
 	}
+	low := codec.EncodeInt(nil, math.MinInt64)
+	high := kv.Key(codec.EncodeInt(nil, math.MaxInt64)).PrefixNext()
 	cases := []Case{
-		{ids: []int64{1}, trs: []tableRange{{startID: 1, endID: 2}}},
-		{ids: []int64{1, 2, 3}, trs: []tableRange{
-			{startID: 1, endID: 2},
-			{startID: 2, endID: 3},
-			{startID: 3, endID: 4},
+		{ids: []int64{1}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)}},
+		},
+		{ids: []int64{1, 2, 3}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+			{StartKey: tablecodec.EncodeRowKey(2, low), EndKey: tablecodec.EncodeRowKey(2, high)},
+			{StartKey: tablecodec.EncodeRowKey(3, low), EndKey: tablecodec.EncodeRowKey(3, high)},
 		}},
-		{ids: []int64{1, 3}, trs: []tableRange{
-			{startID: 1, endID: 2},
-			{startID: 3, endID: 4},
+		{ids: []int64{1, 3}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+			{StartKey: tablecodec.EncodeRowKey(3, low), EndKey: tablecodec.EncodeRowKey(3, high)},
 		}},
 	}
 	for _, cs := range cases {
@@ -115,12 +123,16 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 			tbl.Partition.Definitions = append(tbl.Partition.Definitions,
 				model.PartitionDefinition{ID: id})
 		}
-		ranges := buildTableRanges(tbl)
+		ranges, err := buildTableRanges(tbl)
+		c.Assert(err, IsNil)
 		c.Assert(ranges, DeepEquals, cs.trs)
 	}
 
 	tbl := &model.TableInfo{ID: 7}
-	ranges := buildTableRanges(tbl)
-	c.Assert(ranges, DeepEquals, []tableRange{{startID: 7, endID: 8}})
+	ranges, err := buildTableRanges(tbl)
+	c.Assert(err, IsNil)
+	c.Assert(ranges, DeepEquals, []kv.KeyRange{
+		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
+	})
 
 }

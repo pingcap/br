@@ -15,12 +15,13 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/utils"
@@ -123,36 +124,40 @@ func (bc *Client) SaveBackupMeta(path string) error {
 	return bc.storage.Write(utils.MetaFile, backupMetaData)
 }
 
-type tableRange struct {
-	startID, endID int64
-}
-
-func (tr tableRange) Range() Range {
-	startKey := tablecodec.GenTablePrefix(tr.startID)
-	endKey := tablecodec.GenTablePrefix(tr.endID)
-	return Range{
-		StartKey: []byte(startKey),
-		EndKey:   []byte(endKey),
-	}
-}
-
-func buildTableRanges(tbl *model.TableInfo) []tableRange {
+func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 	pis := tbl.GetPartitionInfo()
 	if pis == nil {
 		// Short path, no partition.
-		tableID := tbl.ID
-		return []tableRange{{startID: tableID, endID: tableID + 1}}
+		return appendRanges(tbl, tbl.ID)
 	}
 
-	ranges := make([]tableRange, 0, len(pis.Definitions))
+	ranges := make([]kv.KeyRange, 0, len(pis.Definitions)*(len(tbl.Indices)+1)+1)
 	for _, def := range pis.Definitions {
-		ranges = append(ranges,
-			tableRange{
-				startID: def.ID,
-				endID:   def.ID + 1,
-			})
+		rgs, err := appendRanges(tbl, def.ID)
+		if err != nil {
+			return nil, err
+		}
+		ranges = append(ranges, rgs...)
 	}
-	return ranges
+	return ranges, nil
+}
+
+func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
+	ranges := ranger.FullIntRange(false)
+	kvRanges := distsql.TableRangesToKVRanges(tblID, ranges, nil)
+	for _, index := range tbl.Indices {
+		if index.State != model.StatePublic {
+			continue
+		}
+		ranges = ranger.FullRange()
+		idxRanges, err := distsql.IndexRangesToKVRanges(nil, tblID, index.ID, ranges, nil)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		kvRanges = append(kvRanges, idxRanges...)
+	}
+	return kvRanges, nil
+
 }
 
 // BuildBackupRangeAndSchema gets the range and schema of tables.
@@ -234,11 +239,15 @@ LoadDb:
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
-			// TODO: We may need to include [t<tableID>, t<tableID+1>)
-			//       in order to backup global index.
-			tableRanges := buildTableRanges(tableInfo)
+			tableRanges, err := buildTableRanges(tableInfo)
+			if err != nil {
+				return nil, nil, err
+			}
 			for _, r := range tableRanges {
-				ranges = append(ranges, r.Range())
+				ranges = append(ranges, Range{
+					StartKey: r.StartKey,
+					EndKey:   r.EndKey,
+				})
 			}
 		}
 	}

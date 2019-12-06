@@ -17,6 +17,7 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
+LOG=/$TEST_DIR/$DB/backup.log
 
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -35,8 +36,15 @@ done
 
 # backup full
 echo "backup start..."
-# TODO: Enable fastchecksum. For now, backup calculates extra data that fails in fastchecksum
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 #--fastchecksum true
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true --log-file $LOG
+
+checksum_count=$(cat $LOG | grep "fast checksum success" | wc -l | xargs)
+
+if [ "${checksum_count}" != "$DB_COUNT" ];then
+    echo "TEST: [$TEST_NAME] fail on fast checksum"
+    echo $(cat $LOG | grep checksum)
+    exit 1
+fi
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -65,3 +73,7 @@ if $fail; then
 else
     echo "TEST: [$TEST_NAME] successed!"
 fi
+
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
+done
