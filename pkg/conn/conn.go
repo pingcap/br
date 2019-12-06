@@ -263,4 +263,6 @@ func (mgr *Mgr) Close() {
 		}
 	}
 	mgr.grpcClis.mu.Unlock()
+	// Gracefully shutdown domain so it does not affect other TiDB DDL.
+	mgr.dom.Close()
 }
