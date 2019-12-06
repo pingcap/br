@@ -13,6 +13,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/domain"
@@ -97,9 +98,30 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 
 	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
 	if err != nil {
-		return nil, errors.Trace(err)
+		log.Error("fail to create pd client", zap.Error(err))
+		return nil, err
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
+
+	// Check live tikv.
+	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	if err != nil {
+		log.Error("fail to get store", zap.Error(err))
+		return nil, err
+	}
+	liveStoreCount := 0
+	for _, s := range stores {
+		if s.GetState() != metapb.StoreState_Up {
+			continue
+		}
+		liveStoreCount++
+	}
+	if liveStoreCount == 0 &&
+		// Assume 3 replicas
+		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
+		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
+		return nil, errors.Errorf("tikv cluster not health %+v", stores)
+	}
 
 	dom, err := session.BootstrapSession(storage)
 	if err != nil {

@@ -343,7 +343,7 @@ func (bc *Client) backupRange(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx)
+	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}

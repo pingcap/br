@@ -352,7 +352,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := rc.pdClient.GetAllStores(ctx)
+	stores, err := rc.pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}

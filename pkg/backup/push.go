@@ -38,21 +38,6 @@ func (push *pushDown) pushBackup(
 ) (RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
 	res := newRangeTree()
-	// Check live tikv.
-	liveStoreCount := 0
-	for _, s := range stores {
-		if s.GetState() != metapb.StoreState_Up {
-			continue
-		}
-		liveStoreCount++
-	}
-	if liveStoreCount == 0 &&
-		//	Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return res, errors.Errorf("tikv cluster not health %+v", stores)
-	}
-
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
 		storeID := s.GetId()
