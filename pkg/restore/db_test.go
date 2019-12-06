@@ -34,7 +34,7 @@ func (s *testRestoreSchemaSuite) TearDownSuite(c *C) {
 	testleak.AfterTest(c)()
 }
 
-func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
+func (s *testRestoreSchemaSuite) TestRestoreTableSchema(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
@@ -86,6 +86,8 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(err, IsNil, Commentf("Error create empty charset db: %s %s", err, s.mock.DSN))
 	err = db.CreateTable(context.Background(), &table)
 	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
+	err = db.CreateTable(context.Background(), &table)
+	c.Assert(err, IsNil, Commentf("Error create existed table: %s %s", err, s.mock.DSN))
 	tk.MustExec("use test")
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
