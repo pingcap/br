@@ -146,7 +146,8 @@ func newFullRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -246,7 +247,8 @@ func newDbRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, db.Tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), db.Tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -356,7 +358,7 @@ func newTableRestoreCommand() *cobra.Command {
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
 			err = client.ValidateChecksum(
-				ctx, []*utils.Table{table}, newTables, updateCh)
+				ctx, mgr.GetTiKV().GetClient(), []*utils.Table{table}, newTables, updateCh)
 			if err != nil {
 				return err
 			}

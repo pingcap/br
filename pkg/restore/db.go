@@ -18,8 +18,7 @@ import (
 
 // DB is a TiDB instance, not thread-safe.
 type DB struct {
-	store kv.Storage
-	se    session.Session
+	se session.Session
 }
 
 // NewDB returns a new DB
@@ -34,8 +33,7 @@ func NewDB(store kv.Storage) (*DB, error) {
 		return nil, errors.Trace(err)
 	}
 	return &DB{
-		store: store,
-		se:    se,
+		se: se,
 	}, nil
 }
 
@@ -94,5 +92,4 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 // Close closes the connection
 func (db *DB) Close() {
 	db.se.Close()
-	db.store.Close()
 }

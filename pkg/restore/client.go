@@ -395,6 +395,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 //ValidateChecksum validate checksum after restore
 func (rc *Client) ValidateChecksum(
 	ctx context.Context,
+	kvClient kv.Client,
 	tables []*utils.Table,
 	newTables []*model.TableInfo,
 	updateCh chan<- struct{},
@@ -429,7 +430,7 @@ func (rc *Client) ValidateChecksum(
 					errCh <- errors.Trace(err)
 					return
 				}
-				checksumResp, err := exe.Execute(ctx, rc.db.store.GetClient(), func() {
+				checksumResp, err := exe.Execute(ctx, kvClient, func() {
 					// TODO: update progress here.
 				})
 				if err != nil {
