@@ -15,6 +15,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var (
@@ -62,6 +63,7 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
+	storage.DefineFlags(cmd.PersistentFlags())
 
 	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
 		"Set the slow log file path. If not set, discard slow logs")

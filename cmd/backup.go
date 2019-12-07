@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -63,12 +64,9 @@ func newFullBackupCommand() *cobra.Command {
 				return nil
 			}
 			defer client.Close()
-			u, err := command.Flags().GetString(FlagStorage)
+			u, err := storage.ParseBackendFromFlags(command.Flags(), FlagStorage)
 			if err != nil {
 				return err
-			}
-			if u == "" {
-				return errors.New("empty backup store is not allowed")
 			}
 
 			err = client.SetStorage(u)
@@ -127,7 +125,7 @@ func newFullBackupCommand() *cobra.Command {
 			updateCh := utils.StartProgress(
 				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ranges, u, backupTS, rate, concurrency, updateCh)
+				ranges, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -164,7 +162,7 @@ func newFullBackupCommand() *cobra.Command {
 			// Checksum has finished
 			close(updateCh)
 
-			return client.SaveBackupMeta(u)
+			return client.SaveBackupMeta()
 		},
 	}
 	return command
@@ -185,12 +183,9 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 			defer client.Close()
-			u, err := command.Flags().GetString(FlagStorage)
+			u, err := storage.ParseBackendFromFlags(command.Flags(), FlagStorage)
 			if err != nil {
 				return err
-			}
-			if u == "" {
-				return errors.New("empty backup store is not allowed")
 			}
 
 			err = client.SetStorage(u)
@@ -267,7 +262,7 @@ func newTableBackupCommand() *cobra.Command {
 			updateCh := utils.StartProgress(
 				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ranges, u, backupTS, rate, concurrency, updateCh)
+				ranges, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -300,7 +295,7 @@ func newTableBackupCommand() *cobra.Command {
 			// Checksum has finished
 			close(updateCh)
 
-			return client.SaveBackupMeta(u)
+			return client.SaveBackupMeta()
 		},
 	}
 	command.Flags().StringP("db", "", "", "backup a table in the specific db")

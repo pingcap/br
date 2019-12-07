@@ -13,6 +13,7 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -350,11 +351,11 @@ func newTableRestoreCommand() *cobra.Command {
 }
 
 func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
-	u, err := flagSet.GetString(FlagStorage)
+	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
 	}
-	s, err := utils.CreateStorage(u)
+	s, err := storage.Create(u)
 	if err != nil {
 		return errors.Trace(err)
 	}
