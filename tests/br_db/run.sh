@@ -40,6 +40,8 @@ run_sql "INSERT INTO $DB.usertable2 VALUES (\"c\", \"d\");"
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
 
+run_sql "DROP DATABASE $DB;"
+
 # restore db
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
