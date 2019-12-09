@@ -42,6 +42,6 @@ run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --conc
 
 # restore db
 echo "restore start..."
-run_br restore db -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 run_sql "DROP DATABASE $DB;"
