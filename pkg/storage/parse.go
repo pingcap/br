@@ -7,32 +7,30 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
-// BackendOption further configures the storage backend not expressed by the
+// BackendOptions further configures the storage backend not expressed by the
 // storage URL.
-type BackendOption interface {
-	OptionName() string
-	applyOnNoop(noop *backup.Noop, name string) error
-	applyOnLocal(local *backup.Local, name string) error
-	applyOnS3(s3 *backup.S3, name string) error
+type BackendOptions struct {
+	S3 S3BackendOptions `json:"s3" toml:"s3"`
 }
 
-type backendOption struct{}
+func (options *BackendOptions) Validate(storageScheme string) error {
+	optionsNotApplicableToStorage := func(option string) error {
+		return errors.Errorf("options '%s.*' are not applicable to %s storage", option, storageScheme)
+	}
 
-func (backendOption) applyOnNoop(_ *backup.Noop, name string) error {
-	return errors.Errorf("option '%s' is not applicable to noop storage", name)
-}
+	if !options.S3.isEmpty() && storageScheme != "s3" {
+		return optionsNotApplicableToStorage("s3")
+	}
+	if err := options.S3.validate(); err != nil {
+		return err
+	}
 
-func (backendOption) applyOnLocal(_ *backup.Local, name string) error {
-	return errors.Errorf("option '%s' is not applicable to local storage", name)
-}
-
-func (backendOption) applyOnS3(_ *backup.Noop, name string) error {
-	return errors.Errorf("option '%s' is not applicable to s3 storage", name)
+	return nil
 }
 
 // ParseBackend constructs a structured backend description from the
 // storage URL.
-func ParseBackend(rawURL string, options ...BackendOption) (*backup.StorageBackend, error) {
+func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBackend, error) {
 	if len(rawURL) == 0 {
 		return nil, errors.New("empty store is not allowed")
 	}
@@ -41,6 +39,11 @@ func ParseBackend(rawURL string, options ...BackendOption) (*backup.StorageBacke
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	if options != nil {
+		if err := options.Validate(u.Scheme); err != nil {
+			return nil, err
+		}
+	}
 
 	switch u.Scheme {
 	case "":
@@ -48,28 +51,16 @@ func ParseBackend(rawURL string, options ...BackendOption) (*backup.StorageBacke
 
 	case "local", "file":
 		local := &backup.Local{Path: u.Path}
-		for _, option := range options {
-			if err := option.applyOnLocal(local, option.OptionName()); err != nil {
-				return nil, err
-			}
-		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Local{Local: local}}, nil
 
 	case "noop":
 		noop := &backup.Noop{}
-		for _, option := range options {
-			if err := option.applyOnNoop(noop, option.OptionName()); err != nil {
-				return nil, err
-			}
-		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Noop{Noop: noop}}, nil
 
 	case "s3":
 		s3 := &backup.S3{Bucket: u.Host, Prefix: u.Path}
-		for _, option := range options {
-			if err := option.applyOnS3(s3, option.OptionName()); err != nil {
-				return nil, err
-			}
+		if options != nil {
+			options.S3.apply(s3)
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 
@@ -88,6 +79,7 @@ func FormatBackendURL(backend *backup.StorageBackend) (u url.URL) {
 		u.Path = b.Local.Path
 	case *backup.StorageBackend_Noop:
 		u.Scheme = "noop"
+		u.Path = "/"
 	case *backup.StorageBackend_S3:
 		u.Scheme = "s3"
 		u.Host = b.S3.Bucket

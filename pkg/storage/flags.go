@@ -12,9 +12,9 @@ func DefineFlags(flags *pflag.FlagSet) {
 }
 
 // GetBackendOptionsFromFlags obtains the backend options from the flag set.
-func GetBackendOptionsFromFlags(flags *pflag.FlagSet) (options []BackendOption, err error) {
-	if options, err = appendBackendOptionsFromS3Flags(options, flags); err != nil {
-		return nil, err
+func GetBackendOptionsFromFlags(flags *pflag.FlagSet) (options BackendOptions, err error) {
+	if options.S3, err = getBackendOptionsFromS3Flags(flags); err != nil {
+		return
 	}
 	return
 }
@@ -30,5 +30,5 @@ func ParseBackendFromFlags(flags *pflag.FlagSet, storageFlag string) (*backup.St
 	if err != nil {
 		return nil, err
 	}
-	return ParseBackend(u, opts...)
+	return ParseBackend(u, &opts)
 }
