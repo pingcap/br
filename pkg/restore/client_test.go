@@ -41,7 +41,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	client.db = db
 	client.ctx = context.Background()
 
-	info, err := db.dom.GetSnapshotInfoSchema(math.MaxInt64)
+	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxInt64)
 	c.Assert(err, IsNil)
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
@@ -66,7 +66,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 			},
 		}
 	}
-	rules, newTables, err := client.CreateTables(tables)
+	rules, newTables, err := client.CreateTables(s.mock.Domain, tables)
 	c.Assert(err, IsNil)
 	for _, nt := range newTables {
 		c.Assert(nt.Name.String(), Matches, "test[0-3]")

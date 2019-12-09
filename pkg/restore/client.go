@@ -1,14 +1,9 @@
 package restore
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"math"
-	"net/http"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,19 +14,18 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
-	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
-	resetTSURL             = "/pd/api/v1/admin/reset-ts"
 	resetTsRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
@@ -47,46 +41,32 @@ type Client struct {
 	cancel context.CancelFunc
 
 	pdClient        pd.Client
-	pdAddrs         []string
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
 
 	databases  map[string]*utils.Database
 	backupMeta *backup.BackupMeta
-	backer     *meta.Backer
 	db         *DB
 }
 
 // NewRestoreClient returns a new RestoreClient
-func NewRestoreClient(ctx context.Context, pdAddrs string) (*Client, error) {
+func NewRestoreClient(
+	ctx context.Context,
+	pdClient pd.Client,
+	store kv.Storage,
+) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	addrs := strings.Split(pdAddrs, ",")
-	backer, err := meta.NewBacker(ctx, addrs[0])
+	db, err := NewDB(store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
 	}
-	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
-	db, err := NewDB(backer.GetTiKV())
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
-
-	// Do not run stat worker in BR.
-	session.DisableStats4Test()
 
 	return &Client{
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
-		pdAddrs:         addrs,
-		backer:          backer,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
@@ -130,38 +110,24 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := meta.Timestamp{
+	ts := utils.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
-	restoreTS := meta.EncodeTs(ts)
+	restoreTS := utils.EncodeTs(ts)
 	return restoreTS, nil
 }
 
 // ResetTS resets the timestamp of PD to a bigger value
-func (rc *Client) ResetTS() error {
+func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
-	req, err := json.Marshal(struct {
-		TSO string `json:"tso,omitempty"`
-	}{TSO: fmt.Sprintf("%d", restoreTS)})
-	if err != nil {
-		return err
-	}
-	// TODO: Support TLS
-	reqURL := "http://" + rc.pdAddrs[0] + resetTSURL
+	i := 0
 	return withRetry(func() error {
-		resp, err := http.Post(reqURL, "application/json", strings.NewReader(string(req)))
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if resp.StatusCode != 200 && resp.StatusCode != 403 {
-			buf := new(bytes.Buffer)
-			_, err := buf.ReadFrom(resp.Body)
-			return errors.Errorf("pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
-		}
-		return nil
+		idx := i % len(pdAddrs)
+		return utils.ResetTS(pdAddrs[idx], restoreTS)
 	}, func(e error) bool {
+		i++
 		return true
 	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
 }
@@ -181,8 +147,12 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 }
 
 // GetTableSchema returns the schema of a table from TiDB.
-func (rc *Client) GetTableSchema(dbName model.CIStr, tableName model.CIStr) (*model.TableInfo, error) {
-	info, err := rc.db.dom.GetSnapshotInfoSchema(math.MaxInt64)
+func (rc *Client) GetTableSchema(
+	dom *domain.Domain,
+	dbName model.CIStr,
+	tableName model.CIStr,
+) (*model.TableInfo, error) {
+	info, err := dom.GetSnapshotInfoSchema(math.MaxInt64)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -199,7 +169,10 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
-func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRules, []*model.TableInfo, error) {
+func (rc *Client) CreateTables(
+	dom *domain.Domain,
+	tables []*utils.Table,
+) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
@@ -215,7 +188,7 @@ func (rc *Client) CreateTables(tables []*utils.Table) (*restore_util.RewriteRule
 		if err != nil {
 			return nil, nil, err
 		}
-		newTableInfo, err := rc.GetTableSchema(table.Db.Name, table.Schema.Name)
+		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Schema.Name)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -379,7 +352,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := rc.pdClient.GetAllStores(ctx)
+	stores, err := rc.pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -422,6 +395,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 //ValidateChecksum validate checksum after restore
 func (rc *Client) ValidateChecksum(
 	ctx context.Context,
+	kvClient kv.Client,
 	tables []*utils.Table,
 	newTables []*model.TableInfo,
 	updateCh chan<- struct{},
@@ -456,7 +430,7 @@ func (rc *Client) ValidateChecksum(
 					errCh <- errors.Trace(err)
 					return
 				}
-				checksumResp, err := exe.Execute(ctx, rc.db.store.GetClient(), func() {
+				checksumResp, err := exe.Execute(ctx, kvClient, func() {
 					// TODO: update progress here.
 				})
 				if err != nil {
