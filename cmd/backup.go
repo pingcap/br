@@ -5,6 +5,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/ddl"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/backup"
@@ -23,6 +25,11 @@ func NewBackupCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			utils.LogArguments(c)
+
+			// Do not run ddl worker in BR.
+			ddl.RunWorker = false
+			// Do not run stat worker in BR.
+			session.DisableStats4Test()
 			return nil
 		},
 	}
@@ -55,15 +62,19 @@ func newFullBackupCommand() *cobra.Command {
 		Use:   "full",
 		Short: "backup the whole TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
-			backer, err := GetDefaultBacker()
+			ctx, cancel := context.WithCancel(defaultContext)
+			defer cancel()
+
+			mgr, err := GetDefaultMgr()
 			if err != nil {
 				return err
 			}
-			client, err := backup.NewBackupClient(backer)
+			defer mgr.Close()
+
+			client, err := backup.NewBackupClient(ctx, mgr)
 			if err != nil {
 				return nil
 			}
-			defer client.Close()
 			u, err := storage.ParseBackendFromFlags(command.Flags(), FlagStorage)
 			if err != nil {
 				return err
@@ -79,7 +90,7 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			backupTS, err := client.GetTS(timeAgo)
+			backupTS, err := client.GetTS(ctx, timeAgo)
 			if err != nil {
 				return err
 			}
@@ -107,7 +118,7 @@ func newFullBackupCommand() *cobra.Command {
 			}
 
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-				client.GetDomain(), backer.GetTiKV(), backupTS, "", "")
+				mgr.GetDomain(), mgr.GetTiKV(), backupTS, "", "")
 			if err != nil {
 				return err
 			}
@@ -119,13 +130,11 @@ func newFullBackupCommand() *cobra.Command {
 			}
 
 			// Backup
-			ctx, cancel := context.WithCancel(defaultBacker.Context())
-			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ranges, backupTS, rate, concurrency, updateCh)
+				ctx, ranges, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -137,13 +146,13 @@ func newFullBackupCommand() *cobra.Command {
 			if backupSchemas.Len() < backupSchemasConcurrency {
 				backupSchemasConcurrency = backupSchemas.Len()
 			}
-			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())
+			cksctx, ckscancel := context.WithCancel(defaultContext)
 			defer ckscancel()
 			updateCh = utils.StartProgress(
 				cksctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
 			backupSchemas.SetSkipChecksum(!checksum)
 			backupSchemas.Start(
-				cksctx, backer.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+				cksctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
 
 			err = client.CompleteMeta(backupSchemas)
 			if err != nil {
@@ -174,15 +183,19 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			backer, err := GetDefaultBacker()
+			ctx, cancel := context.WithCancel(defaultContext)
+			defer cancel()
+
+			mgr, err := GetDefaultMgr()
 			if err != nil {
 				return err
 			}
-			client, err := backup.NewBackupClient(backer)
+			defer mgr.Close()
+
+			client, err := backup.NewBackupClient(ctx, mgr)
 			if err != nil {
 				return err
 			}
-			defer client.Close()
 			u, err := storage.ParseBackendFromFlags(command.Flags(), FlagStorage)
 			if err != nil {
 				return err
@@ -213,7 +226,7 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
-			backupTS, err := client.GetTS(timeAgo)
+			backupTS, err := client.GetTS(ctx, timeAgo)
 			if err != nil {
 				return err
 			}
@@ -239,7 +252,7 @@ func newTableBackupCommand() *cobra.Command {
 			}
 
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-				client.GetDomain(), backer.GetTiKV(), backupTS, db, table)
+				mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
 			if err != nil {
 				return err
 			}
@@ -256,13 +269,11 @@ func newTableBackupCommand() *cobra.Command {
 			}
 
 			// Backup
-			ctx, cancel := context.WithCancel(defaultBacker.Context())
-			defer cancel()
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ranges, backupTS, rate, concurrency, updateCh)
+				ctx, ranges, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -270,13 +281,13 @@ func newTableBackupCommand() *cobra.Command {
 			close(updateCh)
 
 			// Checksum
-			cksctx, ckscancel := context.WithCancel(defaultBacker.Context())
+			cksctx, ckscancel := context.WithCancel(defaultContext)
 			defer ckscancel()
 			updateCh = utils.StartProgress(
 				cksctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
 			backupSchemas.SetSkipChecksum(!checksum)
 			backupSchemas.Start(
-				cksctx, backer.GetTiKV(), backupTS, 1, updateCh)
+				cksctx, mgr.GetTiKV(), backupTS, 1, updateCh)
 
 			err = client.CompleteMeta(backupSchemas)
 			if err != nil {

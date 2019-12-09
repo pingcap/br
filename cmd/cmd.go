@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"sync"
@@ -9,13 +10,15 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/meta"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/conn"
 )
 
 var (
@@ -24,8 +27,8 @@ var (
 	pdAddress      string
 	hasLogFile     uint64
 
-	backerOnce    = sync.Once{}
-	defaultBacker *meta.Backer
+	connOnce   = sync.Once{}
+	defaultMgr *conn.Mgr
 )
 
 const (
@@ -141,21 +144,28 @@ func HasLogFile() bool {
 	return atomic.LoadUint64(&hasLogFile) != uint64(0)
 }
 
-// GetDefaultBacker returns the default backer for command line usage.
-func GetDefaultBacker() (*meta.Backer, error) {
+// GetDefaultMgr returns the default mgr for command line usage.
+func GetDefaultMgr() (*conn.Mgr, error) {
 	if pdAddress == "" {
 		return nil, errors.New("pd address can not be empty")
 	}
 
-	// Lazy initialize and defaultBacker
+	// Lazy initialize and defaultMgr
 	var err error
-	backerOnce.Do(func() {
-		defaultBacker, err = meta.NewBacker(defaultContext, pdAddress)
+	connOnce.Do(func() {
+		var storage kv.Storage
+		storage, err = tikv.Driver{}.Open(
+			// Disable GC because TiDB enables GC already.
+			fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+		if err != nil {
+			return
+		}
+		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress, storage.(tikv.Storage))
 	})
 	if err != nil {
 		return nil, err
 	}
-	return defaultBacker, nil
+	return defaultMgr, nil
 }
 
 // SetDefaultContext sets the default context for command line usage.

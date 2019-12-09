@@ -8,7 +8,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/session"
@@ -19,17 +18,11 @@ import (
 
 // DB is a TiDB instance, not thread-safe.
 type DB struct {
-	store kv.Storage
-	dom   *domain.Domain
-	se    session.Session
+	se session.Session
 }
 
 // NewDB returns a new DB
 func NewDB(store kv.Storage) (*DB, error) {
-	dom, err := session.BootstrapSession(store)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
 	se, err := session.CreateSession(store)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -40,9 +33,7 @@ func NewDB(store kv.Storage) (*DB, error) {
 		return nil, errors.Trace(err)
 	}
 	return &DB{
-		store: store,
-		dom:   dom,
-		se:    se,
+		se: se,
 	}, nil
 }
 
@@ -101,6 +92,4 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 // Close closes the connection
 func (db *DB) Close() {
 	db.se.Close()
-	db.dom.Close()
-	db.store.Close()
 }
