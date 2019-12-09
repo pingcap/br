@@ -155,6 +155,9 @@ func GetDefaultMgr() (*conn.Mgr, error) {
 		storage, err = tikv.Driver{}.Open(
 			// Disable GC because TiDB enables GC already.
 			fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+		if err != nil {
+			return
+		}
 		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress, storage.(tikv.Storage))
 	})
 	if err != nil {
