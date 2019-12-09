@@ -25,7 +25,7 @@ run_sql "CREATE TABLE $DB.usertable1 ( \
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
 
 run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"
-run_sql "INSERT INTO $DB.usertable1 VALUES (\"aa\", \"bb\");"
+run_sql "INSERT INTO $DB.usertable1 VALUES (\"aa\", \"b\");"
 
 run_sql "CREATE TABLE $DB.usertable2 ( \
   YCSB_KEY varchar(64) NOT NULL, \
