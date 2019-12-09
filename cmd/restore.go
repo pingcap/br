@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -9,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 
@@ -27,6 +29,9 @@ func NewRestoreCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			utils.LogArguments(c)
+
+			// Do not run stat worker in BR.
+			session.DisableStats4Test()
 			return nil
 		},
 	}
@@ -55,7 +60,15 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -77,7 +90,7 @@ func newFullRestoreCommand() *cobra.Command {
 				}
 				var rules *restore_util.RewriteRules
 				var nt []*model.TableInfo
-				rules, nt, err = client.CreateTables(db.Tables)
+				rules, nt, err = client.CreateTables(mgr.GetDomain(), db.Tables)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -107,7 +120,8 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -132,7 +146,8 @@ func newFullRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -156,7 +171,14 @@ func newDbRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -179,7 +201,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rewriteRules, newTables, err := client.CreateTables(db.Tables)
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -201,7 +223,8 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -224,7 +247,8 @@ func newDbRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, db.Tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), db.Tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -253,7 +277,14 @@ func newTableRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -285,7 +316,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.New("not exists table")
 			}
 			// The rules here is raw key.
-			rewriteRules, newTables, err := client.CreateTables([]*utils.Table{table})
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -303,7 +334,8 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -326,7 +358,7 @@ func newTableRestoreCommand() *cobra.Command {
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
 			err = client.ValidateChecksum(
-				ctx, []*utils.Table{table}, newTables, updateCh)
+				ctx, mgr.GetTiKV().GetClient(), []*utils.Table{table}, newTables, updateCh)
 			if err != nil {
 				return err
 			}

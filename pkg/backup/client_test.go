@@ -3,22 +3,24 @@ package backup
 import (
 	"context"
 	"math"
-	"net/http"
 	"testing"
 	"time"
 
+	. "github.com/pingcap/check"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/mockstore/mocktikv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 
-	"github.com/pingcap/br/pkg/meta"
-
-	. "github.com/pingcap/check"
-	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	backupClient *Client
 }
 
@@ -30,18 +32,13 @@ func TestT(t *testing.T) {
 
 func (r *testBackup) SetUpSuite(c *C) {
 	mockPDClient := mocktikv.NewPDClient(mocktikv.NewCluster())
-	ctx, cancel := context.WithCancel(context.Background())
-	mockBacker := &meta.Backer{
-		Ctx:      ctx,
-		PDClient: mockPDClient,
-	}
-	mockBacker.SetPDHTTP([]string{"test"}, nil)
+	r.ctx, r.cancel = context.WithCancel(context.Background())
+	mockMgr := &conn.Mgr{}
+	mockMgr.SetPDClient(mockPDClient)
+	mockMgr.SetPDHTTP([]string{"test"}, nil)
 	r.backupClient = &Client{
-		clusterID: mockPDClient.GetClusterID(ctx),
-		backer:    mockBacker,
-		ctx:       ctx,
-		cancel:    cancel,
-		pdClient:  mockPDClient,
+		clusterID: mockPDClient.GetClusterID(r.ctx),
+		mgr:       mockMgr,
 	}
 }
 
@@ -55,16 +52,16 @@ func (r *testBackup) TestGetTS(c *C) {
 
 	// timeago not valid
 	timeAgo := "invalid"
-	_, err = r.backupClient.GetTS(timeAgo)
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, ErrorMatches, "time: invalid duration invalid")
 
 	// timeago not work
 	timeAgo = ""
 	expectedDuration := 0
 	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err := r.backupClient.GetTS(timeAgo)
+	ts, err := r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs := meta.DecodeTs(ts).Physical
+	pdTs := utils.DecodeTs(ts).Physical
 	duration := int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -73,9 +70,9 @@ func (r *testBackup) TestGetTS(c *C) {
 	timeAgo = "1.5m"
 	expectedDuration = 90000
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err = r.backupClient.GetTS(timeAgo)
+	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs = meta.DecodeTs(ts).Physical
+	pdTs = utils.DecodeTs(ts).Physical
 	duration = int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -84,9 +81,9 @@ func (r *testBackup) TestGetTS(c *C) {
 	timeAgo = "-1m"
 	expectedDuration = -60000
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err = r.backupClient.GetTS(timeAgo)
+	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs = meta.DecodeTs(ts).Physical
+	pdTs = utils.DecodeTs(ts).Physical
 	duration = int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -94,7 +91,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	// timeago = "1000000h" exceed GCSafePoint
 	// because GCSafePoint in mockPDClient is 0
 	timeAgo = "1000000h"
-	_, err = r.backupClient.GetTS(timeAgo)
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, ErrorMatches, "given backup time exceed GCSafePoint")
 }
 
@@ -138,20 +135,4 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
 	})
 
-}
-
-func (r *testBackup) TestPDHTTP(c *C) {
-	r.backupClient.backer.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
-		return []byte(`{"count":6,"regions":null}`), nil
-	}
-	resp, err := r.backupClient.backer.GetRegionCount()
-	c.Assert(err, IsNil)
-	c.Assert(resp, Equals, 6)
-
-	r.backupClient.backer.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
-		return []byte(`test`), nil
-	}
-	respString, err := r.backupClient.backer.GetClusterVersion()
-	c.Assert(err, IsNil)
-	c.Assert(respString, Equals, "test")
 }
