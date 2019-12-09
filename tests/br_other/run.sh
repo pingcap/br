@@ -39,6 +39,8 @@ for sst in $TEST_DIR/$DB/*.sst; do
     echo "corrupted!" >> sst
     break
 done
+
+corrupted=0
 run_br meta checksum -s "local://$TEST_DIR/$DB" || corrupted=1
 if [ "$corrupted" -ne "1" ];then
     echo "TEST: [$TEST_NAME] failed!"
