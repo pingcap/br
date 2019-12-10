@@ -13,21 +13,6 @@ type BackendOptions struct {
 	S3 S3BackendOptions `json:"s3" toml:"s3"`
 }
 
-func (options *BackendOptions) Validate(storageScheme string) error {
-	optionsNotApplicableToStorage := func(option string) error {
-		return errors.Errorf("options '%s.*' are not applicable to %s storage", option, storageScheme)
-	}
-
-	if !options.S3.isEmpty() && storageScheme != "s3" {
-		return optionsNotApplicableToStorage("s3")
-	}
-	if err := options.S3.validate(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // ParseBackend constructs a structured backend description from the
 // storage URL.
 func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBackend, error) {
@@ -39,12 +24,6 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	if options != nil {
-		if err := options.Validate(u.Scheme); err != nil {
-			return nil, err
-		}
-	}
-
 	switch u.Scheme {
 	case "":
 		return nil, errors.Errorf("please specify the storage type (e.g. --storage 'local://%s')", u.Path)
@@ -60,7 +39,9 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 	case "s3":
 		s3 := &backup.S3{Bucket: u.Host, Prefix: u.Path}
 		if options != nil {
-			options.S3.apply(s3)
+			if err := options.S3.apply(s3); err != nil {
+				return nil, err
+			}
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 

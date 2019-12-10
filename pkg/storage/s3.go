@@ -14,15 +14,8 @@ type S3BackendOptions struct {
 	Endpoint string `json:"endpoint" toml:"endpoint"`
 }
 
-func (options *S3BackendOptions) validate() error {
-	return nil
-}
-
-func (options *S3BackendOptions) isEmpty() bool {
-	return options.Endpoint == ""
-}
-
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
+	// TODO: verify at least one of 'region' or 'endpoint' must be provided.
 	s3.Endpoint = options.Endpoint
 	return nil
 }
