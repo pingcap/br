@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -253,8 +254,6 @@ func (mgr *Mgr) GetDomain() *domain.Domain {
 
 // Close closes all client in Mgr.
 func (mgr *Mgr) Close() {
-	mgr.pdClient.Close()
-	mgr.storage.Close()
 	mgr.grpcClis.mu.Lock()
 	for _, cli := range mgr.grpcClis.clis {
 		err := cli.Close()
@@ -263,6 +262,12 @@ func (mgr *Mgr) Close() {
 		}
 	}
 	mgr.grpcClis.mu.Unlock()
+
 	// Gracefully shutdown domain so it does not affect other TiDB DDL.
+	// Must close domain before closing storage, otherwise it gets stuck forever.
 	mgr.dom.Close()
+
+	atomic.StoreUint32(&tikv.ShuttingDown, 1)
+	mgr.storage.Close()
+	mgr.pdClient.Close()
 }
