@@ -17,8 +17,8 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var (

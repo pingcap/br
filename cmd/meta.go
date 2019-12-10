@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/storage"
+	pkgstorage "github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -36,11 +36,11 @@ func NewMetaCommand() *cobra.Command {
 		Use:   "checksum",
 		Short: "check the backup data",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			u, err := pkgstorage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
 			if err != nil {
 				return err
 			}
-			storage, err := storage.Create(u)
+			storage, err := pkgstorage.Create(u)
 			if err != nil {
 				return errors.Trace(err)
 			}
