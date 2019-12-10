@@ -5,6 +5,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
+// ExternalStorage represents a kind of file system storage
 type ExternalStorage interface {
 	// Write file to storage
 	Write(name string, data []byte) error
@@ -14,6 +15,7 @@ type ExternalStorage interface {
 	FileExists(name string) bool
 }
 
+// Create creates ExternalStorage
 func Create(backend *backup.StorageBackend) (ExternalStorage, error) {
 	switch backend := backend.Backend.(type) {
 	case *backup.StorageBackend_Local:

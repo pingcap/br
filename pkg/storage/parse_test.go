@@ -36,12 +36,8 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(s.GetNoop(), NotNil)
 
-	s, err = storage.ParseBackend("s3://bucket/more/prefix/", nil)
-	c.Assert(err, IsNil)
-	s3 := s.GetS3()
-	c.Assert(s3, NotNil)
-	c.Assert(s3.Bucket, Equals, "bucket")
-	c.Assert(s3.Prefix, Equals, "/more/prefix/")
+	_, err = storage.ParseBackend("s3://bucket/more/prefix/", &storage.BackendOptions{})
+	c.Assert(err, ErrorMatches, `must provide either 's3\.region' or 's3\.endpoint'`)
 
 	s3opt := &storage.BackendOptions{
 		S3: storage.S3BackendOptions{
@@ -50,14 +46,11 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	}
 	s, err = storage.ParseBackend("s3://bucket2/prefix/", s3opt)
 	c.Assert(err, IsNil)
-	s3 = s.GetS3()
+	s3 := s.GetS3()
 	c.Assert(s3, NotNil)
 	c.Assert(s3.Bucket, Equals, "bucket2")
 	c.Assert(s3.Prefix, Equals, "/prefix/")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
-
-	_, err = storage.ParseBackend("noop://foo", s3opt)
-	c.Assert(err, ErrorMatches, "options 's3.*' are not applicable to noop storage")
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
