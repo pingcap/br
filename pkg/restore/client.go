@@ -347,7 +347,7 @@ func (rc *Client) RestoreAll(
 	return nil
 }
 
-//SwitchToImportMode switch tikv cluster to import mode
+//SwitchToImportModeIfOffline switch tikv cluster to import mode
 func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
 	if rc.isOnline {
 		return nil
@@ -355,7 +355,7 @@ func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
-//SwitchToNormalMode switch tikv cluster to normal mode
+//SwitchToNormalModeIfOffline switch tikv cluster to normal mode
 func (rc *Client) SwitchToNormalModeIfOffline(ctx context.Context) error {
 	if rc.isOnline {
 		return nil
