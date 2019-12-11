@@ -114,7 +114,7 @@ func (ic *importClient) getImportClient(
 type FileImporter struct {
 	metaClient   restore_util.Client
 	importClient ImporterClient
-	fileURL      string
+	backend      *backup.StorageBackend
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -125,12 +125,12 @@ func NewFileImporter(
 	ctx context.Context,
 	metaClient restore_util.Client,
 	importClient ImporterClient,
-	fileURL string,
+	backend *backup.StorageBackend,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
 		metaClient:   metaClient,
-		fileURL:      fileURL,
+		backend:      backend,
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
@@ -236,10 +236,10 @@ func (importer *FileImporter) downloadSST(
 	sstMeta.RegionId = regionInfo.Region.GetId()
 	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
 	req := &import_sstpb.DownloadRequest{
-		Sst:         sstMeta,
-		Url:         importer.fileURL,
-		Name:        file.GetName(),
-		RewriteRule: *regionRule,
+		Sst:            sstMeta,
+		StorageBackend: importer.backend,
+		Name:           file.GetName(),
+		RewriteRule:    *regionRule,
 	}
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {

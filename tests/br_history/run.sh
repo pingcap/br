@@ -62,3 +62,7 @@ if $fail; then
 else
     echo "TEST: [$TEST_NAME] successed!"
 fi
+
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
+done
