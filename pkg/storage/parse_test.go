@@ -1,6 +1,8 @@
 package storage_test
 
 import (
+	"io/ioutil"
+	"os"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -51,6 +53,33 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Bucket, Equals, "bucket2")
 	c.Assert(s3.Prefix, Equals, "/prefix/")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
+
+	fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+	c.Assert(err, IsNil)
+	defer func() {
+		fakeCredentialsFile.Close()
+		os.Remove(fakeCredentialsFile.Name())
+	}()
+	gcsOpt := &storage.BackendOptions{
+		GCS: storage.GCSBackendOptions{
+			Endpoint: "https://gcs.example.com/",
+			CredentialsFile: fakeCredentialsFile.Name(),
+		},
+	}
+	s, err = storage.ParseBackend("gcs://bucket2/prefix/", gcsOpt)
+	c.Assert(err, IsNil)
+	gcs := s.GetGcs()
+	c.Assert(gcs, NotNil)
+	c.Assert(gcs.Bucket, Equals, "bucket2")
+	c.Assert(gcs.Prefix, Equals, "prefix/")
+	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
+	s, err = storage.ParseBackend("gcs://bucket/more/prefix/", gcsOpt)
+	c.Assert(err, IsNil)
+	gcs = s.GetGcs()
+	c.Assert(gcs, NotNil)
+	c.Assert(gcs.Bucket, Equals, "bucket")
+	c.Assert(gcs.Prefix, Equals, "more/prefix/")
+	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
@@ -78,5 +107,16 @@ func (r *testStorageSuite) TestFormatBackendURL(c *C) {
 		},
 	})
 	c.Assert(url.String(), Equals, "s3://bucket/some%20prefix/")
+
+	url = storage.FormatBackendURL(&backup.StorageBackend{
+		Backend: &backup.StorageBackend_Gcs{
+			Gcs: &backup.GCS{
+				Bucket:   "bucket",
+				Prefix:   "/some prefix/",
+				Endpoint: "https://gcs.example.com/",
+			},
+		},
+	})
+	c.Assert(url.String(), Equals, "gcs://bucket/some%20prefix/")
 
 }
