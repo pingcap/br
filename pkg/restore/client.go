@@ -52,7 +52,6 @@ type Client struct {
 	isOnline   bool
 }
 
-const defaultRateLimit = 128 * utils.MB // default 128MB/s
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
@@ -72,7 +71,6 @@ func NewRestoreClient(
 		pdClient:        pdClient,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
-		rateLimit:       defaultRateLimit,
 	}, nil
 }
 
