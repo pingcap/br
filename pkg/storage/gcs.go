@@ -46,8 +46,8 @@ func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
 
 func defineGCSFlags(flags *pflag.FlagSet) {
 	flags.String(gcsEndpointOption, "", "Set the GCS endpoint URL")
-	flags.String(gcsStorageClassOption, "", "Set the GCS storage class")
-	flags.String(gcsPredefinedAcl, "", "Specify the GCS predefined acl for objects. If it is not set, objects uploaded is followed by the acl of bucket scope. See https://cloud.google.com/storage/docs/access-control/lists#predefined-acl for valid values.")
+	flags.String(gcsStorageClassOption, "", "Specify the GCS storage class for objects. If it is not set, objects uploaded are followed by the default storage class of the bucket. See https://cloud.google.com/storage/docs/storage-classes for valid values.")
+	flags.String(gcsPredefinedAcl, "", "Specify the GCS predefined acl for objects. If it is not set, objects uploaded are followed by the acl of bucket scope. See https://cloud.google.com/storage/docs/access-control/lists#predefined-acl for valid values.")
 	flags.String(gcsCredentialsFile, "", "Set the GCS credentials file path. You can get one from https://console.cloud.google.com/apis/credentials.")
 
 	_ = flags.MarkHidden(gcsEndpointOption)
