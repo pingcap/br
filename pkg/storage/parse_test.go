@@ -62,7 +62,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	}()
 	gcsOpt := &storage.BackendOptions{
 		GCS: storage.GCSBackendOptions{
-			Endpoint: "https://gcs.example.com/",
+			Endpoint:        "https://gcs.example.com/",
 			CredentialsFile: fakeCredentialsFile.Name(),
 		},
 	}
