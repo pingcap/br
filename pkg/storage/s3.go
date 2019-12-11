@@ -1,13 +1,15 @@
 package storage
 
 import (
-	"context"
+	"bytes"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
 	"github.com/aws/aws-sdk-go/aws/defaults"
@@ -15,8 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
-	"gocloud.dev/blob"
-	"gocloud.dev/blob/s3blob"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -34,6 +34,13 @@ const (
 	// number of retries to make of operations
 	maxRetries = 3
 )
+
+// S3Storage info for s3 storage
+type S3Storage struct {
+	session *session.Session
+	svc     *s3.S3
+	options *backup.S3
+}
 
 // S3BackendOptions contains options for s3 storage
 type S3BackendOptions struct {
@@ -136,7 +143,7 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 }
 
 // newS3Storage initialize a new s3 storage for metadata
-func newS3Storage(s3Back *backup.S3) (*RemoteStorage, error) {
+func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 	qs := *s3Back
 	v := credentials.Value{
 		AccessKeyID:     qs.AccessKey,
@@ -209,16 +216,13 @@ func newS3Storage(s3Back *backup.S3) (*RemoteStorage, error) {
 	if err != nil {
 		return nil, errors.Errorf("checkS3Bucket error: %v", err)
 	}
-	// Create a *blob.Bucket.
-	bkt, err := s3blob.OpenBucket(context.Background(), ses, qs.Bucket, nil)
-	if err != nil {
-		return nil, err
-	}
 
 	qs.Prefix = strings.Trim(qs.Prefix, "/")
 	qs.Prefix += "/"
-	return &RemoteStorage{
-		bucket: blob.PrefixedBucket(bkt, qs.Prefix),
+	return &S3Storage{
+		session: ses,
+		svc:     c,
+		options: &qs,
 	}, nil
 }
 
@@ -229,4 +233,78 @@ func checkS3Bucket(svc *s3.S3, bucket string) error {
 	}
 	_, err := svc.HeadBucket(input)
 	return err
+}
+
+// Write write to s3 storage
+func (rs *S3Storage) Write(file string, data []byte) error {
+	input := &s3.PutObjectInput{
+		Body:   aws.ReadSeekCloser(bytes.NewReader(data)),
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + file),
+	}
+	if rs.options.Acl != "" {
+		input = input.SetACL(rs.options.Acl)
+	}
+	if rs.options.Sse != "" {
+		input = input.SetServerSideEncryption(rs.options.Sse)
+	}
+	if rs.options.StorageClass != "" {
+		input = input.SetStorageClass(rs.options.StorageClass)
+	}
+
+	// TODO: PutObjectWithContext
+	_, err := rs.svc.PutObject(input)
+	if err != nil {
+		return err
+	}
+	hinput := &s3.HeadObjectInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + file),
+	}
+	// TODO: WaitUntilObjectExistsWithContext
+	err = rs.svc.WaitUntilObjectExists(hinput)
+	return err
+}
+
+// Read read file from s3
+func (rs *S3Storage) Read(file string) ([]byte, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + file),
+	}
+
+	// TODO: GetObjectWithContext
+	result, err := rs.svc.GetObject(input)
+	if err != nil {
+		return nil, err
+	}
+	defer result.Body.Close()
+	data, err := ioutil.ReadAll(result.Body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// FileExists check if file exists on s3 storage
+func (rs *S3Storage) FileExists(file string) (bool, error) {
+	input := &s3.HeadObjectInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + file),
+	}
+
+	// TODO: HeadObjectWithContext
+	_, err := rs.svc.HeadObject(input)
+	if err != nil {
+		if aerr, ok := err.(awserr.Error); ok {
+			switch aerr.Code() {
+			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey:
+				return false, nil
+			default:
+				return true, err
+			}
+		}
+	}
+
+	return true, err
 }
