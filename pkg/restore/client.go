@@ -48,6 +48,7 @@ type Client struct {
 	databases  map[string]*utils.Database
 	backupMeta *backup.BackupMeta
 	db         *DB
+	isOnline   bool
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -102,6 +103,11 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 // SetConcurrency sets the concurrency of dbs tables files
 func (rc *Client) SetConcurrency(c uint) {
 	rc.workerPool = utils.NewWorkerPool(c, "file")
+}
+
+// EnableOnline sets the mode of restore to online.
+func (rc *Client) EnableOnline() {
+	rc.isOnline = true
 }
 
 // GetTS gets a new timestamp from PD
@@ -341,13 +347,19 @@ func (rc *Client) RestoreAll(
 	return nil
 }
 
-//SwitchToImportMode switch tikv cluster to import mode
-func (rc *Client) SwitchToImportMode(ctx context.Context) error {
+//SwitchToImportModeIfOffline switch tikv cluster to import mode
+func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
+	if rc.isOnline {
+		return nil
+	}
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
-//SwitchToNormalMode switch tikv cluster to normal mode
-func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
+//SwitchToNormalModeIfOffline switch tikv cluster to normal mode
+func (rc *Client) SwitchToNormalModeIfOffline(ctx context.Context) error {
+	if rc.isOnline {
+		return nil
+	}
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
 
