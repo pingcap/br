@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/pingcap/errors"
@@ -23,6 +24,16 @@ const (
 	flagBackupChecksum    = "checksum"
 )
 
+type backupContext struct {
+	db    string
+	table string
+
+	isRawKv  bool
+	startKey []byte
+	endKey   []byte
+	cf       string
+}
+
 func defineBackupFlags(flagSet *pflag.FlagSet) {
 	flagSet.StringP(
 		flagBackupTimeago, "", "",
@@ -35,7 +46,7 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 		"Run checksum after backup")
 }
 
-func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
+func runBackup(flagSet *pflag.FlagSet, cmdName string, bc backupContext) error {
 	ctx, cancel := context.WithCancel(defaultContext)
 	defer cancel()
 
@@ -91,10 +102,18 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 
 	defer summary.Summary(cmdName)
 
-	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
-	if err != nil {
-		return err
+	var (
+		ranges        []backup.Range
+		backupSchemas *backup.Schemas
+	)
+	if bc.isRawKv {
+		ranges = []backup.Range{{StartKey: bc.startKey, EndKey: bc.endKey}}
+	} else {
+		ranges, backupSchemas, err = backup.BuildBackupRangeAndSchema(
+			mgr.GetDomain(), mgr.GetTiKV(), backupTS, bc.db, bc.table)
+		if err != nil {
+			return err
+		}
 	}
 
 	// The number of regions need to backup
@@ -114,38 +133,39 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	updateCh := utils.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !HasLogFile())
 	err = client.BackupRanges(
-		ctx, ranges, backupTS, ratelimit, concurrency, updateCh)
+		ctx, ranges, backupTS, ratelimit, concurrency, updateCh, bc.isRawKv, bc.cf)
 	if err != nil {
 		return err
 	}
 	// Backup has finished
 	close(updateCh)
 
-	// Checksum
-	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-	if backupSchemas.Len() < backupSchemasConcurrency {
-		backupSchemasConcurrency = backupSchemas.Len()
-	}
-	updateCh = utils.StartProgress(
-		ctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
-	backupSchemas.SetSkipChecksum(!checksum)
-	backupSchemas.Start(
-		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+	if backupSchemas != nil {
+		// Checksum
+		backupSchemasConcurrency := backup.DefaultSchemaConcurrency
+		if backupSchemas.Len() < backupSchemasConcurrency {
+			backupSchemasConcurrency = backupSchemas.Len()
+		}
+		updateCh = utils.StartProgress(
+			ctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
+		backupSchemas.SetSkipChecksum(!checksum)
+		backupSchemas.Start(
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
 
-	err = client.CompleteMeta(backupSchemas)
-	if err != nil {
-		return err
+		err = client.CompleteMeta(backupSchemas)
+		if err != nil {
+			return err
+		}
+		valid, err := client.FastChecksum()
+		if err != nil {
+			return err
+		}
+		if !valid {
+			log.Error("backup FastChecksum failed!")
+		}
+		// Checksum has finished
+		close(updateCh)
 	}
-
-	valid, err := client.FastChecksum()
-	if err != nil {
-		return err
-	}
-	if !valid {
-		log.Error("backup FastChecksum failed!")
-	}
-	// Checksum has finished
-	close(updateCh)
 
 	err = client.SaveBackupMeta(ctx)
 	if err != nil {
@@ -179,6 +199,7 @@ func NewBackupCommand() *cobra.Command {
 		newFullBackupCommand(),
 		newDbBackupCommand(),
 		newTableBackupCommand(),
+		newRawBackupCommand(),
 	)
 
 	defineBackupFlags(command.PersistentFlags())
@@ -192,7 +213,8 @@ func newFullBackupCommand() *cobra.Command {
 		Short: "backup all database",
 		RunE: func(command *cobra.Command, _ []string) error {
 			// empty db/table means full backup.
-			return runBackup(command.Flags(), "Full backup", "", "")
+			bc := backupContext{db: "", table: "", isRawKv: false}
+			return runBackup(command.Flags(), "Full backup", bc)
 		},
 	}
 	return command
@@ -211,7 +233,8 @@ func newDbBackupCommand() *cobra.Command {
 			if len(db) == 0 {
 				return errors.Errorf("empty database name is not allowed")
 			}
-			return runBackup(command.Flags(), "Database backup", db, "")
+			bc := backupContext{db: db, table: "", isRawKv: false}
+			return runBackup(command.Flags(), "Database backup", bc)
 		},
 	}
 	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
@@ -240,12 +263,55 @@ func newTableBackupCommand() *cobra.Command {
 			if len(table) == 0 {
 				return errors.Errorf("empty table name is not allowed")
 			}
-			return runBackup(command.Flags(), "Table backup", db, table)
+			bc := backupContext{db: db, table: table, isRawKv: false}
+			return runBackup(command.Flags(), "Table backup", bc)
 		},
 	}
 	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
 	command.Flags().StringP(flagTable, "t", "", "backup the specific table")
 	_ = command.MarkFlagRequired(flagDatabase)
 	_ = command.MarkFlagRequired(flagTable)
+	return command
+}
+
+// newRawBackupCommand return a raw kv range backup subcommand.
+func newRawBackupCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "raw",
+		Short: "backup a raw kv range from TiKV cluster",
+		RunE: func(command *cobra.Command, _ []string) error {
+			start, err := command.Flags().GetString("start")
+			if err != nil {
+				return err
+			}
+			startKey, err := utils.ParseKey(command.Flags(), start)
+			if err != nil {
+				return err
+			}
+			end, err := command.Flags().GetString("end")
+			if err != nil {
+				return err
+			}
+			endKey, err := utils.ParseKey(command.Flags(), end)
+			if err != nil {
+				return err
+			}
+
+			cf, err := command.Flags().GetString("cf")
+			if err != nil {
+				return err
+			}
+
+			if bytes.Compare(startKey, endKey) > 0 {
+				return errors.New("input endKey must greater or equal than startKey")
+			}
+			bc := backupContext{startKey: startKey, endKey: endKey, isRawKv: true, cf: cf}
+			return runBackup(command.Flags(), "Raw Backup", bc)
+		},
+	}
+	command.Flags().StringP("format", "", "raw", "raw key format")
+	command.Flags().StringP("cf", "", "default", "backup raw kv cf")
+	command.Flags().StringP("start", "", "", "backup raw kv start key")
+	command.Flags().StringP("end", "", "", "backup raw kv end key")
 	return command
 }
