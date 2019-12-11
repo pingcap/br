@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"context"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
@@ -8,11 +10,11 @@ import (
 // ExternalStorage represents a kind of file system storage
 type ExternalStorage interface {
 	// Write file to storage
-	Write(name string, data []byte) error
+	Write(ctx context.Context, name string, data []byte) error
 	// Read storage file
-	Read(name string) ([]byte, error)
+	Read(ctx context.Context, name string) ([]byte, error)
 	// FileExists return true if file exists
-	FileExists(name string) bool
+	FileExists(ctx context.Context, name string) (bool, error)
 }
 
 // Create creates ExternalStorage
@@ -22,6 +24,8 @@ func Create(backend *backup.StorageBackend) (ExternalStorage, error) {
 		return newLocalStorage(backend.Local.Path)
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
+	case *backup.StorageBackend_Gcs:
+		return newGCSStorage(backend.Gcs)
 	default:
 		return nil, errors.Errorf("storage %T is not supported yet", backend)
 	}

@@ -11,7 +11,7 @@ const (
 	s3RegionOption   = "s3.region"
 )
 
-// S3BackendOptions are options for configurating the S3 storage.
+// S3BackendOptions are options for configuration the S3 storage.
 type S3BackendOptions struct {
 	Endpoint string `json:"endpoint" toml:"endpoint"`
 	Region   string `json:"region" toml:"region"`
