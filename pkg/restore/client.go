@@ -48,8 +48,10 @@ type Client struct {
 	databases  map[string]*utils.Database
 	backupMeta *backup.BackupMeta
 	db         *DB
+	rateLimit  uint64
 }
 
+const defaultRateLimit = 128 * utils.MB // default 128MB/s
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
@@ -69,7 +71,13 @@ func NewRestoreClient(
 		pdClient:        pdClient,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
+		rateLimit:       defaultRateLimit,
 	}, nil
+}
+
+// SetRateLimit to set rateLimit.
+func (rc *Client) SetRateLimit(rateLimit uint64) {
+	rc.rateLimit = rateLimit
 }
 
 // GetPDClient returns a pd client.
@@ -95,7 +103,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
 }
 

@@ -40,6 +40,7 @@ type ImporterClient interface {
 		ctx context.Context,
 		storeID uint64,
 		req *import_sstpb.DownloadRequest,
+		rateLimit uint64,
 	) (*import_sstpb.DownloadResponse, error)
 
 	IngestSST(
@@ -67,8 +68,15 @@ func (ic *importClient) DownloadSST(
 	ctx context.Context,
 	storeID uint64,
 	req *import_sstpb.DownloadRequest,
+	rateLimit uint64,
 ) (*import_sstpb.DownloadResponse, error) {
 	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	_, err = client.SetDownloadSpeedLimit(ctx, &import_sstpb.SetDownloadSpeedLimitRequest{
+		SpeedLimit: rateLimit,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +123,7 @@ type FileImporter struct {
 	metaClient   restore_util.Client
 	importClient ImporterClient
 	backend      *backup.StorageBackend
+	rateLimit    uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -126,6 +135,7 @@ func NewFileImporter(
 	metaClient restore_util.Client,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
@@ -134,6 +144,7 @@ func NewFileImporter(
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		rateLimit:    rateLimit,
 	}
 }
 
@@ -243,7 +254,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
-		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req, importer.rateLimit)
 		if err != nil {
 			return nil, true, err
 		}
