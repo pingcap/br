@@ -44,7 +44,7 @@ func NewRestoreCommand() *cobra.Command {
 
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
-	command.PersistentFlags().Uint64("rateLimit", 128,
+	command.PersistentFlags().Uint64("rateLimit", 1024,
 		"The rate limit of the restore task, MB/s per node")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
