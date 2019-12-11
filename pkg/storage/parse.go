@@ -10,7 +10,7 @@ import (
 // BackendOptions further configures the storage backend not expressed by the
 // storage URL.
 type BackendOptions struct {
-	S3 S3BackendOptions `json:"s3" toml:"s3"`
+	S3  S3BackendOptions  `json:"s3" toml:"s3"`
 	GCS GCSBackendOptions `json:"gcs", toml:"gcs"`
 }
 

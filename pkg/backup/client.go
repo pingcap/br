@@ -117,7 +117,7 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(ctx context.Context,) error {
+func (bc *Client) SaveBackupMeta(ctx context.Context) error {
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)
