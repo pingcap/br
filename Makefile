@@ -69,6 +69,7 @@ static:
 		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
+		--exclude G101 \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint:

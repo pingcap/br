@@ -29,7 +29,6 @@ const (
 	s3SSEOption          = "s3.sse"
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
-	sendCredentialOption = "send-credentials-to-tikv"
 	accessKeyEnv         = "AWS_ACCESS_KEY_ID"
 	secretAccessKeyEnv   = "AWS_SECRET_ACCESS_KEY"
 	// number of retries to make of operations
@@ -133,7 +132,7 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 		options.ForcePathStyle = false
 	}
 
-	return
+	return options, err
 }
 
 // newS3Storage initialize a new s3 storage for metadata
@@ -148,6 +147,10 @@ func newS3Storage(s3Back *backup.S3) (*RemoteStorage, error) {
 	lowTimeoutClient := &http.Client{Timeout: 1 * time.Second}
 	def := defaults.Get()
 	def.Config.HTTPClient = lowTimeoutClient
+	ec2Session, err := session.NewSession()
+	if err != nil {
+		return nil, err
+	}
 
 	// first provider to supply a credential set "wins"
 	providers := []credentials.Provider{
@@ -168,7 +171,7 @@ func newS3Storage(s3Back *backup.S3) (*RemoteStorage, error) {
 
 		// Pick up IAM role in case we're on EC2
 		&ec2rolecreds.EC2RoleProvider{
-			Client: ec2metadata.New(session.New(), &aws.Config{
+			Client: ec2metadata.New(ec2Session, &aws.Config{
 				HTTPClient: lowTimeoutClient,
 			}),
 			ExpiryWindow: 3 * time.Minute,
