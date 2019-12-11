@@ -349,7 +349,9 @@ func (mgr *Mgr) Close() {
 
 	// Gracefully shutdown domain so it does not affect other TiDB DDL.
 	// Must close domain before closing storage, otherwise it gets stuck forever.
-	mgr.dom.Close()
+	if mgr.dom != nil {
+		mgr.dom.Close()
+	}
 
 	atomic.StoreUint32(&tikv.ShuttingDown, 1)
 	mgr.storage.Close()
