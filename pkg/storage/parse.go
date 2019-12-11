@@ -2,6 +2,7 @@ package storage
 
 import (
 	"net/url"
+	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -38,7 +39,11 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Noop{Noop: noop}}, nil
 
 	case "s3":
-		s3 := &backup.S3{Bucket: u.Host, Prefix: u.Path}
+		if u.Host == "" {
+			return nil, errors.Errorf("please specify the bucket for s3 in %s", rawURL)
+		}
+		prefix := strings.Trim(u.Path, "/")
+		s3 := &backup.S3{Bucket: u.Host, Prefix: prefix}
 		if options != nil {
 			if err := options.S3.apply(s3); err != nil {
 				return nil, err

@@ -107,9 +107,11 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend
 		return err
 	}
 	// backupmeta already exists
-	if exist, err := bc.storage.FileExists(ctx, utils.MetaFile); err != nil {
-		return err
-	} else if exist {
+	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	if err != nil {
+		return errors.Errorf("error occurred when check %s file: %v", utils.MetaFile, err)
+	}
+	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
