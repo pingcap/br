@@ -36,7 +36,8 @@ run_br meta checksum -s "local://$TEST_DIR/$DB"
 
 # Test checksum
 for sst in $TEST_DIR/$DB/*.sst; do
-    echo "corrupted!" >> sst
+    echo "corrupted!" >> $sst
+    echo "$sst corrupted!"
     break
 done
 
