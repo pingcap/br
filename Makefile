@@ -28,7 +28,7 @@ build_for_integration_test:
 	GO111MODULE=on go build -race -o bin/locker tests/br_key_locked/*.go
 
 test:
-	GO111MODULE=on go test -race ./...
+	GO111MODULE=on go test -race -tags leak ./...
 
 testcover:
 	GO111MODULE=on retool do overalls \

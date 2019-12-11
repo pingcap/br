@@ -31,10 +31,14 @@ run_sql "INSERT INTO $DB.usertable1 VALUES (\"aa\", \"b\");"
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
 
-# Test checksum
+# Test validate backupmeta
+run_br validate backupmeta -s "local://$TEST_DIR/$DB"
+run_br validate backupmeta -s "local://$TEST_DIR/$DB" --offset 100
+
+# Test validate checksum
 run_br validate checksum -s "local://$TEST_DIR/$DB"
 
-# Test checksum
+# Test validate checksum
 for sst in $TEST_DIR/$DB/*.sst; do
     echo "corrupted!" >> $sst
     echo "$sst corrupted!"

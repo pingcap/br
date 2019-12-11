@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -140,11 +138,20 @@ func newBackupMetaCommand() *cobra.Command {
 		Use:   "backupmeta",
 		Short: "check the backup meta",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path, err := cmd.Flags().GetString("path")
+			tableIDOffset, err := cmd.Flags().GetUint64("offset")
 			if err != nil {
 				return err
 			}
-			data, err := ioutil.ReadFile(path)
+			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			if err != nil {
+				return err
+			}
+			s, err := storage.Create(u)
+			if err != nil {
+				log.Error("create storage failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+			data, err := s.Read(utils.MetaFile)
 			if err != nil {
 				log.Error("load backupmeta failed", zap.Error(err))
 				return err
@@ -185,6 +192,10 @@ func newBackupMetaCommand() *cobra.Command {
 
 			sort.Sort(utils.Tables(tables))
 			tableIDAllocator := mockid.NewIDAllocator()
+			// Advance table ID allocator to the offset.
+			for offset := uint64(0); offset < tableIDOffset; offset++ {
+				_, _ = tableIDAllocator.Alloc() // Ignore error
+			}
 			rewriteRules := &restore_util.RewriteRules{
 				Table: make([]*import_sstpb.RewriteRule, 0),
 				Data:  make([]*import_sstpb.RewriteRule, 0),
@@ -226,11 +237,12 @@ func newBackupMetaCommand() *cobra.Command {
 					return err
 				}
 			}
-			fmt.Println("Check backupmeta done")
+			cmd.Println("Check backupmeta done")
 			return nil
 		},
 	}
 	command.Flags().String("path", "", "the path of backupmeta")
+	command.Flags().Uint64P("offset", "", 0, "the offset of table id alloctor")
 	command.Hidden = true
 	return command
 }
