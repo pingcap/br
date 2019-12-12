@@ -15,6 +15,7 @@ import (
 	flag "github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -46,6 +47,8 @@ func NewRestoreCommand() *cobra.Command {
 		"The size of thread pool that execute the restore task")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
+	command.PersistentFlags().BoolP("online", "", false,
+		"Whether online when restore")
 
 	return command
 }
@@ -131,7 +134,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -141,7 +144,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -238,7 +241,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -249,7 +252,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -352,7 +355,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -360,7 +363,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -530,11 +533,11 @@ func newRawRestoreCommand() *cobra.Command {
 }
 
 func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
-	u, err := flagSet.GetString(FlagStorage)
+	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
 	}
-	s, err := utils.CreateStorage(u)
+	s, err := storage.Create(u)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -557,6 +560,14 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 		return err
 	}
 	client.SetConcurrency(concurrency)
+
+	isOnline, err := flagSet.GetBool("online")
+	if err != nil {
+		return err
+	}
+	if isOnline {
+		client.EnableOnline()
+	}
 
 	return nil
 }
