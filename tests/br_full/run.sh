@@ -37,7 +37,7 @@ done
 
 # restore full
 echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --rateLimit 1024
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
