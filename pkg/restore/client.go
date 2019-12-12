@@ -224,7 +224,7 @@ func (rc *Client) CreateTables(
 }
 
 func (rc *Client) setSpeedLimit() error {
-	if !rc.hasSpeedLimited {
+	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
 		stores, err := rc.pdClient.GetAllStores(rc.ctx, pd.WithExcludeTombstone())
 		if err != nil {
 			return err
