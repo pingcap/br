@@ -11,7 +11,7 @@ import (
 // storage URL.
 type BackendOptions struct {
 	S3  S3BackendOptions  `json:"s3" toml:"s3"`
-	GCS GCSBackendOptions `json:"gcs", toml:"gcs"`
+	GCS GCSBackendOptions `json:"gcs" toml:"gcs"`
 }
 
 // ParseBackend constructs a structured backend description from the

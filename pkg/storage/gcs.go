@@ -15,7 +15,7 @@ import (
 const (
 	gcsEndpointOption     = "gcs.endpoint"
 	gcsStorageClassOption = "gcs.storage_class"
-	gcsPredefinedAcl      = "gcs.predefined_acl"
+	gcsPredefinedACL      = "gcs.predefined_acl"
 	gcsCredentialsFile    = "gcs.credentials_file"
 )
 
@@ -23,7 +23,7 @@ const (
 type GCSBackendOptions struct {
 	Endpoint        string `json:"endpoint" toml:"endpoint"`
 	StorageClass    string `json:"storage_class" toml:"storage_class"`
-	PredefinedAcl   string `json:"predefined_acl" toml:"predefined_acl"`
+	PredefinedACL   string `json:"predefined_acl" toml:"predefined_acl"`
 	CredentialsFile string `json:"credentials_file" toml:"credentials_file"`
 }
 
@@ -34,7 +34,7 @@ func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
 
 	gcs.Endpoint = options.Endpoint
 	gcs.StorageClass = options.StorageClass
-	gcs.PredefinedAcl = options.PredefinedAcl
+	gcs.PredefinedAcl = options.PredefinedACL
 
 	b, err := ioutil.ReadFile(options.CredentialsFile)
 	if err != nil {
@@ -46,9 +46,16 @@ func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
 
 func defineGCSFlags(flags *pflag.FlagSet) {
 	flags.String(gcsEndpointOption, "", "Set the GCS endpoint URL")
-	flags.String(gcsStorageClassOption, "", "Specify the GCS storage class for objects. If it is not set, objects uploaded are followed by the default storage class of the bucket. See https://cloud.google.com/storage/docs/storage-classes for valid values.")
-	flags.String(gcsPredefinedAcl, "", "Specify the GCS predefined acl for objects. If it is not set, objects uploaded are followed by the acl of bucket scope. See https://cloud.google.com/storage/docs/access-control/lists#predefined-acl for valid values.")
-	flags.String(gcsCredentialsFile, "", "Set the GCS credentials file path. You can get one from https://console.cloud.google.com/apis/credentials.")
+	flags.String(gcsStorageClassOption, "",
+		"Specify the GCS storage class for objects. "+
+			"If it is not set, objects uploaded are followed by the default storage class of the bucket. "+
+			"See https://cloud.google.com/storage/docs/storage-classes for valid values.")
+	flags.String(gcsPredefinedACL, "",
+		"Specify the GCS predefined acl for objects. "+
+			"If it is not set, objects uploaded are followed by the acl of bucket scope. "+
+			"See https://cloud.google.com/storage/docs/access-control/lists#predefined-acl for valid values.")
+	flags.String(gcsCredentialsFile, "",
+		"Set the GCS credentials file path. You can get one from https://console.cloud.google.com/apis/credentials.")
 
 	_ = flags.MarkHidden(gcsEndpointOption)
 }
@@ -66,7 +73,7 @@ func getBackendOptionsFromGCSFlags(flags *pflag.FlagSet) (options GCSBackendOpti
 		return
 	}
 
-	options.PredefinedAcl, err = flags.GetString(gcsPredefinedAcl)
+	options.PredefinedACL, err = flags.GetString(gcsPredefinedACL)
 	if err != nil {
 		err = errors.Trace(err)
 		return
