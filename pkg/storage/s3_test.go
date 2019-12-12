@@ -43,7 +43,6 @@ func (r *testStorageSuite) TestApply(c *C) {
 			name: "access_key not found",
 			options: S3BackendOptions{
 				Region:          "us-west-2",
-				SendCredential:  false,
 				SecretAccessKey: "cd",
 			},
 			errMsg:    "access_key not found",
@@ -52,9 +51,8 @@ func (r *testStorageSuite) TestApply(c *C) {
 		{
 			name: "secret_access_key not found",
 			options: S3BackendOptions{
-				Region:         "us-west-2",
-				SendCredential: false,
-				AccessKey:      "ab",
+				Region:    "us-west-2",
+				AccessKey: "ab",
 			},
 			errMsg:    "secret_access_key not found",
 			errReturn: true,
@@ -184,12 +182,11 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 			},
 		},
 		{
-			name: "SendCredential",
+			name: "keys",
 			options: S3BackendOptions{
 				Region:          "us-west-2",
-				AccessKey:       "Access",
-				SecretAccessKey: "SecretAccess",
-				SendCredential:  true,
+				AccessKey:       "ab",
+				SecretAccessKey: "cd",
 			},
 			s3: &backup.S3{
 				Region:          "us-west-2",

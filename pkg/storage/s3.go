@@ -64,7 +64,6 @@ type S3BackendOptions struct {
 	Provider              string `json:"provider" toml:"provider"`
 	ForcePathStyle        bool   `json:"force_path_style" toml:"force_path_style"`
 	UseAccelerateEndpoint bool   `json:"use_accelerate_endpoint" toml:"use_accelerate_endpoint"`
-	SendCredential        bool   `json:"send_credential" toml:"send_credential"`
 }
 
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
@@ -80,15 +79,6 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	if options.Provider == "alibaba" || options.Provider == "netease" ||
 		options.UseAccelerateEndpoint {
 		options.ForcePathStyle = false
-	}
-	if options.SendCredential {
-		c := credentials.NewEnvCredentials()
-		v, cerr := c.Get()
-		if cerr != nil {
-			return cerr
-		}
-		options.AccessKey = v.AccessKeyID
-		options.SecretAccessKey = v.SecretAccessKey
 	}
 	if options.AccessKey == "" && options.SecretAccessKey != "" {
 		return errors.New("access_key not found")
@@ -119,10 +109,19 @@ func defineS3Flags(flags *pflag.FlagSet) {
 }
 
 func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
-	options.SendCredential, err = flags.GetBool(flagSendCredentialOption)
+	send, err := flags.GetBool(flagSendCredentialOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
+	}
+	if send {
+		c := credentials.NewEnvCredentials()
+		v, cerr := c.Get()
+		if cerr != nil {
+			return options, errors.Trace(cerr)
+		}
+		options.AccessKey = v.AccessKeyID
+		options.SecretAccessKey = v.SecretAccessKey
 	}
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
