@@ -37,8 +37,6 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(s.GetNoop(), NotNil)
 
-	_, err = ParseBackend("s3://bucket/more/prefix/", &BackendOptions{})
-	c.Assert(err, ErrorMatches, `must provide either 's3\.region' or 's3\.endpoint'`)
 	_, err = ParseBackend("s3:///bucket/more/prefix/", &BackendOptions{})
 	c.Assert(err, ErrorMatches, `please specify the bucket for s3 in s3:///bucket/more/prefix/`)
 

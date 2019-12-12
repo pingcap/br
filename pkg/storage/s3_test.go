@@ -31,15 +31,6 @@ func (r *testStorageSuite) TestApply(c *C) {
 	}
 	tests := []testcase{
 		{
-			name: "missing region and endpoint",
-			options: S3BackendOptions{
-				Region:   "",
-				Endpoint: "",
-			},
-			errMsg:    "must provide either 's3.region' or 's3.endpoint'",
-			errReturn: true,
-		},
-		{
 			name: "access_key not found",
 			options: S3BackendOptions{
 				Region:          "us-west-2",
@@ -82,6 +73,19 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 	}
 	tests := []testcase{
 		{
+			name: "no region and no endpoint",
+			options: S3BackendOptions{
+				Region:   "",
+				Endpoint: "",
+			},
+			s3: &backup.S3{
+				Region:   "us-east-1",
+				Bucket:   "bucket",
+				Prefix:   "prefix",
+				Endpoint: "https://s3.amazonaws.com/",
+			},
+		},
+		{
 			name: "no endpoint",
 			options: S3BackendOptions{
 				Region: "us-west-2",
@@ -98,6 +102,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "https://s3.us-west-2",
 			},
 			s3: &backup.S3{
+				Region:   "us-east-1",
 				Endpoint: "https://s3.us-west-2",
 				Bucket:   "bucket",
 				Prefix:   "prefix",
@@ -109,6 +114,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "http://s3.us-west-2",
 			},
 			s3: &backup.S3{
+				Region:   "us-east-1",
 				Endpoint: "http://s3.us-west-2",
 				Bucket:   "bucket",
 				Prefix:   "prefix",
@@ -120,6 +126,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "s3.us-west-2",
 			},
 			s3: &backup.S3{
+				Region:   "us-east-1",
 				Endpoint: "http://s3.us-west-2",
 				Bucket:   "bucket",
 				Prefix:   "prefix",

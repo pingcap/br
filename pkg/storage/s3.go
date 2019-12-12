@@ -68,8 +68,11 @@ type S3BackendOptions struct {
 }
 
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
-	if options.Endpoint == "" && options.Region == "" {
-		return errors.New("must provide either 's3.region' or 's3.endpoint'")
+	if options.Region == "" && options.Endpoint == "" {
+		options.Endpoint = "https://s3.amazonaws.com/"
+	}
+	if options.Region == "" {
+		options.Region = "us-east-1"
 	}
 	if options.Endpoint != "" {
 		if !strings.HasPrefix(options.Endpoint, "https://") &&
@@ -197,12 +200,7 @@ func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 		},
 	}
 	cred := credentials.NewChainCredentials(providers)
-	if qs.Region == "" && qs.Endpoint == "" {
-		qs.Endpoint = "https://s3.amazonaws.com/"
-	}
-	if qs.Region == "" {
-		qs.Region = "us-east-1"
-	}
+
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
 		WithCredentials(cred).
@@ -225,7 +223,6 @@ func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 		return nil, errors.Errorf("checkS3Bucket error: %v", err)
 	}
 
-	qs.Prefix = strings.Trim(qs.Prefix, "/")
 	qs.Prefix += "/"
 	return &S3Storage{
 		session: ses,
