@@ -180,22 +180,10 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		if err != nil {
 			return errors.Trace(err)
 		}
-		stores := make(map[uint64]struct{})
 		// Try to download and ingest the file in every region
 		for _, regionInfo := range regionInfos {
 			var downloadMeta *import_sstpb.SSTMeta
 			info := regionInfo
-			// set store speed limit
-			for _, peer := range info.Region.Peers {
-				storeID := peer.StoreId
-				if _, ok := stores[storeID]; !ok {
-					err := importer.setDownloadSpeedLimit(storeID, importer.rateLimit)
-					if err != nil {
-						return errors.Trace(err)
-					}
-					stores[storeID] = struct{}{}
-				}
-			}
 			// Try to download file.
 			err = withRetry(func() error {
 				var err error
@@ -252,9 +240,9 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	return err
 }
 
-func (importer *FileImporter) setDownloadSpeedLimit(storeID, rateLimit uint64) error {
+func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
 	req := &import_sstpb.SetDownloadSpeedLimitRequest{
-		SpeedLimit: rateLimit,
+		SpeedLimit: importer.rateLimit,
 	}
 	_, err := importer.importClient.SetDownloadSpeedLimit(importer.ctx, storeID, req)
 	return err
