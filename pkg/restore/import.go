@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"time"
@@ -116,6 +117,10 @@ type FileImporter struct {
 	importClient ImporterClient
 	backend      *backup.StorageBackend
 
+	isRawKvMode bool
+	rawStartKey []byte
+	rawEndKey   []byte
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -126,6 +131,7 @@ func NewFileImporter(
 	metaClient restore_util.Client,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	isRawKvMode bool,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
@@ -134,7 +140,18 @@ func NewFileImporter(
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		isRawKvMode:  isRawKvMode,
 	}
+}
+
+// SetRawRange sets the range to be restored in raw kv mode.
+func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
+	if !importer.isRawKvMode {
+		return errors.New("file importer is not in raw kv mode")
+	}
+	importer.rawStartKey = startKey
+	importer.rawEndKey = endKey
+	return nil
 }
 
 // Import tries to import a file.
@@ -233,6 +250,19 @@ func (importer *FileImporter) downloadSST(
 		return nil, true, errRewriteRuleNotFound
 	}
 	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, regionRule)
+	// For raw kv mode, cut the SST file's range to fit in the restoring range.
+	if importer.isRawKvMode {
+		if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
+			sstMeta.Range.Start = importer.rawStartKey
+		}
+		// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
+		if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+			sstMeta.Range.End = importer.rawEndKey
+		}
+		if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
+			return &sstMeta, true, nil
+		}
+	}
 	sstMeta.RegionId = regionInfo.Region.GetId()
 	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
 	req := &import_sstpb.DownloadRequest{
