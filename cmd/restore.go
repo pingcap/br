@@ -49,6 +49,8 @@ func NewRestoreCommand() *cobra.Command {
 	command.PersistentFlags().BoolP("online", "", false,
 		"Whether online when restore")
 
+	command.PersistentFlags().Uint64P("lastbackupts", "", 0, "the last time backup ts")
+
 	return command
 }
 
@@ -79,6 +81,11 @@ func newFullRestoreCommand() *cobra.Command {
 			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
+			}
+
+			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
+			if err != nil {
+				return err
 			}
 
 			tableRules := make([]*import_sstpb.RewriteRule, 0)
@@ -134,7 +141,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules, updateCh)
+			err = client.RestoreAll(rewriteRules, lastBackupTS, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -204,6 +211,11 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
+			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
+			if err != nil {
+				return err
+			}
+
 			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables)
 			if err != nil {
 				return errors.Trace(err)
@@ -238,7 +250,7 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.RestoreDatabase(
-				db, rewriteRules, updateCh)
+				db, rewriteRules, lastBackupTS, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -325,6 +337,11 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			ranges := restore.GetRanges(table.Files)
 
+			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
+			if err != nil {
+				return err
+			}
+
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -346,7 +363,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules, updateCh)
+			err = client.RestoreTable(table, rewriteRules, lastBackupTS, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}

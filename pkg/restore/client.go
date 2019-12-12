@@ -220,6 +220,7 @@ func (rc *Client) CreateTables(
 func (rc *Client) RestoreTable(
 	table *utils.Table,
 	rewriteRules *restore_util.RewriteRules,
+	lastBackupTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -227,17 +228,30 @@ func (rc *Client) RestoreTable(
 		elapsed := time.Since(start)
 		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
 	}()
+
+	var incrementalFiles []*backup.File
+	if lastBackupTS > 0 {
+		for _, file := range table.Files {
+			if file.StartVersion >= lastBackupTS && file.StartVersion != file.EndVersion {
+				incrementalFiles = append(incrementalFiles, file)
+			}
+		}
+	} else {
+		incrementalFiles = table.Files
+	}
+
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
-		zap.Array("files", files(table.Files)),
+		zap.Array("files", files(incrementalFiles)),
 	)
-	errCh := make(chan error, len(table.Files))
+	errCh := make(chan error, len(incrementalFiles))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
-	for _, file := range table.Files {
+
+	for _, file := range incrementalFiles {
 		wg.Add(1)
 		fileReplica := file
 		rc.workerPool.Apply(
@@ -251,7 +265,7 @@ func (rc *Client) RestoreTable(
 				}
 			})
 	}
-	for range table.Files {
+	for range incrementalFiles {
 		err := <-errCh
 		if err != nil {
 			rc.cancel()
@@ -277,6 +291,7 @@ func (rc *Client) RestoreTable(
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
 	rewriteRules *restore_util.RewriteRules,
+	lastBackupTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -296,7 +311,7 @@ func (rc *Client) RestoreDatabase(
 			case <-rc.ctx.Done():
 				errCh <- nil
 			case errCh <- rc.RestoreTable(
-				tblReplica, rewriteRules, updateCh):
+				tblReplica, rewriteRules, lastBackupTS, updateCh):
 			}
 		})
 	}
@@ -313,6 +328,7 @@ func (rc *Client) RestoreDatabase(
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
 	rewriteRules *restore_util.RewriteRules,
+	lastBackupTS uint64,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -332,7 +348,7 @@ func (rc *Client) RestoreAll(
 			case <-rc.ctx.Done():
 				errCh <- nil
 			case errCh <- rc.RestoreDatabase(
-				dbReplica, rewriteRules, updateCh):
+				dbReplica, rewriteRules, lastBackupTS, updateCh):
 			}
 		})
 	}
