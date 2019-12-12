@@ -35,10 +35,20 @@ const (
 	maxRetries = 3
 )
 
+// s3Handlers make it easy to inject test functions
+type s3Handlers interface {
+	HeadObject(*s3.HeadObjectInput) (*s3.HeadObjectOutput, error)
+	GetObject(*s3.GetObjectInput) (*s3.GetObjectOutput, error)
+	PutObject(*s3.PutObjectInput) (*s3.PutObjectOutput, error)
+	HeadBucket(*s3.HeadBucketInput) (*s3.HeadBucketOutput, error)
+	WaitUntilObjectExists(*s3.HeadObjectInput) error
+}
+
 // S3Storage info for s3 storage
 type S3Storage struct {
 	session *session.Session
-	svc     *s3.S3
+	// svc     *s3.S3
+	svc     s3Handlers
 	options *backup.S3
 }
 
@@ -61,13 +71,6 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	if options.Endpoint == "" && options.Region == "" {
 		return errors.New("must provide either 's3.region' or 's3.endpoint'")
 	}
-	if options.AccessKey == "" && options.SecretAccessKey != "" {
-		return errors.New("secret_access_key not found")
-	}
-	if options.AccessKey != "" && options.SecretAccessKey == "" {
-		return errors.New("access_key not found")
-	}
-
 	if options.Endpoint != "" {
 		if !strings.HasPrefix(options.Endpoint, "https://") &&
 			!strings.HasPrefix(options.Endpoint, "http://") {
@@ -82,12 +85,18 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 		c := credentials.NewEnvCredentials()
 		v, cerr := c.Get()
 		if cerr != nil {
-			cerr = errors.Trace(cerr)
 			return cerr
 		}
 		options.AccessKey = v.AccessKeyID
 		options.SecretAccessKey = v.SecretAccessKey
 	}
+	if options.AccessKey == "" && options.SecretAccessKey != "" {
+		return errors.New("access_key not found")
+	}
+	if options.AccessKey != "" && options.SecretAccessKey == "" {
+		return errors.New("secret_access_key not found")
+	}
+
 	s3.Endpoint = options.Endpoint
 	s3.Region = options.Region
 	// StorageClass, SSE and ACL are acceptable to be empty
@@ -193,21 +202,17 @@ func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 		},
 	}
 	cred := credentials.NewChainCredentials(providers)
-
 	if qs.Region == "" && qs.Endpoint == "" {
 		qs.Endpoint = "https://s3.amazonaws.com/"
 	}
 	if qs.Region == "" {
 		qs.Region = "us-east-1"
 	}
-
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
 		WithCredentials(cred).
-		WithS3ForcePathStyle(qs.ForcePathStyle)
-	if qs.Region != "" {
-		awsConfig.WithRegion(qs.Region)
-	}
+		WithS3ForcePathStyle(qs.ForcePathStyle).
+		WithRegion(qs.Region)
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
 	}
@@ -235,7 +240,7 @@ func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 }
 
 // checkBucket checks if a bucket exists and creates it if not
-func checkS3Bucket(svc *s3.S3, bucket string) error {
+var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	}
