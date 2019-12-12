@@ -14,7 +14,7 @@ const (
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCredentialOption, "c", true,
-		"If send credentials to tikv(default true)")
+		"Whether send credentials to tikv")
 	defineS3Flags(flags)
 	defineGCSFlags(flags)
 }

@@ -7,7 +7,6 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/backup"
-	// "github.com/pingcap/br/pkg/storage"
 )
 
 func Test(t *testing.T) {

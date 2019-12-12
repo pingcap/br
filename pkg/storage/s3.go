@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"net/http"
-	"os"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -22,6 +21,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
+var (
+	sendCredential bool
+)
+
 const (
 	s3EndpointOption     = "s3.endpoint"
 	s3RegionOption       = "s3.region"
@@ -29,11 +32,11 @@ const (
 	s3SSEOption          = "s3.sse"
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
-	// accessKeyEnv         = "AWS_ACCESS_KEY_ID"
-	// secretAccessKeyEnv   = "AWS_SECRET_ACCESS_KEY"
-	notFound = "NotFound"
+	notFound             = "NotFound"
 	// number of retries to make of operations
 	maxRetries = 3
+	// low timeout 1s to ec2 metadata service
+	timeout = 1
 )
 
 // s3Handlers make it easy to inject test functions
@@ -48,7 +51,6 @@ type s3Handlers interface {
 // S3Storage info for s3 storage
 type S3Storage struct {
 	session *session.Session
-	// svc     *s3.S3
 	svc     s3Handlers
 	options *backup.S3
 }
@@ -68,18 +70,23 @@ type S3BackendOptions struct {
 }
 
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
-	if options.Region == "" && options.Endpoint == "" {
-		options.Endpoint = "https://s3.amazonaws.com/"
-	}
 	if options.Region == "" {
 		options.Region = "us-east-1"
 	}
 	if options.Endpoint != "" {
-		if !strings.HasPrefix(options.Endpoint, "https://") &&
-			!strings.HasPrefix(options.Endpoint, "http://") {
-			options.Endpoint = "http://" + options.Endpoint
+		u, err := url.Parse(options.Endpoint)
+		if err != nil {
+			return err
+		}
+		if u.Scheme == "" {
+			return errors.New("scheme not found in endpoint")
+		}
+		if u.Host == "" {
+			return errors.New("host not found in endpoint")
 		}
 	}
+	// In some cases, we need to set ForcePathStyle to false.
+	// Refer to: https://rclone.org/s3/#s3-force-path-style
 	if options.Provider == "alibaba" || options.Provider == "netease" ||
 		options.UseAccelerateEndpoint {
 		options.ForcePathStyle = false
@@ -104,23 +111,19 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 }
 
 func defineS3Flags(flags *pflag.FlagSet) {
-	flags.String(s3EndpointOption, "", "Set the S3 endpoint URL")
-	flags.String(s3RegionOption, "", "Set the S3 region")
-	flags.String(s3StorageClassOption, "", "Set the S3 storage class")
-	flags.String(s3SSEOption, "", "Set the S3 server-side encryption algorithm")
-	flags.String(s3ACLOption, "", "Set the S3 canned ACLs")
-	flags.String(s3ProviderOption, "", "Set the S3 provider")
+	flags.String(s3EndpointOption, "", "Set the S3 endpoint URL, please specify the http or https scheme explicitly")
+	flags.String(s3RegionOption, "", "Set the S3 region, e.g. us-east-1")
+	flags.String(s3StorageClassOption, "", "Set the S3 storage class, e.g. STANDARD")
+	flags.String(s3SSEOption, "", "Set the S3 server-side encryption algorithm, e.g. AES256")
+	flags.String(s3ACLOption, "", "Set the S3 canned ACLs, e.g. authenticated-read")
+	flags.String(s3ProviderOption, "", "Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
 func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
-	send, err := flags.GetBool(flagSendCredentialOption)
+	sendCredential, err = flags.GetBool(flagSendCredentialOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
-	}
-	if send {
-		options.AccessKey = os.Getenv("AWS_ACCESS_KEY_ID")
-		options.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 	}
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
@@ -158,15 +161,15 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 }
 
 // newS3Storage initialize a new s3 storage for metadata
-func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
-	qs := *s3Back
+func newS3Storage(backend *backup.S3) (*S3Storage, error) {
+	qs := *backend
 	v := credentials.Value{
 		AccessKeyID:     qs.AccessKey,
 		SecretAccessKey: qs.SecretAccessKey,
 	}
 
 	// low timeout to ec2 metadata service
-	lowTimeoutClient := &http.Client{Timeout: 1 * time.Second}
+	lowTimeoutClient := &http.Client{Timeout: time.Duration(timeout) * time.Second}
 	def := defaults.Get()
 	def.Config.HTTPClient = lowTimeoutClient
 	ec2Session, err := session.NewSession()
@@ -200,7 +203,16 @@ func newS3Storage(s3Back *backup.S3) (*S3Storage, error) {
 		},
 	}
 	cred := credentials.NewChainCredentials(providers)
-
+	if sendCredential {
+		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
+			v, cerr := cred.Get()
+			if cerr != nil {
+				return nil, cerr
+			}
+			backend.AccessKey = v.AccessKeyID
+			backend.SecretAccessKey = v.SecretAccessKey
+		}
+	}
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
 		WithCredentials(cred).

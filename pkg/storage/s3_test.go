@@ -48,6 +48,30 @@ func (r *testStorageSuite) TestApply(c *C) {
 			errMsg:    "secret_access_key not found",
 			errReturn: true,
 		},
+		{
+			name: "scheme not found",
+			options: S3BackendOptions{
+				Endpoint: "12345",
+			},
+			errMsg:    "scheme not found in endpoint",
+			errReturn: true,
+		},
+		{
+			name: "host not found",
+			options: S3BackendOptions{
+				Endpoint: "http:12345",
+			},
+			errMsg:    "host not found in endpoint",
+			errReturn: true,
+		},
+		{
+			name: "invalid endpoint",
+			options: S3BackendOptions{
+				Endpoint: "!http:12345",
+			},
+			errMsg:    "parse !http:12345: first path segment in URL cannot contain colon",
+			errReturn: true,
+		},
 	}
 	for i := range tests {
 		testFn(&tests[i], c)
@@ -79,10 +103,9 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "",
 			},
 			s3: &backup.S3{
-				Region:   "us-east-1",
-				Bucket:   "bucket",
-				Prefix:   "prefix",
-				Endpoint: "https://s3.amazonaws.com/",
+				Region: "us-east-1",
+				Bucket: "bucket",
+				Prefix: "prefix",
 			},
 		},
 		{
@@ -112,18 +135,6 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 			name: "http endpoint",
 			options: S3BackendOptions{
 				Endpoint: "http://s3.us-west-2",
-			},
-			s3: &backup.S3{
-				Region:   "us-east-1",
-				Endpoint: "http://s3.us-west-2",
-				Bucket:   "bucket",
-				Prefix:   "prefix",
-			},
-		},
-		{
-			name: "no scheme endpoint",
-			options: S3BackendOptions{
-				Endpoint: "s3.us-west-2",
 			},
 			s3: &backup.S3{
 				Region:   "us-east-1",
