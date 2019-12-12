@@ -39,6 +39,7 @@ func NewRestoreCommand() *cobra.Command {
 		newFullRestoreCommand(),
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
+		newRawRestoreCommand(),
 	)
 
 	command.PersistentFlags().Uint("concurrency", 128,
@@ -76,6 +77,10 @@ func newFullRestoreCommand() *cobra.Command {
 			err = initRestoreClient(client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
+			}
+
+			if client.IsRawKvMode() {
+				return errors.New("cannot do full restore from raw kv data")
 			}
 
 			tableRules := make([]*import_sstpb.RewriteRule, 0)
@@ -188,6 +193,10 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
+			if client.IsRawKvMode() {
+				return errors.New("cannot do db restore from raw kv data")
+			}
+
 			dbName, err := cmd.Flags().GetString("db")
 			if err != nil {
 				return errors.Trace(err)
@@ -294,6 +303,10 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
+			if client.IsRawKvMode() {
+				return errors.New("cannot do table restore from raw kv data")
+			}
+
 			dbName, err := cmd.Flags().GetString("db")
 			if err != nil {
 				return errors.Trace(err)
@@ -378,6 +391,141 @@ func newTableRestoreCommand() *cobra.Command {
 		panic(err)
 	}
 
+	return command
+}
+
+func newRawRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "raw",
+		Short: "restore a raw kv range",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
+			if err != nil {
+				return errors.Trace(err)
+			}
+			defer client.Close()
+			err = initRestoreClient(client, cmd.Flags())
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			if client.IsRawKvMode() {
+				return errors.New("cannot do raw restore from transactional data")
+			}
+
+			startKey, err := cmd.Flags().GetBytesHex("start")
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			endKey, err := cmd.Flags().GetBytesHex("end")
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			////*
+			//dbName, err := cmd.Flags().GetString("db")
+			//if err != nil {
+			//	return errors.Trace(err)
+			//}
+			//db := client.GetDatabase(dbName)
+			//if db == nil {
+			//	return errors.New("not exists database")
+			//}
+			//err = client.CreateDatabase(db.Schema)
+			//if err != nil {
+			//	return errors.Trace(err)
+			//}
+			//
+			//tableName, err := cmd.Flags().GetString("table")
+			//if err != nil {
+			//	return errors.Trace(err)
+			//}
+			//table := db.GetTable(tableName)
+			//if table == nil {
+			//	return errors.New("not exists table")
+			//}
+			//// The rules here is raw key.
+			//rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
+			//if err != nil {
+			//	return errors.Trace(err)
+			//}
+			//ranges := restore.GetRanges(table.Files)
+			////*/
+
+			files, err := client.GetFilesInRawRange(startKey, endKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			ranges := restore.GetRanges(files)
+
+			// Empty rewrite rules
+			rewriteRules := &restore_util.RewriteRules{}
+
+			// Redirect to log if there is no log file to avoid unreadable output.
+			// TODO: How to show progress?
+			updateCh := utils.StartProgress(
+				ctx,
+				"Table Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+				!HasLogFile())
+
+			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchToImportMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.RestoreRaw(startKey, endKey, files, updateCh)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			err = client.SwitchToNormalMode(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			// Restore has finished.
+			close(updateCh)
+
+			// Checksum
+			//updateCh = utils.StartProgress(
+			//	ctx, "Checksum", int64(len(newTables)), !HasLogFile())
+			//err = client.ValidateChecksum(
+			//	ctx, mgr.GetTiKV().GetClient(), []*utils.Table{table}, newTables, updateCh)
+			if err != nil {
+				return err
+			}
+			close(updateCh)
+
+			return nil
+		},
+	}
+
+	//command.Flags().StringP("start", "s", "", "restore raw kv start key")
+	//command.Flags().StringP("end", "e", "", "restore raw kv end key")
 	return command
 }
 

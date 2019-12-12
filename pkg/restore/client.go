@@ -1,7 +1,9 @@
 package restore
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"math"
 	"sort"
 	"sync"
@@ -86,17 +88,54 @@ func (rc *Client) Close() {
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, storagePath string) error {
-	databases, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
+	if !backupMeta.IsRawKv {
+		databases, err := utils.LoadBackupTables(backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.databases = databases
 	}
-	rc.databases = databases
 	rc.backupMeta = backupMeta
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, storagePath)
 	return nil
+}
+
+// IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
+func (rc *Client) IsRawKvMode() bool {
+	return rc.backupMeta.IsRawKv
+}
+
+// GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte) ([]*backup.File, error) {
+	if !rc.IsRawKvMode() {
+		return nil, errors.New("the backup data is not in raw kv mode")
+	}
+
+	if bytes.Compare(startKey, rc.backupMeta.RawStartKey) < 0 ||
+		utils.CompareEndKey(endKey, rc.backupMeta.RawEndKey) > 0 {
+		return nil, errors.New("restoring range exceeds backup data's range")
+	}
+
+	files := make([]*backup.File, 0)
+
+	for _, file := range rc.backupMeta.Files {
+		if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
+			// The file is before the range to be restored.
+			continue
+		}
+		if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) >= 0 {
+			// The file is after the range to be restored.
+			// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
+			continue
+		}
+
+		files = append(files, file)
+	}
+
+	return files, nil
 }
 
 // SetConcurrency sets the concurrency of dbs tables files
@@ -339,6 +378,58 @@ func (rc *Client) RestoreAll(
 		}
 	}
 	return nil
+}
+
+// RestoreRaw tries to restore raw keys in the specified range.
+func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh chan<- struct{}) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Raw",
+			zap.String("startKey", hex.EncodeToString(startKey)),
+			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Duration("take", elapsed))
+	}()
+	errCh := make(chan error, len(rc.databases))
+	wg := new(sync.WaitGroup)
+	defer close(errCh)
+
+	// TODO: Fix file borders
+
+	emptyRules := &restore_util.RewriteRules{}
+	for _, file := range files {
+		wg.Add(1)
+		fileReplica := file
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+					updateCh <- struct{}{}
+				}
+			})
+	}
+	for range files {
+		err := <-errCh
+		if err != nil {
+			rc.cancel()
+			wg.Wait()
+			log.Error(
+				"restore raw range failed",
+				zap.String("startKey", hex.EncodeToString(startKey)),
+				zap.String("endKey", hex.EncodeToString(endKey)),
+				zap.Error(err),
+			)
+			return err
+		}
+	}
+	log.Info(
+		"finish to restore raw range",
+		zap.String("startKey", hex.EncodeToString(startKey)),
+		zap.String("endKey", hex.EncodeToString(endKey)),
+	)
 }
 
 //SwitchToImportMode switch tikv cluster to import mode
