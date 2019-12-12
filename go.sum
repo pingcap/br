@@ -1,10 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
 github.com/BurntSushi/toml v0.3.1 h1:WXkYYl6Yr3qBf1K79EBnL4mak0OimBfB0XUf9Vl28OQ=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
-github.com/MyonKeminta/kvproto v0.0.0-20191211100751-7b213f7034d3 h1:UDNhngHgEk6bZWW2Tbz3S4R1UA/8vIq5jJXYfzHWswA=
-github.com/MyonKeminta/kvproto v0.0.0-20191211100751-7b213f7034d3/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
-github.com/MyonKeminta/kvproto v0.0.0-20191211111614-fc82e473d8d2 h1:i+n3Uq1maMobTENW/h9l1oSIjzVMN6vB3wwMHLM4FQk=
-github.com/MyonKeminta/kvproto v0.0.0-20191211111614-fc82e473d8d2/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
 github.com/MyonKeminta/kvproto v0.0.0-20191212035151-97954de3fbec h1:yZwFX4POusoAWJEGUwK2YbqSsYQ2+D8z9bXtWa9cB8g=
 github.com/MyonKeminta/kvproto v0.0.0-20191212035151-97954de3fbec/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
 github.com/StackExchange/wmi v0.0.0-20180725035823-b12b22c5341f h1:5ZfJxyXo8KyX8DgGXC5B7ILL8y51fci/qYz2B4j8iLY=
@@ -213,11 +209,6 @@ github.com/pingcap/failpoint v0.0.0-20190512135322-30cc7431d99c h1:hvQd3aOLKLF7x
 github.com/pingcap/failpoint v0.0.0-20190512135322-30cc7431d99c/go.mod h1:DNS3Qg7bEDhU6EXNHF+XSv/PGznQaMJ5FWvctpm6pQI=
 github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e h1:P73/4dPCL96rGrobssy1nVy2VaVpNCuLpCbr+FEaTA8=
 github.com/pingcap/goleveldb v0.0.0-20171020122428-b9ff6c35079e/go.mod h1:O17XtbryoCJhkKGbT62+L2OlrniwqiGLSqrmdHCMzZw=
-github.com/pingcap/kvproto v0.0.0-20191018025622-fbf07f9804da/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
-github.com/pingcap/kvproto v0.0.0-20191113105027-4f292e1801d8 h1:P9jGgwVkLHlbEGtgGKrY0k/yy6N8L8Gdj8dliFswllU=
-github.com/pingcap/kvproto v0.0.0-20191113105027-4f292e1801d8/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
-github.com/pingcap/kvproto v0.0.0-20191210040729-c23886becb54 h1:T8myp+i7bPLy/W4rEjtsAZgjGTqQ0rnLu9xQ4YAfXJU=
-github.com/pingcap/kvproto v0.0.0-20191210040729-c23886becb54/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
 github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd h1:hWDol43WY5PGhsh3+8794bFHY1bPrmu6bTalpssCrGg=
 github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd/go.mod h1:WpHUKhNZ18v116SvGrmjkA9CBhYmuUTKL+p8JC9ANEw=
 github.com/pingcap/parser v0.0.0-20191205054626-288fe5207ce6 h1:KrJorS9gGYMhsQjENNWAeB5ho28xbowZ74pfJWkOmFc=
