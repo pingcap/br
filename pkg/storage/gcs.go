@@ -143,5 +143,10 @@ func newGCSStorage(gcs *backup.GCS) (*gcsStorage, error) {
 		return nil, err
 	}
 	bucket := client.Bucket(gcs.Bucket)
+	// check bucket exists
+	_, err = bucket.Attrs(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
 }
