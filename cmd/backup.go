@@ -51,8 +51,10 @@ func NewBackupCommand() *cobra.Command {
 
 	command.PersistentFlags().BoolP("fastchecksum", "", false,
 		"fast checksum backup sst file by calculate all sst file")
-
 	_ = command.PersistentFlags().MarkHidden("fastchecksum")
+
+	command.PersistentFlags().Uint64P("lastbackupts", "", 0, "the last time backup ts")
+
 	return command
 }
 
@@ -117,6 +119,11 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
+			lastBackupTS, err := command.Flags().GetUint64("lastbackupts")
+			if err != nil {
+				return err
+			}
+
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 				mgr.GetDomain(), mgr.GetTiKV(), backupTS, "", "")
 			if err != nil {
@@ -134,7 +141,7 @@ func newFullBackupCommand() *cobra.Command {
 			updateCh := utils.StartProgress(
 				ctx, "Full Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ctx, ranges, backupTS, rate, concurrency, updateCh)
+				ctx, ranges, lastBackupTS, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
@@ -251,6 +258,11 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
+			lastBackupTS, err := command.Flags().GetUint64("lastbackupts")
+			if err != nil {
+				return err
+			}
+
 			ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 				mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
 			if err != nil {
@@ -273,7 +285,7 @@ func newTableBackupCommand() *cobra.Command {
 			updateCh := utils.StartProgress(
 				ctx, "Table Backup", int64(approximateRegions), !HasLogFile())
 			err = client.BackupRanges(
-				ctx, ranges, backupTS, rate, concurrency, updateCh)
+				ctx, ranges, lastBackupTS, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				return err
 			}
