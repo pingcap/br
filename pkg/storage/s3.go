@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -29,8 +28,9 @@ const (
 	s3SSEOption          = "s3.sse"
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
-	accessKeyEnv         = "AWS_ACCESS_KEY_ID"
-	secretAccessKeyEnv   = "AWS_SECRET_ACCESS_KEY"
+	// accessKeyEnv         = "AWS_ACCESS_KEY_ID"
+	// secretAccessKeyEnv   = "AWS_SECRET_ACCESS_KEY"
+	notFound = "NotFound"
 	// number of retries to make of operations
 	maxRetries = 3
 )
@@ -44,14 +44,17 @@ type S3Storage struct {
 
 // S3BackendOptions contains options for s3 storage
 type S3BackendOptions struct {
-	Endpoint        string `json:"endpoint" toml:"endpoint"`
-	Region          string `json:"region" toml:"region"`
-	StorageClass    string `json:"storage_class" toml:"storage_class"`
-	SSE             string `json:"sse" toml:"sse"`
-	ACL             string `json:"acl" toml:"acl"`
-	ForcePathStyle  bool   `json:"force_path_style" toml:"force_path_style"`
-	AccessKey       string `json:"access_key" toml:"access_key"`
-	SecretAccessKey string `json:"secret_access_key" toml:"secret_access_key"`
+	Endpoint              string `json:"endpoint" toml:"endpoint"`
+	Region                string `json:"region" toml:"region"`
+	StorageClass          string `json:"storage_class" toml:"storage_class"`
+	SSE                   string `json:"sse" toml:"sse"`
+	ACL                   string `json:"acl" toml:"acl"`
+	AccessKey             string `json:"access_key" toml:"access_key"`
+	SecretAccessKey       string `json:"secret_access_key" toml:"secret_access_key"`
+	Provider              string `json:"provider" toml:"provider"`
+	ForcePathStyle        bool   `json:"force_path_style" toml:"force_path_style"`
+	UseAccelerateEndpoint bool   `json:"use_accelerate_endpoint" toml:"use_accelerate_endpoint"`
+	SendCredential        bool   `json:"send_credential" toml:"send_credential"`
 }
 
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
@@ -65,9 +68,29 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 		return errors.New("access_key not found")
 	}
 
-	// StorageClass, SSE and ACL are acceptable to be empty
+	if options.Endpoint != "" {
+		if !strings.HasPrefix(options.Endpoint, "https://") &&
+			!strings.HasPrefix(options.Endpoint, "http://") {
+			options.Endpoint = "http://" + options.Endpoint
+		}
+	}
+	if options.Provider == "alibaba" || options.Provider == "netease" ||
+		options.UseAccelerateEndpoint {
+		options.ForcePathStyle = false
+	}
+	if options.SendCredential {
+		c := credentials.NewEnvCredentials()
+		v, cerr := c.Get()
+		if cerr != nil {
+			cerr = errors.Trace(cerr)
+			return cerr
+		}
+		options.AccessKey = v.AccessKeyID
+		options.SecretAccessKey = v.SecretAccessKey
+	}
 	s3.Endpoint = options.Endpoint
 	s3.Region = options.Region
+	// StorageClass, SSE and ACL are acceptable to be empty
 	s3.StorageClass = options.StorageClass
 	s3.Sse = options.SSE
 	s3.Acl = options.ACL
@@ -87,25 +110,15 @@ func defineS3Flags(flags *pflag.FlagSet) {
 }
 
 func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
-	send, err := flags.GetBool(flagSendCredentialOption)
+	options.SendCredential, err = flags.GetBool(flagSendCredentialOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
-	}
-	if send {
-		options.AccessKey = os.Getenv(accessKeyEnv)
-		options.SecretAccessKey = os.Getenv(secretAccessKeyEnv)
 	}
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
-	}
-	if options.Endpoint != "" {
-		if !strings.HasPrefix(options.Endpoint, "https://") &&
-			!strings.HasPrefix(options.Endpoint, "http://") {
-			options.Endpoint = "http://" + options.Endpoint
-		}
 	}
 	options.Region, err = flags.GetString(s3RegionOption)
 	if err != nil {
@@ -128,15 +141,10 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 		return
 	}
 	options.ForcePathStyle = true
-	provider, err := flags.GetString(s3ProviderOption)
+	options.Provider, err = flags.GetString(s3ProviderOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
-	}
-	// TODO: ForcePathStyle may need to be false
-	// if UseAccelerateEndpoint enabled for aws s3
-	if provider == "alibaba" || provider == "netease" {
-		options.ForcePathStyle = false
 	}
 
 	return options, err
@@ -298,7 +306,7 @@ func (rs *S3Storage) FileExists(file string) (bool, error) {
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
-			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey:
+			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
 			default:
 				return true, err

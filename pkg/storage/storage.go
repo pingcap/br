@@ -24,7 +24,7 @@ func Create(ctx context.Context, backend *backup.StorageBackend) (ExternalStorag
 		return newLocalStorage(backend.Local.Path)
 	case *backup.StorageBackend_S3:
 		if backend.S3 == nil {
-			return nil, errors.Errorf("no s3 config in %#v", backend)
+			return nil, errors.New("s3 config not found")
 		}
 		return newS3Storage(backend.S3)
 	case *backup.StorageBackend_Noop:
