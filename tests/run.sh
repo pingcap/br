@@ -98,10 +98,12 @@ start_services
 if [ "${1-}" = '--debug' ]; then
     echo 'You may now debug from another terminal. Press [ENTER] to continue.'
     read line
+    shift
 fi
 
-for script in tests/*/run.sh; do
-    echo "*===== Running test $script... =====*"
+run_one()
+{
+    echo "*===== Running test $1... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
     TIDB_IP="$TIDB_IP" \
@@ -110,6 +112,15 @@ for script in tests/*/run.sh; do
     TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
-    TEST_NAME="$(basename "$(dirname "$script")")" \
-    sh "$script"
-done
+    TEST_NAME="$(basename "$(dirname "$1")")" \
+    sh "$1"
+}
+
+if [ $# -eq 0 ]
+then
+    for script in tests/*/run.sh; do
+        run_one "$script"
+    done
+else
+    run_one "tests/$1/run.sh"
+fi
