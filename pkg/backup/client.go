@@ -102,7 +102,7 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 // SetStorage set ExternalStorage for client
 func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend) error {
 	var err error
-	bc.storage, err = storage.Create(backend)
+	bc.storage, err = storage.Create(ctx, backend)
 	if err != nil {
 		return err
 	}

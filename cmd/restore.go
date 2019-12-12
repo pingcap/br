@@ -397,7 +397,7 @@ func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *fla
 		return err
 	}
 	client.SetRateLimit(rateLimit * utils.MB)
-	s, err := storage.Create(u)
+	s, err := storage.Create(ctx, u)
 	if err != nil {
 		return errors.Trace(err)
 	}

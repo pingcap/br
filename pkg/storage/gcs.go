@@ -132,19 +132,19 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 	return true, nil
 }
 
-func newGCSStorage(gcs *backup.GCS) (*gcsStorage, error) {
+func newGCSStorage(ctx context.Context, gcs *backup.GCS) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
 	clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
 	if gcs.Endpoint != "" {
 		clientOps = append(clientOps, option.WithEndpoint(gcs.Endpoint))
 	}
-	client, err := storage.NewClient(context.Background(), clientOps...)
+	client, err := storage.NewClient(ctx, clientOps...)
 	if err != nil {
 		return nil, err
 	}
 	bucket := client.Bucket(gcs.Bucket)
 	// check bucket exists
-	_, err = bucket.Attrs(context.Background())
+	_, err = bucket.Attrs(ctx)
 	if err != nil {
 		return nil, err
 	}
