@@ -440,36 +440,6 @@ func newRawRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			////*
-			//dbName, err := cmd.Flags().GetString("db")
-			//if err != nil {
-			//	return errors.Trace(err)
-			//}
-			//db := client.GetDatabase(dbName)
-			//if db == nil {
-			//	return errors.New("not exists database")
-			//}
-			//err = client.CreateDatabase(db.Schema)
-			//if err != nil {
-			//	return errors.Trace(err)
-			//}
-			//
-			//tableName, err := cmd.Flags().GetString("table")
-			//if err != nil {
-			//	return errors.Trace(err)
-			//}
-			//table := db.GetTable(tableName)
-			//if table == nil {
-			//	return errors.New("not exists table")
-			//}
-			//// The rules here is raw key.
-			//rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
-			//if err != nil {
-			//	return errors.Trace(err)
-			//}
-			//ranges := restore.GetRanges(table.Files)
-			////*/
-
 			files, err := client.GetFilesInRawRange(startKey, endKey)
 			if err != nil {
 				return errors.Trace(err)
@@ -513,22 +483,12 @@ func newRawRestoreCommand() *cobra.Command {
 			// Restore has finished.
 			close(updateCh)
 
-			// Checksum
-			//updateCh = utils.StartProgress(
-			//	ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			//err = client.ValidateChecksum(
-			//	ctx, mgr.GetTiKV().GetClient(), []*utils.Table{table}, newTables, updateCh)
-			//if err != nil {
-			//	return err
-			//}
-			//close(updateCh)
-
 			return nil
 		},
 	}
 
-	//command.Flags().StringP("start", "s", "", "restore raw kv start key")
-	//command.Flags().StringP("end", "e", "", "restore raw kv end key")
+	command.Flags().StringP("start", "s", "", "restore raw kv start key")
+	command.Flags().StringP("end", "e", "", "restore raw kv end key")
 	return command
 }
 
