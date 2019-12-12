@@ -116,14 +116,14 @@ backup data checksum failed: %s may be changed
 calculated sha256 is %s,
 origin sha256 is %s`, file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
 					}
-					log.Info("table info", zap.Stringer("table", tblInfo.Name),
-						zap.Uint64("CRC64", calCRC64),
-						zap.Uint64("totalKvs", totalKVs),
-						zap.Uint64("totalBytes", totalBytes),
-						zap.Uint64("schemaTotalKvs", schema.TotalKvs),
-						zap.Uint64("schemaTotalBytes", schema.TotalBytes),
-						zap.Uint64("schemaCRC64", schema.Crc64Xor))
 				}
+				log.Info("table info", zap.Stringer("table", tblInfo.Name),
+					zap.Uint64("CRC64", calCRC64),
+					zap.Uint64("totalKvs", totalKVs),
+					zap.Uint64("totalBytes", totalBytes),
+					zap.Uint64("schemaTotalKvs", schema.TotalKvs),
+					zap.Uint64("schemaTotalBytes", schema.TotalBytes),
+					zap.Uint64("schemaCRC64", schema.Crc64Xor))
 			}
 			cmd.Println("backup data checksum succeed!")
 			return nil
