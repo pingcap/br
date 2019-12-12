@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -115,13 +116,8 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 		return
 	}
 	if send {
-		c := credentials.NewEnvCredentials()
-		v, cerr := c.Get()
-		if cerr != nil {
-			return options, errors.Trace(cerr)
-		}
-		options.AccessKey = v.AccessKeyID
-		options.SecretAccessKey = v.SecretAccessKey
+		options.AccessKey = os.Getenv("AWS_ACCESS_KEY_ID")
+		options.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 	}
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
