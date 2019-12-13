@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -250,7 +252,7 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration(fmt.Sprintf("restore table: %s", table.Schema.Name), elapsed)
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -311,7 +313,7 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration(fmt.Sprintf("restore database: %s", db.Schema.Name), elapsed)
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -347,7 +349,7 @@ func (rc *Client) RestoreAll(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore All", zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration("restore all", elapsed)
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)
@@ -446,7 +448,7 @@ func (rc *Client) ValidateChecksum(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Checksum", zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration("restore checksum", elapsed)
 	}()
 
 	log.Info("Start to validate checksum")

@@ -25,6 +25,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -285,7 +286,7 @@ func (bc *Client) BackupRanges(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Ranges", zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration("backup ranges", elapsed)
 	}()
 
 	errCh := make(chan error)
@@ -399,8 +400,7 @@ func (bc *Client) backupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	log.Info("backup range finished",
-		zap.Duration("take", time.Since(start)))
+	summary.Collector.CollectDuration("backup range finished", time.Since(start))
 	return nil
 }
 
@@ -690,7 +690,7 @@ func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+		summary.Collector.CollectDuration("backup checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
