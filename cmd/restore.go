@@ -43,6 +43,8 @@ func NewRestoreCommand() *cobra.Command {
 
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().Uint64("ratelimit", 0,
+		"The rate limit of the restore task, MB/s per node. Set to 0 for unlimited speed.")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
 	command.PersistentFlags().BoolP("online", "", false,
@@ -75,7 +77,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -179,7 +181,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -289,7 +291,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -385,16 +387,21 @@ func newTableRestoreCommand() *cobra.Command {
 	return command
 }
 
-func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
+func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *flag.FlagSet) error {
 	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
 	}
-	s, err := storage.Create(u)
+	rateLimit, err := flagSet.GetUint64("ratelimit")
+	if err != nil {
+		return err
+	}
+	client.SetRateLimit(rateLimit * utils.MB)
+	s, err := storage.Create(ctx, u)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	metaData, err := s.Read(utils.MetaFile)
+	metaData, err := s.Read(ctx, utils.MetaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

@@ -10,7 +10,8 @@ import (
 // BackendOptions further configures the storage backend not expressed by the
 // storage URL.
 type BackendOptions struct {
-	S3 S3BackendOptions `json:"s3" toml:"s3"`
+	S3  S3BackendOptions  `json:"s3" toml:"s3"`
+	GCS GCSBackendOptions `json:"gcs" toml:"gcs"`
 }
 
 // ParseBackend constructs a structured backend description from the
@@ -45,6 +46,15 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 
+	case "gcs":
+		gcs := &backup.GCS{Bucket: u.Host, Prefix: u.Path[1:]}
+		if options != nil {
+			if err := options.GCS.apply(gcs); err != nil {
+				return nil, err
+			}
+		}
+		return &backup.StorageBackend{Backend: &backup.StorageBackend_Gcs{Gcs: gcs}}, nil
+
 	default:
 		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
 	}
@@ -65,6 +75,10 @@ func FormatBackendURL(backend *backup.StorageBackend) (u url.URL) {
 		u.Scheme = "s3"
 		u.Host = b.S3.Bucket
 		u.Path = b.S3.Prefix
+	case *backup.StorageBackend_Gcs:
+		u.Scheme = "gcs"
+		u.Host = b.Gcs.Bucket
+		u.Path = b.Gcs.Prefix
 	}
 	return
 }

@@ -45,10 +45,12 @@ type Client struct {
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
 
-	databases  map[string]*utils.Database
-	backupMeta *backup.BackupMeta
-	db         *DB
-	isOnline   bool
+	databases       map[string]*utils.Database
+	backupMeta      *backup.BackupMeta
+	db              *DB
+	rateLimit       uint64
+	isOnline        bool
+	hasSpeedLimited bool
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -71,6 +73,11 @@ func NewRestoreClient(
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
+}
+
+// SetRateLimit to set rateLimit.
+func (rc *Client) SetRateLimit(rateLimit uint64) {
+	rc.rateLimit = rateLimit
 }
 
 // GetPDClient returns a pd client.
@@ -96,7 +103,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
 }
 
@@ -216,6 +223,23 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+func (rc *Client) setSpeedLimit() error {
+	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
+		stores, err := rc.pdClient.GetAllStores(rc.ctx, pd.WithExcludeTombstone())
+		if err != nil {
+			return err
+		}
+		for _, store := range stores {
+			err = rc.fileImporter.setDownloadSpeedLimit(store.GetId())
+			if err != nil {
+				return err
+			}
+		}
+		rc.hasSpeedLimited = true
+	}
+	return nil
+}
+
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
@@ -237,6 +261,10 @@ func (rc *Client) RestoreTable(
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
+	err := rc.setSpeedLimit()
+	if err != nil {
+		return err
+	}
 	for _, file := range table.Files {
 		wg.Add(1)
 		fileReplica := file

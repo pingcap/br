@@ -88,7 +88,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return nil
 	}
 
-	err = client.SetStorage(u)
+	err = client.SetStorage(ctx, u)
 	if err != nil {
 		return err
 	}
@@ -132,13 +132,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if backupSchemas.Len() < backupSchemasConcurrency {
 		backupSchemasConcurrency = backupSchemas.Len()
 	}
-	cksctx, ckscancel := context.WithCancel(defaultContext)
-	defer ckscancel()
 	updateCh = utils.StartProgress(
-		cksctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
+		ctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
 	backupSchemas.SetSkipChecksum(!checksum)
 	backupSchemas.Start(
-		cksctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
 
 	err = client.CompleteMeta(backupSchemas)
 	if err != nil {
@@ -157,7 +155,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
-	return client.SaveBackupMeta()
+	return client.SaveBackupMeta(ctx)
 }
 
 // NewBackupCommand return a full backup subcommand.
