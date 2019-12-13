@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -48,16 +49,19 @@ func newCheckSumCommand() *cobra.Command {
 		Use:   "checksum",
 		Short: "check the backup data",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
 			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
 			if err != nil {
 				return err
 			}
-			s, err := storage.Create(u)
+			s, err := storage.Create(ctx, u)
 			if err != nil {
 				return errors.Trace(err)
 			}
 
-			metaData, err := s.Read(utils.MetaFile)
+			metaData, err := s.Read(ctx, utils.MetaFile)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -105,7 +109,7 @@ func newCheckSumCommand() *cobra.Command {
 					)
 
 					var data []byte
-					data, err = s.Read(file.Name)
+					data, err = s.Read(ctx, file.Name)
 					if err != nil {
 						return errors.Trace(err)
 					}
@@ -138,6 +142,9 @@ func newBackupMetaCommand() *cobra.Command {
 		Use:   "backupmeta",
 		Short: "check the backup meta",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
 			tableIDOffset, err := cmd.Flags().GetUint64("offset")
 			if err != nil {
 				return err
@@ -146,12 +153,12 @@ func newBackupMetaCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			s, err := storage.Create(u)
+			s, err := storage.Create(ctx, u)
 			if err != nil {
 				log.Error("create storage failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			data, err := s.Read(utils.MetaFile)
+			data, err := s.Read(ctx, utils.MetaFile)
 			if err != nil {
 				log.Error("load backupmeta failed", zap.Error(err))
 				return err

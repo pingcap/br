@@ -74,7 +74,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -177,7 +177,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -286,7 +286,7 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -388,7 +388,7 @@ func newTableRestoreCommand() *cobra.Command {
 	return command
 }
 
-func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
+func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *flag.FlagSet) error {
 	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
@@ -398,11 +398,11 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 		return err
 	}
 	client.SetRateLimit(rateLimit * utils.MB)
-	s, err := storage.Create(u)
+	s, err := storage.Create(ctx, u)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	metaData, err := s.Read(utils.MetaFile)
+	metaData, err := s.Read(ctx, utils.MetaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

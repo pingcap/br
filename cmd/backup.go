@@ -82,7 +82,7 @@ func newFullBackupCommand() *cobra.Command {
 				return err
 			}
 
-			err = client.SetStorage(u)
+			err = client.SetStorage(ctx, u)
 			if err != nil {
 				return err
 			}
@@ -178,7 +178,7 @@ func newFullBackupCommand() *cobra.Command {
 			// Checksum has finished
 			close(updateCh)
 
-			return client.SaveBackupMeta()
+			return client.SaveBackupMeta(ctx)
 		},
 	}
 	return command
@@ -208,7 +208,7 @@ func newTableBackupCommand() *cobra.Command {
 				return err
 			}
 
-			err = client.SetStorage(u)
+			err = client.SetStorage(ctx, u)
 			if err != nil {
 				return err
 			}
@@ -318,7 +318,7 @@ func newTableBackupCommand() *cobra.Command {
 			// Checksum has finished
 			close(updateCh)
 
-			return client.SaveBackupMeta()
+			return client.SaveBackupMeta(ctx)
 		},
 	}
 	command.Flags().StringP("db", "", "", "backup a table in the specific db")
