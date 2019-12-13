@@ -29,7 +29,7 @@ echo "-u $PD_ADDR -d sched add shuffle-leader-scheduler" | pd-ctl
 
 # backup with shuffle leader
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
 
 run_sql "DROP TABLE $DB.$TABLE;"
 
