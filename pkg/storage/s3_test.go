@@ -243,6 +243,7 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
+		sendCredential = true
 		if test.hackCheck {
 			checkS3Bucket = func(svc *s3.S3, bucket string) error { return nil }
 		}
@@ -307,6 +308,40 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 				Endpoint: "",
 				Bucket:   "bucket",
 				Prefix:   "prefix",
+			},
+			errReturn: false,
+			hackCheck: true,
+		},
+		{
+			name: "keys configured explicitly",
+			s3: &backup.S3{
+				Region:          "us-west-2",
+				AccessKey:       "ab",
+				SecretAccessKey: "cd",
+				Bucket:          "bucket",
+				Prefix:          "prefix",
+			},
+			errReturn: false,
+			hackCheck: true,
+		},
+		{
+			name: "no access key",
+			s3: &backup.S3{
+				Region:          "us-west-2",
+				SecretAccessKey: "cd",
+				Bucket:          "bucket",
+				Prefix:          "prefix",
+			},
+			errReturn: false,
+			hackCheck: true,
+		},
+		{
+			name: "no secret access key",
+			s3: &backup.S3{
+				Region:    "us-west-2",
+				AccessKey: "ab",
+				Bucket:    "bucket",
+				Prefix:    "prefix",
 			},
 			errReturn: false,
 			hackCheck: true,

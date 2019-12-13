@@ -3,16 +3,11 @@ package storage
 import (
 	"bytes"
 	"io/ioutil"
-	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/credentials/ec2rolecreds"
-	"github.com/aws/aws-sdk-go/aws/defaults"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
@@ -35,8 +30,6 @@ const (
 	notFound             = "NotFound"
 	// number of retries to make of operations
 	maxRetries = 3
-	// low timeout 1s to ec2 metadata service
-	timeout = 1
 )
 
 // s3Handlers make it easy to inject test functions
@@ -163,63 +156,19 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 // newS3Storage initialize a new s3 storage for metadata
 func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 	qs := *backend
-	v := credentials.Value{
-		AccessKeyID:     qs.AccessKey,
-		SecretAccessKey: qs.SecretAccessKey,
-	}
-
-	// low timeout to ec2 metadata service
-	lowTimeoutClient := &http.Client{Timeout: time.Duration(timeout) * time.Second}
-	def := defaults.Get()
-	def.Config.HTTPClient = lowTimeoutClient
-	ec2Session, err := session.NewSession()
-	if err != nil {
-		return nil, err
-	}
-
-	// first provider to supply a credential set "wins"
-	providers := []credentials.Provider{
-		// use static credentials if they're present (checked by provider)
-		&credentials.StaticProvider{Value: v},
-
-		// * Access Key ID:     AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY
-		// * Secret Access Key: AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY
-		&credentials.EnvProvider{},
-
-		// A SharedCredentialsProvider retrieves credentials
-		// from the current user's home directory.  It checks
-		// AWS_SHARED_CREDENTIALS_FILE and AWS_PROFILE too.
-		&credentials.SharedCredentialsProvider{},
-
-		// Pick up IAM role if we're in an ECS task
-		defaults.RemoteCredProvider(*def.Config, def.Handlers),
-
-		// Pick up IAM role in case we're on EC2
-		&ec2rolecreds.EC2RoleProvider{
-			Client: ec2metadata.New(ec2Session, &aws.Config{
-				HTTPClient: lowTimeoutClient,
-			}),
-			ExpiryWindow: 3 * time.Minute,
-		},
-	}
-	cred := credentials.NewChainCredentials(providers)
-	if sendCredential {
-		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
-			v, cerr := cred.Get()
-			if cerr != nil {
-				return nil, cerr
-			}
-			backend.AccessKey = v.AccessKeyID
-			backend.SecretAccessKey = v.SecretAccessKey
-		}
+	var cred *credentials.Credentials
+	if qs.AccessKey != "" && qs.SecretAccessKey != "" {
+		cred = credentials.NewStaticCredentials(qs.AccessKey, qs.SecretAccessKey, "")
 	}
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
-		WithCredentials(cred).
 		WithS3ForcePathStyle(qs.ForcePathStyle).
 		WithRegion(qs.Region)
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
+	}
+	if cred != nil {
+		awsConfig.WithCredentials(cred)
 	}
 	// awsConfig.WithLogLevel(aws.LogDebugWithSigning)
 	awsSessionOpts := session.Options{
@@ -229,6 +178,18 @@ func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if sendCredential && ses.Config.Credentials != nil {
+		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
+			v, cerr := ses.Config.Credentials.Get()
+			if cerr != nil {
+				return nil, cerr
+			}
+			backend.AccessKey = v.AccessKeyID
+			backend.SecretAccessKey = v.SecretAccessKey
+		}
+	}
+
 	c := s3.New(ses)
 	err = checkS3Bucket(c, qs.Bucket)
 	if err != nil {
