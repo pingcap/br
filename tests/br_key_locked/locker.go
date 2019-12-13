@@ -288,7 +288,7 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 			continue
 		}
 
-		prewriteResp := resp.Resp.(*kvrpcpb.PrewriteResponse)
+		prewriteResp := resp.Resp
 		if prewriteResp == nil {
 			return 0, errors.Errorf("response body missing")
 		}
