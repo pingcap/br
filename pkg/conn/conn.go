@@ -29,17 +29,13 @@ import (
 const (
 	dialTimeout          = 5 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-	regionCountPrefix    = "pd/api/v1/regions/count"
+	regionCountPrefix    = "pd/api/v1/stats/region"
 )
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
 	pdClient pd.Client
-
-	// make it public for unit test to mock
-	PDHTTPGet func(string, string, *http.Client) ([]byte, error)
-
-	pdHTTP struct {
+	pdHTTP   struct {
 		addrs []string
 		cli   *http.Client
 	}
@@ -51,7 +47,9 @@ type Mgr struct {
 	}
 }
 
-var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
+type pdHTTPGet func(context.Context, string, string, *http.Client) ([]byte, error)
+
+func pdGet(ctx context.Context, addr string, prefix string, cli *http.Client) ([]byte, error) {
 	if addr != "" && !strings.HasPrefix("http", addr) {
 		addr = "http://" + addr
 	}
@@ -60,7 +58,7 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 		return nil, errors.Trace(err)
 	}
 	url := fmt.Sprintf("%s/%s", u, prefix)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -88,7 +86,7 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
 	for _, addr := range addrs {
-		_, failure = pdGet(addr, clusterVersionPrefix, cli)
+		_, failure = pdGet(ctx, addr, clusterVersionPrefix, cli)
 		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
 			break
@@ -138,7 +136,6 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
-	mgr.PDHTTPGet = pdGet
 	return mgr, nil
 }
 
@@ -154,10 +151,14 @@ func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
 }
 
 // GetClusterVersion returns the current cluster version.
-func (mgr *Mgr) GetClusterVersion() (string, error) {
+func (mgr *Mgr) GetClusterVersion(ctx context.Context) (string, error) {
+	return mgr.getClusterVersionWith(ctx, pdGet)
+}
+
+func (mgr *Mgr) getClusterVersionWith(ctx context.Context, get pdHTTPGet) (string, error) {
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := mgr.PDHTTPGet(addr, clusterVersionPrefix, mgr.pdHTTP.cli)
+		v, e := get(ctx, addr, clusterVersionPrefix, mgr.pdHTTP.cli)
 		if e != nil {
 			err = e
 			continue
@@ -168,11 +169,21 @@ func (mgr *Mgr) GetClusterVersion() (string, error) {
 	return "", err
 }
 
-// GetRegionCount returns the total region count in the cluster
-func (mgr *Mgr) GetRegionCount() (int, error) {
+// GetRegionCount returns the region count in the specified range.
+func (mgr *Mgr) GetRegionCount(ctx context.Context, startKey, endKey []byte) (int, error) {
+	return mgr.getRegionCountWith(ctx, pdGet, startKey, endKey)
+}
+
+func (mgr *Mgr) getRegionCountWith(
+	ctx context.Context, get pdHTTPGet, startKey, endKey []byte,
+) (int, error) {
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := mgr.PDHTTPGet(addr, regionCountPrefix, mgr.pdHTTP.cli)
+		query := fmt.Sprintf(
+			"%s?start_key=%s&end_key=%s",
+			regionCountPrefix,
+			url.QueryEscape(string(startKey)), url.QueryEscape(string(endKey)))
+		v, e := get(ctx, addr, query, mgr.pdHTTP.cli)
 		if e != nil {
 			err = e
 			continue

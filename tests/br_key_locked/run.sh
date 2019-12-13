@@ -29,7 +29,7 @@ bin/locker -tidb $TIDB_STATUS_ADDR -pd $PD_ADDR -db $DB -table $TABLE -lock-ttl 
 
 # backup table
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
 
 run_sql "DROP TABLE $DB.$TABLE;"
 

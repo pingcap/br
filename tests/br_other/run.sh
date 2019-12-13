@@ -29,7 +29,7 @@ run_sql "INSERT INTO $DB.usertable1 VALUES (\"aa\", \"b\");"
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 # Test validate backupmeta
 run_br validate backupmeta -s "local://$TEST_DIR/$DB"
