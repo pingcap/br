@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	cloud.google.com/go/storage v1.4.0
+	github.com/aws/aws-sdk-go v1.26.1
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
