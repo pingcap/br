@@ -47,6 +47,12 @@ type ImporterClient interface {
 		storeID uint64,
 		req *import_sstpb.IngestRequest,
 	) (*import_sstpb.IngestResponse, error)
+
+	SetDownloadSpeedLimit(
+		ctx context.Context,
+		storeID uint64,
+		req *import_sstpb.SetDownloadSpeedLimitRequest,
+	) (*import_sstpb.SetDownloadSpeedLimitResponse, error)
 }
 
 type importClient struct {
@@ -73,6 +79,18 @@ func (ic *importClient) DownloadSST(
 		return nil, err
 	}
 	return client.Download(ctx, req)
+}
+
+func (ic *importClient) SetDownloadSpeedLimit(
+	ctx context.Context,
+	storeID uint64,
+	req *import_sstpb.SetDownloadSpeedLimitRequest,
+) (*import_sstpb.SetDownloadSpeedLimitResponse, error) {
+	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.SetDownloadSpeedLimit(ctx, req)
 }
 
 func (ic *importClient) IngestSST(
@@ -115,6 +133,7 @@ type FileImporter struct {
 	metaClient   restore_util.Client
 	importClient ImporterClient
 	backend      *backup.StorageBackend
+	rateLimit    uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -126,6 +145,7 @@ func NewFileImporter(
 	metaClient restore_util.Client,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
@@ -134,6 +154,7 @@ func NewFileImporter(
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		rateLimit:    rateLimit,
 	}
 }
 
@@ -216,6 +237,14 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	}, func(e error) bool {
 		return true
 	}, importFileRetryTimes, importFileWaitInterval, importFileMaxWaitInterval)
+	return err
+}
+
+func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
+	req := &import_sstpb.SetDownloadSpeedLimitRequest{
+		SpeedLimit: importer.rateLimit,
+	}
+	_, err := importer.importClient.SetDownloadSpeedLimit(importer.ctx, storeID, req)
 	return err
 }
 

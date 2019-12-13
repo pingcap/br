@@ -43,6 +43,8 @@ func NewRestoreCommand() *cobra.Command {
 
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().Uint64("ratelimit", 0,
+		"The rate limit of the restore task, MB/s per node. Set to 0 for unlimited speed.")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
 	command.PersistentFlags().BoolP("online", "", false,
@@ -390,6 +392,11 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return err
 	}
+	rateLimit, err := flagSet.GetUint64("ratelimit")
+	if err != nil {
+		return err
+	}
+	client.SetRateLimit(rateLimit * utils.MB)
 	s, err := storage.Create(u)
 	if err != nil {
 		return errors.Trace(err)
