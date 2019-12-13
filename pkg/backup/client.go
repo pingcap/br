@@ -34,7 +34,6 @@ type ClientMgr interface {
 	GetPDClient() pd.Client
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
-	GetRegionCount() (int, error)
 	Close()
 }
 
@@ -190,7 +189,13 @@ func BuildBackupRangeAndSchema(
 	case len(dbName) == 0 && len(tableName) != 0:
 		return nil, nil, errors.New("no database is not specified")
 	case len(dbName) != 0 && len(tableName) == 0:
-		return nil, nil, errors.New("backup database is not supported")
+		// backup database
+		cDBName := model.NewCIStr(dbName)
+		dbInfo, exist := info.SchemaByName(cDBName)
+		if !exist {
+			return nil, nil, errors.Errorf("schema %s not found", dbName)
+		}
+		dbInfos = append(dbInfos, dbInfo)
 	case len(dbName) != 0 && len(tableName) != 0:
 		// backup table
 		cTableName = model.NewCIStr(tableName)
@@ -677,11 +682,6 @@ func SendBackup(
 		}
 	}
 	return nil
-}
-
-// GetRangeRegionCount get region count by pd http api
-func (bc *Client) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
-	return bc.mgr.GetRegionCount()
 }
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table

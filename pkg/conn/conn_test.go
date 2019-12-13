@@ -2,11 +2,12 @@ package conn
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/pd/server"
+	"github.com/pingcap/pd/server/statistics"
 )
 
 func TestT(t *testing.T) {
@@ -14,7 +15,6 @@ func TestT(t *testing.T) {
 }
 
 func TestClient(t *testing.T) {
-	server.EnableZap = true
 	TestingT(t)
 }
 
@@ -37,18 +37,22 @@ func (s *testClientSuite) TearDownSuite(c *C) {
 }
 
 func (s *testClientSuite) TestPDHTTP(c *C) {
-	s.mgr.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
-		return []byte(`{"count":6,"regions":null}`), nil
+	ctx := context.Background()
+	mock := func(context.Context, string, string, *http.Client) ([]byte, error) {
+		stats := statistics.RegionStats{Count: 6}
+		ret, err := json.Marshal(stats)
+		c.Assert(err, IsNil)
+		return ret, nil
 	}
 	s.mgr.pdHTTP.addrs = []string{""}
-	resp, err := s.mgr.GetRegionCount()
+	resp, err := s.mgr.getRegionCountWith(ctx, mock, []byte{}, []byte{})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 6)
 
-	s.mgr.PDHTTPGet = func(string, string, *http.Client) ([]byte, error) {
+	mock = func(context.Context, string, string, *http.Client) ([]byte, error) {
 		return []byte(`test`), nil
 	}
-	respString, err := s.mgr.GetClusterVersion()
+	respString, err := s.mgr.getClusterVersionWith(ctx, mock)
 	c.Assert(err, IsNil)
 	c.Assert(respString, Equals, "test")
 }
