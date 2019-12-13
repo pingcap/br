@@ -206,7 +206,7 @@ func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 	}, nil
 }
 
-// checkBucket checks if a bucket exists and creates it if not
+// checkBucket checks if a bucket exists
 var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
