@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"strings"
 
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
@@ -231,6 +234,7 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
+		ctx := aws.BackgroundContext()
 		sendCredential = true
 		if test.hackCheck {
 			checkS3Bucket = func(svc *s3.S3, bucket string) error { return nil }
@@ -240,7 +244,7 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 				S3: test.s3,
 			},
 		}
-		_, err := Create(s3)
+		_, err := Create(ctx, s3)
 		if test.errReturn {
 			c.Assert(err, NotNil)
 			return
@@ -348,15 +352,16 @@ func (r *testStorageSuite) TestS3Handlers(c *C) {
 
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
+		ctx := aws.BackgroundContext()
 		ms3 := S3Storage{
 			svc:     test.mh,
 			options: test.options,
 		}
-		err := ms3.Write("file", []byte("test"))
+		err := ms3.Write(ctx, "file", []byte("test"))
 		c.Assert(err, Equals, test.mh.err)
-		_, err = ms3.Read("file")
+		_, err = ms3.Read(ctx, "file")
 		c.Assert(err, Equals, test.mh.err)
-		_, err = ms3.FileExists("file")
+		_, err = ms3.FileExists(ctx, "file")
 		if err != nil {
 			c.Assert(err, Equals, test.mh.err)
 		}
@@ -423,10 +428,12 @@ type mockS3Handler struct {
 	err error
 }
 
-func (c *mockS3Handler) HeadObject(input *s3.HeadObjectInput) (*s3.HeadObjectOutput, error) {
+func (c *mockS3Handler) HeadObjectWithContext(ctx context.Context,
+	input *s3.HeadObjectInput, opts ...request.Option) (*s3.HeadObjectOutput, error) {
 	return nil, c.err
 }
-func (c *mockS3Handler) GetObject(input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+func (c *mockS3Handler) GetObjectWithContext(ctx context.Context,
+	input *s3.GetObjectInput, opts ...request.Option) (*s3.GetObjectOutput, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -434,12 +441,15 @@ func (c *mockS3Handler) GetObject(input *s3.GetObjectInput) (*s3.GetObjectOutput
 		Body: ioutil.NopCloser(strings.NewReader("HappyFace.jpg")),
 	}, nil
 }
-func (c *mockS3Handler) PutObject(input *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+func (c *mockS3Handler) PutObjectWithContext(ctx context.Context,
+	input *s3.PutObjectInput, opts ...request.Option) (*s3.PutObjectOutput, error) {
 	return nil, c.err
 }
-func (c *mockS3Handler) HeadBucket(input *s3.HeadBucketInput) (*s3.HeadBucketOutput, error) {
+func (c *mockS3Handler) HeadBucketWithContext(ctx context.Context,
+	input *s3.HeadBucketInput, opts ...request.Option) (*s3.HeadBucketOutput, error) {
 	return nil, c.err
 }
-func (c *mockS3Handler) WaitUntilObjectExists(input *s3.HeadObjectInput) error {
+func (c *mockS3Handler) WaitUntilObjectExistsWithContext(ctx context.Context,
+	input *s3.HeadObjectInput, opts ...request.WaiterOption) error {
 	return c.err
 }

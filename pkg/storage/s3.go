@@ -2,12 +2,14 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"net/url"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
@@ -34,11 +36,11 @@ const (
 
 // s3Handlers make it easy to inject test functions
 type s3Handlers interface {
-	HeadObject(*s3.HeadObjectInput) (*s3.HeadObjectOutput, error)
-	GetObject(*s3.GetObjectInput) (*s3.GetObjectOutput, error)
-	PutObject(*s3.PutObjectInput) (*s3.PutObjectOutput, error)
-	HeadBucket(*s3.HeadBucketInput) (*s3.HeadBucketOutput, error)
-	WaitUntilObjectExists(*s3.HeadObjectInput) error
+	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
+	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
+	PutObjectWithContext(context.Context, *s3.PutObjectInput, ...request.Option) (*s3.PutObjectOutput, error)
+	HeadBucketWithContext(context.Context, *s3.HeadBucketInput, ...request.Option) (*s3.HeadBucketOutput, error)
+	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
 }
 
 // S3Storage info for s3 storage
@@ -214,7 +216,7 @@ var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 }
 
 // Write write to s3 storage
-func (rs *S3Storage) Write(file string, data []byte) error {
+func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error {
 	input := &s3.PutObjectInput{
 		Body:   aws.ReadSeekCloser(bytes.NewReader(data)),
 		Bucket: aws.String(rs.options.Bucket),
@@ -230,8 +232,7 @@ func (rs *S3Storage) Write(file string, data []byte) error {
 		input = input.SetStorageClass(rs.options.StorageClass)
 	}
 
-	// TODO: PutObjectWithContext
-	_, err := rs.svc.PutObject(input)
+	_, err := rs.svc.PutObjectWithContext(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -239,20 +240,18 @@ func (rs *S3Storage) Write(file string, data []byte) error {
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
 	}
-	// TODO: WaitUntilObjectExistsWithContext
-	err = rs.svc.WaitUntilObjectExists(hinput)
+	err = rs.svc.WaitUntilObjectExistsWithContext(ctx, hinput)
 	return err
 }
 
 // Read read file from s3
-func (rs *S3Storage) Read(file string) ([]byte, error) {
+func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
 	}
 
-	// TODO: GetObjectWithContext
-	result, err := rs.svc.GetObject(input)
+	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -265,14 +264,13 @@ func (rs *S3Storage) Read(file string) ([]byte, error) {
 }
 
 // FileExists check if file exists on s3 storage
-func (rs *S3Storage) FileExists(file string) (bool, error) {
+func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) {
 	input := &s3.HeadObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
 	}
 
-	// TODO: HeadObjectWithContext
-	_, err := rs.svc.HeadObject(input)
+	_, err := rs.svc.HeadObjectWithContext(ctx, input)
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
