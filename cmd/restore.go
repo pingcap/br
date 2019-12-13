@@ -440,7 +440,12 @@ func newRawRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			files, err := client.GetFilesInRawRange(startKey, endKey)
+			cf, err := cmd.Flags().GetString("cf")
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			files, err := client.GetFilesInRawRange(startKey, endKey, cf)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -487,8 +492,9 @@ func newRawRestoreCommand() *cobra.Command {
 		},
 	}
 
-	command.Flags().StringP("start", "s", "", "restore raw kv start key")
-	command.Flags().StringP("end", "e", "", "restore raw kv end key")
+	command.Flags().StringP("start", "", "", "restore raw kv start key")
+	command.Flags().StringP("end", "", "", "restore raw kv end key")
+	command.Flags().StringP("cf", "", "default", "the cf to restore raw keys")
 	return command
 }
 

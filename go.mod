@@ -16,7 +16,7 @@ require (
 	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/pingcap/check v0.0.0-20190102082844-67f458068fc8
 	github.com/pingcap/errors v0.11.4
-	github.com/pingcap/kvproto v0.0.0-20191210040729-c23886becb54
+	github.com/pingcap/kvproto v0.0.0-20191212111403-2c6422d4614b
 	github.com/pingcap/log v0.0.0-20190715063458-479153f07ebd
 	github.com/pingcap/parser v0.0.0-20191205054626-288fe5207ce6
 	github.com/pingcap/pd v1.1.0-beta.0.20191115131715-6b7dc037010e
@@ -39,5 +39,3 @@ require (
 )
 
 replace github.com/golang/lint => golang.org/x/lint v0.0.0-20190930215403-16217165b5de
-
-replace github.com/pingcap/kvproto => github.com/MyonKeminta/kvproto v0.0.0-20191212035151-97954de3fbec

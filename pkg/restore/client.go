@@ -110,33 +110,51 @@ func (rc *Client) IsRawKvMode() bool {
 }
 
 // GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
-func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte) ([]*backup.File, error) {
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
 	if !rc.IsRawKvMode() {
 		return nil, errors.New("the backup data is not in raw kv mode")
 	}
 
-	if bytes.Compare(startKey, rc.backupMeta.RawStartKey) < 0 ||
-		utils.CompareEndKey(endKey, rc.backupMeta.RawEndKey) > 0 {
-		return nil, errors.New("restoring range exceeds backup data's range")
-	}
-
-	files := make([]*backup.File, 0)
-
-	for _, file := range rc.backupMeta.Files {
-		if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
-			// The file is before the range to be restored.
-			continue
-		}
-		if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) >= 0 {
-			// The file is after the range to be restored.
-			// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
+	for _, rawRange := range rc.backupMeta.RawRanges {
+		// First check whether the given range is backup-ed. If not, we cannot perform the restore.
+		if rawRange.Cf != cf {
 			continue
 		}
 
-		files = append(files, file)
+		if (len(rawRange.EndKey) > 0 && bytes.Compare(startKey, rawRange.EndKey) >= 0) ||
+			(len(endKey) > 0 && bytes.Compare(rawRange.StartKey, endKey) >= 0) {
+			// The restoring range is totally out of the current range. Skip it.
+			continue
+		}
+
+		if bytes.Compare(startKey, rawRange.StartKey) < 0 ||
+			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
+			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
+			// restored.
+			return nil, errors.New("no backup data in the range")
+		}
+
+		// We have found the range that contains the given range. Find all necessary files.
+		files := make([]*backup.File, 0)
+
+		for _, file := range rc.backupMeta.Files {
+			if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
+				// The file is before the range to be restored.
+				continue
+			}
+			if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) >= 0 {
+				// The file is after the range to be restored.
+				// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
+				continue
+			}
+
+			files = append(files, file)
+		}
+
+		return files, nil
 	}
 
-	return files, nil
+	return nil, errors.New("no backup data in the range")
 }
 
 // SetConcurrency sets the concurrency of dbs tables files
