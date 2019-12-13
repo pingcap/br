@@ -93,7 +93,8 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 		u, err := ParseBackend("s3://bucket/prefix/", &BackendOptions{S3: test.options})
 		s3 := u.GetS3()
 		c.Assert(err, IsNil)
-		c.Assert(true, Equals, equalS3(s3, test.s3))
+		c.Assert(s3, DeepEquals, test.s3)
+
 	}
 	tests := []testcase{
 		{
@@ -219,19 +220,6 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 	for i := range tests {
 		testFn(&tests[i], c)
 	}
-}
-
-func equalS3(s1, s2 *backup.S3) bool {
-	return s1.Endpoint == s2.Endpoint &&
-		s1.Region == s2.Region &&
-		s1.Bucket == s2.Bucket &&
-		s1.Prefix == s2.Prefix &&
-		s1.StorageClass == s2.StorageClass &&
-		s1.Sse == s2.Sse &&
-		s1.Acl == s2.Acl &&
-		s1.AccessKey == s2.AccessKey &&
-		s1.SecretAccessKey == s2.SecretAccessKey &&
-		s1.ForcePathStyle == s2.ForcePathStyle
 }
 
 func (r *testStorageSuite) TestS3Storage(c *C) {
