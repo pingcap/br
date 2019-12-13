@@ -285,7 +285,7 @@ func (bc *Client) BackupRanges(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Ranges", zap.Duration("take", elapsed))
+		utils.TimeCollector.CollectDuration("backup ranges", elapsed)
 	}()
 
 	errCh := make(chan error)
@@ -399,8 +399,7 @@ func (bc *Client) backupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	log.Info("backup range finished",
-		zap.Duration("take", time.Since(start)))
+	utils.TimeCollector.CollectDuration("backup range finished", time.Since(start))
 	return nil
 }
 
@@ -689,7 +688,7 @@ func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+		utils.TimeCollector.CollectDuration("backup checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)

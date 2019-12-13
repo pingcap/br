@@ -145,6 +145,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
+	utils.TimeCollector.SummaryLog(cmdName)
 	return client.SaveBackupMeta(ctx)
 }
 
@@ -232,7 +233,6 @@ func newTableBackupCommand() *cobra.Command {
 			if len(table) == 0 {
 				return errors.Errorf("empty table name is not allowed")
 			}
-
 			return runBackup(command.Flags(), "Table backup", db, table)
 		},
 	}

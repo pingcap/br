@@ -150,7 +150,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-
+			utils.TimeCollector.SummaryLog("restore full")
 			return nil
 		},
 	}
@@ -255,6 +255,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
+			utils.TimeCollector.SummaryLog("restore database")
 			return nil
 		},
 	}
@@ -370,6 +371,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			close(updateCh)
 
+			utils.TimeCollector.SummaryLog("restore table")
 			return nil
 		},
 	}
