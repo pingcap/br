@@ -45,7 +45,7 @@ run_sql "DROP DATABASE $DB;"
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
-table_count=$(run_sql "use $DB; show tables;" | grep "Tables_in_test | wc -l)
+table_count=$(run_sql "use $DB; show tables;" | grep "Tables_in" | wc -l)
 if [ "$table_count" -ne "2" ];then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
