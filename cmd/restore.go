@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -82,6 +83,18 @@ func newFullRestoreCommand() *cobra.Command {
 			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
 			if err != nil {
 				return err
+			}
+			if lastBackupTS == 0 {
+				pdAddr, err := cmd.Flags().GetString(FlagPD)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				pdAddrs := strings.Split(pdAddr, ",")
+				err = client.ResetTS(pdAddrs)
+				if err != nil {
+					log.Error("reset pd TS failed", zap.Error(err))
+					return errors.Trace(err)
+				}
 			}
 
 			files := make([]*backup.File, 0)
@@ -198,6 +211,18 @@ func newDbRestoreCommand() *cobra.Command {
 			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
 			if err != nil {
 				return err
+			}
+			if lastBackupTS == 0 {
+				pdAddr, err := cmd.Flags().GetString(FlagPD)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				pdAddrs := strings.Split(pdAddr, ",")
+				err = client.ResetTS(pdAddrs)
+				if err != nil {
+					log.Error("reset pd TS failed", zap.Error(err))
+					return errors.Trace(err)
+				}
 			}
 
 			newTS, err := client.GetTS(ctx)
@@ -331,6 +356,18 @@ func newTableRestoreCommand() *cobra.Command {
 			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
 			if err != nil {
 				return err
+			}
+			if lastBackupTS == 0 {
+				pdAddr, err := cmd.Flags().GetString(FlagPD)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				pdAddrs := strings.Split(pdAddr, ",")
+				err = client.ResetTS(pdAddrs)
+				if err != nil {
+					log.Error("reset pd TS failed", zap.Error(err))
+					return errors.Trace(err)
+				}
 			}
 
 			// Redirect to log if there is no log file to avoid unreadable output.
