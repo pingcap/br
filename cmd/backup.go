@@ -16,28 +16,24 @@ import (
 )
 
 const (
-	flagBackupTimeago      = "timeago"
-	flagBackupRateLimit    = "ratelimit"
-	flagBackupConcurrency  = "concurrency"
-	flagBackupChecksum     = "checksum"
-	flagBackupFastChecksum = "fastchecksum"
+	flagBackupTimeago     = "timeago"
+	flagBackupRateLimit   = "ratelimit"
+	flagBackupConcurrency = "concurrency"
+	flagBackupChecksum    = "checksum"
+	flagBackupDB          = "db"
+	flagBackupTable       = "table"
 )
 
 func defineBackupFlags(flagSet *pflag.FlagSet) {
 	flagSet.StringP(
 		flagBackupTimeago, "", "",
 		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
-
 	flagSet.Uint64P(
 		flagBackupRateLimit, "", 0, "The rate limit of the backup task, MB/s per node")
 	flagSet.Uint32P(
 		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
-
-	flagSet.BoolP(flagBackupFastChecksum, "", true,
-		"fast checksum backup sst file by calculate all sst file")
-	_ = flagSet.MarkHidden(flagBackupFastChecksum)
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
@@ -50,17 +46,17 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	}
 	defer mgr.Close()
 
-	timeago, err := flagSet.GetString("timeago")
+	timeago, err := flagSet.GetString(flagBackupTimeago)
 	if err != nil {
 		return err
 	}
 
-	ratelimit, err := flagSet.GetUint64("ratelimit")
+	ratelimit, err := flagSet.GetUint64(flagBackupRateLimit)
 	if err != nil {
 		return err
 	}
 
-	concurrency, err := flagSet.GetUint32("concurrency")
+	concurrency, err := flagSet.GetUint32(flagBackupConcurrency)
 	if err != nil {
 		return err
 	}
@@ -69,11 +65,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
-	checksum, err := flagSet.GetBool("checksum")
-	if err != nil {
-		return err
-	}
-	fastchecksum, err := flagSet.GetBool("fastchecksum")
+	checksum, err := flagSet.GetBool(flagBackupChecksum)
 	if err != nil {
 		return err
 	}
@@ -143,14 +135,12 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
-	if fastchecksum {
-		valid, err := client.FastChecksum()
-		if err != nil {
-			return err
-		}
-		if !valid {
-			log.Error("backup FastChecksum failed!")
-		}
+	valid, err := client.FastChecksum()
+	if err != nil {
+		return err
+	}
+	if !valid {
+		log.Error("backup FastChecksum failed!")
 	}
 	// Checksum has finished
 	close(updateCh)
@@ -206,7 +196,7 @@ func newDbBackupCommand() *cobra.Command {
 		Use:   "db",
 		Short: "backup a database",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString("db")
+			db, err := command.Flags().GetString(flagBackupDB)
 			if err != nil {
 				return err
 			}
@@ -216,8 +206,8 @@ func newDbBackupCommand() *cobra.Command {
 			return runBackup(command.Flags(), "Database backup", db, "")
 		},
 	}
-	command.Flags().StringP("db", "", "", "backup a table in the specific db")
-	_ = command.MarkFlagRequired("db")
+	command.Flags().StringP(flagBackupDB, "", "", "backup a table in the specific db")
+	_ = command.MarkFlagRequired(flagBackupDB)
 
 	return command
 }
@@ -228,14 +218,14 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString("db")
+			db, err := command.Flags().GetString(flagBackupDB)
 			if err != nil {
 				return err
 			}
 			if len(db) == 0 {
 				return errors.Errorf("empty database name is not allowed")
 			}
-			table, err := command.Flags().GetString("table")
+			table, err := command.Flags().GetString(flagBackupTable)
 			if err != nil {
 				return err
 			}
@@ -246,9 +236,9 @@ func newTableBackupCommand() *cobra.Command {
 			return runBackup(command.Flags(), "Table backup", db, table)
 		},
 	}
-	command.Flags().StringP("db", "", "", "backup a table in the specific db")
-	command.Flags().StringP("table", "t", "", "backup the specific table")
-	_ = command.MarkFlagRequired("db")
-	_ = command.MarkFlagRequired("table")
+	command.Flags().StringP(flagBackupDB, "", "", "backup a table in the specific db")
+	command.Flags().StringP(flagBackupTable, "t", "", "backup the specific table")
+	_ = command.MarkFlagRequired(flagBackupDB)
+	_ = command.MarkFlagRequired(flagBackupTable)
 	return command
 }
