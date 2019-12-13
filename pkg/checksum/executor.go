@@ -135,7 +135,6 @@ func buildTableRequest(
 	}
 
 	checksum := &tipb.ChecksumRequest{
-		StartTs:   startTS,
 		ScanOn:    tipb.ChecksumScanOn_Table,
 		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
 		Rule:      rule,
@@ -147,6 +146,7 @@ func buildTableRequest(
 	// Use low priority to reducing impact to other requests.
 	builder.Request.Priority = kv.PriorityLow
 	return builder.SetTableRanges(tableID, ranges, nil).
+		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
 		SetConcurrency(variable.DefDistSQLScanConcurrency).
 		Build()
@@ -167,7 +167,6 @@ func buildIndexRequest(
 		}
 	}
 	checksum := &tipb.ChecksumRequest{
-		StartTs:   startTS,
 		ScanOn:    tipb.ChecksumScanOn_Index,
 		Algorithm: tipb.ChecksumAlgorithm_Crc64_Xor,
 		Rule:      rule,
@@ -179,6 +178,7 @@ func buildIndexRequest(
 	// Use low priority to reducing impact to other requests.
 	builder.Request.Priority = kv.PriorityLow
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
+		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
 		SetConcurrency(variable.DefDistSQLScanConcurrency).
 		Build()
