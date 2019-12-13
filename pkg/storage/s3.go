@@ -52,14 +52,14 @@ type S3Storage struct {
 type S3BackendOptions struct {
 	Endpoint              string `json:"endpoint" toml:"endpoint"`
 	Region                string `json:"region" toml:"region"`
-	StorageClass          string `json:"storage_class" toml:"storage_class"`
+	StorageClass          string `json:"storage-class" toml:"storage-class"`
 	SSE                   string `json:"sse" toml:"sse"`
 	ACL                   string `json:"acl" toml:"acl"`
-	AccessKey             string `json:"access_key" toml:"access_key"`
-	SecretAccessKey       string `json:"secret_access_key" toml:"secret_access_key"`
+	AccessKey             string `json:"access-key" toml:"access-key"`
+	SecretAccessKey       string `json:"secret-access-key" toml:"secret-access-key"`
 	Provider              string `json:"provider" toml:"provider"`
-	ForcePathStyle        bool   `json:"force_path_style" toml:"force_path_style"`
-	UseAccelerateEndpoint bool   `json:"use_accelerate_endpoint" toml:"use_accelerate_endpoint"`
+	ForcePathStyle        bool   `json:"force-path-style" toml:"force-path-style"`
+	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
 }
 
 func (options *S3BackendOptions) apply(s3 *backup.S3) error {
@@ -156,16 +156,16 @@ func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOption
 // newS3Storage initialize a new s3 storage for metadata
 func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 	qs := *backend
-	var cred *credentials.Credentials
-	if qs.AccessKey != "" && qs.SecretAccessKey != "" {
-		cred = credentials.NewStaticCredentials(qs.AccessKey, qs.SecretAccessKey, "")
-	}
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
 		WithS3ForcePathStyle(qs.ForcePathStyle).
 		WithRegion(qs.Region)
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
+	}
+	var cred *credentials.Credentials
+	if qs.AccessKey != "" && qs.SecretAccessKey != "" {
+		cred = credentials.NewStaticCredentials(qs.AccessKey, qs.SecretAccessKey, "")
 	}
 	if cred != nil {
 		awsConfig.WithCredentials(cred)
@@ -193,7 +193,7 @@ func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 	c := s3.New(ses)
 	err = checkS3Bucket(c, qs.Bucket)
 	if err != nil {
-		return nil, errors.Errorf("checkS3Bucket error: %v", err)
+		return nil, errors.Errorf("Bucket %s is not accessible: %v", qs.Bucket, err)
 	}
 
 	qs.Prefix += "/"
