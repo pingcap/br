@@ -7,12 +7,11 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/parser/model"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
@@ -44,6 +43,8 @@ func NewRestoreCommand() *cobra.Command {
 
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().Uint64("ratelimit", 0,
+		"The rate limit of the restore task, MB/s per node. Set to 0 for unlimited speed.")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
 	command.PersistentFlags().BoolP("online", "", false,
@@ -88,31 +89,27 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 
-			tableRules := make([]*import_sstpb.RewriteRule, 0)
-			dataRules := make([]*import_sstpb.RewriteRule, 0)
 			files := make([]*backup.File, 0)
 			tables := make([]*utils.Table, 0)
-			newTables := make([]*model.TableInfo, 0)
 			for _, db := range client.GetDatabases() {
 				err = client.CreateDatabase(db.Schema)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				var rules *restore_util.RewriteRules
-				var nt []*model.TableInfo
-				rules, nt, err = client.CreateTables(mgr.GetDomain(), db.Tables)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				newTables = append(newTables, nt...)
-				tableRules = append(tableRules, rules.Table...)
-				dataRules = append(dataRules, rules.Data...)
 				for _, table := range db.Tables {
 					files = append(files, table.Files...)
 				}
 				tables = append(tables, db.Tables...)
 			}
-			ranges := restore.GetRanges(files)
+
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+			if err != nil {
+				return err
+			}
 
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
@@ -122,17 +119,15 @@ func newFullRestoreCommand() *cobra.Command {
 				int64(len(ranges)+len(files)),
 				!HasLogFile())
 
-			rewriteRules := &restore_util.RewriteRules{
-				Table: tableRules,
-				Data:  dataRules,
-			}
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			pdAddrs := strings.Split(pdAddr, ",")
 			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
@@ -224,8 +219,10 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
-			ranges := restore.GetRanges(files)
-
+			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+			if err != nil {
+				return err
+			}
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -236,11 +233,13 @@ func newDbRestoreCommand() *cobra.Command {
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			pdAddrs := strings.Split(pdAddr, ",")
 			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
@@ -335,7 +334,11 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			ranges := restore.GetRanges(table.Files)
+
+			ranges, err := restore.ValidateFileRanges(table.Files, rewriteRules)
+			if err != nil {
+				return err
+			}
 
 			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
 			if err != nil {
@@ -352,11 +355,13 @@ func newTableRestoreCommand() *cobra.Command {
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			pdAddrs := strings.Split(pdAddr, ",")
 			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			err = client.SwitchToImportModeIfOffline(ctx)
@@ -406,6 +411,11 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 	if err != nil {
 		return err
 	}
+	rateLimit, err := flagSet.GetUint64("ratelimit")
+	if err != nil {
+		return err
+	}
+	client.SetRateLimit(rateLimit * utils.MB)
 	s, err := storage.Create(u)
 	if err != nil {
 		return errors.Trace(err)
