@@ -6,15 +6,9 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/pd/server"
 )
 
 func TestT(t *testing.T) {
-	TestingT(t)
-}
-
-func TestClient(t *testing.T) {
-	server.EnableZap = true
 	TestingT(t)
 }
 
