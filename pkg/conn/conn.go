@@ -28,7 +28,7 @@ import (
 const (
 	dialTimeout          = 5 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-	regionCountPrefix    = "pd/api/v1/regions/count"
+	regionCountPrefix    = "pd/api/v1/stats/region"
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -167,8 +167,8 @@ func (mgr *Mgr) GetClusterVersion() (string, error) {
 	return "", err
 }
 
-// GetRegionCount returns the total region count in the cluster
-func (mgr *Mgr) GetRegionCount() (int, error) {
+// GetRegionCount returns the region count in the specified range.
+func (mgr *Mgr) GetRegionCount(startKey, endKey []byte) (int, error) {
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
 		v, e := mgr.PDHTTPGet(addr, regionCountPrefix, mgr.pdHTTP.cli)
