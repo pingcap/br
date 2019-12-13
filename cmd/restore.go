@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -60,10 +59,6 @@ func newFullRestoreCommand() *cobra.Command {
 		Use:   "full",
 		Short: "restore all tables",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pdAddr, err := cmd.Flags().GetString(FlagPD)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
@@ -102,7 +97,11 @@ func newFullRestoreCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 
-			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
+			newTS, err := client.GetTS(ctx)
+			if err != nil {
+				return err
+			}
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -122,12 +121,6 @@ func newFullRestoreCommand() *cobra.Command {
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			pdAddrs := strings.Split(pdAddr, ",")
-			err = client.ResetTS(pdAddrs)
-			if err != nil {
-				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
@@ -169,10 +162,6 @@ func newDbRestoreCommand() *cobra.Command {
 		Use:   "db",
 		Short: "restore tables in a database",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pdAddr, err := cmd.Flags().GetString(FlagPD)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
@@ -211,7 +200,11 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 
-			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables)
+			newTS, err := client.GetTS(ctx)
+			if err != nil {
+				return err
+			}
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables, newTS)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -234,12 +227,6 @@ func newDbRestoreCommand() *cobra.Command {
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			pdAddrs := strings.Split(pdAddr, ",")
-			err = client.ResetTS(pdAddrs)
-			if err != nil {
-				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
@@ -284,10 +271,6 @@ func newTableRestoreCommand() *cobra.Command {
 		Use:   "table",
 		Short: "restore a table",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pdAddr, err := cmd.Flags().GetString(FlagPD)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
@@ -329,8 +312,13 @@ func newTableRestoreCommand() *cobra.Command {
 			if table == nil {
 				return errors.New("not exists table")
 			}
+
+			newTS, err := client.GetTS(ctx)
+			if err != nil {
+				return err
+			}
 			// The rules here is raw key.
-			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table}, newTS)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -356,12 +344,6 @@ func newTableRestoreCommand() *cobra.Command {
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			pdAddrs := strings.Split(pdAddr, ",")
-			err = client.ResetTS(pdAddrs)
-			if err != nil {
-				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			err = client.SwitchToImportModeIfOffline(ctx)

@@ -185,6 +185,7 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
+	newTS uint64,
 ) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
@@ -205,7 +206,7 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema)
+		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
 		tableIDMap[table.Schema.ID] = newTableInfo.ID
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
@@ -217,6 +218,7 @@ func (rc *Client) CreateTables(
 			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
 				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
 				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
+				NewTimestamp: newTS,
 			})
 		}
 	}

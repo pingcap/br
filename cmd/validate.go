@@ -217,7 +217,7 @@ func newBackupMetaCommand() *cobra.Command {
 					}
 				}
 				// TODO: support table partition
-				rules := restore.GetRewriteRules(newTable, table.Schema)
+				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 				tableIDMap[table.Schema.ID] = int64(tableID)
