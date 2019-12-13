@@ -50,8 +50,6 @@ func NewRestoreCommand() *cobra.Command {
 	command.PersistentFlags().BoolP("online", "", false,
 		"Whether online when restore")
 
-	command.PersistentFlags().Uint64P("lastbackupts", "", 0, "the last time backup ts")
-
 	return command
 }
 
@@ -80,12 +78,9 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
-			if err != nil {
-				return err
-			}
-			if lastBackupTS == 0 {
-				pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if !client.IsIncremental() {
+				var pdAddr string
+				pdAddr, err = cmd.Flags().GetString(FlagPD)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -142,7 +137,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.RestoreAll(rewriteRules, lastBackupTS, updateCh)
+			err = client.RestoreAll(rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -208,12 +203,9 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
-			if err != nil {
-				return err
-			}
-			if lastBackupTS == 0 {
-				pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if !client.IsIncremental() {
+				var pdAddr string
+				pdAddr, err = cmd.Flags().GetString(FlagPD)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -261,7 +253,7 @@ func newDbRestoreCommand() *cobra.Command {
 			}
 
 			err = client.RestoreDatabase(
-				db, rewriteRules, lastBackupTS, updateCh)
+				db, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -353,12 +345,9 @@ func newTableRestoreCommand() *cobra.Command {
 				return err
 			}
 
-			lastBackupTS, err := cmd.Flags().GetUint64("lastbackupts")
-			if err != nil {
-				return err
-			}
-			if lastBackupTS == 0 {
-				pdAddr, err := cmd.Flags().GetString(FlagPD)
+			if !client.IsIncremental() {
+				var pdAddr string
+				pdAddr, err = cmd.Flags().GetString(FlagPD)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -387,7 +376,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.RestoreTable(table, rewriteRules, lastBackupTS, updateCh)
+			err = client.RestoreTable(table, rewriteRules, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}

@@ -382,10 +382,10 @@ func (bc *Client) backupRange(
 		return err
 	}
 
-	bc.backupMeta.StartVersion = backupTS
+	bc.backupMeta.StartVersion = lastBackupTS
 	bc.backupMeta.EndVersion = backupTS
 	log.Info("backup time range",
-		zap.Reflect("StartVersion", backupTS),
+		zap.Reflect("StartVersion", lastBackupTS),
 		zap.Reflect("EndVersion", backupTS))
 
 	results.tree.Ascend(func(i btree.Item) bool {
