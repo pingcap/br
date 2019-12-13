@@ -100,14 +100,18 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *Client) SetStorage(backend *backup.StorageBackend) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend) error {
 	var err error
-	bc.storage, err = storage.Create(backend)
+	bc.storage, err = storage.Create(ctx, backend)
 	if err != nil {
 		return err
 	}
 	// backupmeta already exists
-	if exist := bc.storage.FileExists(utils.MetaFile); exist {
+	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	if err != nil {
+		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
+	}
+	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
@@ -115,7 +119,7 @@ func (bc *Client) SetStorage(backend *backup.StorageBackend) error {
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta() error {
+func (bc *Client) SaveBackupMeta(ctx context.Context) error {
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -124,7 +128,7 @@ func (bc *Client) SaveBackupMeta() error {
 		zap.Reflect("meta", bc.backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL))
-	return bc.storage.Write(utils.MetaFile, backupMetaData)
+	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
 func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
