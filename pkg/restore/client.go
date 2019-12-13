@@ -138,6 +138,10 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 		files := make([]*backup.File, 0)
 
 		for _, file := range rc.backupMeta.Files {
+			if file.Cf != cf {
+				continue
+			}
+
 			if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
 				// The file is before the range to be restored.
 				continue

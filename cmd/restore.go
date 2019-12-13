@@ -402,10 +402,6 @@ func newRawRestoreCommand() *cobra.Command {
 		Use:   "raw",
 		Short: "restore a raw kv range",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			pdAddr, err := cmd.Flags().GetString(FlagPD)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
@@ -426,7 +422,7 @@ func newRawRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			if client.IsRawKvMode() {
+			if !client.IsRawKvMode() {
 				return errors.New("cannot do raw restore from transactional data")
 			}
 
@@ -465,11 +461,6 @@ func newRawRestoreCommand() *cobra.Command {
 				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			pdAddrs := strings.Split(pdAddr, ",")
-			err = client.ResetTS(pdAddrs)
 			if err != nil {
 				return errors.Trace(err)
 			}

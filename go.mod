@@ -39,3 +39,5 @@ require (
 )
 
 replace github.com/golang/lint => golang.org/x/lint v0.0.0-20190930215403-16217165b5de
+
+replace github.com/pingcap/kvproto => github.com/MyonKeminta/kvproto v0.0.0-20191213083213-4b45d2635872
