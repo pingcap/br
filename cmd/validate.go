@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -41,6 +42,7 @@ func NewValidateCommand() *cobra.Command {
 	}
 	meta.AddCommand(newCheckSumCommand())
 	meta.AddCommand(newBackupMetaCommand())
+	meta.AddCommand(newParseCommand())
 	return meta
 }
 
@@ -116,9 +118,10 @@ func newCheckSumCommand() *cobra.Command {
 					s := sha256.Sum256(data)
 					if !bytes.Equal(s[:], file.Sha256) {
 						return errors.Errorf(`
-backup data checksum failed: %s may be changed
-calculated sha256 is %s,
-origin sha256 is %s`, file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
+								backup data checksum failed: %s may be changed
+								calculated sha256 is %s,
+								origin sha256 is %s`,
+							file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
 					}
 				}
 				log.Info("table info", zap.Stringer("table", tblInfo.Name),
@@ -251,5 +254,53 @@ func newBackupMetaCommand() *cobra.Command {
 	command.Flags().String("path", "", "the path of backupmeta")
 	command.Flags().Uint64P("offset", "", 0, "the offset of table id alloctor")
 	command.Hidden = true
+	return command
+}
+
+func newParseCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "decode",
+		Short: "decode backupmeta to json",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			if err != nil {
+				return err
+			}
+			s, err := storage.Create(ctx, u)
+			if err != nil {
+				log.Error("create storage failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+			data, err := s.Read(ctx, utils.MetaFile)
+			if err != nil {
+				log.Error("load backupmeta failed", zap.Error(err))
+				return err
+			}
+			backupMeta := &backup.BackupMeta{}
+			err = proto.Unmarshal(data, backupMeta)
+			if err != nil {
+				log.Error("parse backupmeta failed", zap.Error(err))
+				return err
+			}
+
+			field, err := cmd.Flags().GetString("field")
+			if err != nil {
+				log.Error("get field flag failed", zap.Error(err))
+				return err
+			}
+			switch field {
+			case "start-version":
+				fmt.Println(backupMeta.StartVersion)
+			case "end-version":
+				fmt.Println(backupMeta.EndVersion)
+			}
+			return nil
+		},
+	}
+
+	command.Flags().String("field", "", "decode specified field")
+
 	return command
 }
