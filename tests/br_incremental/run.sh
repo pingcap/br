@@ -16,53 +16,60 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
-DB_COUNT=3
 
-for i in $(seq $DB_COUNT); do
-    run_sql "CREATE DATABASE $DB${i};"
-    go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i}
-done
+run_sql "CREATE DATABASE $DB;"
 
-for i in $(seq $DB_COUNT); do
-    row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
-done
+go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
-sleep 10
+row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
-run_sql "USE ${DB}1; DROP TABLE $TABLE;"
-for i in $(seq $DB_COUNT); do
-    run_sql "DROP DATABASE ${DB}${i};"
-done
+# full backup
+echo "full backup start..."
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
 
-# We expect above DDLs finish within 10s.
-# history backup full
-echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --timeago "10s"
+run_sql "DROP TABLE $DB.$TABLE;"
 
-# restore full
-echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+# full restore
+echo "full restore start..."
+run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
-for i in $(seq $DB_COUNT); do
-    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
-done
+row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
-fail=false
-for i in $(seq $DB_COUNT); do
-    if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
-        fail=true
-        echo "TEST: [$TEST_NAME] fail on database $DB${i}"
-    fi
-    echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
-done
-
-if $fail; then
-    echo "TEST: [$TEST_NAME] failed!"
+if [ "$row_count_ori" -ne "$row_count_new" ];then
+    echo "TEST: [$TEST_NAME] full br failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
-for i in $(seq $DB_COUNT); do
-    run_sql "DROP DATABASE $DB${i};"
-done
+go-ycsb run mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
+
+row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+last_backup_ts=$(br validate parse --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+
+# clean up data
+rm -rf $TEST_DIR/$DB
+
+# incremental backup
+echo "incremental backup start..."
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
+
+start_ts=$(br validate parse --field="start-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+end_ts=$(br validate parse --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+
+echo "start version: $start_ts, end version: $end_ts"
+
+# incremental restore
+echo "incremental restore start..."
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+
+row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+
+echo "[original] row count: $row_count_ori, [after br] row count: $row_count_new"
+
+if [ "$row_count_ori" -eq "$row_count_new" ];then
+    echo "TEST: [$TEST_NAME] successed!"
+else
+    echo "TEST: [$TEST_NAME] failed!"
+    exit 1
+fi
+
+run_sql "DROP DATABASE $DB;"
