@@ -140,7 +140,7 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS) (*gcsStorage, error) {
 	if gcs.CredentialsBlob == "" {
-		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadOnly)
+		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
 			return nil, errors.New(err.Error() + "Or you should provide '--gcs.credentials_file'.")
 		}
