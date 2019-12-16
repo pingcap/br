@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"sync"
 	"time"
 
@@ -14,20 +15,27 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
-	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/meta"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
+
+// ClientMgr manages connections needed by backup.
+type ClientMgr interface {
+	GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error)
+	GetPDClient() pd.Client
+	GetTiKV() tikv.Storage
+	GetLockResolver() *tikv.LockResolver
+	Close()
+}
 
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
@@ -36,56 +44,28 @@ const (
 
 // Client is a client instructs TiKV how to do a backup.
 type Client struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-
-	backer    *meta.Backer
+	mgr       ClientMgr
 	clusterID uint64
-	pdClient  pd.Client
-	dom       *domain.Domain
 
 	backupMeta backup.BackupMeta
-	storage    utils.ExternalStorage
+	storage    storage.ExternalStorage
+	backend    *backup.StorageBackend
 }
 
 // NewBackupClient returns a new backup client
-func NewBackupClient(backer *meta.Backer) (*Client, error) {
+func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 	log.Info("new backup client")
-	ctx, cancel := context.WithCancel(backer.Context())
-	pdClient := backer.GetPDClient()
-	// Do not run ddl worker in BR.
-	ddl.RunWorker = false
-	// Do not run stat worker in BR.
-	session.DisableStats4Test()
-	dom, err := session.BootstrapSession(backer.GetTiKV())
-	if err != nil {
-		cancel()
-		return nil, errors.Trace(err)
-	}
+	pdClient := mgr.GetPDClient()
+	clusterID := pdClient.GetClusterID(ctx)
 	return &Client{
-		clusterID: pdClient.GetClusterID(ctx),
-		backer:    backer,
-		ctx:       ctx,
-		cancel:    cancel,
-		pdClient:  backer.GetPDClient(),
-		dom:       dom,
+		clusterID: clusterID,
+		mgr:       mgr,
 	}, nil
 }
 
-// Close a backup client
-func (bc *Client) Close() {
-	bc.dom.Close()
-	bc.cancel()
-}
-
-// GetDomain returns a domain
-func (bc *Client) GetDomain() *domain.Domain {
-	return bc.dom
-}
-
 // GetTS returns the latest timestamp.
-func (bc *Client) GetTS(timeAgo string) (uint64, error) {
-	p, l, err := bc.pdClient.GetTS(bc.ctx)
+func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
+	p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -99,7 +79,7 @@ func (bc *Client) GetTS(timeAgo string) (uint64, error) {
 		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
 
 		// check backup time do not exceed GCSafePoint
-		safePoint, err := bc.backer.GetGCSafePoint(bc.ctx)
+		safePoint, err := GetGCSafePoint(ctx, bc.mgr.GetPDClient())
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -109,40 +89,45 @@ func (bc *Client) GetTS(timeAgo string) (uint64, error) {
 		p -= t
 	}
 
-	ts := meta.Timestamp{
+	ts := utils.Timestamp{
 		Physical: p,
 		Logical:  l,
 	}
-	backupTS := meta.EncodeTs(ts)
+	backupTS := utils.EncodeTs(ts)
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *Client) SetStorage(base string) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend) error {
 	var err error
-	bc.storage, err = utils.CreateStorage(base)
+	bc.storage, err = storage.Create(ctx, backend)
 	if err != nil {
 		return err
 	}
 	// backupmeta already exists
-	if exist := bc.storage.FileExists(utils.MetaFile); exist {
+	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	if err != nil {
+		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
+	}
+	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
+	bc.backend = backend
 	return nil
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(path string) error {
-	bc.backupMeta.Path = path
+func (bc *Client) SaveBackupMeta(ctx context.Context) error {
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
-	log.Info("save backup meta", zap.String("path", path))
-	return bc.storage.Write(utils.MetaFile, backupMetaData)
+	backendURL := storage.FormatBackendURL(bc.backend)
+	log.Info("save backup meta", zap.Stringer("path", &backendURL))
+	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
 func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
@@ -204,7 +189,13 @@ func BuildBackupRangeAndSchema(
 	case len(dbName) == 0 && len(tableName) != 0:
 		return nil, nil, errors.New("no database is not specified")
 	case len(dbName) != 0 && len(tableName) == 0:
-		return nil, nil, errors.New("backup database is not supported")
+		// backup database
+		cDBName := model.NewCIStr(dbName)
+		dbInfo, exist := info.SchemaByName(cDBName)
+		if !exist {
+			return nil, nil, errors.Errorf("schema %s not found", dbName)
+		}
+		dbInfos = append(dbInfos, dbInfo)
 	case len(dbName) != 0 && len(tableName) != 0:
 		// backup table
 		cTableName = model.NewCIStr(tableName)
@@ -284,8 +275,8 @@ LoadDb:
 
 // BackupRanges make a backup of the given key ranges.
 func (bc *Client) BackupRanges(
+	ctx context.Context,
 	ranges []Range,
-	path string,
 	backupTS uint64,
 	rate uint64,
 	concurrency uint32,
@@ -298,12 +289,12 @@ func (bc *Client) BackupRanges(
 	}()
 
 	errCh := make(chan error)
-	ctx, cancel := context.WithCancel(bc.ctx)
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
 		for _, r := range ranges {
 			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, path, backupTS, rate, concurrency, updateCh)
+				ctx, r.StartKey, r.EndKey, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -318,7 +309,7 @@ func (bc *Client) BackupRanges(
 
 	finished := false
 	for {
-		err := bc.backer.CheckGCSafepoint(ctx, backupTS)
+		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
 			// Ignore the error since it retries every 30s.
 			log.Warn("get GC safepoint failed", zap.Error(err))
@@ -346,7 +337,6 @@ func (bc *Client) BackupRanges(
 func (bc *Client) backupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
-	path string,
 	backupTS uint64,
 	rateMBs uint64,
 	concurrency uint32,
@@ -363,21 +353,21 @@ func (bc *Client) backupRange(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	allStores, err := bc.pdClient.GetAllStores(ctx)
+	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}
 	req := backup.BackupRequest{
-		ClusterId:    bc.clusterID,
-		StartKey:     startKey,
-		EndKey:       endKey,
-		StartVersion: backupTS,
-		EndVersion:   backupTS,
-		Path:         path,
-		RateLimit:    rateLimit,
-		Concurrency:  concurrency,
+		ClusterId:      bc.clusterID,
+		StartKey:       startKey,
+		EndKey:         endKey,
+		StartVersion:   backupTS,
+		EndVersion:     backupTS,
+		StorageBackend: bc.backend,
+		RateLimit:      rateLimit,
+		Concurrency:    concurrency,
 	}
-	push := newPushDown(ctx, bc.backer, len(allStores))
+	push := newPushDown(ctx, bc.mgr, len(allStores))
 
 	results, err := push.pushBackup(req, allStores, updateCh)
 	if err != nil {
@@ -388,8 +378,8 @@ func (bc *Client) backupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		startKey, endKey,
-		backupTS, path, rateLimit, concurrency, results, updateCh)
+		ctx, startKey, endKey,
+		backupTS, rateLimit, concurrency, results, updateCh)
 	if err != nil {
 		return err
 	}
@@ -414,20 +404,22 @@ func (bc *Client) backupRange(
 	return nil
 }
 
-func (bc *Client) findRegionLeader(key []byte) (*metapb.Peer, error) {
+func (bc *Client) findRegionLeader(
+	ctx context.Context,
+	key []byte) (*metapb.Peer, error) {
 	// Keys are saved in encoded format in TiKV, so the key must be encoded
 	// in order to find the correct region.
 	key = codec.EncodeBytes([]byte{}, key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
-		_, leader, err := bc.pdClient.GetRegion(bc.ctx, key)
+		_, leader, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
 		if err != nil {
-			log.Error("find region failed", zap.Error(err))
+			log.Error("find leader failed", zap.Error(err))
 			time.Sleep(time.Millisecond * time.Duration(100*i))
 			continue
 		}
 		if leader != nil {
-			log.Info("find region",
+			log.Info("find leader",
 				zap.Reflect("Leader", leader), zap.Binary("Key", key))
 			return leader, nil
 		}
@@ -435,19 +427,19 @@ func (bc *Client) findRegionLeader(key []byte) (*metapb.Peer, error) {
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Errorf("can not find region for key %v", key)
+	return nil, errors.Errorf("can not find leader for key %v", key)
 }
 
 func (bc *Client) fineGrainedBackup(
+	ctx context.Context,
 	startKey, endKey []byte,
 	backupTS uint64,
-	path string,
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree RangeTree,
 	updateCh chan<- struct{},
 ) error {
-	bo := tikv.NewBackoffer(bc.ctx, backupFineGrainedMaxBackoff)
+	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
 		incomplete := rangeTree.getIncompleteRange(startKey, endKey)
@@ -472,7 +464,7 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(boFork, rg, backupTS, path, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, backupTS, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -517,7 +509,7 @@ func (bc *Client) fineGrainedBackup(
 					zap.Binary("StartKey", resp.StartKey),
 					zap.Binary("EndKey", resp.EndKey),
 				)
-				rangeTree.putOk(resp.StartKey, resp.EndKey, resp.Files)
+				rangeTree.put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
 				updateCh <- struct{}{}
@@ -600,38 +592,44 @@ func onBackupResponse(
 }
 
 func (bc *Client) handleFineGrained(
+	ctx context.Context,
 	bo *tikv.Backoffer,
 	rg Range,
 	backupTS uint64,
-	path string,
 	rateLimit uint64,
 	concurrency uint32,
 	respCh chan<- *backup.BackupResponse,
 ) (int, error) {
-	leader, pderr := bc.findRegionLeader(rg.StartKey)
+	leader, pderr := bc.findRegionLeader(ctx, rg.StartKey)
 	if pderr != nil {
 		return 0, pderr
 	}
+	storeID := leader.GetStoreId()
 	max := 0
 	req := backup.BackupRequest{
-		ClusterId:    bc.clusterID,
-		StartKey:     rg.StartKey, // TODO: the range may cross region.
-		EndKey:       rg.EndKey,
-		StartVersion: backupTS,
-		EndVersion:   backupTS,
-		Path:         path,
-		RateLimit:    rateLimit,
-		Concurrency:  concurrency,
+		ClusterId:      bc.clusterID,
+		StartKey:       rg.StartKey, // TODO: the range may cross region.
+		EndKey:         rg.EndKey,
+		StartVersion:   backupTS,
+		EndVersion:     backupTS,
+		StorageBackend: bc.backend,
+		RateLimit:      rateLimit,
+		Concurrency:    concurrency,
 	}
-	lockResolver := bc.backer.GetLockResolver()
-	err := bc.backer.SendBackup(
-		bc.ctx, leader.GetStoreId(), req,
+	lockResolver := bc.mgr.GetLockResolver()
+	client, err := bc.mgr.GetBackupClient(ctx, storeID)
+	if err != nil {
+		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
+		return 0, errors.Trace(err)
+	}
+	err = SendBackup(
+		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
 		func(resp *backup.BackupResponse) error {
-			response, backoffMs, err :=
+			response, backoffMs, err1 :=
 				onBackupResponse(bo, lockResolver, resp)
-			if err != nil {
-				return err
+			if err1 != nil {
+				return err1
 			}
 			if max < backoffMs {
 				max = backoffMs
@@ -647,9 +645,43 @@ func (bc *Client) handleFineGrained(
 	return max, nil
 }
 
-// GetRangeRegionCount get region count by pd http api
-func (bc *Client) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
-	return bc.backer.GetRegionCount()
+// SendBackup send backup request to the given store.
+// Stop receiving response if respFn returns error.
+func SendBackup(
+	ctx context.Context,
+	storeID uint64,
+	client backup.BackupClient,
+	req backup.BackupRequest,
+	respFn func(*backup.BackupResponse) error,
+) error {
+	log.Info("try backup", zap.Any("backup request", req))
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	bcli, err := client.Backup(ctx, &req)
+	if err != nil {
+		log.Error("fail to backup", zap.Uint64("StoreID", storeID))
+		return err
+	}
+	for {
+		resp, err := bcli.Recv()
+		if err != nil {
+			if err == io.EOF {
+				log.Info("backup streaming finish",
+					zap.Uint64("StoreID", storeID))
+				break
+			}
+			return errors.Trace(err)
+		}
+		// TODO: handle errors in the resp.
+		log.Info("range backuped",
+			zap.Any("StartKey", resp.GetStartKey()),
+			zap.Any("EndKey", resp.GetEndKey()))
+		err = respFn(resp)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table

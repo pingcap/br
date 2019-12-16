@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -42,7 +43,7 @@ func newIDAllocator(id int64) *idAllocator {
 	return &idAllocator{id: id}
 }
 
-func (alloc *idAllocator) Alloc(tableID int64, n uint64) (int64, int64, error) {
+func (alloc *idAllocator) Alloc(tableID int64, n uint64) (min int64, max int64, err error) {
 	return alloc.id, alloc.id, nil
 }
 
@@ -93,7 +94,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 	}
 }
 
-// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst meta.
+// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
 func getSSTMetaFromFile(
 	id []byte,
@@ -161,14 +162,21 @@ func withRetry(
 	return lastErr
 }
 
-// GetRanges returns the ranges of the files.
-func GetRanges(files []*backup.File) []restore_util.Range {
+// ValidateFileRanges checks and returns the ranges of the files.
+func ValidateFileRanges(
+	files []*backup.File,
+	rewriteRules *restore_util.RewriteRules,
+) ([]restore_util.Range, error) {
 	ranges := make([]restore_util.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
 		// We skips all default cf files because we don't range overlap.
 		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
+			err := ValidateFileRewriteRule(file, rewriteRules)
+			if err != nil {
+				return nil, err
+			}
 			ranges = append(ranges, restore_util.Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
@@ -176,7 +184,48 @@ func GetRanges(files []*backup.File) []restore_util.Range {
 			fileAppended[file.GetName()] = true
 		}
 	}
-	return ranges
+	return ranges, nil
+}
+
+// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
+func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+	// Check if the start key has a matched rewrite key
+	_, startRule := rewriteRawKeyWithOriginalRules(file.GetStartKey(), rewriteRules)
+	if startRule == nil {
+		tableID := tablecodec.DecodeTableID(file.GetStartKey())
+		log.Error(
+			"cannot find rewrite rule for file start key",
+			zap.Int64("tableID", tableID),
+			zap.Stringer("file", file),
+		)
+		return errors.Errorf("cannot find rewrite rule")
+	}
+	// Check if the end key has a matched rewrite key
+	_, endRule := rewriteRawKeyWithOriginalRules(file.GetEndKey(), rewriteRules)
+	if endRule == nil {
+		tableID := tablecodec.DecodeTableID(file.GetEndKey())
+		log.Error(
+			"cannot find rewrite rule for file end key",
+			zap.Int64("tableID", tableID),
+			zap.Stringer("file", file),
+		)
+		return errors.Errorf("cannot find rewrite rule")
+	}
+	// the new prefix of the start rule must equal or less than the new prefix of the end rule
+	if bytes.Compare(startRule.GetNewKeyPrefix(), endRule.GetNewKeyPrefix()) > 0 {
+		startTableID := tablecodec.DecodeTableID(file.GetStartKey())
+		endTableID := tablecodec.DecodeTableID(file.GetEndKey())
+		log.Error(
+			"unexpected rewrite rules",
+			zap.Int64("startTableID", startTableID),
+			zap.Int64("endTableID", endTableID),
+			zap.Stringer("startRule", startRule),
+			zap.Stringer("endRule", endRule),
+			zap.Stringer("file", file),
+		)
+		return errors.Errorf("unexpected rewrite rules")
+	}
+	return nil
 }
 
 // rules must be encoded
@@ -222,25 +271,49 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// Encode a raw key and find a rewrite rule to rewrite it.
-// Return false if cannot find a related rewrite rule.
-func rewriteRawKeyWithNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, bool) {
+// Encode a raw key and find a encoded rewrite rule to rewrite it.
+func rewriteRawKeyWithEncodedRules(
+	key []byte, encodedRules *restore_util.RewriteRules,
+) ([]byte, *import_sstpb.RewriteRule) {
 	if len(key) > 0 {
 		ret := codec.EncodeBytes([]byte{}, key)
+		for _, rule := range encodedRules.Data {
+			// regions may have the new prefix
+			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
+			}
+		}
+		for _, rule := range encodedRules.Table {
+			// regions may have the new prefix
+			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
+			}
+		}
+	}
+	return []byte(""), nil
+}
+
+// Encode a raw key and find a rewrite rule to rewrite it.
+func rewriteRawKeyWithOriginalRules(
+	key []byte, rewriteRules *restore_util.RewriteRules,
+) ([]byte, *import_sstpb.RewriteRule) {
+	if len(key) > 0 {
+		ret := make([]byte, len(key))
+		copy(ret, key)
 		for _, rule := range rewriteRules.Data {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
 			}
 		}
 		for _, rule := range rewriteRules.Table {
 			// regions may have the new prefix
 			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), true
+				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
 			}
 		}
 	}
-	return []byte(""), false
+	return []byte(""), nil
 }
 
 func truncateTS(key []byte) []byte {

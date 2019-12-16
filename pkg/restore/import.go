@@ -47,6 +47,12 @@ type ImporterClient interface {
 		storeID uint64,
 		req *import_sstpb.IngestRequest,
 	) (*import_sstpb.IngestResponse, error)
+
+	SetDownloadSpeedLimit(
+		ctx context.Context,
+		storeID uint64,
+		req *import_sstpb.SetDownloadSpeedLimitRequest,
+	) (*import_sstpb.SetDownloadSpeedLimitResponse, error)
 }
 
 type importClient struct {
@@ -73,6 +79,18 @@ func (ic *importClient) DownloadSST(
 		return nil, err
 	}
 	return client.Download(ctx, req)
+}
+
+func (ic *importClient) SetDownloadSpeedLimit(
+	ctx context.Context,
+	storeID uint64,
+	req *import_sstpb.SetDownloadSpeedLimitRequest,
+) (*import_sstpb.SetDownloadSpeedLimitResponse, error) {
+	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.SetDownloadSpeedLimit(ctx, req)
 }
 
 func (ic *importClient) IngestSST(
@@ -114,7 +132,8 @@ func (ic *importClient) getImportClient(
 type FileImporter struct {
 	metaClient   restore_util.Client
 	importClient ImporterClient
-	fileURL      string
+	backend      *backup.StorageBackend
+	rateLimit    uint64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -125,15 +144,17 @@ func NewFileImporter(
 	ctx context.Context,
 	metaClient restore_util.Client,
 	importClient ImporterClient,
-	fileURL string,
+	backend *backup.StorageBackend,
+	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
 		metaClient:   metaClient,
-		fileURL:      fileURL,
+		backend:      backend,
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		rateLimit:    rateLimit,
 	}
 }
 
@@ -141,13 +162,13 @@ func NewFileImporter(
 // All rules must contain encoded keys.
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Rewrite the start key and end key of file to scan regions
-	scanStartKey, ok := rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules)
-	if !ok {
+	scanStartKey, startRule := rewriteRawKeyWithEncodedRules(file.GetStartKey(), rewriteRules)
+	if startRule == nil {
 		log.Error("cannot find a rewrite rule for file start key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
-	scanEndKey, ok := rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules)
-	if !ok {
+	scanEndKey, endRule := rewriteRawKeyWithEncodedRules(file.GetEndKey(), rewriteRules)
+	if endRule == nil {
 		log.Error("cannot find a rewrite rule for file end key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
@@ -219,6 +240,14 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	return err
 }
 
+func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
+	req := &import_sstpb.SetDownloadSpeedLimitRequest{
+		SpeedLimit: importer.rateLimit,
+	}
+	_, err := importer.importClient.SetDownloadSpeedLimit(importer.ctx, storeID, req)
+	return err
+}
+
 func (importer *FileImporter) downloadSST(
 	regionInfo *restore_util.RegionInfo,
 	file *backup.File,
@@ -236,10 +265,10 @@ func (importer *FileImporter) downloadSST(
 	sstMeta.RegionId = regionInfo.Region.GetId()
 	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
 	req := &import_sstpb.DownloadRequest{
-		Sst:         sstMeta,
-		Url:         importer.fileURL,
-		Name:        file.GetName(),
-		RewriteRule: *regionRule,
+		Sst:            sstMeta,
+		StorageBackend: importer.backend,
+		Name:           file.GetName(),
+		RewriteRule:    *regionRule,
 	}
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {

@@ -2,17 +2,19 @@ package cmd
 
 import (
 	"context"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/parser/model"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -27,6 +29,9 @@ func NewRestoreCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			utils.LogArguments(c)
+
+			// Do not run stat worker in BR.
+			session.DisableStats4Test()
 			return nil
 		},
 	}
@@ -38,8 +43,12 @@ func NewRestoreCommand() *cobra.Command {
 
 	command.PersistentFlags().Uint("concurrency", 128,
 		"The size of thread pool that execute the restore task")
+	command.PersistentFlags().Uint64("ratelimit", 0,
+		"The rate limit of the restore task, MB/s per node. Set to 0 for unlimited speed.")
 	command.PersistentFlags().BoolP("checksum", "", true,
 		"Run checksum after restore")
+	command.PersistentFlags().BoolP("online", "", false,
+		"Whether online when restore")
 
 	return command
 }
@@ -55,41 +64,45 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
 
-			tableRules := make([]*import_sstpb.RewriteRule, 0)
-			dataRules := make([]*import_sstpb.RewriteRule, 0)
 			files := make([]*backup.File, 0)
 			tables := make([]*utils.Table, 0)
-			newTables := make([]*model.TableInfo, 0)
 			for _, db := range client.GetDatabases() {
 				err = client.CreateDatabase(db.Schema)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				var rules *restore_util.RewriteRules
-				var nt []*model.TableInfo
-				rules, nt, err = client.CreateTables(db.Tables)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				newTables = append(newTables, nt...)
-				tableRules = append(tableRules, rules.Table...)
-				dataRules = append(dataRules, rules.Data...)
 				for _, table := range db.Tables {
 					files = append(files, table.Files...)
 				}
 				tables = append(tables, db.Tables...)
 			}
-			ranges := restore.GetRanges(files)
+
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+			if err != nil {
+				return err
+			}
 
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
@@ -99,20 +112,19 @@ func newFullRestoreCommand() *cobra.Command {
 				int64(len(ranges)+len(files)),
 				!HasLogFile())
 
-			rewriteRules := &restore_util.RewriteRules{
-				Table: tableRules,
-				Data:  dataRules,
-			}
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -122,7 +134,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -132,7 +144,8 @@ func newFullRestoreCommand() *cobra.Command {
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -156,12 +169,19 @@ func newDbRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -179,7 +199,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			rewriteRules, newTables, err := client.CreateTables(db.Tables)
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), db.Tables)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -187,8 +207,10 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
-			ranges := restore.GetRanges(files)
-
+			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+			if err != nil {
+				return err
+			}
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -199,14 +221,17 @@ func newDbRestoreCommand() *cobra.Command {
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -217,14 +242,15 @@ func newDbRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
-			err = client.ValidateChecksum(ctx, db.Tables, newTables, updateCh)
+			err = client.ValidateChecksum(
+				ctx, mgr.GetTiKV().GetClient(), db.Tables, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -253,12 +279,19 @@ func newTableRestoreCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			client, err := restore.NewRestoreClient(ctx, pdAddr)
+			mgr, err := GetDefaultMgr()
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			client, err := restore.NewRestoreClient(
+				ctx, mgr.GetPDClient(), mgr.GetTiKV())
 			if err != nil {
 				return errors.Trace(err)
 			}
 			defer client.Close()
-			err = initRestoreClient(client, cmd.Flags())
+			err = initRestoreClient(ctx, client, cmd.Flags())
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -285,12 +318,14 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.New("not exists table")
 			}
 			// The rules here is raw key.
-			rewriteRules, newTables, err := client.CreateTables([]*utils.Table{table})
+			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), []*utils.Table{table})
 			if err != nil {
 				return errors.Trace(err)
 			}
-			ranges := restore.GetRanges(table.Files)
-
+			ranges, err := restore.ValidateFileRanges(table.Files, rewriteRules)
+			if err != nil {
+				return err
+			}
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -301,13 +336,16 @@ func newTableRestoreCommand() *cobra.Command {
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
+				log.Error("split regions failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			err = client.ResetTS()
+			pdAddrs := strings.Split(pdAddr, ",")
+			err = client.ResetTS(pdAddrs)
 			if err != nil {
+				log.Error("reset pd TS failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			err = client.SwitchToImportMode(ctx)
+			err = client.SwitchToImportModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -315,7 +353,7 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			err = client.SwitchToNormalMode(ctx)
+			err = client.SwitchToNormalModeIfOffline(ctx)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -326,7 +364,7 @@ func newTableRestoreCommand() *cobra.Command {
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
 			err = client.ValidateChecksum(
-				ctx, []*utils.Table{table}, newTables, updateCh)
+				ctx, mgr.GetTiKV().GetClient(), []*utils.Table{table}, newTables, updateCh)
 			if err != nil {
 				return err
 			}
@@ -349,16 +387,21 @@ func newTableRestoreCommand() *cobra.Command {
 	return command
 }
 
-func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
-	u, err := flagSet.GetString(FlagStorage)
+func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *flag.FlagSet) error {
+	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
 	}
-	s, err := utils.CreateStorage(u)
+	rateLimit, err := flagSet.GetUint64("ratelimit")
+	if err != nil {
+		return err
+	}
+	client.SetRateLimit(rateLimit * utils.MB)
+	s, err := storage.Create(ctx, u)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	metaData, err := s.Read(utils.MetaFile)
+	metaData, err := s.Read(ctx, utils.MetaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -377,6 +420,14 @@ func initRestoreClient(client *restore.Client, flagSet *flag.FlagSet) error {
 		return err
 	}
 	client.SetConcurrency(concurrency)
+
+	isOnline, err := flagSet.GetBool("online")
+	if err != nil {
+		return err
+	}
+	if isOnline {
+		client.EnableOnline()
+	}
 
 	return nil
 }

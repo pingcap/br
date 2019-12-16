@@ -9,24 +9,22 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/meta"
 )
 
 // pushDown warps a backup task.
 type pushDown struct {
 	ctx    context.Context
-	backer *meta.Backer
+	mgr    ClientMgr
 	respCh chan *backup.BackupResponse
 	errCh  chan error
 }
 
 // newPushDown creates a push down backup.
-func newPushDown(ctx context.Context, backer *meta.Backer, cap int) *pushDown {
+func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
 	log.Info("new backup client")
 	return &pushDown{
 		ctx:    ctx,
-		backer: backer,
+		mgr:    mgr,
 		respCh: make(chan *backup.BackupResponse, cap),
 		errCh:  make(chan error, cap),
 	}
@@ -39,14 +37,24 @@ func (push *pushDown) pushBackup(
 	updateCh chan<- struct{},
 ) (RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
+	res := newRangeTree()
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
 		storeID := s.GetId()
+		if s.GetState() != metapb.StoreState_Up {
+			log.Warn("skip store", zap.Uint64("StoreID", storeID), zap.Stringer("State", s.GetState()))
+			continue
+		}
+		client, err := push.mgr.GetBackupClient(push.ctx, storeID)
+		if err != nil {
+			log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
+			return res, errors.Trace(err)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := push.backer.SendBackup(
-				push.ctx, storeID, req,
+			err := SendBackup(
+				push.ctx, storeID, client, req,
 				func(resp *backup.BackupResponse) error {
 					// Forward all responses (including error).
 					push.respCh <- resp
@@ -65,7 +73,6 @@ func (push *pushDown) pushBackup(
 		close(push.respCh)
 	}()
 
-	res := newRangeTree()
 	for {
 		select {
 		case resp, ok := <-push.respCh:
@@ -75,7 +82,7 @@ func (push *pushDown) pushBackup(
 			}
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
-				res.putOk(
+				res.put(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress

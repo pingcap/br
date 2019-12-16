@@ -21,13 +21,13 @@ type testRestoreClientSuite struct {
 	mock *utils.MockCluster
 }
 
-func (s *testRestoreClientSuite) SetUpSuite(c *C) {
+func (s *testRestoreClientSuite) SetUpTest(c *C) {
 	var err error
 	s.mock, err = utils.NewMockCluster()
 	c.Assert(err, IsNil)
 }
 
-func (s *testRestoreClientSuite) TearDownSuite(c *C) {
+func (s *testRestoreClientSuite) TearDownTest(c *C) {
 	testleak.AfterTest(c)()
 }
 
@@ -41,7 +41,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	client.db = db
 	client.ctx = context.Background()
 
-	info, err := db.dom.GetSnapshotInfoSchema(math.MaxInt64)
+	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxInt64)
 	c.Assert(err, IsNil)
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
@@ -66,7 +66,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 			},
 		}
 	}
-	rules, newTables, err := client.CreateTables(tables)
+	rules, newTables, err := client.CreateTables(s.mock.Domain, tables)
 	c.Assert(err, IsNil)
 	for _, nt := range newTables {
 		c.Assert(nt.Name.String(), Matches, "test[0-3]")
@@ -87,4 +87,23 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 		c.Assert(oldTableIDExist[int64(i)], IsTrue, Commentf("table rule does not exist"))
 		c.Assert(oldTableIDExist[int64(i+1)], IsTrue, Commentf("table rule does not exist"))
 	}
+}
+
+func (s *testRestoreClientSuite) TestSwitchMode(c *C) {
+	c.Assert(s.mock.Start(), IsNil)
+	defer s.mock.Stop()
+
+	client := Client{}
+	db, err := NewDB(s.mock.Storage)
+	c.Assert(err, IsNil)
+	client.db = db
+	client.ctx = context.Background()
+
+	c.Assert(client.isOnline, IsFalse)
+	client.EnableOnline()
+	c.Assert(client.isOnline, IsTrue)
+
+	c.Assert(client.SwitchToImportModeIfOffline(client.ctx), IsNil)
+	c.Assert(client.SwitchToNormalModeIfOffline(client.ctx), IsNil)
+
 }
