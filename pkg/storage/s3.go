@@ -177,7 +177,7 @@ func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 		backend.AccessKey = ""
 		backend.SecretAccessKey = ""
 	} else if ses.Config.Credentials != nil {
-		if qs.AccessKey == "" || qs.SecretAccessKey == ""{
+		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
 			v, cerr := ses.Config.Credentials.Get()
 			if cerr != nil {
 				return nil, cerr
