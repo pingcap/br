@@ -4,15 +4,18 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/pd/server/schedule/placement"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -42,6 +45,7 @@ type Client struct {
 	cancel context.CancelFunc
 
 	pdClient        pd.Client
+	toolClient      restore_util.Client
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
@@ -52,6 +56,8 @@ type Client struct {
 	rateLimit       uint64
 	isOnline        bool
 	hasSpeedLimited bool
+
+	restoreStores []uint64
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -71,6 +77,7 @@ func NewRestoreClient(
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
+		toolClient:      restore_util.NewClient(pdClient),
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
@@ -511,4 +518,141 @@ func (rc *Client) ValidateChecksum(
 	}
 	log.Info("validate checksum passed!!")
 	return nil
+}
+
+const (
+	restoreLabelKey   = "exclusive"
+	restoreLabelValue = "restore"
+)
+
+// LoadRestoreStores loads the stores used to restore data.
+func (rc *Client) LoadRestoreStores(ctx context.Context) error {
+	if !rc.isOnline {
+		return nil
+	}
+
+	stores, err := rc.pdClient.GetAllStores(ctx)
+	if err != nil {
+		return err
+	}
+	for _, s := range stores {
+		if s.GetState() != metapb.StoreState_Up {
+			continue
+		}
+		for _, l := range s.GetLabels() {
+			if l.GetKey() == restoreLabelKey && l.GetValue() == restoreLabelValue {
+				rc.restoreStores = append(rc.restoreStores, s.GetId())
+				break
+			}
+		}
+	}
+	return nil
+}
+
+// ResetRestoreLabels removes the exclusive labels of the restore stores.
+func (rc *Client) ResetRestoreLabels(ctx context.Context) error {
+	if !rc.isOnline {
+		return nil
+	}
+	return rc.toolClient.SetStoresLabel(ctx, rc.restoreStores, restoreLabelKey, "")
+}
+
+// SetupPlacementRules sets rules for the tables' regions.
+func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	rule, err := rc.toolClient.GetPlacementRule(ctx, "pd", "default")
+	if err != nil {
+		return err
+	}
+	rule.Index = 100
+	rule.Override = true
+	rule.LabelConstraints = append(rule.LabelConstraints, placement.LabelConstraint{
+		Key:    restoreLabelKey,
+		Op:     "in",
+		Values: []string{restoreLabelValue},
+	})
+	for _, t := range tables {
+		rule.ID = rc.getRuleID(t.ID)
+		err = rc.toolClient.SetPlacementRule(ctx, rule)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WaitPlacementSchedule waits PD to move tables to restore stores.
+func (rc *Client) WaitPlacementSchedule(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			ok, err := rc.checkRegions(ctx, tables)
+			if err != nil {
+				return err
+			}
+			if ok {
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (bool, error) {
+	for _, t := range tables {
+		start, end := tablecodec.EncodeTablePrefix(t.ID), tablecodec.EncodeTablePrefix(t.ID+1)
+		ok, err := rc.checkRange(ctx, start, end)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, error) {
+	regions, err := rc.toolClient.ScanRegions(ctx, start, end, -1)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range regions {
+	NEXT_PEER:
+		for _, p := range r.Region.GetPeers() {
+			for _, storeID := range rc.restoreStores {
+				if p.GetStoreId() == storeID {
+					continue NEXT_PEER
+				}
+			}
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// ResetPlacementRules removes placement rules for tables.
+func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	for _, t := range tables {
+		err := rc.toolClient.DeletePlacementRule(ctx, "pd", rc.getRuleID(t.ID))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rc *Client) getRuleID(tableID int64) string {
+	return "restore-t" + strconv.FormatInt(tableID, 10)
 }

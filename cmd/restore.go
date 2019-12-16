@@ -112,6 +112,18 @@ func newFullRestoreCommand() *cobra.Command {
 				int64(len(ranges)+len(files)),
 				!HasLogFile())
 
+			err = client.SetupPlacementRules(ctx, newTables)
+			if err != nil {
+				log.Error("setup placement rules failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
+			err = client.WaitPlacementSchedule(ctx, newTables)
+			if err != nil {
+				log.Error("wait placement schedule failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
@@ -138,6 +150,17 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = client.ResetPlacementRules(ctx, newTables)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = client.ResetRestoreLabels(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			// Restore has finished.
 			close(updateCh)
 
@@ -219,6 +242,18 @@ func newDbRestoreCommand() *cobra.Command {
 				int64(len(ranges)+len(files)),
 				!HasLogFile())
 
+			err = client.SetupPlacementRules(ctx, newTables)
+			if err != nil {
+				log.Error("setup placement rules failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
+			err = client.WaitPlacementSchedule(ctx, newTables)
+			if err != nil {
+				log.Error("wait placement schedule failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
@@ -246,6 +281,17 @@ func newDbRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = client.ResetPlacementRules(ctx, newTables)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = client.ResetRestoreLabels(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			// Checksum
 			updateCh = utils.StartProgress(
 				ctx, "Checksum", int64(len(newTables)), !HasLogFile())
@@ -334,6 +380,18 @@ func newTableRestoreCommand() *cobra.Command {
 				int64(len(ranges)+len(table.Files)),
 				!HasLogFile())
 
+			err = client.SetupPlacementRules(ctx, newTables)
+			if err != nil {
+				log.Error("setup placement rules failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
+			err = client.WaitPlacementSchedule(ctx, newTables)
+			if err != nil {
+				log.Error("wait placement schedule failed", zap.Error(err))
+				return errors.Trace(err)
+			}
+
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
 				log.Error("split regions failed", zap.Error(err))
@@ -357,6 +415,17 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = client.ResetPlacementRules(ctx, newTables)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = client.ResetRestoreLabels(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			// Restore has finished.
 			close(updateCh)
 
@@ -427,6 +496,11 @@ func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *fla
 	}
 	if isOnline {
 		client.EnableOnline()
+	}
+
+	err = client.LoadRestoreStores(ctx)
+	if err != nil {
+		return err
 	}
 
 	return nil
