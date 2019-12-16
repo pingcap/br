@@ -11,6 +11,10 @@ const (
 	flagSendCredentialOption = "send-credentials-to-tikv"
 )
 
+var (
+	sendCredential bool
+)
+
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCredentialOption, "c", true,

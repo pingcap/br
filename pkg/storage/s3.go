@@ -18,10 +18,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
-var (
-	sendCredential bool
-)
-
 const (
 	s3EndpointOption     = "s3.endpoint"
 	s3RegionOption       = "s3.region"
