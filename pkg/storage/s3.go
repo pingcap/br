@@ -115,11 +115,6 @@ func defineS3Flags(flags *pflag.FlagSet) {
 }
 
 func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
-	sendCredential, err = flags.GetBool(flagSendCredentialOption)
-	if err != nil {
-		err = errors.Trace(err)
-		return
-	}
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
 		err = errors.Trace(err)
@@ -181,8 +176,12 @@ func newS3Storage(backend *backup.S3) (*S3Storage, error) {
 		return nil, err
 	}
 
-	if sendCredential && ses.Config.Credentials != nil {
-		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
+	if !sendCredential {
+		// Clear the credentials if exists so that they will not be sent to TiKV
+		backend.AccessKey = ""
+		backend.SecretAccessKey = ""
+	} else if ses.Config.Credentials != nil {
+		if qs.AccessKey == "" || qs.SecretAccessKey == ""{
 			v, cerr := ses.Config.Credentials.Get()
 			if cerr != nil {
 				return nil, cerr
