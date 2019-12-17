@@ -14,17 +14,17 @@ import (
 
 const (
 	gcsEndpointOption     = "gcs.endpoint"
-	gcsStorageClassOption = "gcs.storage_class"
-	gcsPredefinedACL      = "gcs.predefined_acl"
-	gcsCredentialsFile    = "gcs.credentials_file"
+	gcsStorageClassOption = "gcs.storage-class"
+	gcsPredefinedACL      = "gcs.predefined-acl"
+	gcsCredentialsFile    = "gcs.credentials-file"
 )
 
 // GCSBackendOptions are options for configuration the GCS storage.
 type GCSBackendOptions struct {
 	Endpoint        string `json:"endpoint" toml:"endpoint"`
-	StorageClass    string `json:"storage_class" toml:"storage_class"`
-	PredefinedACL   string `json:"predefined_acl" toml:"predefined_acl"`
-	CredentialsFile string `json:"credentials_file" toml:"credentials_file"`
+	StorageClass    string `json:"storage-class" toml:"storage-class"`
+	PredefinedACL   string `json:"predefined-acl" toml:"predefined-acl"`
+	CredentialsFile string `json:"credentials-file" toml:"credentials-file"`
 }
 
 func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
