@@ -140,10 +140,10 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS) (*gcsStorage, error) {
-	return newGCSStorageWithHttpClient(ctx, gcs, nil)
+	return newGCSStorageWithHTTPClient(ctx, gcs, nil)
 }
 
-func newGCSStorageWithHttpClient(ctx context.Context, gcs *backup.GCS, hclient *http.Client) (*gcsStorage, error) {
+func newGCSStorageWithHTTPClient(ctx context.Context, gcs *backup.GCS, hclient *http.Client) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
