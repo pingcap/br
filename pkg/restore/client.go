@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
@@ -400,6 +401,8 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	if err != nil {
 		return errors.Trace(err)
 	}
+	bfConf := backoff.DefaultConfig
+	bfConf.MaxDelay = time.Second * 3
 	for _, store := range stores {
 		opt := grpc.WithInsecure()
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
@@ -409,7 +412,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			gctx,
 			store.GetAddress(),
 			opt,
-			grpc.WithBackoffMaxDelay(time.Second*3),
+			grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				Time:                time.Duration(keepAlive) * time.Second,
 				Timeout:             time.Duration(keepAliveTimeout) * time.Second,

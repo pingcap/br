@@ -260,15 +260,13 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 			return 0, nil
 		}
 
-		req := &tikvrpc.Request{
-			Type: tikvrpc.CmdPrewrite,
-			Prewrite: &kvrpcpb.PrewriteRequest{
-				Mutations:    mutations,
-				PrimaryLock:  primary,
-				StartVersion: startTs,
-				LockTtl:      uint64(c.lockTTL.Milliseconds()),
-			},
+		prewrite := &kvrpcpb.PrewriteRequest{
+			Mutations:    mutations,
+			PrimaryLock:  primary,
+			StartVersion: startTs,
+			LockTtl:      uint64(c.lockTTL.Milliseconds()),
 		}
+		req := tikvrpc.NewRequest(tikvrpc.CmdPrewrite, prewrite)
 
 		// Send the requests
 		resp, err := c.kv.SendReq(bo, req, loc.Region, time.Second*20)
@@ -290,7 +288,7 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 			continue
 		}
 
-		prewriteResp := resp.Prewrite
+		prewriteResp := resp.Resp
 		if prewriteResp == nil {
 			return 0, errors.Errorf("response body missing")
 		}
