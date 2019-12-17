@@ -118,9 +118,9 @@ func newCheckSumCommand() *cobra.Command {
 					s := sha256.Sum256(data)
 					if !bytes.Equal(s[:], file.Sha256) {
 						return errors.Errorf(`
-								backup data checksum failed: %s may be changed
-								calculated sha256 is %s,
-								origin sha256 is %s`,
+backup data checksum failed: %s may be changed
+calculated sha256 is %s,
+origin sha256 is %s`,
 							file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
 					}
 				}
