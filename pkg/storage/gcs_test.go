@@ -28,7 +28,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 		PredefinedAcl:   "private",
 		CredentialsBlob: "Fake Credentials",
 	}
-	stg, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+	stg, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 	c.Assert(err, IsNil)
 
 	err = stg.Write(ctx, "key", []byte("data"))
@@ -74,7 +74,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "FakeCredentials",
 		}
-		_, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "FakeCredentials")
 	}
@@ -88,7 +88,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "FakeCredentials",
 		}
-		_, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
 	}
@@ -114,7 +114,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, `{"type": "service_account"}`)
 	}
@@ -140,7 +140,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
 	}
@@ -155,7 +155,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
 		c.Assert(err, NotNil)
 	}
 }
