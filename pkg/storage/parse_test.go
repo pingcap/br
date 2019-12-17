@@ -52,16 +52,9 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Prefix, Equals, "prefix")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
 
-	fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
-	c.Assert(err, IsNil)
-	defer func() {
-		fakeCredentialsFile.Close()
-		os.Remove(fakeCredentialsFile.Name())
-	}()
 	gcsOpt := &BackendOptions{
 		GCS: GCSBackendOptions{
-			Endpoint:        "https://gcs.example.com/",
-			CredentialsFile: fakeCredentialsFile.Name(),
+			Endpoint: "https://gcs.example.com/",
 		},
 	}
 	s, err = ParseBackend("gcs://bucket2/prefix/", gcsOpt)
@@ -71,6 +64,18 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Bucket, Equals, "bucket2")
 	c.Assert(gcs.Prefix, Equals, "prefix/")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
+	c.Assert(gcs.CredentialsBlob, Equals, "")
+
+	fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+	c.Assert(err, IsNil)
+	_, err = fakeCredentialsFile.Write([]byte("fakeCredentials"))
+	c.Assert(err, IsNil)
+	defer func() {
+		fakeCredentialsFile.Close()
+		os.Remove(fakeCredentialsFile.Name())
+	}()
+	gcsOpt.GCS.CredentialsFile = fakeCredentialsFile.Name()
+
 	s, err = ParseBackend("gcs://bucket/more/prefix/", gcsOpt)
 	c.Assert(err, IsNil)
 	gcs = s.GetGcs()
@@ -78,6 +83,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Bucket, Equals, "bucket")
 	c.Assert(gcs.Prefix, Equals, "more/prefix/")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
+	c.Assert(gcs.CredentialsBlob, Equals, "fakeCredentials")
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {

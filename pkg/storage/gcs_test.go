@@ -3,17 +3,16 @@ package storage
 import (
 	"context"
 	"io/ioutil"
+	"os"
 
 	"github.com/fsouza/fake-gcs-server/fakestorage"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
-type testSuite struct{}
+func (r *testStorageSuite) TestGCS(c *C) {
+	ctx := context.Background()
 
-var _ = Suite(&testSuite{})
-
-func (r *testSuite) TestGCS(c *C) {
 	opts := fakestorage.Options{
 		NoListener: true,
 	}
@@ -22,15 +21,16 @@ func (r *testSuite) TestGCS(c *C) {
 	bucketName := "testbucket"
 	server.CreateBucket(bucketName)
 
-	stg := &gcsStorage{
-		gcs: &backup.GCS{
-			Prefix:        "a/b/",
-			StorageClass:  "NEARLINE",
-			PredefinedAcl: "private",
-		},
-		bucket: server.Client().Bucket(bucketName),
+	gcs := &backup.GCS{
+		Bucket:          bucketName,
+		Prefix:          "a/b/",
+		StorageClass:    "NEARLINE",
+		PredefinedAcl:   "private",
+		CredentialsBlob: "Fake Credentials",
 	}
-	ctx := context.Background()
+	stg, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+	c.Assert(err, IsNil)
+
 	err = stg.Write(ctx, "key", []byte("data"))
 	c.Assert(err, IsNil)
 
@@ -52,4 +52,110 @@ func (r *testSuite) TestGCS(c *C) {
 	exist, err = stg.FileExists(ctx, "key_not_exist")
 	c.Assert(err, IsNil)
 	c.Assert(exist, IsFalse)
+}
+
+func (r *testStorageSuite) TestNewGCSStorage(c *C) {
+	ctx := context.Background()
+
+	opts := fakestorage.Options{
+		NoListener: true,
+	}
+	server, err := fakestorage.NewServerWithOptions(opts)
+	c.Assert(err, IsNil)
+	bucketName := "testbucket"
+	server.CreateBucket(bucketName)
+
+	{
+		sendCredential = true
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b/",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "FakeCredentials",
+		}
+		_, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		c.Assert(err, IsNil)
+		c.Assert(gcs.CredentialsBlob, Equals, "FakeCredentials")
+	}
+
+	{
+		sendCredential = false
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b/",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "FakeCredentials",
+		}
+		_, err := newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		c.Assert(err, IsNil)
+		c.Assert(gcs.CredentialsBlob, Equals, "")
+	}
+
+	{
+		fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+		c.Assert(err, IsNil)
+		defer func() {
+			fakeCredentialsFile.Close()
+			os.Remove(fakeCredentialsFile.Name())
+		}()
+		_, err = fakeCredentialsFile.Write([]byte(`{"type": "service_account"}`))
+		c.Assert(err, IsNil)
+		err = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", fakeCredentialsFile.Name())
+		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+		c.Assert(err, IsNil)
+
+		sendCredential = true
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b/",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "",
+		}
+		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		c.Assert(err, IsNil)
+		c.Assert(gcs.CredentialsBlob, Equals, `{"type": "service_account"}`)
+	}
+
+	{
+		fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+		c.Assert(err, IsNil)
+		defer func() {
+			fakeCredentialsFile.Close()
+			os.Remove(fakeCredentialsFile.Name())
+		}()
+		_, err = fakeCredentialsFile.Write([]byte(`{"type": "service_account"}`))
+		c.Assert(err, IsNil)
+		err = os.Setenv("GOOGLE_APPLICATION_CREDENTIALS", fakeCredentialsFile.Name())
+		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+		c.Assert(err, IsNil)
+
+		sendCredential = false
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b/",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "",
+		}
+		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		c.Assert(err, IsNil)
+		c.Assert(gcs.CredentialsBlob, Equals, "")
+	}
+
+	{
+		sendCredential = true
+		os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b/",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "",
+		}
+		_, err = newGCSStorageWithHttpClient(ctx, gcs, server.HTTPClient())
+		c.Assert(err, NotNil)
+	}
 }
