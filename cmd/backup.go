@@ -108,7 +108,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		approximateRegions += regionCount
 	}
 
-	summary.Collector.CollectInt("backup total regions", approximateRegions)
+	summary.CollectInt("backup total regions", approximateRegions)
 	// Backup
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
@@ -147,7 +147,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
-	summary.Collector.Summary(cmdName)
+	summary.Summary(cmdName)
 	return client.SaveBackupMeta(ctx)
 }
 

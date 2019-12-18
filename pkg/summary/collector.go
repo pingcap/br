@@ -17,8 +17,7 @@ type LogCollector interface {
 	Summary(name string)
 }
 
-// Collector collects infos into summary log
-var Collector = newLogCollector()
+var collector = newLogCollector()
 
 type logCollector struct {
 	mu     sync.Mutex
@@ -52,5 +51,5 @@ func (tc *logCollector) Summary(name string) {
 
 // SetLogCollector allow pass LogCollector outside
 func SetLogCollector(l LogCollector) {
-	Collector = l
+	collector = l
 }

@@ -96,7 +96,7 @@ func newFullRestoreCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 
-			summary.Collector.CollectInt("restore files", len(files))
+			summary.CollectInt("restore files", len(files))
 			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
 			if err != nil {
 				return errors.Trace(err)
@@ -105,7 +105,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			summary.Collector.CollectInt("restore ranges", len(ranges))
+			summary.CollectInt("restore ranges", len(ranges))
 
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
@@ -153,7 +153,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Collector.Summary("restore full")
+			summary.Summary("restore full")
 			return nil
 		},
 	}
@@ -211,12 +211,12 @@ func newDbRestoreCommand() *cobra.Command {
 				files = append(files, table.Files...)
 			}
 
-			summary.Collector.CollectInt("restore files", len(files))
+			summary.CollectInt("restore files", len(files))
 			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 			if err != nil {
 				return err
 			}
-			summary.Collector.CollectInt("restore ranges", len(ranges))
+			summary.CollectInt("restore ranges", len(ranges))
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -261,7 +261,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Collector.Summary("restore database")
+			summary.Summary("restore database")
 			return nil
 		},
 	}
@@ -329,12 +329,12 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			summary.Collector.CollectInt("restore files", len(table.Files))
+			summary.CollectInt("restore files", len(table.Files))
 			ranges, err := restore.ValidateFileRanges(table.Files, rewriteRules)
 			if err != nil {
 				return err
 			}
-			summary.Collector.CollectInt("restore ranges", len(ranges))
+			summary.CollectInt("restore ranges", len(ranges))
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -379,7 +379,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			close(updateCh)
 
-			summary.Collector.Summary("restore table")
+			summary.Summary("restore table")
 			return nil
 		},
 	}

@@ -251,7 +251,7 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration("restore table: "+table.Schema.Name.String(), elapsed)
+		summary.CollectDuration("restore table: "+table.Schema.Name.String(), elapsed)
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -312,7 +312,7 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration("restore database: "+db.Schema.Name.String(), elapsed)
+		summary.CollectDuration("restore database: "+db.Schema.Name.String(), elapsed)
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -348,7 +348,7 @@ func (rc *Client) RestoreAll(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration("restore all", elapsed)
+		summary.CollectDuration("restore all", elapsed)
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)
@@ -447,7 +447,7 @@ func (rc *Client) ValidateChecksum(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration("restore checksum", elapsed)
+		summary.CollectDuration("restore checksum", elapsed)
 	}()
 
 	log.Info("Start to validate checksum")

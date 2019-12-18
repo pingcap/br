@@ -335,7 +335,7 @@ func SplitRanges(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration("split region", elapsed)
+		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
 	return splitter.Split(ctx, ranges, rewriteRules, func(*restore_util.Range) {
