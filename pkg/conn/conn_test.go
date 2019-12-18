@@ -3,6 +3,7 @@ package conn
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -34,7 +35,7 @@ func (s *testClientSuite) TearDownSuite(c *C) {
 
 func (s *testClientSuite) TestPDHTTP(c *C) {
 	ctx := context.Background()
-	mock := func(context.Context, string, string, *http.Client) ([]byte, error) {
+	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		stats := statistics.RegionStats{Count: 6}
 		ret, err := json.Marshal(stats)
 		c.Assert(err, IsNil)
@@ -45,7 +46,7 @@ func (s *testClientSuite) TestPDHTTP(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 6)
 
-	mock = func(context.Context, string, string, *http.Client) ([]byte, error) {
+	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`test`), nil
 	}
 	respString, err := s.mgr.getClusterVersionWith(ctx, mock)
