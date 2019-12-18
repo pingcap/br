@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sync"
@@ -400,7 +401,8 @@ func (bc *Client) backupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	summary.CollectDuration("backup range finished", time.Since(start))
+	summary.CollectDuration("backup range finished: start:"+hex.EncodeToString(startKey)+
+		" end:"+hex.EncodeToString(endKey), time.Since(start))
 	return nil
 }
 

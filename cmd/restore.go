@@ -153,7 +153,7 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Summary("restore full")
+			summary.Summary("Restore full")
 			return nil
 		},
 	}
@@ -261,7 +261,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Summary("restore database")
+			summary.Summary("Restore database")
 			return nil
 		},
 	}
@@ -379,7 +379,7 @@ func newTableRestoreCommand() *cobra.Command {
 			}
 			close(updateCh)
 
-			summary.Summary("restore table")
+			summary.Summary("Restore table")
 			return nil
 		},
 	}
