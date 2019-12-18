@@ -18,7 +18,6 @@ package main
 import (
 	"context"
 	"flag"
-	"net/http"
 	"time"
 
 	"github.com/pingcap/log"
@@ -43,11 +42,8 @@ func main() {
 	}
 
 	timeout := time.Second * 10
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-
-	http.DefaultClient.Timeout = timeout
-
 	pdclient, err := pd.NewClientWithContext(ctx, []string{*pdAddr}, pd.SecurityOption{})
 	if err != nil {
 		log.Fatal("create pd client failed", zap.Error(err))
