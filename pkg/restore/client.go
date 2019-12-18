@@ -2,7 +2,6 @@ package restore
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -252,7 +251,7 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration(fmt.Sprintf("restore table: %s", table.Schema.Name), elapsed)
+		summary.Collector.CollectDuration("restore table: "+table.Schema.Name.String(), elapsed)
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -313,7 +312,7 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.Collector.CollectDuration(fmt.Sprintf("restore database: %s", db.Schema.Name), elapsed)
+		summary.Collector.CollectDuration("restore database: "+db.Schema.Name.String(), elapsed)
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)

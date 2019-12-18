@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -45,7 +44,10 @@ func (tc *logCollector) CollectInt(name string, t int) {
 }
 
 func (tc *logCollector) Summary(name string) {
-	log.Info(fmt.Sprintf("%s summary", name), tc.fields...)
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	log.Info(name+" summary", tc.fields...)
+	tc.fields = tc.fields[:0]
 }
 
 // SetLogCollector allow pass LogCollector outside
