@@ -147,8 +147,12 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
+	err = client.SaveBackupMeta(ctx)
+	if err != nil {
+		return err
+	}
 	summary.Summary(cmdName)
-	return client.SaveBackupMeta(ctx)
+	return nil
 }
 
 // NewBackupCommand return a full backup subcommand.
@@ -167,6 +171,8 @@ func NewBackupCommand() *cobra.Command {
 			ddl.RunWorker = false
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()
+
+			summary.SetUnit(summary.BackupUnit)
 			return nil
 		},
 	}

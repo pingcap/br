@@ -247,11 +247,17 @@ func (rc *Client) RestoreTable(
 	table *utils.Table,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.CollectDuration("restore table: "+table.Schema.Name.String(), elapsed)
+		log.Info("restore table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		key := table.Schema.Name.String()
+		if err != nil {
+			summary.CollectFailureUnit(key, err)
+		} else {
+			summary.CollectSuccessUnit(key, elapsed)
+		}
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -263,7 +269,7 @@ func (rc *Client) RestoreTable(
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
-	err := rc.setSpeedLimit()
+	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
 	}
@@ -308,11 +314,11 @@ func (rc *Client) RestoreDatabase(
 	db *utils.Database,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.CollectDuration("restore database: "+db.Schema.Name.String(), elapsed)
+		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -331,7 +337,7 @@ func (rc *Client) RestoreDatabase(
 		})
 	}
 	for range db.Tables {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err
@@ -344,11 +350,11 @@ func (rc *Client) RestoreDatabase(
 func (rc *Client) RestoreAll(
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.CollectDuration("restore all", elapsed)
+		log.Info("Restore All", zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)
@@ -368,7 +374,7 @@ func (rc *Client) RestoreAll(
 	}
 
 	for range rc.databases {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err

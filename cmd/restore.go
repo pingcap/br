@@ -33,6 +33,8 @@ func NewRestoreCommand() *cobra.Command {
 
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()
+
+			summary.SetUnit(summary.RestoreUnit)
 			return nil
 		},
 	}
@@ -96,6 +98,8 @@ func newFullRestoreCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 
+			defer summary.Summary("Restore full")
+
 			summary.CollectInt("restore files", len(files))
 			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
 			if err != nil {
@@ -153,7 +157,6 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Summary("Restore full")
 			return nil
 		},
 	}
@@ -211,6 +214,8 @@ func newDbRestoreCommand() *cobra.Command {
 				files = append(files, table.Files...)
 			}
 
+			defer summary.Summary("Restore database")
+
 			summary.CollectInt("restore files", len(files))
 			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 			if err != nil {
@@ -261,7 +266,6 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-			summary.Summary("Restore database")
 			return nil
 		},
 	}
@@ -329,6 +333,9 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			defer summary.Summary("Restore table")
+
 			summary.CollectInt("restore files", len(table.Files))
 			ranges, err := restore.ValidateFileRanges(table.Files, rewriteRules)
 			if err != nil {
@@ -378,8 +385,6 @@ func newTableRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-
-			summary.Summary("Restore table")
 			return nil
 		},
 	}

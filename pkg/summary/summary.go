@@ -2,6 +2,21 @@ package summary
 
 import "time"
 
+// SetUnit set unit "backup/restore" for summary log
+func SetUnit(unit string) {
+	collector.SetUnit(unit)
+}
+
+// CollectSuccessUnit collects success time costs
+func CollectSuccessUnit(name string, t time.Duration) {
+	collector.CollectSuccessUnit(name, t)
+}
+
+// CollectFailureUnit collects fail reason
+func CollectFailureUnit(name string, reason error) {
+	collector.CollectFailureUnit(name, reason)
+}
+
 // CollectDuration collects log time field
 func CollectDuration(name string, t time.Duration) {
 	collector.CollectDuration(name, t)
