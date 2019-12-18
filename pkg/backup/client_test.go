@@ -79,18 +79,21 @@ func (r *testBackup) TestGetTS(c *C) {
 
 	// timeago = "-1m"
 	timeAgo = "-1m"
-	expectedDuration = -60000
-	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, IsNil)
-	pdTs = oracle.ExtractPhysical(ts)
-	duration = int(currentTs - pdTs)
-	c.Assert(duration, Greater, expectedDuration-deviation)
-	c.Assert(duration, Less, expectedDuration+deviation)
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	c.Assert(err, ErrorMatches, "negative timeago is allowed")
 
-	// timeago = "1000000h" exceed GCSafePoint
-	// because GCSafePoint in mockPDClient is 0
+	// timeago = "1000000h" overflows
 	timeAgo = "1000000h"
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	c.Assert(err, ErrorMatches, "backup ts overflow.*")
+
+	// timeago = "10h" exceed GCSafePoint
+	p, l, err := r.backupClient.mgr.GetPDClient().GetTS(r.ctx)
+	c.Assert(err, IsNil)
+	now := oracle.ComposeTS(p, l)
+	_, err = r.backupClient.mgr.GetPDClient().UpdateGCSafePoint(r.ctx, now)
+	c.Assert(err, IsNil)
+	timeAgo = "10h"
 	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, ErrorMatches, "given backup time exceed GCSafePoint")
 }
