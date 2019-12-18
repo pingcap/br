@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
@@ -69,31 +70,29 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	backupTS := oracle.ComposeTS(p, l)
 
 	if timeAgo != "" {
 		duration, err := time.ParseDuration(timeAgo)
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
-		t := duration.Nanoseconds() / int64(time.Millisecond)
-		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
+		log.Info("backup time ago", zap.Duration("MillisecondsAgo", duration))
 
 		// check backup time do not exceed GCSafePoint
 		safePoint, err := GetGCSafePoint(ctx, bc.mgr.GetPDClient())
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
-		if p-t < safePoint.Physical {
+
+		backupTime := oracle.GetTimeFromTS(backupTS)
+		backupAgo := backupTime.Add(-duration)
+		backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
+		if backupTS < safePoint {
 			return 0, errors.New("given backup time exceed GCSafePoint")
 		}
-		p -= t
 	}
 
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	backupTS := utils.EncodeTs(ts)
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
@@ -278,7 +277,7 @@ func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []Range,
 	backupTS uint64,
-	rate uint64,
+	rateLimit uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
 ) error {
@@ -294,7 +293,7 @@ func (bc *Client) BackupRanges(
 	go func() {
 		for _, r := range ranges {
 			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, backupTS, rate, concurrency, updateCh)
+				ctx, r.StartKey, r.EndKey, backupTS, rateLimit, concurrency, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -338,16 +337,14 @@ func (bc *Client) backupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	backupTS uint64,
-	rateMBs uint64,
+	rateLimit uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
 ) error {
-	// The unit of rate limit in protocol is bytes per second.
-	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
 		zap.Binary("EndKey", endKey),
-		zap.Uint64("RateLimit", rateMBs),
+		zap.Uint64("RateLimit", rateLimit),
 		zap.Uint32("Concurrency", concurrency))
 	start := time.Now()
 	ctx, cancel := context.WithCancel(ctx)

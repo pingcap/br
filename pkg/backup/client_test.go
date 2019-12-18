@@ -10,11 +10,11 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 
 	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
@@ -61,7 +61,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err := r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs := utils.DecodeTs(ts).Physical
+	pdTs := oracle.ExtractPhysical(ts)
 	duration := int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -72,7 +72,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs = utils.DecodeTs(ts).Physical
+	pdTs = oracle.ExtractPhysical(ts)
 	duration = int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -83,7 +83,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs = utils.DecodeTs(ts).Physical
+	pdTs = oracle.ExtractPhysical(ts)
 	duration = int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)

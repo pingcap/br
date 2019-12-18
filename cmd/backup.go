@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	flagBackupTimeago     = "timeago"
-	flagBackupRateLimit   = "ratelimit"
-	flagBackupConcurrency = "concurrency"
-	flagBackupChecksum    = "checksum"
-	flagBackupDB          = "db"
-	flagBackupTable       = "table"
+	flagBackupTimeago       = "timeago"
+	flagBackupRateLimit     = "ratelimit"
+	flagBackupRateLimitUnit = "ratelimit-unit"
+	flagBackupConcurrency   = "concurrency"
+	flagBackupChecksum      = "checksum"
+	flagBackupDB            = "db"
+	flagBackupTable         = "table"
 )
 
 func defineBackupFlags(flagSet *pflag.FlagSet) {
@@ -34,6 +35,11 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
+
+	// Test only flag.
+	flagSet.Uint64P(
+		flagBackupRateLimitUnit, "", utils.MB, "The unit of rate limit of the backup task")
+	_ = flagSet.MarkHidden(flagBackupRateLimitUnit)
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
@@ -55,6 +61,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
+	ratelimitUnit, err := flagSet.GetUint64(flagBackupRateLimit)
+	if err != nil {
+		return err
+	}
+	ratelimit *= ratelimitUnit
 
 	concurrency, err := flagSet.GetUint32(flagBackupConcurrency)
 	if err != nil {

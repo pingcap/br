@@ -16,6 +16,7 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -124,11 +125,7 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	restoreTS := utils.EncodeTs(ts)
+	restoreTS := oracle.ComposeTS(p, l)
 	return restoreTS, nil
 }
 
