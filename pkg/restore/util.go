@@ -336,7 +336,9 @@ func SplitRanges(
 		log.Info("SplitRegion", zap.Duration("costs", elapsed))
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-	return splitter.Split(ctx, ranges, rewriteRules, func(*restore_util.Range) {
-		updateCh <- struct{}{}
+	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
+		for _ = range keys {
+			updateCh <- struct{}{}
+		}
 	})
 }

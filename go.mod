@@ -24,7 +24,7 @@ require (
 	github.com/pingcap/parser v0.0.0-20191210060830-bdf23a7ade01
 	github.com/pingcap/pd v1.1.0-beta.0.20191212045800-234784c7a9c5
 	github.com/pingcap/tidb v1.1.0-beta.0.20191213040028-9009da737834
-	github.com/pingcap/tidb-tools v3.0.8-0.20191209062450-c67149676f5c+incompatible
+	github.com/pingcap/tidb-tools v3.1.0-beta.0.20191218124733-15882555e4c9+incompatible
 	github.com/pingcap/tipb v0.0.0-20191209145133-44f75c9bef33
 	github.com/prometheus/client_golang v1.0.0
 	github.com/sirupsen/logrus v1.4.2
