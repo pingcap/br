@@ -345,7 +345,7 @@ func RestorePostWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr,
 
 func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers []string) error {
 	for _, scheduler := range removedSchedulers {
-		_, err := mgr.AddScheduler(ctx, scheduler)
+		err := mgr.AddScheduler(ctx, scheduler)
 		if err != nil {
 			return err
 		}

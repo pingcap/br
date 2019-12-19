@@ -294,22 +294,20 @@ func (mgr *Mgr) removeSchedulerWith(ctx context.Context, scheduler string, delet
 }
 
 // AddScheduler add pd scheduler
-func (mgr *Mgr) AddScheduler(ctx context.Context, scheduler string) (string, error) {
+func (mgr *Mgr) AddScheduler(ctx context.Context, scheduler string) error {
 	return mgr.addSchedulerWith(ctx, scheduler, pdRequest)
 }
 
-func (mgr *Mgr) addSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (string, error) {
-	var err error
+func (mgr *Mgr) addSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
 	for _, addr := range mgr.pdHTTP.addrs {
 		body := bytes.NewBuffer([]byte(`{"name":"` + scheduler + `"}`))
-		v, e := post(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodPost, body)
-		if e != nil {
-			err = e
+		_, err = post(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodPost, body)
+		if err != nil {
 			continue
 		}
-		return string(v), nil
+		return nil
 	}
-	return "", err
+	return err
 }
 
 // ListSchedulers list all pd scheduler
