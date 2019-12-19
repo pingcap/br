@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -251,8 +252,9 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("restore table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
-		key := table.Schema.Name.String()
+		log.Info("restore table",
+			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
 		} else {

@@ -8,8 +8,8 @@ func SetUnit(unit string) {
 }
 
 // CollectSuccessUnit collects success time costs
-func CollectSuccessUnit(name string, t time.Duration) {
-	collector.CollectSuccessUnit(name, t)
+func CollectSuccessUnit(name string, arg interface{}) {
+	collector.CollectSuccessUnit(name, arg)
 }
 
 // CollectFailureUnit collects fail reason

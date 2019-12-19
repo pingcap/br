@@ -10,15 +10,22 @@ import (
 )
 
 const (
-	BackupUnit  = "backup"
+	// BackupUnit tells summary in backup
+	BackupUnit = "backup"
+	// RestoreUnit tells summary in restore
 	RestoreUnit = "restore"
+
+	// TotalKV is a field we collect during backup/restore
+	TotalKV = "total kv"
+	// TotalBytes is a field we collect during backup/restore
+	TotalBytes = "total bytes"
 )
 
 // LogCollector collects infos into summary log
 type LogCollector interface {
 	SetUnit(unit string)
 
-	CollectSuccessUnit(name string, t time.Duration)
+	CollectSuccessUnit(name string, arg interface{})
 
 	CollectFailureUnit(name string, reason error)
 
@@ -35,7 +42,8 @@ type logCollector struct {
 	mu             sync.Mutex
 	unit           string
 	unitCount      int
-	successUnits   map[string]time.Duration
+	successCosts   map[string]time.Duration
+	successData    map[string]uint64
 	failureReasons map[string]error
 	fields         []zap.Field
 }
@@ -44,7 +52,8 @@ func newLogCollector() LogCollector {
 	return &logCollector{
 		unitCount:      0,
 		fields:         make([]zap.Field, 0),
-		successUnits:   make(map[string]time.Duration),
+		successCosts:   make(map[string]time.Duration),
+		successData:    make(map[string]uint64),
 		failureReasons: make(map[string]error),
 	}
 }
@@ -55,14 +64,24 @@ func (tc *logCollector) SetUnit(unit string) {
 	tc.unit = unit
 }
 
-func (tc *logCollector) CollectSuccessUnit(name string, t time.Duration) {
+func (tc *logCollector) CollectSuccessUnit(name string, arg interface{}) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	if _, ok := tc.successUnits[name]; !ok {
-		tc.successUnits[name] = t
-		tc.unitCount++
-	} else {
-		tc.successUnits[name] += t
+
+	switch v := arg.(type) {
+	case time.Duration:
+		if _, ok := tc.successCosts[name]; !ok {
+			tc.successCosts[name] = v
+			tc.unitCount++
+		} else {
+			tc.successCosts[name] += v
+		}
+	case uint64:
+		if _, ok := tc.successData[name]; !ok {
+			tc.successData[name] = v
+		} else {
+			tc.successData[name] += v
+		}
 	}
 }
 
@@ -91,7 +110,7 @@ func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
 		tc.fields = tc.fields[:0]
-		tc.successUnits = make(map[string]time.Duration)
+		tc.successCosts = make(map[string]time.Duration)
 		tc.failureReasons = make(map[string]error)
 		tc.mu.Unlock()
 	}()
@@ -100,10 +119,16 @@ func (tc *logCollector) Summary(name string) {
 	switch tc.unit {
 	case BackupUnit:
 		msg = fmt.Sprintf("total backup ranges: %d, success ranges: %d, failed ranges: %d",
-			tc.unitCount, len(tc.successUnits), len(tc.failureReasons))
+			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
+		if len(tc.failureReasons) != 0 {
+			msg += " failed ranges"
+		}
 	case RestoreUnit:
 		msg = fmt.Sprintf("total restore tables: %d, success tables: %d, failed tables: %d",
-			tc.unitCount, len(tc.successUnits), len(tc.failureReasons))
+			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
+		if len(tc.failureReasons) != 0 {
+			msg += " failed tables"
+		}
 	}
 
 	logFields := tc.fields
@@ -113,18 +138,31 @@ func (tc *logCollector) Summary(name string) {
 			// logFields = append(logFields, zap.NamedError(name, reason))
 			names = append(names, name)
 		}
-		logFields = append(logFields, zap.Strings(msg+" failed units", names))
+		logFields = append(logFields, zap.Strings(msg, names))
 		log.Info(name+" summary", logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
-	for _, cost := range tc.successUnits {
+	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
+	msg += fmt.Sprintf(", total take(s): %.2f", totalCost.Seconds())
+	for name, data := range tc.successData {
+		if name == TotalBytes {
+			fData := float64(data) / 1024 / 1024
+			if fData > 1 {
+				msg += fmt.Sprintf(", total size(MB): %.2f", fData)
+				msg += fmt.Sprintf(", avg speed(MB/s): %.2f", fData/totalCost.Seconds())
+			} else {
+				msg += fmt.Sprintf(", total size(Byte): %d", data)
+				msg += fmt.Sprintf(", avg speed(Byte/s): %.2f", float64(data)/totalCost.Seconds())
+			}
+			continue
+		}
+		msg += fmt.Sprintf(", %s: %d", name, data)
+	}
 
-	logFields = append(logFields, zap.Duration(msg+" total take", totalCost))
-
-	log.Info(name+" summary", logFields...)
+	log.Info(name+" summary: "+msg, logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside

@@ -731,6 +731,10 @@ func (bc *Client) FastChecksum() (bool, error) {
 			totalKvs += file.TotalKvs
 			totalBytes += file.TotalBytes
 		}
+
+		summary.CollectSuccessUnit(summary.TotalKV, totalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, totalBytes)
+
 		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
 			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		} else {
