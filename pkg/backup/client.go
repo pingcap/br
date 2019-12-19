@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -341,7 +343,18 @@ func (bc *Client) backupRange(
 	rateMBs uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("backup range finished", zap.Duration("take", elapsed))
+		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
+		if err != nil {
+			summary.CollectFailureUnit(key, err)
+		} else {
+			summary.CollectSuccessUnit(key, elapsed)
+		}
+	}()
 	// The unit of rate limit in protocol is bytes per second.
 	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
@@ -349,11 +362,11 @@ func (bc *Client) backupRange(
 		zap.Binary("EndKey", endKey),
 		zap.Uint64("RateLimit", rateMBs),
 		zap.Uint32("Concurrency", concurrency))
-	start := time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
+	var allStores []*metapb.Store
+	allStores, err = bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -369,7 +382,8 @@ func (bc *Client) backupRange(
 	}
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
-	results, err := push.pushBackup(req, allStores, updateCh)
+	var results RangeTree
+	results, err = push.pushBackup(req, allStores, updateCh)
 	if err != nil {
 		return err
 	}
@@ -399,8 +413,6 @@ func (bc *Client) backupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	log.Info("backup range finished",
-		zap.Duration("take", time.Since(start)))
 	return nil
 }
 
@@ -690,7 +702,7 @@ func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+		summary.CollectDuration("backup checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
@@ -719,6 +731,10 @@ func (bc *Client) FastChecksum() (bool, error) {
 			totalKvs += file.TotalKvs
 			totalBytes += file.TotalBytes
 		}
+
+		summary.CollectSuccessUnit(summary.TotalKV, totalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, totalBytes)
+
 		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
 			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		} else {

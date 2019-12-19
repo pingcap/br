@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -246,11 +248,18 @@ func (rc *Client) RestoreTable(
 	table *utils.Table,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("restore table",
+			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
+		if err != nil {
+			summary.CollectFailureUnit(key, err)
+		} else {
+			summary.CollectSuccessUnit(key, elapsed)
+		}
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -262,7 +271,7 @@ func (rc *Client) RestoreTable(
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
-	err := rc.setSpeedLimit()
+	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
 	}
@@ -307,7 +316,7 @@ func (rc *Client) RestoreDatabase(
 	db *utils.Database,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -330,7 +339,7 @@ func (rc *Client) RestoreDatabase(
 		})
 	}
 	for range db.Tables {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err
@@ -343,7 +352,7 @@ func (rc *Client) RestoreDatabase(
 func (rc *Client) RestoreAll(
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -367,7 +376,7 @@ func (rc *Client) RestoreAll(
 	}
 
 	for range rc.databases {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err
@@ -446,7 +455,7 @@ func (rc *Client) ValidateChecksum(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Checksum", zap.Duration("take", elapsed))
+		summary.CollectDuration("restore checksum", elapsed)
 	}()
 
 	log.Info("Start to validate checksum")
