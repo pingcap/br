@@ -14,6 +14,10 @@ func TestT(t *testing.T) {
 	TestingT(t)
 }
 
+func TestClient(t *testing.T) {
+	TestingT(t)
+}
+
 var _ = Suite(&testClientSuite{})
 
 type testClientSuite struct {

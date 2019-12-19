@@ -533,7 +533,6 @@ func (bc *Client) fineGrainedBackup(
 
 func onBackupResponse(
 	bo *tikv.Backoffer,
-	backupTS uint64,
 	lockResolver *tikv.LockResolver,
 	resp *backup.BackupResponse,
 ) (*backup.BackupResponse, int, error) {
@@ -547,8 +546,8 @@ func onBackupResponse(
 		if lockErr := v.KvError.Locked; lockErr != nil {
 			// Try to resolve lock.
 			log.Warn("backup occur kv error", zap.Reflect("error", v))
-			msBeforeExpired, _, err1 := lockResolver.ResolveLocks(
-				bo, backupTS, []*tikv.Lock{tikv.NewLock(lockErr)})
+			msBeforeExpired, err1 := lockResolver.ResolveLocks(
+				bo, []*tikv.Lock{tikv.NewLock(lockErr)})
 			if err1 != nil {
 				return nil, 0, errors.Trace(err1)
 			}
@@ -628,7 +627,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *backup.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(bo, backupTS, lockResolver, resp)
+				onBackupResponse(bo, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
