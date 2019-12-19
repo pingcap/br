@@ -312,8 +312,8 @@ func (bc *Client) BackupRanges(
 	for {
 		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
-			// Ignore the error since it retries every 30s.
-			log.Warn("get GC safepoint failed", zap.Error(err))
+			log.Error("check GC safepoint failed", zap.Error(err))
+			return err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.

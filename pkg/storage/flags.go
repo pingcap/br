@@ -11,6 +11,10 @@ const (
 	flagSendCredentialOption = "send-credentials-to-tikv"
 )
 
+var (
+	sendCredential bool
+)
+
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCredentialOption, "c", true,
@@ -21,6 +25,12 @@ func DefineFlags(flags *pflag.FlagSet) {
 
 // GetBackendOptionsFromFlags obtains the backend options from the flag set.
 func GetBackendOptionsFromFlags(flags *pflag.FlagSet) (options BackendOptions, err error) {
+	sendCredential, err = flags.GetBool(flagSendCredentialOption)
+	if err != nil {
+		err = errors.Trace(err)
+		return
+	}
+
 	if options.S3, err = getBackendOptionsFromS3Flags(flags); err != nil {
 		return
 	}
