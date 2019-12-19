@@ -4,11 +4,13 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"net/http"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/pflag"
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 )
 
@@ -28,19 +30,18 @@ type GCSBackendOptions struct {
 }
 
 func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
-	if options.CredentialsFile == "" {
-		return errors.New("must provide 'gcs.credentials_file'")
-	}
 
 	gcs.Endpoint = options.Endpoint
 	gcs.StorageClass = options.StorageClass
 	gcs.PredefinedAcl = options.PredefinedACL
 
-	b, err := ioutil.ReadFile(options.CredentialsFile)
-	if err != nil {
-		return err
+	if options.CredentialsFile != "" {
+		b, err := ioutil.ReadFile(options.CredentialsFile)
+		if err != nil {
+			return err
+		}
+		gcs.CredentialsBlob = string(b)
 	}
-	gcs.CredentialsBlob = string(b)
 	return nil
 }
 
@@ -67,7 +68,7 @@ https://console.cloud.google.com/apis/credentials.`)
 }
 
 func getBackendOptionsFromGCSFlags(flags *pflag.FlagSet) (options GCSBackendOptions, err error) {
-	options.Endpoint, err = flags.GetString(s3EndpointOption)
+	options.Endpoint, err = flags.GetString(gcsEndpointOption)
 	if err != nil {
 		err = errors.Trace(err)
 		return
@@ -139,15 +140,45 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS) (*gcsStorage, error) {
+	return newGCSStorageWithHTTPClient(ctx, gcs, nil)
+}
+
+func newGCSStorageWithHTTPClient(ctx context.Context, gcs *backup.GCS, hclient *http.Client) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
-	clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
+	if gcs.CredentialsBlob == "" {
+		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
+		if err != nil {
+			return nil, errors.New(err.Error() + "Or you should provide '--gcs.credentials_file'.")
+		}
+		if sendCredential {
+			if len(creds.JSON) > 0 {
+				gcs.CredentialsBlob = string(creds.JSON)
+			} else {
+				return nil, errors.New(
+					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
+			}
+		}
+		clientOps = append(clientOps, option.WithCredentials(creds))
+	} else {
+		clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
+	}
+
 	if gcs.Endpoint != "" {
 		clientOps = append(clientOps, option.WithEndpoint(gcs.Endpoint))
+	}
+	if hclient != nil {
+		clientOps = append(clientOps, option.WithHTTPClient(hclient))
 	}
 	client, err := storage.NewClient(ctx, clientOps...)
 	if err != nil {
 		return nil, err
 	}
+
+	if !sendCredential {
+		// Clear the credentials if exists so that they will not be sent to TiKV
+		gcs.CredentialsBlob = ""
+	}
+
 	bucket := client.Bucket(gcs.Bucket)
 	// check bucket exists
 	_, err = bucket.Attrs(ctx)

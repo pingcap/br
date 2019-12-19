@@ -14,6 +14,8 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+
+	"github.com/pingcap/br/pkg/summary"
 )
 
 var (
@@ -232,6 +234,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				)
 				return err
 			}
+			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
 		}
 		return nil
 	}, func(e error) bool {

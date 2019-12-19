@@ -30,6 +30,9 @@ func Create(ctx context.Context, backend *backup.StorageBackend) (ExternalStorag
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:
+		if backend.Gcs == nil {
+			return nil, errors.New("GCS config not found")
+		}
 		return newGCSStorage(ctx, backend.Gcs)
 	default:
 		return nil, errors.Errorf("storage %T is not supported yet", backend)
