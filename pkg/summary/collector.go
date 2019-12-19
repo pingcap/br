@@ -118,16 +118,16 @@ func (tc *logCollector) Summary(name string) {
 	var msg string
 	switch tc.unit {
 	case BackupUnit:
-		msg = fmt.Sprintf("total backup ranges: %d, success ranges: %d, failed ranges: %d",
+		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
 			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
 		if len(tc.failureReasons) != 0 {
-			msg += " failed ranges"
+			msg += ", failed ranges"
 		}
 	case RestoreUnit:
-		msg = fmt.Sprintf("total restore tables: %d, success tables: %d, failed tables: %d",
+		msg = fmt.Sprintf("total restore tables: %d, total success: %d, total failed: %d",
 			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
 		if len(tc.failureReasons) != 0 {
-			msg += " failed tables"
+			msg += ", failed tables"
 		}
 	}
 
