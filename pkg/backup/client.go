@@ -376,7 +376,7 @@ func (bc *Client) backupRange(
 		ClusterId:      bc.clusterID,
 		StartKey:       startKey,
 		EndKey:         endKey,
-		StartVersion:   backupTS,
+		StartVersion:   0, // Zero start version means full backup.
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
@@ -625,7 +625,7 @@ func (bc *Client) handleFineGrained(
 		ClusterId:      bc.clusterID,
 		StartKey:       rg.StartKey, // TODO: the range may cross region.
 		EndKey:         rg.EndKey,
-		StartVersion:   backupTS,
+		StartVersion:   0, // Zero start version means full backup.
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
