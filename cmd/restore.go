@@ -15,6 +15,7 @@ import (
 
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -32,6 +33,8 @@ func NewRestoreCommand() *cobra.Command {
 
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()
+
+			summary.SetUnit(summary.RestoreUnit)
 			return nil
 		},
 	}
@@ -109,7 +112,9 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			summary.CollectInt("restore files", len(files))
 			rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
+
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -117,6 +122,7 @@ func newFullRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			summary.CollectInt("restore ranges", len(ranges))
 
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
@@ -158,7 +164,6 @@ func newFullRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-
 			return nil
 		},
 	}
@@ -229,10 +234,15 @@ func newDbRestoreCommand() *cobra.Command {
 			for _, table := range db.Tables {
 				files = append(files, table.Files...)
 			}
+
+			defer summary.Summary("Restore database")
+
+			summary.CollectInt("restore files", len(files))
 			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 			if err != nil {
 				return err
 			}
+			summary.CollectInt("restore ranges", len(ranges))
 			// Redirect to log if there is no log file to avoid unreadable output.
 			updateCh := utils.StartProgress(
 				ctx,
@@ -340,7 +350,12 @@ func newTableRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
+			defer summary.Summary("Restore table")
+
+			summary.CollectInt("restore files", len(table.Files))
+
 			ranges, err := restore.ValidateFileRanges(table.Files, rewriteRules)
+			summary.CollectInt("restore ranges", len(ranges))
 			if err != nil {
 				return err
 			}
@@ -396,7 +411,6 @@ func newTableRestoreCommand() *cobra.Command {
 				return err
 			}
 			close(updateCh)
-
 			return nil
 		},
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -114,6 +115,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		approximateRegions += regionCount
 	}
 
+	summary.CollectInt("backup total regions", approximateRegions)
 	// Backup
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
@@ -152,7 +154,12 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
-	return client.SaveBackupMeta(ctx)
+	err = client.SaveBackupMeta(ctx)
+	if err != nil {
+		return err
+	}
+	summary.Summary(cmdName)
+	return nil
 }
 
 // NewBackupCommand return a full backup subcommand.
@@ -171,6 +178,8 @@ func NewBackupCommand() *cobra.Command {
 			ddl.RunWorker = false
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()
+
+			summary.SetUnit(summary.BackupUnit)
 			return nil
 		},
 	}
@@ -239,7 +248,6 @@ func newTableBackupCommand() *cobra.Command {
 			if len(table) == 0 {
 				return errors.Errorf("empty table name is not allowed")
 			}
-
 			return runBackup(command.Flags(), "Table backup", db, table)
 		},
 	}

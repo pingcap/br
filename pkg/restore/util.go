@@ -18,6 +18,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
@@ -342,10 +344,12 @@ func SplitRanges(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("SplitRegion", zap.Duration("costs", elapsed))
+		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
-	return splitter.Split(ctx, ranges, rewriteRules, func(*restore_util.Range) {
-		updateCh <- struct{}{}
+	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
+		for range keys {
+			updateCh <- struct{}{}
+		}
 	})
 }
