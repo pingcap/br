@@ -88,6 +88,11 @@ func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
 }
 
+// IsOnline tells if it's a online restore
+func (rc *Client) IsOnline() bool {
+	return rc.isOnline
+}
+
 // Close a client
 func (rc *Client) Close() {
 	rc.db.Close()
@@ -387,17 +392,11 @@ func (rc *Client) RestoreAll(
 
 //SwitchToImportModeIfOffline switch tikv cluster to import mode
 func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
-	if rc.isOnline {
-		return nil
-	}
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
 //SwitchToNormalModeIfOffline switch tikv cluster to normal mode
 func (rc *Client) SwitchToNormalModeIfOffline(ctx context.Context) error {
-	if rc.isOnline {
-		return nil
-	}
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
 

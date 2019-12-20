@@ -64,15 +64,11 @@ func pdRequest(
 		return nil, errors.Trace(err)
 	}
 	url := fmt.Sprintf("%s/%s", u, prefix)
-	var (
-		req  *http.Request
-		resp *http.Response
-	)
-	req, err = http.NewRequestWithContext(ctx, method, url, body)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	resp, err = cli.Do(req)
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

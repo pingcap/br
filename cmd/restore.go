@@ -217,7 +217,7 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			if len(db) == 0 {
-				return errors.Errorf("empty database name is not allowed")
+				return errors.New("empty database name is not allowed")
 			}
 			return runRestore(cmd.Flags(), "Database Restore", db, "")
 		},
@@ -237,14 +237,14 @@ func newTableRestoreCommand() *cobra.Command {
 				return err
 			}
 			if len(db) == 0 {
-				return errors.Errorf("empty database name is not allowed")
+				return errors.New("empty database name is not allowed")
 			}
 			table, err := cmd.Flags().GetString(flagTable)
 			if err != nil {
 				return err
 			}
 			if len(table) == 0 {
-				return errors.Errorf("empty table name is not allowed")
+				return errors.New("empty table name is not allowed")
 			}
 			return runRestore(cmd.Flags(), "Table Restore", db, table)
 		},
@@ -305,6 +305,9 @@ func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *fla
 
 // RestorePrepareWork execute some prepare work before restore
 func RestorePrepareWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) ([]string, error) {
+	if client.IsOnline() {
+		return nil, nil
+	}
 	err := client.SwitchToImportModeIfOffline(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -313,13 +316,13 @@ func RestorePrepareWork(ctx context.Context, client *restore.Client, mgr *conn.M
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	needRemoveScheduler := make([]string, 0, len(existSchedulers))
+	needRemoveSchedulers := make([]string, 0, len(existSchedulers))
 	for _, s := range existSchedulers {
 		if _, ok := schedulers[s]; ok {
-			needRemoveScheduler = append(needRemoveScheduler, s)
+			needRemoveSchedulers = append(needRemoveSchedulers, s)
 		}
 	}
-	return removePDLeaderScheduler(ctx, mgr, needRemoveScheduler)
+	return removePDLeaderScheduler(ctx, mgr, needRemoveSchedulers)
 }
 
 func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers []string) ([]string, error) {
@@ -336,6 +339,9 @@ func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers
 
 // RestorePostWork execute some post work after restore
 func RestorePostWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr, removedSchedulers []string) error {
+	if client.IsOnline() {
+		return nil
+	}
 	err := client.SwitchToNormalModeIfOffline(ctx)
 	if err != nil {
 		return errors.Trace(err)
