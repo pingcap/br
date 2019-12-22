@@ -62,7 +62,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
-	ratelimitUnit, err := flagSet.GetUint64(flagBackupRateLimit)
+	ratelimitUnit, err := flagSet.GetUint64(flagBackupRateLimitUnit)
 	if err != nil {
 		return err
 	}
