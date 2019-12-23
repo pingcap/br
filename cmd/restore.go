@@ -308,7 +308,7 @@ func RestorePrepareWork(ctx context.Context, client *restore.Client, mgr *conn.M
 	if client.IsOnline() {
 		return nil, nil
 	}
-	err := client.SwitchToImportModeIfOffline(ctx)
+	err := client.SwitchToImportMode(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -342,7 +342,7 @@ func RestorePostWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr,
 	if client.IsOnline() {
 		return nil
 	}
-	err := client.SwitchToNormalModeIfOffline(ctx)
+	err := client.SwitchToNormalMode(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}

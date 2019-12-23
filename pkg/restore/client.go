@@ -390,13 +390,13 @@ func (rc *Client) RestoreAll(
 	return nil
 }
 
-//SwitchToImportModeIfOffline switch tikv cluster to import mode
-func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
+//SwitchToImportMode switch tikv cluster to import mode
+func (rc *Client) SwitchToImportMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
-//SwitchToNormalModeIfOffline switch tikv cluster to normal mode
-func (rc *Client) SwitchToNormalModeIfOffline(ctx context.Context) error {
+//SwitchToNormalMode switch tikv cluster to normal mode
+func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
 
