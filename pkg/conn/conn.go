@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -182,7 +183,9 @@ func (mgr *Mgr) getRegionCountWith(
 		query := fmt.Sprintf(
 			"%s?start_key=%s&end_key=%s",
 			regionCountPrefix,
-			url.QueryEscape(string(startKey)), url.QueryEscape(string(endKey)))
+			// TiKV reports region start/end keys to PD in memcomparable-format.
+			url.QueryEscape(string(codec.EncodeBytes(nil, startKey))),
+			url.QueryEscape(string(codec.EncodeBytes(nil, endKey))))
 		v, e := get(ctx, addr, query, mgr.pdHTTP.cli)
 		if e != nil {
 			err = e
