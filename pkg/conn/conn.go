@@ -178,14 +178,17 @@ func (mgr *Mgr) GetRegionCount(ctx context.Context, startKey, endKey []byte) (in
 func (mgr *Mgr) getRegionCountWith(
 	ctx context.Context, get pdHTTPGet, startKey, endKey []byte,
 ) (int, error) {
+	// TiKV reports region start/end keys to PD in memcomparable-format.
+	var start, end string
+	start = url.QueryEscape(string(codec.EncodeBytes(nil, startKey)))
+	if len(endKey) != 0 { // Empty end key means the max.
+		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
+	}
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
 		query := fmt.Sprintf(
 			"%s?start_key=%s&end_key=%s",
-			regionCountPrefix,
-			// TiKV reports region start/end keys to PD in memcomparable-format.
-			url.QueryEscape(string(codec.EncodeBytes(nil, startKey))),
-			url.QueryEscape(string(codec.EncodeBytes(nil, endKey))))
+			regionCountPrefix, start, end)
 		v, e := get(ctx, addr, query, mgr.pdHTTP.cli)
 		if e != nil {
 			err = e
