@@ -372,13 +372,6 @@ func newTableRestoreCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Redirect to log if there is no log file to avoid unreadable output.
-			updateCh := utils.StartProgress(
-				ctx,
-				"Table Restore",
-				// Split/Scatter + Download/Ingest
-				int64(len(ranges)+len(table.Files)),
-				!HasLogFile())
 
 			err = client.SetupPlacementRules(ctx, newTables)
 			if err != nil {
@@ -391,6 +384,14 @@ func newTableRestoreCommand() *cobra.Command {
 				log.Error("wait placement schedule failed", zap.Error(err))
 				return errors.Trace(err)
 			}
+
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
+				"Table Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(table.Files)),
+				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {

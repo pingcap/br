@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -546,6 +547,7 @@ func (rc *Client) LoadRestoreStores(ctx context.Context) error {
 			}
 		}
 	}
+	log.Info("load restore stores", zap.Uint64s("store-ids", rc.restoreStores))
 	return nil
 }
 
@@ -554,6 +556,7 @@ func (rc *Client) ResetRestoreLabels(ctx context.Context) error {
 	if !rc.isOnline {
 		return nil
 	}
+	log.Info("start reseting store labels")
 	return rc.toolClient.SetStoresLabel(ctx, rc.restoreStores, restoreLabelKey, "")
 }
 
@@ -562,6 +565,7 @@ func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.Table
 	if !rc.isOnline || len(rc.restoreStores) == 0 {
 		return nil
 	}
+	log.Info("start setting placement rules")
 	rule, err := rc.toolClient.GetPlacementRule(ctx, "pd", "default")
 	if err != nil {
 		return err
@@ -580,6 +584,7 @@ func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.Table
 			return err
 		}
 	}
+	log.Info("finish setting placement rules")
 	return nil
 }
 
@@ -588,44 +593,47 @@ func (rc *Client) WaitPlacementSchedule(ctx context.Context, tables []*model.Tab
 	if !rc.isOnline || len(rc.restoreStores) == 0 {
 		return nil
 	}
+	log.Info("start waiting placement schedule")
 	ticker := time.NewTicker(time.Second * 10)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			ok, err := rc.checkRegions(ctx, tables)
+			ok, progress, err := rc.checkRegions(ctx, tables)
 			if err != nil {
 				return err
 			}
 			if ok {
+				log.Info("finish waiting placement schedule")
 				return nil
 			}
+			log.Info("placement schedule progress: " + progress)
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 }
 
-func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (bool, error) {
-	for _, t := range tables {
+func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (bool, string, error) {
+	for i, t := range tables {
 		start, end := tablecodec.EncodeTablePrefix(t.ID), tablecodec.EncodeTablePrefix(t.ID+1)
-		ok, err := rc.checkRange(ctx, start, end)
+		ok, regionProgress, err := rc.checkRange(ctx, start, end)
 		if err != nil {
-			return false, err
+			return false, "", err
 		}
 		if !ok {
-			return false, nil
+			return false, fmt.Sprintf("table %v/%v, %s", i, len(tables), regionProgress), nil
 		}
 	}
-	return true, nil
+	return true, "", nil
 }
 
-func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, error) {
+func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, string, error) {
 	regions, err := rc.toolClient.ScanRegions(ctx, start, end, -1)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	for _, r := range regions {
+	for i, r := range regions {
 	NEXT_PEER:
 		for _, p := range r.Region.GetPeers() {
 			for _, storeID := range rc.restoreStores {
@@ -633,10 +641,10 @@ func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, erro
 					continue NEXT_PEER
 				}
 			}
-			return false, nil
+			return false, fmt.Sprintf("region %v/%v", i, len(regions)), nil
 		}
 	}
-	return true, nil
+	return true, "", nil
 }
 
 // ResetPlacementRules removes placement rules for tables.
@@ -644,6 +652,7 @@ func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.Table
 	if !rc.isOnline || len(rc.restoreStores) == 0 {
 		return nil
 	}
+	log.Info("start reseting placement rules")
 	for _, t := range tables {
 		err := rc.toolClient.DeletePlacementRule(ctx, "pd", rc.getRuleID(t.ID))
 		if err != nil {
