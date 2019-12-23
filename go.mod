@@ -24,7 +24,7 @@ require (
 	github.com/pingcap/parser v0.0.0-20191210060830-bdf23a7ade01
 	github.com/pingcap/pd v1.1.0-beta.0.20191212045800-234784c7a9c5
 	github.com/pingcap/tidb v1.1.0-beta.0.20191213040028-9009da737834
-	github.com/pingcap/tidb-tools v3.0.8-0.20191216032641-71e063a8bc4d+incompatible
+	github.com/pingcap/tidb-tools v3.1.0-beta.0.20191218124733-15882555e4c9+incompatible
 	github.com/pingcap/tipb v0.0.0-20191209145133-44f75c9bef33
 	github.com/prometheus/client_golang v1.0.0
 	github.com/sirupsen/logrus v1.4.2
@@ -35,6 +35,7 @@ require (
 	go.uber.org/zap v1.13.0
 	golang.org/x/lint v0.0.0-20191125180803-fdd1cda4f05f // indirect
 	golang.org/x/net v0.0.0-20191011234655-491137f69257 // indirect
+	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	golang.org/x/tools v0.0.0-20191213032237-7093a17b0467 // indirect
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
