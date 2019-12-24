@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
 
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/pd/server/core"
 	"github.com/pingcap/pd/server/statistics"
@@ -42,26 +43,57 @@ func (s *testClientSuite) TearDownSuite(c *C) {
 }
 
 func (s *testClientSuite) TestGetClusterVersion(c *C) {
-	ctx := context.Background()
-
 	s.mgr.pdHTTP.addrs = []string{"", ""} // two endpoints
 	counter := 0
-	mock := func(context.Context, string, string, *http.Client) ([]byte, error) {
+	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		counter++
 		if counter <= 1 {
 			return nil, errors.New("mock error")
 		}
 		return []byte(`test`), nil
 	}
+
+	ctx := context.Background()
 	respString, err := s.mgr.getClusterVersionWith(ctx, mock)
 	c.Assert(err, IsNil)
 	c.Assert(respString, Equals, "test")
 
-	mock = func(context.Context, string, string, *http.Client) ([]byte, error) {
+	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return nil, errors.New("mock error")
 	}
 	_, err = s.mgr.getClusterVersionWith(ctx, mock)
 	c.Assert(err, NotNil)
+}
+
+func (s *testClientSuite) TestScheduler(c *C) {
+	ctx := context.Background()
+
+	scheduler := "balance-leader-scheduler"
+	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
+		return nil, errors.New("failed")
+	}
+	err := s.mgr.removeSchedulerWith(ctx, scheduler, mock)
+	c.Assert(err, ErrorMatches, "failed")
+
+	err = s.mgr.addSchedulerWith(ctx, scheduler, mock)
+	c.Assert(err, ErrorMatches, "failed")
+
+	_, err = s.mgr.listSchedulersWith(ctx, mock)
+	c.Assert(err, ErrorMatches, "failed")
+
+	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
+		return []byte(`["` + scheduler + `"]`), nil
+	}
+	err = s.mgr.removeSchedulerWith(ctx, scheduler, mock)
+	c.Assert(err, IsNil)
+
+	err = s.mgr.addSchedulerWith(ctx, scheduler, mock)
+	c.Assert(err, IsNil)
+
+	schedulers, err := s.mgr.listSchedulersWith(ctx, mock)
+	c.Assert(err, IsNil)
+	c.Assert(schedulers, HasLen, 1)
+	c.Assert(schedulers[0], Equals, scheduler)
 }
 
 func (s *testClientSuite) TestRegionCount(c *C) {
@@ -85,8 +117,9 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 	}, nil))
 	c.Assert(s.regions.Length(), Equals, 3)
 
-	ctx := context.Background()
-	mock := func(_ context.Context, addr string, prefix string, _ *http.Client) ([]byte, error) {
+	mock := func(
+		_ context.Context, addr string, prefix string, _ *http.Client, _ string, _ io.Reader,
+	) ([]byte, error) {
 		query := fmt.Sprintf("%s/%s", addr, prefix)
 		u, e := url.Parse(query)
 		c.Assert(e, IsNil, Commentf("%s", query))
@@ -101,6 +134,7 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 		return ret, nil
 	}
 	s.mgr.pdHTTP.addrs = []string{"http://mock"}
+	ctx := context.Background()
 	resp, err := s.mgr.getRegionCountWith(ctx, mock, []byte{}, []byte{})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 3)
