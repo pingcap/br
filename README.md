@@ -36,10 +36,6 @@ Notice BR supports building with Go version `Go >= 1.13`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
-## Installing and Deployment
-
-TODO
-
 ## Contributing
 
 Contributions are welcomed and greatly appreciated. See [CONTRIBUTING](./CONTRIBUTING.md)
