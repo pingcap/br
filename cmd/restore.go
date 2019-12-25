@@ -202,6 +202,78 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	return nil
 }
 
+func runRawRestore(flagSet *flag.FlagSet, startKey, endKey []byte, cf string) error {
+	ctx, cancel := context.WithCancel(GetDefaultContext())
+	defer cancel()
+
+	mgr, err := GetDefaultMgr()
+	if err != nil {
+		return err
+	}
+	defer mgr.Close()
+
+	client, err := restore.NewRestoreClient(
+		ctx, mgr.GetPDClient(), mgr.GetTiKV())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer client.Close()
+	err = initRestoreClient(ctx, client, flagSet)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if !client.IsRawKvMode() {
+		return errors.New("cannot do raw restore from transactional data")
+	}
+
+	files, err := client.GetFilesInRawRange(startKey, endKey, cf)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Empty rewrite rules
+	rewriteRules := &restore_util.RewriteRules{}
+
+	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Redirect to log if there is no log file to avoid unreadable output.
+	// TODO: How to show progress?
+	updateCh := utils.StartProgress(
+		ctx,
+		"Table Restore",
+		// Split/Scatter + Download/Ingest
+		int64(len(ranges)+len(files)),
+		!HasLogFile())
+
+	err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	removedSchedulers, err := RestorePrepareWork(ctx, client, mgr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = client.RestoreRaw(startKey, endKey, files, updateCh)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = RestorePostWork(ctx, client, mgr, removedSchedulers)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// Restore has finished.
+	close(updateCh)
+
+	return nil
+}
+
 func newFullRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "full",
@@ -269,30 +341,6 @@ func newRawRestoreCommand() *cobra.Command {
 		Use:   "raw",
 		Short: "restore a raw kv range",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithCancel(GetDefaultContext())
-			defer cancel()
-
-			mgr, err := GetDefaultMgr()
-			if err != nil {
-				return err
-			}
-			defer mgr.Close()
-
-			client, err := restore.NewRestoreClient(
-				ctx, mgr.GetPDClient(), mgr.GetTiKV())
-			if err != nil {
-				return errors.Trace(err)
-			}
-			defer client.Close()
-			err = initRestoreClient(ctx, client, cmd.Flags())
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			if !client.IsRawKvMode() {
-				return errors.New("cannot do raw restore from transactional data")
-			}
-
 			startKey, err := cmd.Flags().GetBytesHex("start")
 			if err != nil {
 				return errors.Trace(err)
@@ -307,52 +355,7 @@ func newRawRestoreCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
-
-			files, err := client.GetFilesInRawRange(startKey, endKey, cf)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			// Empty rewrite rules
-			rewriteRules := &restore_util.RewriteRules{}
-
-			ranges, err := restore.ValidateFileRanges(files, rewriteRules)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			// Redirect to log if there is no log file to avoid unreadable output.
-			// TODO: How to show progress?
-			updateCh := utils.StartProgress(
-				ctx,
-				"Table Restore",
-				// Split/Scatter + Download/Ingest
-				int64(len(ranges)+len(files)),
-				!HasLogFile())
-
-			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			removedSchedulers, err := RestorePrepareWork(ctx, client, mgr)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			err = client.RestoreRaw(startKey, endKey, files, updateCh)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			err = RestorePostWork(ctx, client, mgr, removedSchedulers)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			// Restore has finished.
-			close(updateCh)
-
-			return nil
+			return runRawRestore(cmd.Flags(), startKey, endKey, cf)
 		},
 	}
 
