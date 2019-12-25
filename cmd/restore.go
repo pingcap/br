@@ -341,14 +341,21 @@ func newRawRestoreCommand() *cobra.Command {
 		Use:   "raw",
 		Short: "restore a raw kv range",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			startKey, err := cmd.Flags().GetBytesHex("start")
+			start, err := cmd.Flags().GetString("start")
 			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
-
-			endKey, err := cmd.Flags().GetBytesHex("end")
+			startKey, err := utils.ParseKey(cmd.Flags(), start)
 			if err != nil {
-				return errors.Trace(err)
+				return err
+			}
+			end, err := cmd.Flags().GetString("end")
+			if err != nil {
+				return err
+			}
+			endKey, err := utils.ParseKey(cmd.Flags(), end)
+			if err != nil {
+				return err
 			}
 
 			cf, err := cmd.Flags().GetString("cf")
@@ -359,6 +366,7 @@ func newRawRestoreCommand() *cobra.Command {
 		},
 	}
 
+	command.Flags().StringP("format", "", "raw", "format of raw keys in arguments")
 	command.Flags().StringP("start", "", "", "restore raw kv start key")
 	command.Flags().StringP("end", "", "", "restore raw kv end key")
 	command.Flags().StringP("cf", "", "default", "the cf to restore raw keys")
