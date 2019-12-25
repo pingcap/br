@@ -702,7 +702,7 @@ func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.CollectDuration("backup checksum", elapsed)
+		summary.CollectDuration("backup fast checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
