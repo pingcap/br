@@ -49,6 +49,13 @@ if [ ! -f "$TEST_DIR/$DB/backupmeta_from_json" ]; then
     exit 1
 fi
 
+DIFF=$(diff $TEST_DIR/$DB/backupmeta_from_json $TEST_DIR/$DB/backupmeta)
+if [ "$DIFF" != "" ]
+then
+    echo "TEST: [$TEST_NAME] failed!"
+    exit 1
+fi
+
 run_sql "DROP DATABASE $DB;"
 
 # Test version
