@@ -5,30 +5,18 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/tidb/util/testleak"
-
-	"github.com/pingcap/br/pkg/utils"
+	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/tablecodec"
 )
 
 var _ = Suite(&testRestoreUtilSuite{})
 
 type testRestoreUtilSuite struct {
-	mock *utils.MockCluster
-}
-
-func (s *testRestoreUtilSuite) SetUpSuite(c *C) {
-	var err error
-	s.mock, err = utils.NewMockCluster()
-	c.Assert(err, IsNil)
-}
-
-func (s *testRestoreUtilSuite) TearDownSuite(c *C) {
-	testleak.AfterTest(c)()
 }
 
 func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	file := &backup.File{
-		Name:     "file_default.sst",
+		Name:     "file_write.sst",
 		StartKey: []byte("t1a"),
 		EndKey:   []byte("t1ccc"),
 	}
@@ -43,4 +31,76 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	sstMeta := getSSTMetaFromFile([]byte{}, file, region, rule)
 	c.Assert(string(sstMeta.GetRange().GetStart()), Equals, "t2abc")
 	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff")
+}
+
+func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
+	rules := &restore_util.RewriteRules{
+		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
+			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
+			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
+		}},
+	}
+
+	// Empty start/end key is not allowed.
+	_, err := ValidateFileRanges(
+		[]*backup.File{&backup.File{
+			Name:     "file_write.sst",
+			StartKey: []byte(""),
+			EndKey:   []byte(""),
+		}},
+		rules,
+	)
+	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
+
+	// Range is not overlap, no rule found.
+	_, err = ValidateFileRanges(
+		[]*backup.File{&backup.File{
+			Name:     "file_write.sst",
+			StartKey: []byte(tablecodec.EncodeTablePrefix(0)),
+			EndKey:   []byte(tablecodec.EncodeTablePrefix(1)),
+		}},
+		rules,
+	)
+	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
+
+	// No rule for end key.
+	_, err = ValidateFileRanges(
+		[]*backup.File{&backup.File{
+			Name:     "file_write.sst",
+			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
+			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+		}},
+		rules,
+	)
+	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
+
+	// Add a rule for end key.
+	rules.Table = append(rules.Table, &import_sstpb.RewriteRule{
+		OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
+		NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(3)),
+	})
+	_, err = ValidateFileRanges(
+		[]*backup.File{&backup.File{
+			Name:     "file_write.sst",
+			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
+			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+		}},
+		rules,
+	)
+	c.Assert(err, IsNil)
+
+	// Add a bad rule for end key, after rewrite start key > end key.
+	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
+		OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
+		NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
+	})
+	_, err = ValidateFileRanges(
+		[]*backup.File{&backup.File{
+			Name:     "file_write.sst",
+			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
+			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+		}},
+		rules,
+	)
+	c.Assert(err, ErrorMatches, "unexpected rewrite rules")
 }

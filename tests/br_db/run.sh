@@ -35,15 +35,20 @@ run_sql "CREATE TABLE $DB.usertable2 ( \
 
 run_sql "INSERT INTO $DB.usertable2 VALUES (\"c\", \"d\");"
 
-# TODO: use backup db, once it is supported.
-# backup full
+# backup db
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 run_sql "DROP DATABASE $DB;"
 
 # restore db
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+
+table_count=$(run_sql "use $DB; show tables;" | grep "Tables_in" | wc -l)
+if [ "$table_count" -ne "2" ];then
+    echo "TEST: [$TEST_NAME] failed!"
+    exit 1
+fi
 
 run_sql "DROP DATABASE $DB;"

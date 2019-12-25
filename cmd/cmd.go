@@ -50,6 +50,10 @@ const (
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
+
+	flagDatabase = "db"
+
+	flagTable = "table"
 )
 
 // AddFlags adds flags to the given cmd.

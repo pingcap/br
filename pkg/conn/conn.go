@@ -1,9 +1,11 @@
 package conn
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -20,25 +22,24 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 )
 
 const (
 	dialTimeout          = 5 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-	regionCountPrefix    = "pd/api/v1/regions/count"
+	regionCountPrefix    = "pd/api/v1/stats/region"
+	schdulerPrefix       = "pd/api/v1/schedulers"
 )
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
 	pdClient pd.Client
-
-	// make it public for unit test to mock
-	PDHTTPGet func(string, string, *http.Client) ([]byte, error)
-
-	pdHTTP struct {
+	pdHTTP   struct {
 		addrs []string
 		cli   *http.Client
 	}
@@ -50,7 +51,12 @@ type Mgr struct {
 	}
 }
 
-var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
+type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
+
+func pdRequest(
+	ctx context.Context,
+	addr string, prefix string,
+	cli *http.Client, method string, body io.Reader) ([]byte, error) {
 	if addr != "" && !strings.HasPrefix("http", addr) {
 		addr = "http://" + addr
 	}
@@ -59,7 +65,7 @@ var pdGet = func(addr string, prefix string, cli *http.Client) ([]byte, error) {
 		return nil, errors.Trace(err)
 	}
 	url := fmt.Sprintf("%s/%s", u, prefix)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -87,7 +93,7 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
 	for _, addr := range addrs {
-		_, failure = pdGet(addr, clusterVersionPrefix, cli)
+		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
 		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
 			break
@@ -137,7 +143,6 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
-	mgr.PDHTTPGet = pdGet
 	return mgr, nil
 }
 
@@ -153,10 +158,14 @@ func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
 }
 
 // GetClusterVersion returns the current cluster version.
-func (mgr *Mgr) GetClusterVersion() (string, error) {
+func (mgr *Mgr) GetClusterVersion(ctx context.Context) (string, error) {
+	return mgr.getClusterVersionWith(ctx, pdRequest)
+}
+
+func (mgr *Mgr) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := mgr.PDHTTPGet(addr, clusterVersionPrefix, mgr.pdHTTP.cli)
+		v, e := get(ctx, addr, clusterVersionPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -167,11 +176,26 @@ func (mgr *Mgr) GetClusterVersion() (string, error) {
 	return "", err
 }
 
-// GetRegionCount returns the total region count in the cluster
-func (mgr *Mgr) GetRegionCount() (int, error) {
+// GetRegionCount returns the region count in the specified range.
+func (mgr *Mgr) GetRegionCount(ctx context.Context, startKey, endKey []byte) (int, error) {
+	return mgr.getRegionCountWith(ctx, pdRequest, startKey, endKey)
+}
+
+func (mgr *Mgr) getRegionCountWith(
+	ctx context.Context, get pdHTTPRequest, startKey, endKey []byte,
+) (int, error) {
+	// TiKV reports region start/end keys to PD in memcomparable-format.
+	var start, end string
+	start = url.QueryEscape(string(codec.EncodeBytes(nil, startKey)))
+	if len(endKey) != 0 { // Empty end key means the max.
+		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
+	}
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := mgr.PDHTTPGet(addr, regionCountPrefix, mgr.pdHTTP.cli)
+		query := fmt.Sprintf(
+			"%s?start_key=%s&end_key=%s",
+			regionCountPrefix, start, end)
+		v, e := get(ctx, addr, query, mgr.pdHTTP.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -195,11 +219,13 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	keepAlive := 10
 	keepAliveTimeout := 3
+	bfConf := backoff.DefaultConfig
+	bfConf.MaxDelay = time.Second * 3
 	conn, err := grpc.DialContext(
 		ctx,
 		store.GetAddress(),
 		opt,
-		grpc.WithBackoffMaxDelay(time.Second*3),
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                time.Duration(keepAlive) * time.Second,
 			Timeout:             time.Duration(keepAliveTimeout) * time.Second,
@@ -250,6 +276,63 @@ func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
 // GetDomain returns a tikv storage.
 func (mgr *Mgr) GetDomain() *domain.Domain {
 	return mgr.dom
+}
+
+// RemoveScheduler remove pd scheduler
+func (mgr *Mgr) RemoveScheduler(ctx context.Context, scheduler string) error {
+	return mgr.removeSchedulerWith(ctx, scheduler, pdRequest)
+}
+
+func (mgr *Mgr) removeSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
+	for _, addr := range mgr.pdHTTP.addrs {
+		prefix := fmt.Sprintf("%s/%s", schdulerPrefix, scheduler)
+		_, err = delete(ctx, addr, prefix, mgr.pdHTTP.cli, http.MethodDelete, nil)
+		if err != nil {
+			continue
+		}
+		return nil
+	}
+	return err
+}
+
+// AddScheduler add pd scheduler
+func (mgr *Mgr) AddScheduler(ctx context.Context, scheduler string) error {
+	return mgr.addSchedulerWith(ctx, scheduler, pdRequest)
+}
+
+func (mgr *Mgr) addSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
+	for _, addr := range mgr.pdHTTP.addrs {
+		body := bytes.NewBuffer([]byte(`{"name":"` + scheduler + `"}`))
+		_, err = post(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodPost, body)
+		if err != nil {
+			continue
+		}
+		return nil
+	}
+	return err
+}
+
+// ListSchedulers list all pd scheduler
+func (mgr *Mgr) ListSchedulers(ctx context.Context) ([]string, error) {
+	return mgr.listSchedulersWith(ctx, pdRequest)
+}
+
+func (mgr *Mgr) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]string, error) {
+	var err error
+	for _, addr := range mgr.pdHTTP.addrs {
+		v, e := get(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
+		if e != nil {
+			err = e
+			continue
+		}
+		d := make([]string, 0)
+		err = json.Unmarshal(v, &d)
+		if err != nil {
+			return nil, err
+		}
+		return d, nil
+	}
+	return nil, err
 }
 
 // Close closes all client in Mgr.

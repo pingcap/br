@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
@@ -21,9 +22,11 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -47,10 +50,12 @@ type Client struct {
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
 
-	databases  map[string]*utils.Database
-	backupMeta *backup.BackupMeta
-	db         *DB
-	isOnline   bool
+	databases       map[string]*utils.Database
+	backupMeta      *backup.BackupMeta
+	db              *DB
+	rateLimit       uint64
+	isOnline        bool
+	hasSpeedLimited bool
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -75,9 +80,19 @@ func NewRestoreClient(
 	}, nil
 }
 
+// SetRateLimit to set rateLimit.
+func (rc *Client) SetRateLimit(rateLimit uint64) {
+	rc.rateLimit = rateLimit
+}
+
 // GetPDClient returns a pd client.
 func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
+}
+
+// IsOnline tells if it's a online restore
+func (rc *Client) IsOnline() bool {
+	return rc.isOnline
 }
 
 // Close a client
@@ -100,7 +115,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 
 	metaClient := restore_util.NewClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
 }
 
@@ -277,16 +292,40 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+func (rc *Client) setSpeedLimit() error {
+	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
+		stores, err := rc.pdClient.GetAllStores(rc.ctx, pd.WithExcludeTombstone())
+		if err != nil {
+			return err
+		}
+		for _, store := range stores {
+			err = rc.fileImporter.setDownloadSpeedLimit(store.GetId())
+			if err != nil {
+				return err
+			}
+		}
+		rc.hasSpeedLimited = true
+	}
+	return nil
+}
+
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Table", zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("restore table",
+			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
+		if err != nil {
+			summary.CollectFailureUnit(key, err)
+		} else {
+			summary.CollectSuccessUnit(key, elapsed)
+		}
 	}()
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
@@ -298,6 +337,10 @@ func (rc *Client) RestoreTable(
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
+	err = rc.setSpeedLimit()
+	if err != nil {
+		return err
+	}
 	for _, file := range table.Files {
 		wg.Add(1)
 		fileReplica := file
@@ -339,7 +382,7 @@ func (rc *Client) RestoreDatabase(
 	db *utils.Database,
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -362,7 +405,7 @@ func (rc *Client) RestoreDatabase(
 		})
 	}
 	for range db.Tables {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err
@@ -375,7 +418,7 @@ func (rc *Client) RestoreDatabase(
 func (rc *Client) RestoreAll(
 	rewriteRules *restore_util.RewriteRules,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -399,7 +442,7 @@ func (rc *Client) RestoreAll(
 	}
 
 	for range rc.databases {
-		err := <-errCh
+		err = <-errCh
 		if err != nil {
 			wg.Wait()
 			return err
@@ -465,19 +508,13 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 	return nil
 }
 
-//SwitchToImportModeIfOffline switch tikv cluster to import mode
-func (rc *Client) SwitchToImportModeIfOffline(ctx context.Context) error {
-	if rc.isOnline {
-		return nil
-	}
+//SwitchToImportMode switch tikv cluster to import mode
+func (rc *Client) SwitchToImportMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
-//SwitchToNormalModeIfOffline switch tikv cluster to normal mode
-func (rc *Client) SwitchToNormalModeIfOffline(ctx context.Context) error {
-	if rc.isOnline {
-		return nil
-	}
+//SwitchToNormalMode switch tikv cluster to normal mode
+func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
 
@@ -486,6 +523,8 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	if err != nil {
 		return errors.Trace(err)
 	}
+	bfConf := backoff.DefaultConfig
+	bfConf.MaxDelay = time.Second * 3
 	for _, store := range stores {
 		opt := grpc.WithInsecure()
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
@@ -495,7 +534,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			gctx,
 			store.GetAddress(),
 			opt,
-			grpc.WithBackoffMaxDelay(time.Second*3),
+			grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				Time:                time.Duration(keepAlive) * time.Second,
 				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
@@ -533,7 +572,7 @@ func (rc *Client) ValidateChecksum(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Checksum", zap.Duration("take", elapsed))
+		summary.CollectDuration("restore checksum", elapsed)
 	}()
 
 	log.Info("Start to validate checksum")

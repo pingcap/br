@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -34,7 +36,6 @@ type ClientMgr interface {
 	GetPDClient() pd.Client
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
-	GetRegionCount() (int, error)
 	Close()
 }
 
@@ -100,14 +101,18 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *Client) SetStorage(backend *backup.StorageBackend) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend) error {
 	var err error
-	bc.storage, err = storage.Create(backend)
+	bc.storage, err = storage.Create(ctx, backend)
 	if err != nil {
 		return err
 	}
 	// backupmeta already exists
-	if exist := bc.storage.FileExists(utils.MetaFile); exist {
+	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	if err != nil {
+		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
+	}
+	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
@@ -115,7 +120,7 @@ func (bc *Client) SetStorage(backend *backup.StorageBackend) error {
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta() error {
+func (bc *Client) SaveBackupMeta(ctx context.Context) error {
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -124,7 +129,7 @@ func (bc *Client) SaveBackupMeta() error {
 		zap.Reflect("meta", bc.backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL))
-	return bc.storage.Write(utils.MetaFile, backupMetaData)
+	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
 func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
@@ -186,7 +191,13 @@ func BuildBackupRangeAndSchema(
 	case len(dbName) == 0 && len(tableName) != 0:
 		return nil, nil, errors.New("no database is not specified")
 	case len(dbName) != 0 && len(tableName) == 0:
-		return nil, nil, errors.New("backup database is not supported")
+		// backup database
+		cDBName := model.NewCIStr(dbName)
+		dbInfo, exist := info.SchemaByName(cDBName)
+		if !exist {
+			return nil, nil, errors.Errorf("schema %s not found", dbName)
+		}
+		dbInfos = append(dbInfos, dbInfo)
 	case len(dbName) != 0 && len(tableName) != 0:
 		// backup table
 		cTableName = model.NewCIStr(tableName)
@@ -302,8 +313,8 @@ func (bc *Client) BackupRanges(
 	for {
 		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
-			// Ignore the error since it retries every 30s.
-			log.Warn("get GC safepoint failed", zap.Error(err))
+			log.Error("check GC safepoint failed", zap.Error(err))
+			return err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
@@ -332,7 +343,18 @@ func (bc *Client) backupRange(
 	rateMBs uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
-) error {
+) (err error) {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("backup range finished", zap.Duration("take", elapsed))
+		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
+		if err != nil {
+			summary.CollectFailureUnit(key, err)
+		} else {
+			summary.CollectSuccessUnit(key, elapsed)
+		}
+	}()
 	// The unit of rate limit in protocol is bytes per second.
 	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
@@ -340,11 +362,11 @@ func (bc *Client) backupRange(
 		zap.Binary("EndKey", endKey),
 		zap.Uint64("RateLimit", rateMBs),
 		zap.Uint32("Concurrency", concurrency))
-	start := time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	allStores, err := bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
+	var allStores []*metapb.Store
+	allStores, err = bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -352,7 +374,7 @@ func (bc *Client) backupRange(
 		ClusterId:      bc.clusterID,
 		StartKey:       startKey,
 		EndKey:         endKey,
-		StartVersion:   backupTS,
+		StartVersion:   0, // Zero start version means full backup.
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
@@ -360,7 +382,8 @@ func (bc *Client) backupRange(
 	}
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
-	results, err := push.pushBackup(req, allStores, updateCh)
+	var results RangeTree
+	results, err = push.pushBackup(req, allStores, updateCh)
 	if err != nil {
 		return err
 	}
@@ -390,8 +413,6 @@ func (bc *Client) backupRange(
 	// Check if there are duplicated files.
 	results.checkDupFiles()
 
-	log.Info("backup range finished",
-		zap.Duration("take", time.Since(start)))
 	return nil
 }
 
@@ -524,6 +545,7 @@ func (bc *Client) fineGrainedBackup(
 
 func onBackupResponse(
 	bo *tikv.Backoffer,
+	backupTS uint64,
 	lockResolver *tikv.LockResolver,
 	resp *backup.BackupResponse,
 ) (*backup.BackupResponse, int, error) {
@@ -537,8 +559,8 @@ func onBackupResponse(
 		if lockErr := v.KvError.Locked; lockErr != nil {
 			// Try to resolve lock.
 			log.Warn("backup occur kv error", zap.Reflect("error", v))
-			msBeforeExpired, err1 := lockResolver.ResolveLocks(
-				bo, []*tikv.Lock{tikv.NewLock(lockErr)})
+			msBeforeExpired, _, err1 := lockResolver.ResolveLocks(
+				bo, backupTS, []*tikv.Lock{tikv.NewLock(lockErr)})
 			if err1 != nil {
 				return nil, 0, errors.Trace(err1)
 			}
@@ -601,7 +623,7 @@ func (bc *Client) handleFineGrained(
 		ClusterId:      bc.clusterID,
 		StartKey:       rg.StartKey, // TODO: the range may cross region.
 		EndKey:         rg.EndKey,
-		StartVersion:   backupTS,
+		StartVersion:   0, // Zero start version means full backup.
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
@@ -618,7 +640,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *backup.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(bo, lockResolver, resp)
+				onBackupResponse(bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
@@ -675,17 +697,12 @@ func SendBackup(
 	return nil
 }
 
-// GetRangeRegionCount get region count by pd http api
-func (bc *Client) GetRangeRegionCount(startKey, endKey []byte) (int, error) {
-	return bc.mgr.GetRegionCount()
-}
-
 // FastChecksum check data integrity by xor all(sst_checksum) per table
 func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Backup Checksum", zap.Duration("take", elapsed))
+		summary.CollectDuration("backup checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
@@ -714,6 +731,10 @@ func (bc *Client) FastChecksum() (bool, error) {
 			totalKvs += file.TotalKvs
 			totalBytes += file.TotalBytes
 		}
+
+		summary.CollectSuccessUnit(summary.TotalKV, totalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, totalBytes)
+
 		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
 			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		} else {

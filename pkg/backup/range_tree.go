@@ -2,6 +2,7 @@ package backup
 
 import (
 	"bytes"
+	"encoding/hex"
 
 	"github.com/google/btree"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -194,8 +195,8 @@ func (rangeTree *RangeTree) checkDupFiles() {
 			if ok {
 				log.Error("dup file",
 					zap.String("Name", f.Name),
-					zap.ByteString("SHA256_1", old),
-					zap.ByteString("SHA256_2", f.Sha256),
+					zap.String("SHA256_1", hex.EncodeToString(old)),
+					zap.String("SHA256_2", hex.EncodeToString(f.Sha256)),
 				)
 			} else {
 				files[f.Name] = f.Sha256

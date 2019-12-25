@@ -15,6 +15,8 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+
+	"github.com/pingcap/br/pkg/summary"
 )
 
 var (
@@ -48,6 +50,12 @@ type ImporterClient interface {
 		storeID uint64,
 		req *import_sstpb.IngestRequest,
 	) (*import_sstpb.IngestResponse, error)
+
+	SetDownloadSpeedLimit(
+		ctx context.Context,
+		storeID uint64,
+		req *import_sstpb.SetDownloadSpeedLimitRequest,
+	) (*import_sstpb.SetDownloadSpeedLimitResponse, error)
 }
 
 type importClient struct {
@@ -74,6 +82,18 @@ func (ic *importClient) DownloadSST(
 		return nil, err
 	}
 	return client.Download(ctx, req)
+}
+
+func (ic *importClient) SetDownloadSpeedLimit(
+	ctx context.Context,
+	storeID uint64,
+	req *import_sstpb.SetDownloadSpeedLimitRequest,
+) (*import_sstpb.SetDownloadSpeedLimitResponse, error) {
+	client, err := ic.getImportClient(ctx, storeID)
+	if err != nil {
+		return nil, err
+	}
+	return client.SetDownloadSpeedLimit(ctx, req)
 }
 
 func (ic *importClient) IngestSST(
@@ -116,6 +136,7 @@ type FileImporter struct {
 	metaClient   restore_util.Client
 	importClient ImporterClient
 	backend      *backup.StorageBackend
+	rateLimit    uint64
 
 	isRawKvMode bool
 	rawStartKey []byte
@@ -132,6 +153,7 @@ func NewFileImporter(
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
 	isRawKvMode bool,
+	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
@@ -141,6 +163,7 @@ func NewFileImporter(
 		cancel:       cancel,
 		importClient: importClient,
 		isRawKvMode:  isRawKvMode,
+		rateLimit:    rateLimit,
 	}
 }
 
@@ -158,13 +181,13 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 // All rules must contain encoded keys.
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Rewrite the start key and end key of file to scan regions
-	scanStartKey, ok := rewriteRawKeyWithNewPrefix(file.GetStartKey(), rewriteRules)
-	if !ok {
+	scanStartKey, startRule := rewriteRawKeyWithEncodedRules(file.GetStartKey(), rewriteRules)
+	if startRule == nil {
 		log.Error("cannot find a rewrite rule for file start key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
-	scanEndKey, ok := rewriteRawKeyWithNewPrefix(file.GetEndKey(), rewriteRules)
-	if !ok {
+	scanEndKey, endRule := rewriteRawKeyWithEncodedRules(file.GetEndKey(), rewriteRules)
+	if endRule == nil {
 		log.Error("cannot find a rewrite rule for file end key", zap.Stringer("file", file))
 		return errRewriteRuleNotFound
 	}
@@ -228,11 +251,21 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 				)
 				return err
 			}
+			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
 		}
 		return nil
 	}, func(e error) bool {
 		return true
 	}, importFileRetryTimes, importFileWaitInterval, importFileMaxWaitInterval)
+	return err
+}
+
+func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
+	req := &import_sstpb.SetDownloadSpeedLimitRequest{
+		SpeedLimit: importer.rateLimit,
+	}
+	_, err := importer.importClient.SetDownloadSpeedLimit(importer.ctx, storeID, req)
 	return err
 }
 

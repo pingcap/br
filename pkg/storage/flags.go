@@ -6,14 +6,35 @@ import (
 	"github.com/spf13/pflag"
 )
 
+const (
+	// flagSendCredentialOption specify whether to send credentials to tikv
+	flagSendCredentialOption = "send-credentials-to-tikv"
+)
+
+var (
+	sendCredential bool
+)
+
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
+	flags.BoolP(flagSendCredentialOption, "c", true,
+		"Whether send credentials to tikv")
 	defineS3Flags(flags)
+	defineGCSFlags(flags)
 }
 
 // GetBackendOptionsFromFlags obtains the backend options from the flag set.
 func GetBackendOptionsFromFlags(flags *pflag.FlagSet) (options BackendOptions, err error) {
+	sendCredential, err = flags.GetBool(flagSendCredentialOption)
+	if err != nil {
+		err = errors.Trace(err)
+		return
+	}
+
 	if options.S3, err = getBackendOptionsFromS3Flags(flags); err != nil {
+		return
+	}
+	if options.GCS, err = getBackendOptionsFromGCSFlags(flags); err != nil {
 		return
 	}
 	return

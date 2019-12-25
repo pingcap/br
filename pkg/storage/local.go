@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"path"
@@ -11,32 +12,38 @@ type localStorage struct {
 	base string
 }
 
-func (l *localStorage) Write(name string, data []byte) error {
+func (l *localStorage) Write(ctx context.Context, name string, data []byte) error {
 	filepath := path.Join(l.base, name)
 	return ioutil.WriteFile(filepath, data, 0644)
 }
 
-func (l *localStorage) Read(name string) ([]byte, error) {
+func (l *localStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	filepath := path.Join(l.base, name)
 	return ioutil.ReadFile(filepath)
 }
 
 // FileExists implement ExternalStorage.FileExists
-func (l *localStorage) FileExists(name string) bool {
+func (l *localStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	filepath := path.Join(l.base, name)
 	return pathExists(filepath)
 }
 
-func pathExists(_path string) bool {
+func pathExists(_path string) (bool, error) {
 	_, err := os.Stat(_path)
-	if err != nil && os.IsNotExist(err) {
-		return false
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return true
+	return true, nil
 }
 
 func newLocalStorage(base string) (*localStorage, error) {
-	ok := pathExists(base)
+	ok, err := pathExists(base)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
 		err := mkdirAll(base)
 		if err != nil {
