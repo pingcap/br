@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -30,7 +29,7 @@ import (
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "validate <subcommand>",
-		Short: "commands to check backup data",
+		Short: "commands to check/debug backup data",
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -42,7 +41,9 @@ func NewValidateCommand() *cobra.Command {
 	}
 	meta.AddCommand(newCheckSumCommand())
 	meta.AddCommand(newBackupMetaCommand())
-	meta.AddCommand(newParseCommand())
+	meta.AddCommand(decodeBackupMetaCommand())
+	meta.AddCommand(encodeBackupMetaCommand())
+
 	return meta
 }
 
@@ -257,8 +258,8 @@ func newBackupMetaCommand() *cobra.Command {
 	return command
 }
 
-func newParseCommand() *cobra.Command {
-	command := &cobra.Command{
+func decodeBackupMetaCommand() *cobra.Command {
+	decodeBackupMetaCmd := &cobra.Command{
 		Use:   "decode",
 		Short: "decode backupmeta to json",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -266,41 +267,78 @@ func newParseCommand() *cobra.Command {
 			defer cancel()
 			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			s, err := storage.Create(ctx, u)
 			if err != nil {
-				log.Error("create storage failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			data, err := s.Read(ctx, utils.MetaFile)
+			metaData, err := s.Read(ctx, utils.MetaFile)
 			if err != nil {
-				log.Error("load backupmeta failed", zap.Error(err))
-				return err
-			}
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(data, backupMeta)
-			if err != nil {
-				log.Error("parse backupmeta failed", zap.Error(err))
-				return err
+				return errors.Trace(err)
 			}
 
-			field, err := cmd.Flags().GetString("field")
+			backupMeta := &backup.BackupMeta{}
+			err = proto.Unmarshal(metaData, backupMeta)
 			if err != nil {
-				log.Error("get field flag failed", zap.Error(err))
-				return err
+				return errors.Trace(err)
 			}
-			switch field {
-			case "start-version":
-				fmt.Println(backupMeta.StartVersion)
-			case "end-version":
-				fmt.Println(backupMeta.EndVersion)
+			backupMetaJSON, err := json.Marshal(backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
 			}
 			return nil
 		},
 	}
+	return decodeBackupMetaCmd
+}
 
-	command.Flags().String("field", "", "decode specified field")
+func encodeBackupMetaCommand() *cobra.Command {
+	encodeBackupMetaCmd := &cobra.Command{
+		Use:   "encode",
+		Short: "encode backupmeta json file to backupmeta",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			s, err := storage.Create(ctx, u)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaData, err := s.Read(ctx, utils.MetaJSONFile)
+			if err != nil {
+				return errors.Trace(err)
+			}
 
-	return command
+			backupMetaJSON := &backup.BackupMeta{}
+			err = json.Unmarshal(metaData, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			backupMeta, err := proto.Marshal(backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			fileName := utils.MetaFile
+			if ok, _ := s.FileExists(ctx, fileName); ok {
+				// Do not overwrite origin meta file
+				fileName += "_from_json"
+			}
+			err = s.Write(ctx, fileName, backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			return nil
+		},
+	}
+	return encodeBackupMetaCmd
 }

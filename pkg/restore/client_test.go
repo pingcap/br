@@ -89,7 +89,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	}
 }
 
-func (s *testRestoreClientSuite) TestSwitchMode(c *C) {
+func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
@@ -99,11 +99,7 @@ func (s *testRestoreClientSuite) TestSwitchMode(c *C) {
 	client.db = db
 	client.ctx = context.Background()
 
-	c.Assert(client.isOnline, IsFalse)
+	c.Assert(client.IsOnline(), IsFalse)
 	client.EnableOnline()
-	c.Assert(client.isOnline, IsTrue)
-
-	c.Assert(client.SwitchToImportModeIfOffline(client.ctx), IsNil)
-	c.Assert(client.SwitchToNormalModeIfOffline(client.ctx), IsNil)
-
+	c.Assert(client.IsOnline(), IsTrue)
 }
