@@ -111,14 +111,6 @@ func newFullRestoreCommand() *cobra.Command {
 			}
 			summary.CollectInt("restore ranges", len(ranges))
 
-			// Redirect to log if there is no log file to avoid unreadable output.
-			updateCh := utils.StartProgress(
-				ctx,
-				"Full Restore",
-				// Split/Scatter + Download/Ingest
-				int64(len(ranges)+len(files)),
-				!HasLogFile())
-
 			err = client.SetupPlacementRules(ctx, newTables)
 			if err != nil {
 				log.Error("setup placement rules failed", zap.Error(err))
@@ -130,6 +122,14 @@ func newFullRestoreCommand() *cobra.Command {
 				log.Error("wait placement schedule failed", zap.Error(err))
 				return errors.Trace(err)
 			}
+
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
+				"Full Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {
@@ -245,13 +245,6 @@ func newDbRestoreCommand() *cobra.Command {
 				return err
 			}
 			summary.CollectInt("restore ranges", len(ranges))
-			// Redirect to log if there is no log file to avoid unreadable output.
-			updateCh := utils.StartProgress(
-				ctx,
-				"Database Restore",
-				// Split/Scatter + Download/Ingest
-				int64(len(ranges)+len(files)),
-				!HasLogFile())
 
 			err = client.SetupPlacementRules(ctx, newTables)
 			if err != nil {
@@ -264,6 +257,14 @@ func newDbRestoreCommand() *cobra.Command {
 				log.Error("wait placement schedule failed", zap.Error(err))
 				return errors.Trace(err)
 			}
+
+			// Redirect to log if there is no log file to avoid unreadable output.
+			updateCh := utils.StartProgress(
+				ctx,
+				"Database Restore",
+				// Split/Scatter + Download/Ingest
+				int64(len(ranges)+len(files)),
+				!HasLogFile())
 
 			err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
 			if err != nil {

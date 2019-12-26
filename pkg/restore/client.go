@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -587,6 +589,8 @@ func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.Table
 	})
 	for _, t := range tables {
 		rule.ID = rc.getRuleID(t.ID)
+		rule.StartKeyHex = hex.EncodeToString(codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID)))
+		rule.EndKeyHex = hex.EncodeToString(codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1)))
 		err = rc.toolClient.SetPlacementRule(ctx, rule)
 		if err != nil {
 			return err
@@ -624,7 +628,8 @@ func (rc *Client) WaitPlacementSchedule(ctx context.Context, tables []*model.Tab
 
 func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (bool, string, error) {
 	for i, t := range tables {
-		start, end := tablecodec.EncodeTablePrefix(t.ID), tablecodec.EncodeTablePrefix(t.ID+1)
+		start := codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID))
+		end := codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1))
 		ok, regionProgress, err := rc.checkRange(ctx, start, end)
 		if err != nil {
 			return false, "", err
