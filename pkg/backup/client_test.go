@@ -80,7 +80,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	// timeago = "-1m"
 	timeAgo = "-1m"
 	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, ErrorMatches, "negative timeago is allowed")
+	c.Assert(err, ErrorMatches, "negative timeago is not allowed")
 
 	// timeago = "1000000h" overflows
 	timeAgo = "1000000h"
@@ -95,7 +95,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(err, IsNil)
 	timeAgo = "10h"
 	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, ErrorMatches, "given backup time exceed GCSafePoint")
+	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
 }
 
 func (r *testBackup) TestBuildTableRange(c *C) {

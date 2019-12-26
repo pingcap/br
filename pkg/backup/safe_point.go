@@ -9,9 +9,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetGCSafePoint returns the current gc safe point.
+// getGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
-func GetGCSafePoint(ctx context.Context, pdClient pd.Client) (uint64, error) {
+func getGCSafePoint(ctx context.Context, pdClient pd.Client) (uint64, error) {
 	safePoint, err := pdClient.UpdateGCSafePoint(ctx, 0)
 	if err != nil {
 		return 0, err
@@ -23,7 +23,7 @@ func GetGCSafePoint(ctx context.Context, pdClient pd.Client) (uint64, error) {
 // Note: It ignores errors other than exceed GC safepoint.
 func CheckGCSafepoint(ctx context.Context, pdClient pd.Client, ts uint64) error {
 	// TODO: use PDClient.GetGCSafePoint instead once PD client exports it.
-	safePoint, err := GetGCSafePoint(ctx, pdClient)
+	safePoint, err := getGCSafePoint(ctx, pdClient)
 	if err != nil {
 		log.Warn("fail to get GC safe point", zap.Error(err))
 		return nil

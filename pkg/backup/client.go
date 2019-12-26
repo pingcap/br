@@ -79,8 +79,8 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
-		if int(duration) <= 0 {
-			return 0, errors.New("negative timeago is allowed")
+		if duration <= 0 {
+			return 0, errors.New("negative timeago is not allowed")
 		}
 		log.Info("backup time ago", zap.Duration("timeago", duration))
 
@@ -93,12 +93,9 @@ func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
 	}
 
 	// check backup time do not exceed GCSafePoint
-	safePoint, err := GetGCSafePoint(ctx, bc.mgr.GetPDClient())
+	err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
-	}
-	if backupTS < safePoint {
-		return 0, errors.New("given backup time exceed GCSafePoint")
 	}
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
