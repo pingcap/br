@@ -43,7 +43,7 @@ fi
 go-ycsb run mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
-last_backup_ts=$(br validate parse --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
 
 # clean up data
 rm -rf $TEST_DIR/$DB
@@ -52,8 +52,8 @@ rm -rf $TEST_DIR/$DB
 echo "incremental backup start..."
 run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
 
-start_ts=$(br validate parse --field="start-version" -s "local://$TEST_DIR/$DB" | tail -n1)
-end_ts=$(br validate parse --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+start_ts=$(br validate decode --field="start-version" -s "local://$TEST_DIR/$DB" | tail -n1)
+end_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB" | tail -n1)
 
 echo "start version: $start_ts, end version: $end_ts"
 

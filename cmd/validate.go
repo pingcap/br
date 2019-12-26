@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -292,9 +293,24 @@ func decodeBackupMetaCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			field, err := cmd.Flags().GetString("field")
+			if err != nil {
+				log.Error("get field flag failed", zap.Error(err))
+				return err
+			}
+			switch field {
+			case "start-version":
+				fmt.Println(backupMeta.StartVersion)
+			case "end-version":
+				fmt.Println(backupMeta.EndVersion)
+			}
 			return nil
 		},
 	}
+
+	decodeBackupMetaCmd.Flags().String("field", "", "decode specified field")
+
 	return decodeBackupMetaCmd
 }
 
