@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -121,7 +122,8 @@ func newCheckSumCommand() *cobra.Command {
 						return errors.Errorf(`
 backup data checksum failed: %s may be changed
 calculated sha256 is %s,
-origin sha256 is %s`, file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
+origin sha256 is %s`,
+							file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
 					}
 				}
 				log.Info("table info", zap.Stringer("table", tblInfo.Name),
@@ -227,7 +229,7 @@ func newBackupMetaCommand() *cobra.Command {
 					}
 				}
 				// TODO: support table partition
-				rules := restore.GetRewriteRules(newTable, table.Schema)
+				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 				tableIDMap[table.Schema.ID] = int64(tableID)
@@ -291,9 +293,24 @@ func decodeBackupMetaCommand() *cobra.Command {
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			field, err := cmd.Flags().GetString("field")
+			if err != nil {
+				log.Error("get field flag failed", zap.Error(err))
+				return err
+			}
+			switch field {
+			case "start-version":
+				fmt.Println(backupMeta.StartVersion)
+			case "end-version":
+				fmt.Println(backupMeta.EndVersion)
+			}
 			return nil
 		},
 	}
+
+	decodeBackupMetaCmd.Flags().String("field", "", "decode specified field")
+
 	return decodeBackupMetaCmd
 }
 
