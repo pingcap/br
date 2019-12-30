@@ -21,8 +21,7 @@ const (
 	flagBackupRateLimit   = "ratelimit"
 	flagBackupConcurrency = "concurrency"
 	flagBackupChecksum    = "checksum"
-	flagBackupDB          = "db"
-	flagBackupTable       = "table"
+	flagLastBackupTS      = "lastbackupts"
 )
 
 func defineBackupFlags(flagSet *pflag.FlagSet) {
@@ -35,6 +34,7 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
+	flagSet.Uint64P(flagLastBackupTS, "", 0, "the last time backup ts")
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
@@ -71,6 +71,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
+	lastBackupTS, err := flagSet.GetUint64(flagLastBackupTS)
+	if err != nil {
+		return nil
+	}
+
 	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
 	if err != nil {
 		return err
@@ -90,6 +95,8 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
+
+	defer summary.Summary(cmdName)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
@@ -114,7 +121,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	updateCh := utils.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !HasLogFile())
 	err = client.BackupRanges(
-		ctx, ranges, backupTS, ratelimit, concurrency, updateCh)
+		ctx, ranges, lastBackupTS, backupTS, ratelimit, concurrency, updateCh)
 	if err != nil {
 		return err
 	}
@@ -151,7 +158,6 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
-	summary.Summary(cmdName)
 	return nil
 }
 
@@ -205,7 +211,7 @@ func newDbBackupCommand() *cobra.Command {
 		Use:   "db",
 		Short: "backup a database",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString(flagBackupDB)
+			db, err := command.Flags().GetString(flagDatabase)
 			if err != nil {
 				return err
 			}
@@ -215,8 +221,8 @@ func newDbBackupCommand() *cobra.Command {
 			return runBackup(command.Flags(), "Database backup", db, "")
 		},
 	}
-	command.Flags().StringP(flagBackupDB, "", "", "backup a table in the specific db")
-	_ = command.MarkFlagRequired(flagBackupDB)
+	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
+	_ = command.MarkFlagRequired(flagDatabase)
 
 	return command
 }
@@ -227,14 +233,14 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString(flagBackupDB)
+			db, err := command.Flags().GetString(flagDatabase)
 			if err != nil {
 				return err
 			}
 			if len(db) == 0 {
 				return errors.Errorf("empty database name is not allowed")
 			}
-			table, err := command.Flags().GetString(flagBackupTable)
+			table, err := command.Flags().GetString(flagTable)
 			if err != nil {
 				return err
 			}
@@ -244,9 +250,9 @@ func newTableBackupCommand() *cobra.Command {
 			return runBackup(command.Flags(), "Table backup", db, table)
 		},
 	}
-	command.Flags().StringP(flagBackupDB, "", "", "backup a table in the specific db")
-	command.Flags().StringP(flagBackupTable, "t", "", "backup the specific table")
-	_ = command.MarkFlagRequired(flagBackupDB)
-	_ = command.MarkFlagRequired(flagBackupTable)
+	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
+	command.Flags().StringP(flagTable, "t", "", "backup the specific table")
+	_ = command.MarkFlagRequired(flagDatabase)
+	_ = command.MarkFlagRequired(flagTable)
 	return command
 }

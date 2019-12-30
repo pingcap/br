@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/gogo/protobuf/proto"
@@ -29,7 +30,7 @@ import (
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
 		Use:   "validate <subcommand>",
-		Short: "commands to check backup data",
+		Short: "commands to check/debug backup data",
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -41,6 +42,9 @@ func NewValidateCommand() *cobra.Command {
 	}
 	meta.AddCommand(newCheckSumCommand())
 	meta.AddCommand(newBackupMetaCommand())
+	meta.AddCommand(decodeBackupMetaCommand())
+	meta.AddCommand(encodeBackupMetaCommand())
+
 	return meta
 }
 
@@ -118,7 +122,8 @@ func newCheckSumCommand() *cobra.Command {
 						return errors.Errorf(`
 backup data checksum failed: %s may be changed
 calculated sha256 is %s,
-origin sha256 is %s`, file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
+origin sha256 is %s`,
+							file.Name, hex.EncodeToString(s[:]), hex.EncodeToString(file.Sha256))
 					}
 				}
 				log.Info("table info", zap.Stringer("table", tblInfo.Name),
@@ -224,7 +229,7 @@ func newBackupMetaCommand() *cobra.Command {
 					}
 				}
 				// TODO: support table partition
-				rules := restore.GetRewriteRules(newTable, table.Schema)
+				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 				tableIDMap[table.Schema.ID] = int64(tableID)
@@ -252,4 +257,104 @@ func newBackupMetaCommand() *cobra.Command {
 	command.Flags().Uint64P("offset", "", 0, "the offset of table id alloctor")
 	command.Hidden = true
 	return command
+}
+
+func decodeBackupMetaCommand() *cobra.Command {
+	decodeBackupMetaCmd := &cobra.Command{
+		Use:   "decode",
+		Short: "decode backupmeta to json",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			s, err := storage.Create(ctx, u)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaData, err := s.Read(ctx, utils.MetaFile)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			backupMeta := &backup.BackupMeta{}
+			err = proto.Unmarshal(metaData, backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			backupMetaJSON, err := json.Marshal(backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			field, err := cmd.Flags().GetString("field")
+			if err != nil {
+				log.Error("get field flag failed", zap.Error(err))
+				return err
+			}
+			switch field {
+			case "start-version":
+				fmt.Println(backupMeta.StartVersion)
+			case "end-version":
+				fmt.Println(backupMeta.EndVersion)
+			}
+			return nil
+		},
+	}
+
+	decodeBackupMetaCmd.Flags().String("field", "", "decode specified field")
+
+	return decodeBackupMetaCmd
+}
+
+func encodeBackupMetaCommand() *cobra.Command {
+	encodeBackupMetaCmd := &cobra.Command{
+		Use:   "encode",
+		Short: "encode backupmeta json file to backupmeta",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			s, err := storage.Create(ctx, u)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaData, err := s.Read(ctx, utils.MetaJSONFile)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			backupMetaJSON := &backup.BackupMeta{}
+			err = json.Unmarshal(metaData, backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			backupMeta, err := proto.Marshal(backupMetaJSON)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
+			fileName := utils.MetaFile
+			if ok, _ := s.FileExists(ctx, fileName); ok {
+				// Do not overwrite origin meta file
+				fileName += "_from_json"
+			}
+			err = s.Write(ctx, fileName, backupMeta)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			return nil
+		},
+	}
+	return encodeBackupMetaCmd
 }

@@ -279,6 +279,7 @@ LoadDb:
 func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []Range,
+	lastBackupTS uint64,
 	backupTS uint64,
 	rate uint64,
 	concurrency uint32,
@@ -296,7 +297,7 @@ func (bc *Client) BackupRanges(
 	go func() {
 		for _, r := range ranges {
 			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, backupTS, rate, concurrency, updateCh)
+				ctx, r.StartKey, r.EndKey, lastBackupTS, backupTS, rate, concurrency, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -339,6 +340,7 @@ func (bc *Client) BackupRanges(
 func (bc *Client) backupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
+	lastBackupTS uint64,
 	backupTS uint64,
 	rateMBs uint64,
 	concurrency uint32,
@@ -370,11 +372,12 @@ func (bc *Client) backupRange(
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	req := backup.BackupRequest{
 		ClusterId:      bc.clusterID,
 		StartKey:       startKey,
 		EndKey:         endKey,
-		StartVersion:   backupTS,
+		StartVersion:   lastBackupTS,
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
@@ -392,16 +395,16 @@ func (bc *Client) backupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey,
+		ctx, startKey, endKey, lastBackupTS,
 		backupTS, rateLimit, concurrency, results, updateCh)
 	if err != nil {
 		return err
 	}
 
-	bc.backupMeta.StartVersion = backupTS
+	bc.backupMeta.StartVersion = lastBackupTS
 	bc.backupMeta.EndVersion = backupTS
 	log.Info("backup time range",
-		zap.Reflect("StartVersion", backupTS),
+		zap.Reflect("StartVersion", lastBackupTS),
 		zap.Reflect("EndVersion", backupTS))
 
 	results.tree.Ascend(func(i btree.Item) bool {
@@ -445,6 +448,7 @@ func (bc *Client) findRegionLeader(
 func (bc *Client) fineGrainedBackup(
 	ctx context.Context,
 	startKey, endKey []byte,
+	lastBackupTS uint64,
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
@@ -476,7 +480,7 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, backupTS, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -607,6 +611,7 @@ func (bc *Client) handleFineGrained(
 	ctx context.Context,
 	bo *tikv.Backoffer,
 	rg Range,
+	lastBackupTS uint64,
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
@@ -618,11 +623,12 @@ func (bc *Client) handleFineGrained(
 	}
 	storeID := leader.GetStoreId()
 	max := 0
+
 	req := backup.BackupRequest{
 		ClusterId:      bc.clusterID,
 		StartKey:       rg.StartKey, // TODO: the range may cross region.
 		EndKey:         rg.EndKey,
-		StartVersion:   backupTS,
+		StartVersion:   lastBackupTS,
 		EndVersion:     backupTS,
 		StorageBackend: bc.backend,
 		RateLimit:      rateLimit,
@@ -701,7 +707,7 @@ func (bc *Client) FastChecksum() (bool, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		summary.CollectDuration("backup checksum", elapsed)
+		summary.CollectDuration("backup fast checksum", elapsed)
 	}()
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
