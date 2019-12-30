@@ -22,6 +22,7 @@ const (
 	flagBackupRateLimit   = "ratelimit"
 	flagBackupConcurrency = "concurrency"
 	flagBackupChecksum    = "checksum"
+	flagLastBackupTS      = "lastbackupts"
 )
 
 type backupContext struct {
@@ -44,6 +45,7 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
+	flagSet.Uint64P(flagLastBackupTS, "", 0, "the last time backup ts")
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName string, bc backupContext) error {
@@ -78,6 +80,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName string, bc backupContext) error {
 	checksum, err := flagSet.GetBool(flagBackupChecksum)
 	if err != nil {
 		return err
+	}
+
+	lastBackupTS, err := flagSet.GetUint64(flagLastBackupTS)
+	if err != nil {
+		return nil
 	}
 
 	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
@@ -133,7 +140,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName string, bc backupContext) error {
 	updateCh := utils.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !HasLogFile())
 	err = client.BackupRanges(
-		ctx, ranges, backupTS, ratelimit, concurrency, updateCh, bc.isRawKv, bc.cf)
+		ctx, ranges, lastBackupTS, backupTS, ratelimit, concurrency, updateCh, bc.isRawKv, bc.cf)
 	if err != nil {
 		return err
 	}

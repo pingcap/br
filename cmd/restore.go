@@ -70,10 +70,6 @@ func NewRestoreCommand() *cobra.Command {
 }
 
 func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error {
-	pdAddr, err := flagSet.GetString(FlagPD)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	ctx, cancel := context.WithCancel(GetDefaultContext())
 	defer cancel()
 
@@ -140,9 +136,15 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	default:
 		return errors.New("must set db when table was set")
 	}
-
+	var newTS uint64
+	if client.IsIncremental() {
+		newTS, err = client.GetTS(ctx)
+		if err != nil {
+			return err
+		}
+	}
 	summary.CollectInt("restore files", len(files))
-	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
+	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -165,11 +167,19 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 		log.Error("split regions failed", zap.Error(err))
 		return errors.Trace(err)
 	}
-	pdAddrs := strings.Split(pdAddr, ",")
-	err = client.ResetTS(pdAddrs)
-	if err != nil {
-		log.Error("reset pd TS failed", zap.Error(err))
-		return errors.Trace(err)
+
+	if !client.IsIncremental() {
+		var pdAddr string
+		pdAddr, err = flagSet.GetString(FlagPD)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		pdAddrs := strings.Split(pdAddr, ",")
+		err = client.ResetTS(pdAddrs)
+		if err != nil {
+			log.Error("reset pd TS failed", zap.Error(err))
+			return errors.Trace(err)
+		}
 	}
 
 	removedSchedulers, err := RestorePrepareWork(ctx, client, mgr)
