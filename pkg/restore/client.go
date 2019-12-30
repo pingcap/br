@@ -286,10 +286,6 @@ func (rc *Client) RestoreTable(
 	}
 
 	for _, file := range table.Files {
-		err := rc.setSpeedLimit()
-		if err != nil {
-			return err
-		}
 		wg.Add(1)
 		fileReplica := file
 		rc.workerPool.Apply(

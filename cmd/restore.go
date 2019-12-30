@@ -130,12 +130,13 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	default:
 		return errors.New("must set db when table was set")
 	}
-
-	newTS, err := client.GetTS(ctx)
-	if err != nil {
-		return err
+	var newTS uint64
+	if client.IsIncremental() {
+		newTS, err = client.GetTS(ctx)
+		if err != nil {
+			return err
+		}
 	}
-
 	summary.CollectInt("restore files", len(files))
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
