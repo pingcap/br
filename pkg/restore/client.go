@@ -190,6 +190,7 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
+	newTS uint64,
 ) (*restore_util.RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &restore_util.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
@@ -210,7 +211,7 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema)
+		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
 		tableIDMap[table.Schema.ID] = newTableInfo.ID
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
@@ -222,6 +223,7 @@ func (rc *Client) CreateTables(
 			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
 				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
 				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
+				NewTimestamp: newTS,
 			})
 		}
 	}
@@ -263,6 +265,7 @@ func (rc *Client) RestoreTable(
 			summary.CollectSuccessUnit(key, elapsed)
 		}
 	}()
+
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -273,10 +276,12 @@ func (rc *Client) RestoreTable(
 	defer close(errCh)
 	// We should encode the rewrite rewriteRules before using it to import files
 	encodedRules := encodeRewriteRules(rewriteRules)
+
 	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
 	}
+
 	for _, file := range table.Files {
 		wg.Add(1)
 		fileReplica := file
@@ -516,4 +521,10 @@ func (rc *Client) ValidateChecksum(
 	}
 	log.Info("validate checksum passed!!")
 	return nil
+}
+
+// IsIncremental returns whether this backup is incremental
+func (rc *Client) IsIncremental() bool {
+	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
+		rc.backupMeta.StartVersion == 0)
 }

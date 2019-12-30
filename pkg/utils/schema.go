@@ -17,6 +17,8 @@ import (
 const (
 	// MetaFile represents file name
 	MetaFile = "backupmeta"
+	// MetaJSONFile represents backup meta json file name
+	MetaJSONFile = "backupmeta.json"
 )
 
 // Table wraps the schema and files of a table.

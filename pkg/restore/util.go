@@ -66,17 +66,23 @@ func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
 }
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
-func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
+func GetRewriteRules(
+	newTable *model.TableInfo,
+	oldTable *model.TableInfo,
+	newTimeStamp uint64,
+) *restore_util.RewriteRules {
 	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)
 	tableRules = append(tableRules, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
+		NewTimestamp: newTimeStamp,
 	})
 
 	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
 	dataRules = append(dataRules, &import_sstpb.RewriteRule{
 		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
 		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
+		NewTimestamp: newTimeStamp,
 	})
 
 	for _, srcIndex := range oldTable.Indices {
@@ -85,6 +91,7 @@ func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *rest
 				dataRules = append(dataRules, &import_sstpb.RewriteRule{
 					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
 					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
+					NewTimestamp: newTimeStamp,
 				})
 			}
 		}
@@ -251,12 +258,14 @@ func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.R
 		encodedTableRules = append(encodedTableRules, &import_sstpb.RewriteRule{
 			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
 			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
+			NewTimestamp: rule.NewTimestamp,
 		})
 	}
 	for _, rule := range rewriteRules.Data {
 		encodedDataRules = append(encodedDataRules, &import_sstpb.RewriteRule{
 			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
 			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
+			NewTimestamp: rule.NewTimestamp,
 		})
 	}
 	return &restore_util.RewriteRules{
