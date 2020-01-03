@@ -35,6 +35,7 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
 	flagSet.Uint64P(flagLastBackupTS, "", 0, "the last time backup ts")
+	_ = flagSet.MarkHidden(flagLastBackupTS)
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
