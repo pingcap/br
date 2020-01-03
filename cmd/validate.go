@@ -44,6 +44,7 @@ func NewValidateCommand() *cobra.Command {
 	meta.AddCommand(newBackupMetaCommand())
 	meta.AddCommand(decodeBackupMetaCommand())
 	meta.AddCommand(encodeBackupMetaCommand())
+	meta.Hidden = true
 
 	return meta
 }
