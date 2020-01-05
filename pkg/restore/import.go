@@ -164,21 +164,15 @@ func NewFileImporter(
 // All rules must contain encoded keys.
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Rewrite the start key and end key of file to scan regions
-	scanStartKey, startRule := rewriteRawKeyWithEncodedRules(file.GetStartKey(), rewriteRules)
-	if startRule == nil {
-		log.Error("cannot find a rewrite rule for file start key", zap.Stringer("file", file))
-		return errRewriteRuleNotFound
+	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
+	if err != nil {
+		return err
 	}
-	scanEndKey, endRule := rewriteRawKeyWithEncodedRules(file.GetEndKey(), rewriteRules)
-	if endRule == nil {
-		log.Error("cannot find a rewrite rule for file end key", zap.Stringer("file", file))
-		return errRewriteRuleNotFound
-	}
-	err := withRetry(func() error {
+	err = withRetry(func() error {
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err := importer.metaClient.ScanRegions(ctx, scanStartKey, scanEndKey, 0)
+		regionInfos, err := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -196,8 +190,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						log.Warn("download file failed",
 							zap.Stringer("file", file),
 							zap.Stringer("region", info.Region),
-							zap.ByteString("scanStartKey", scanStartKey),
-							zap.ByteString("scanEndKey", scanEndKey),
+							zap.ByteString("startKey", startKey),
+							zap.ByteString("endKey", endKey),
 							zap.Error(err),
 						)
 					}
@@ -261,11 +255,12 @@ func (importer *FileImporter) downloadSST(
 	if err != nil {
 		return nil, true, errors.Trace(err)
 	}
-	regionRule := findRegionRewriteRule(regionInfo.Region, rewriteRules)
+	// Assume one region reflects to one rewrite rule
+	regionRule := findRewriteRule(regionInfo.Region.GetStartKey(), rewriteRules)
 	if regionRule == nil {
 		return nil, true, errRewriteRuleNotFound
 	}
-	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, regionRule)
+	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region)
 	sstMeta.RegionId = regionInfo.Region.GetId()
 	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
 	req := &import_sstpb.DownloadRequest{

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
 	"sync"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -200,11 +198,6 @@ func (rc *Client) CreateTables(
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	// Sort the tables by id for ensuring the new tables has same id ordering as the old tables.
-	// We require this constrain since newTableID of tableID+1 must be not bigger
-	// than newTableID of tableID.
-	sort.Sort(utils.Tables(tables))
-	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
 		err := rc.db.CreateTable(rc.ctx, table)
 		if err != nil {
@@ -215,20 +208,9 @@ func (rc *Client) CreateTables(
 			return nil, nil, err
 		}
 		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
-		tableIDMap[table.Schema.ID] = newTableInfo.ID
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
-	}
-	// If tableID + 1 has already exist, then we don't need to add a new rewrite rule for it.
-	for oldID, newID := range tableIDMap {
-		if _, ok := tableIDMap[oldID+1]; !ok {
-			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
-				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
-				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
-				NewTimestamp: newTS,
-			})
-		}
 	}
 	return rewriteRules, newTables, nil
 }
@@ -277,9 +259,6 @@ func (rc *Client) RestoreTable(
 	errCh := make(chan error, len(table.Files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
-	// We should encode the rewrite rewriteRules before using it to import files
-	encodedRules := encodeRewriteRules(rewriteRules)
-
 	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
@@ -294,7 +273,7 @@ func (rc *Client) RestoreTable(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
 					updateCh <- struct{}{}
 				}
 			})

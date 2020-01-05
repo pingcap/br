@@ -109,7 +109,6 @@ func getSSTMetaFromFile(
 	id []byte,
 	file *backup.File,
 	region *metapb.Region,
-	regionRule *import_sstpb.RewriteRule,
 ) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string
@@ -118,24 +117,12 @@ func getSSTMetaFromFile(
 	} else if strings.Contains(file.GetName(), "write") {
 		cfName = "write"
 	}
-	// Find the overlapped part between the file and the region.
-	// Here we rewrites the keys to compare with the keys of the region.
-	rangeStart := regionRule.GetNewKeyPrefix()
-	//  rangeStart = max(rangeStart, region.StartKey)
-	if bytes.Compare(rangeStart, region.GetStartKey()) < 0 {
-		rangeStart = region.GetStartKey()
-	}
-	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
-	// rangeEnd = min(rangeEnd, region.EndKey)
-	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
-		rangeEnd = region.GetEndKey()
-	}
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
 		Range: &import_sstpb.Range{
-			Start: rangeStart,
-			End:   rangeEnd,
+			Start: region.GetStartKey(),
+			End:   region.GetEndKey(),
 		},
 	}
 }
@@ -199,7 +186,7 @@ func ValidateFileRanges(
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Check if the start key has a matched rewrite key
-	_, startRule := rewriteRawKeyWithOriginalRules(file.GetStartKey(), rewriteRules)
+	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
 	if startRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		log.Error(
@@ -210,7 +197,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 		return errors.Errorf("cannot find rewrite rule")
 	}
 	// Check if the end key has a matched rewrite key
-	_, endRule := rewriteRawKeyWithOriginalRules(file.GetEndKey(), rewriteRules)
+	_, endRule := rewriteRawKey(file.GetEndKey(), rewriteRules)
 	if endRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetEndKey())
 		log.Error(
@@ -237,94 +224,28 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 	return nil
 }
 
-// rules must be encoded
-func findRegionRewriteRule(
-	region *metapb.Region,
-	rewriteRules *restore_util.RewriteRules,
-) *import_sstpb.RewriteRule {
+// Rewrites a raw key and returns a encoded key
+func rewriteRawKey(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
+	if len(key) > 0 {
+		rule := findRewriteRule(key, rewriteRules)
+		ret := bytes.Replace(key, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+		return codec.EncodeBytes([]byte{}, ret), rule
+	}
+	return nil, nil
+}
+
+func findRewriteRule(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
-		// regions may have the new prefix
-		if bytes.HasPrefix(region.GetStartKey(), rule.GetNewKeyPrefix()) {
+		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
+			return rule
+		}
+	}
+	for _, rule := range rewriteRules.Table {
+		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
 			return rule
 		}
 	}
 	return nil
-}
-
-func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.RewriteRules {
-	encodedTableRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Table))
-	encodedDataRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Data))
-	for _, rule := range rewriteRules.Table {
-		encodedTableRules = append(encodedTableRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
-			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
-			NewTimestamp: rule.NewTimestamp,
-		})
-	}
-	for _, rule := range rewriteRules.Data {
-		encodedDataRules = append(encodedDataRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
-			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
-			NewTimestamp: rule.NewTimestamp,
-		})
-	}
-	return &restore_util.RewriteRules{
-		Table: encodedTableRules,
-		Data:  encodedDataRules,
-	}
-}
-
-func encodeKeyPrefix(key []byte) []byte {
-	encodedPrefix := make([]byte, 0)
-	ungroupedLen := len(key) % 8
-	encodedPrefix =
-		append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
-	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
-}
-
-// Encode a raw key and find a encoded rewrite rule to rewrite it.
-func rewriteRawKeyWithEncodedRules(
-	key []byte, encodedRules *restore_util.RewriteRules,
-) ([]byte, *import_sstpb.RewriteRule) {
-	if len(key) > 0 {
-		ret := codec.EncodeBytes([]byte{}, key)
-		for _, rule := range encodedRules.Data {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-		for _, rule := range encodedRules.Table {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-	}
-	return []byte(""), nil
-}
-
-// Encode a raw key and find a rewrite rule to rewrite it.
-func rewriteRawKeyWithOriginalRules(
-	key []byte, rewriteRules *restore_util.RewriteRules,
-) ([]byte, *import_sstpb.RewriteRule) {
-	if len(key) > 0 {
-		ret := make([]byte, len(key))
-		copy(ret, key)
-		for _, rule := range rewriteRules.Data {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-		for _, rule := range rewriteRules.Table {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-	}
-	return []byte(""), nil
 }
 
 func truncateTS(key []byte) []byte {
@@ -352,4 +273,32 @@ func SplitRanges(
 			updateCh <- struct{}{}
 		}
 	})
+}
+
+func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules) (startKey, endKey []byte, err error) {
+	startID := tablecodec.DecodeTableID(file.GetStartKey())
+	endID := tablecodec.DecodeTableID(file.GetEndKey())
+	var rule *import_sstpb.RewriteRule
+	if startID == endID {
+		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
+		if rule == nil {
+			err = errors.New("")
+			return
+		}
+		endKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
+		if rule == nil {
+			err = errors.New("")
+			return
+		}
+	} else if startID == endID-1 {
+		// Only replace the table id here
+		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
+		newStartID := tablecodec.DecodeTableID(rule.GetNewKeyPrefix())
+		endKey = codec.EncodeInt([]byte("t"), newStartID+1)
+		endKey = append(endKey, file.GetEndKey()[len(endKey):]...)
+		endKey = codec.EncodeBytes([]byte{}, endKey)
+	} else {
+		err = errors.New("")
+	}
+	return
 }
