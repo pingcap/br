@@ -65,6 +65,9 @@ You can get one from
 https://console.cloud.google.com/apis/credentials.`)
 
 	_ = flags.MarkHidden(gcsEndpointOption)
+	_ = flags.MarkHidden(gcsStorageClassOption)
+	_ = flags.MarkHidden(gcsPredefinedACL)
+	_ = flags.MarkHidden(gcsCredentialsFile)
 }
 
 func getBackendOptionsFromGCSFlags(flags *pflag.FlagSet) (options GCSBackendOptions, err error) {
