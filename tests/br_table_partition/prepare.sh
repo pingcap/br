@@ -30,10 +30,8 @@ insertRecords() {
     done
 }
 
-for i in $(seq $DB_COUNT); do
-    echo "load database $DB${i}"
-    run_sql "CREATE DATABASE IF NOT EXISTS $DB${i};"
-    run_sql "CREATE TABLE IF NOT EXISTS $DB${i}.$TABLE (\
+createTable() {
+    run_sql "CREATE TABLE IF NOT EXISTS $DB.$TABLE$1 (\
         c1 INT, \
         c2 CHAR(255), \
         c3 CHAR(255), \
@@ -42,13 +40,22 @@ for i in $(seq $DB_COUNT); do
         \
         PARTITION BY RANGE(c1) ( \
         PARTITION p0 VALUES LESS THAN (0), \
-        PARTITION p1 VALUES LESS THAN ($(expr $ROW_COUNT / 3)) \
+        PARTITION p1 VALUES LESS THAN ($(expr $ROW_COUNT / 2)) \
     );"
+    run_sql "ALTER TABLE $DB.$TABLE$1 \
+      ADD PARTITION (PARTITION p2 VALUES LESS THAN MAXVALUE);"
+}
+
+echo "load database $DB"
+run_sql "CREATE DATABASE IF NOT EXISTS $DB;"
+for i in $(seq $TABLE_COUNT); do
+  createTable "${i}" &
+done
+wait
+
+for i in $(seq $TABLE_COUNT); do
     for j in $(seq $CONCURRENCY); do
-        insertRecords $DB${i}.$TABLE $(expr $ROW_COUNT / $CONCURRENCY \* $(expr $j - 1) + 1) $(expr $ROW_COUNT / $CONCURRENCY \* $j) &
+        insertRecords $DB.$TABLE${i} $(expr $ROW_COUNT / $CONCURRENCY \* $(expr $j - 1) + 1) $(expr $ROW_COUNT / $CONCURRENCY \* $j) &
     done
-    run_sql "ALTER TABLE $DB${i}.$TABLE \
-      ADD PARTITION (PARTITION p2 VALUES LESS THAN ($(expr $ROW_COUNT / 2)) \
-    );"
 done
 wait

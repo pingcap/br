@@ -16,19 +16,19 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
-DB_COUNT=3
+TABLE_COUNT=16
 PATH="tests/$TEST_NAME:bin:$PATH"
 
 echo "load data..."
-DB=$DB TABLE=$TABLE DB_COUNT=$DB_COUNT prepare.sh
+DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT prepare.sh
 
-for i in $(seq $DB_COUNT); do
-    row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+for i in $(seq $TABLE_COUNT); do
+    row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --fastchecksum true
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -39,7 +39,7 @@ echo "restore start..."
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 for i in $(seq $DB_COUNT); do
-    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 fail=false

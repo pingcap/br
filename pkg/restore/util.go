@@ -77,29 +77,45 @@ func GetRewriteRules(
 	oldTable *model.TableInfo,
 	newTimeStamp uint64,
 ) *restore_util.RewriteRules {
-	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)
-	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-		NewTimestamp: newTimeStamp,
-	})
-
-	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
-	dataRules = append(dataRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
-		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
-		NewTimestamp: newTimeStamp,
-	})
-
+	tableIDs := make(map[int64]int64)
+	tableIDs[oldTable.ID] = newTable.ID
+	if oldTable.Partition != nil {
+		for _, srcPart := range oldTable.Partition.Definitions {
+			for _, destPart := range newTable.Partition.Definitions {
+				if srcPart.Name == destPart.Name {
+					tableIDs[srcPart.ID] = destPart.ID
+				}
+			}
+		}
+	}
+	indexIDs := make(map[int64]int64)
 	for _, srcIndex := range oldTable.Indices {
 		for _, destIndex := range newTable.Indices {
 			if srcIndex.Name == destIndex.Name {
-				dataRules = append(dataRules, &import_sstpb.RewriteRule{
-					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
-					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
-					NewTimestamp: newTimeStamp,
-				})
+				indexIDs[srcIndex.ID] = destIndex.ID
 			}
+		}
+	}
+
+	tableRules := make([]*import_sstpb.RewriteRule, 0)
+	dataRules := make([]*import_sstpb.RewriteRule, 0)
+	for oldTableID, newTableID := range tableIDs {
+		tableRules = append(tableRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTableID),
+			NewKeyPrefix: tablecodec.EncodeTablePrefix(newTableID),
+			NewTimestamp: newTimeStamp,
+		})
+		dataRules = append(dataRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTableID), recordPrefixSep...),
+			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTableID), recordPrefixSep...),
+			NewTimestamp: newTimeStamp,
+		})
+		for oldIndexID, newIndexID := range indexIDs {
+			dataRules = append(dataRules, &import_sstpb.RewriteRule{
+				OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexID),
+				NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTableID, newIndexID),
+				NewTimestamp: newTimeStamp,
+			})
 		}
 	}
 
