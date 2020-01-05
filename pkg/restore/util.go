@@ -28,10 +28,16 @@ type files []*backup.File
 
 func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	for i := range fs {
-		err := arr.AppendReflected(fs[i])
-		if err != nil {
-			return err
-		}
+		arr.AppendString(fs[i].String())
+	}
+	return nil
+}
+
+type rules []*import_sstpb.RewriteRule
+
+func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range rs {
+		arr.AppendString(rs[i].String())
 	}
 	return nil
 }
@@ -109,6 +115,7 @@ func getSSTMetaFromFile(
 	id []byte,
 	file *backup.File,
 	region *metapb.Region,
+	regionRule *import_sstpb.RewriteRule,
 ) import_sstpb.SSTMeta {
 	// Get the column family of the file by the file name.
 	var cfName string
@@ -117,12 +124,24 @@ func getSSTMetaFromFile(
 	} else if strings.Contains(file.GetName(), "write") {
 		cfName = "write"
 	}
+	// Find the overlapped part between the file and the region.
+	// Here we rewrites the keys to compare with the keys of the region.
+	rangeStart := regionRule.GetNewKeyPrefix()
+	//  rangeStart = max(rangeStart, region.StartKey)
+	if bytes.Compare(rangeStart, region.GetStartKey()) < 0 {
+		rangeStart = region.GetStartKey()
+	}
+	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), 0xff)
+	// rangeEnd = min(rangeEnd, region.EndKey)
+	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
+		rangeEnd = region.GetEndKey()
+	}
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
 		Range: &import_sstpb.Range{
-			Start: region.GetStartKey(),
-			End:   region.GetEndKey(),
+			Start: rangeStart,
+			End:   rangeEnd,
 		},
 	}
 }
@@ -227,14 +246,14 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 // Rewrites a raw key and returns a encoded key
 func rewriteRawKey(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
 	if len(key) > 0 {
-		rule := findRewriteRule(key, rewriteRules)
+		rule := matchOldPrefix(key, rewriteRules)
 		ret := bytes.Replace(key, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
 		return codec.EncodeBytes([]byte{}, ret), rule
 	}
 	return nil, nil
 }
 
-func findRewriteRule(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+func matchOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
 		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
 			return rule
@@ -242,6 +261,20 @@ func findRewriteRule(key []byte, rewriteRules *restore_util.RewriteRules) *impor
 	}
 	for _, rule := range rewriteRules.Table {
 		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
+			return rule
+		}
+	}
+	return nil
+}
+
+func matchNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+	for _, rule := range rewriteRules.Data {
+		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
+			return rule
+		}
+	}
+	for _, rule := range rewriteRules.Table {
+		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
 			return rule
 		}
 	}
@@ -279,26 +312,34 @@ func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules)
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	var rule *import_sstpb.RewriteRule
-	if startID == endID {
+	switch startID {
+	case endID:
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rule == nil {
-			err = errors.New("")
+			err = errors.New("cannot find rewrite rule for start key")
 			return
 		}
-		endKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
+		endKey, rule = rewriteRawKey(file.GetEndKey(), rewriteRules)
 		if rule == nil {
-			err = errors.New("")
+			err = errors.New("cannot find rewrite rule for end key")
 			return
 		}
-	} else if startID == endID-1 {
+	case endID - 1:
 		// Only replace the table id here
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		newStartID := tablecodec.DecodeTableID(rule.GetNewKeyPrefix())
 		endKey = codec.EncodeInt([]byte("t"), newStartID+1)
 		endKey = append(endKey, file.GetEndKey()[len(endKey):]...)
 		endKey = codec.EncodeBytes([]byte{}, endKey)
-	} else {
-		err = errors.New("")
+	default:
+		err = errors.New("illegal table id")
 	}
 	return
+}
+
+func encodeKeyPrefix(key []byte) []byte {
+	encodedPrefix := make([]byte, 0)
+	ungroupedLen := len(key) % 8
+	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
+	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }

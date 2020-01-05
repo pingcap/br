@@ -85,7 +85,6 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 
 	for i := 0; i < len(tables); i++ {
 		c.Assert(oldTableIDExist[int64(i)], IsTrue, Commentf("table rule does not exist"))
-		c.Assert(oldTableIDExist[int64(i+1)], IsTrue, Commentf("table rule does not exist"))
 	}
 }
 
