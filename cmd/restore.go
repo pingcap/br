@@ -63,6 +63,8 @@ func NewRestoreCommand() *cobra.Command {
 		"Run checksum after restore")
 	command.PersistentFlags().BoolP("online", "", false,
 		"Whether online when restore")
+	// TODO remove hidden flag if it's stable
+	_ = command.PersistentFlags().MarkHidden("online")
 
 	return command
 }
