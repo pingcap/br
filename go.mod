@@ -40,5 +40,3 @@ require (
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
 )
-
-replace github.com/pingcap/tidb-tools => github.com/5kbpers/tidb-tools v3.0.0-beta.1.0.20200105192026-a330dfe6d7d7+incompatible
