@@ -100,7 +100,7 @@ if [ "${1-}" = '--debug' ]; then
     read line
 fi
 
-for script in tests/*/run.sh; do
+for script in tests/br_table_partition/run.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
