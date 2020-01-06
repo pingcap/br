@@ -306,6 +306,8 @@ func initRestoreClient(ctx context.Context, client *restore.Client, flagSet *fla
 	if err != nil {
 		return err
 	}
+	// TODO remove hidden flag if it's stable
+	_ = flagSet.MarkHidden("online")
 	if isOnline {
 		client.EnableOnline()
 	}
