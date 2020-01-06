@@ -328,8 +328,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules)
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	var rule *import_sstpb.RewriteRule
-	switch startID {
-	case endID:
+	if startID == endID {
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rule == nil {
 			err = errors.New("cannot find rewrite rule for start key")
@@ -340,14 +339,12 @@ func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules)
 			err = errors.New("cannot find rewrite rule for end key")
 			return
 		}
-	case endID - 1:
-		// Only replace the table id here
-		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
-		newStartID := tablecodec.DecodeTableID(rule.GetNewKeyPrefix())
-		endKey = codec.EncodeInt([]byte("t"), newStartID+1)
-		endKey = append(endKey, file.GetEndKey()[len(endKey):]...)
-		endKey = codec.EncodeBytes([]byte{}, endKey)
-	default:
+	} else {
+		log.Error("table ids dont matched",
+			zap.Int64("startID", startID),
+			zap.Int64("endID", endID),
+			zap.ByteString("startKey", startKey),
+			zap.ByteString("endKey", endKey))
 		err = errors.New("illegal table id")
 	}
 	return
