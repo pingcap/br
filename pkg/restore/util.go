@@ -208,6 +208,15 @@ func ValidateFileRanges(
 			if err != nil {
 				return nil, err
 			}
+			startID := tablecodec.DecodeTableID(file.GetStartKey())
+			endID := tablecodec.DecodeTableID(file.GetEndKey())
+			if startID != endID {
+				log.Error("table ids dont match",
+					zap.Int64("startID", startID),
+					zap.Int64("endID", endID),
+					zap.Stringer("file", file))
+				return nil, errors.New("table ids dont match")
+			}
 			ranges = append(ranges, restore_util.Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
