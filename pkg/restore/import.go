@@ -172,8 +172,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 	}
 	log.Debug("rewrite file keys",
 		zap.Stringer("file", file),
-		zap.ByteString("startKey", startKey),
-		zap.ByteString("endKey", endKey),
+		zap.Binary("startKey", startKey),
+		zap.Binary("endKey", endKey),
 	)
 	err = withRetry(func() error {
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
@@ -198,8 +198,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 						log.Warn("download file failed",
 							zap.Stringer("file", file),
 							zap.Stringer("region", info.Region),
-							zap.ByteString("startKey", startKey),
-							zap.ByteString("endKey", endKey),
+							zap.Binary("startKey", startKey),
+							zap.Binary("endKey", endKey),
 							zap.Error(err),
 						)
 					}
@@ -274,7 +274,7 @@ func (importer *FileImporter) downloadSST(
 			zap.Stringer("region", regionInfo.Region),
 			zap.Array("tableRule", rules(rewriteRules.Table)),
 			zap.Array("dataRule", rules(rewriteRules.Data)),
-			zap.ByteString("key", key),
+			zap.Binary("key", key),
 		)
 		return nil, true, errRewriteRuleNotFound
 	}

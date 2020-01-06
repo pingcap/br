@@ -352,8 +352,8 @@ func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules)
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.ByteString("startKey", startKey),
-			zap.ByteString("endKey", endKey))
+			zap.Binary("startKey", startKey),
+			zap.Binary("endKey", endKey))
 		err = errors.New("illegal table id")
 	}
 	return
