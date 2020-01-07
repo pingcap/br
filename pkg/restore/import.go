@@ -11,8 +11,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
-	"github.com/pingcap/pd/pkg/codec"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
@@ -264,7 +264,7 @@ func (importer *FileImporter) downloadSST(
 		return nil, true, errors.Trace(err)
 	}
 	// Assume one region reflects to one rewrite rule
-	_, key, err := codec.DecodeBytes(regionInfo.Region.GetStartKey())
+	_, key, err := codec.DecodeBytes(regionInfo.Region.GetStartKey(), []byte{})
 	if err != nil {
 		return nil, true, err
 	}
