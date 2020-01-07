@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -17,7 +16,6 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/pd/pkg/mock/mockid"
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -203,7 +201,6 @@ func newBackupMetaCommand() *cobra.Command {
 				}
 			}
 
-			sort.Sort(utils.Tables(tables))
 			tableIDAllocator := mockid.NewIDAllocator()
 			// Advance table ID allocator to the offset.
 			for offset := uint64(0); offset < tableIDOffset; offset++ {
@@ -229,19 +226,10 @@ func newBackupMetaCommand() *cobra.Command {
 						Name: indexInfo.Name,
 					}
 				}
-				// TODO: support table partition
 				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 				tableIDMap[table.Schema.ID] = int64(tableID)
-			}
-			for oldID, newID := range tableIDMap {
-				if _, ok := tableIDMap[oldID+1]; !ok {
-					rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
-						OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
-						NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
-					})
-				}
 			}
 			// Validate rewrite rules
 			for _, file := range files {
