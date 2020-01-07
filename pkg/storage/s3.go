@@ -108,6 +108,13 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3SSEOption, "", "Set the S3 server-side encryption algorithm, e.g. AES256")
 	flags.String(s3ACLOption, "", "Set the S3 canned ACLs, e.g. authenticated-read")
 	flags.String(s3ProviderOption, "", "Set the S3 provider, e.g. aws, alibaba, ceph")
+
+	_ = flags.MarkHidden(s3EndpointOption)
+	_ = flags.MarkHidden(s3RegionOption)
+	_ = flags.MarkHidden(s3StorageClassOption)
+	_ = flags.MarkHidden(s3SSEOption)
+	_ = flags.MarkHidden(s3ACLOption)
+	_ = flags.MarkHidden(s3ProviderOption)
 }
 
 func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
