@@ -231,7 +231,7 @@ func ValidateFileRanges(
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
-	if startRule == nil {
+	if rewriteRules != nil && startRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		log.Error(
 			"cannot find rewrite rule for file start key",
@@ -242,7 +242,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 	}
 	// Check if the end key has a matched rewrite key
 	_, endRule := rewriteRawKey(file.GetEndKey(), rewriteRules)
-	if endRule == nil {
+	if rewriteRules != nil && endRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetEndKey())
 		log.Error(
 			"cannot find rewrite rule for file end key",
@@ -270,6 +270,9 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 
 // Rewrites a raw key and returns a encoded key
 func rewriteRawKey(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
+	if rewriteRules == nil {
+		return codec.EncodeBytes([]byte{}, key), nil
+	}
 	if len(key) > 0 {
 		rule := matchOldPrefix(key, rewriteRules)
 		ret := bytes.Replace(key, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
@@ -339,12 +342,12 @@ func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules)
 	var rule *import_sstpb.RewriteRule
 	if startID == endID {
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
-		if rule == nil {
+		if rewriteRules != nil && rule == nil {
 			err = errors.New("cannot find rewrite rule for start key")
 			return
 		}
 		endKey, rule = rewriteRawKey(file.GetEndKey(), rewriteRules)
-		if rule == nil {
+		if rewriteRules != nil && rule == nil {
 			err = errors.New("cannot find rewrite rule for end key")
 			return
 		}
