@@ -59,14 +59,26 @@ func buildChecksumRequest(
 	}
 
 	reqs := make([]*kv.Request, 0, (len(newTable.Indices)+1)*(len(partDefs)+1))
-	rs, err := buildRequest(newTable, newTable.ID, oldTable, startTS)
+	var oldTableID int64
+	if oldTable != nil {
+		oldTableID = oldTable.Schema.ID
+	}
+	rs, err := buildRequest(newTable, newTable.ID, oldTable, oldTableID, startTS)
 	if err != nil {
 		return nil, err
 	}
 	reqs = append(reqs, rs...)
 
 	for _, partDef := range partDefs {
-		rs, err := buildRequest(newTable, partDef.ID, oldTable, startTS)
+		var oldPartID int64
+		if oldTable != nil {
+			for _, oldPartDef := range oldTable.Schema.Partition.Definitions {
+				if oldPartDef.Name == partDef.Name {
+					oldPartID = oldPartDef.ID
+				}
+			}
+		}
+		rs, err := buildRequest(newTable, partDef.ID, oldTable, oldPartID, startTS)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -80,10 +92,11 @@ func buildRequest(
 	tableInfo *model.TableInfo,
 	tableID int64,
 	oldTable *utils.Table,
+	oldTableID int64,
 	startTS uint64,
 ) ([]*kv.Request, error) {
 	reqs := make([]*kv.Request, 0)
-	req, err := buildTableRequest(tableID, oldTable, startTS)
+	req, err := buildTableRequest(tableID, oldTable, oldTableID, startTS)
 	if err != nil {
 		return nil, err
 	}
@@ -93,13 +106,11 @@ func buildRequest(
 		if indexInfo.State != model.StatePublic {
 			continue
 		}
-		var oldTableID int64
 		var oldIndexInfo *model.IndexInfo
 		if oldTable != nil {
 			for _, oldIndex := range oldTable.Schema.Indices {
 				if oldIndex.Name == indexInfo.Name {
 					oldIndexInfo = oldIndex
-					oldTableID = oldTable.Schema.ID
 					break
 				}
 			}
@@ -124,12 +135,13 @@ func buildRequest(
 func buildTableRequest(
 	tableID int64,
 	oldTable *utils.Table,
+	oldTableID int64,
 	startTS uint64,
 ) (*kv.Request, error) {
 	var rule *tipb.ChecksumRewriteRule
 	if oldTable != nil {
 		rule = &tipb.ChecksumRewriteRule{
-			OldPrefix: tablecodec.GenTableRecordPrefix(oldTable.Schema.ID),
+			OldPrefix: tablecodec.GenTableRecordPrefix(oldTableID),
 			NewPrefix: tablecodec.GenTableRecordPrefix(tableID),
 		}
 	}
