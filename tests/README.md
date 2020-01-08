@@ -5,12 +5,12 @@ programs.
 
 ## Preparations
 
-1. The following 6 executables must be copied or linked into these locations:
+1. The following 5 executables must be copied or linked into these locations:
     * `bin/tidb-server`
-	* `bin/tikv-server`
-	* `bin/pd-server`
+    * `bin/tikv-server`
+    * `bin/pd-server`
     * `bin/pd-ctl`
-	* `bin/go-ycsb`
+    * `bin/go-ycsb`
 
     The versions must be ≥2.1.0 as usual.
 
