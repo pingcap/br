@@ -44,7 +44,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	tk.MustExec("drop table if exists t;")
 	// Test SQL Mode
 	tk.MustExec("create table t (" +
-		"a int not null auto_increment," +
+		"a int not null," +
 		"time timestamp not null default '0000-00-00 00:00:00'," +
 		"primary key (a));",
 	)
