@@ -92,7 +92,10 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Error(err))
 		return errors.Trace(err)
 	}
-	alterAutoIncIDSQL := fmt.Sprintf("alter table %s auto_increment = %d", schema.Name, schema.AutoIncID)
+	alterAutoIncIDSQL := fmt.Sprintf(
+		"alter table %s auto_increment = %d",
+		escapeTableName(schema.Name),
+		schema.AutoIncID)
 	_, err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",

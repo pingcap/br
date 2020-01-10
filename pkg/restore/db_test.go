@@ -41,23 +41,23 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("use test")
 	tk.MustExec("set @@sql_mode=''")
-	tk.MustExec("drop table if exists t;")
+	tk.MustExec("drop table if exists `\"t\"`;")
 	// Test SQL Mode
-	tk.MustExec("create table t (" +
+	tk.MustExec("create table `\"t\"` (" +
 		"a int not null," +
 		"time timestamp not null default '0000-00-00 00:00:00'," +
 		"primary key (a));",
 	)
-	tk.MustExec("insert into t values (10, '0000-00-00 00:00:00');")
+	tk.MustExec("insert into `\"t\"` values (10, '0000-00-00 00:00:00');")
 	// Query the current AutoIncID
-	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
+	autoIncID, err := strconv.ParseUint(tk.MustQuery("admin show `\"t\"` next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
 	// Get schemas of db and table
 	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxUint64)
 	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))
 	dbInfo, exists := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
-	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("t"))
+	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("\"t\""))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
 	table := utils.Table{
 		Schema: tableInfo.Meta(),
@@ -88,7 +88,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
 	tk.MustExec("use test")
 	// Check if AutoIncID is altered successfully
-	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show t next_row_id").Rows()[0][3].(string), 10, 64)
+	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show `\"t\"` next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
 	c.Assert(autoIncID, Equals, uint64(globalAutoID+100))
 }
