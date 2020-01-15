@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Test whether BR fails fast when backup ts exceeds GC safe point.
+# It is call br_*z*_gc_safepoint, because it brings lots of write and
+# slows down other tests to changing GC safe point. Adding a z prefix to run
+# the test last.
+
 set -eu
 
 DB="$TEST_NAME"
