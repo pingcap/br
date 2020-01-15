@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"bytes"
 	"fmt"
+	_ "runtime" // import link package
+	_ "unsafe"  // required by go:linkname
 
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/israce"
@@ -18,23 +21,30 @@ var (
 	BRGitBranch      = "None"
 )
 
-// LogBRInfo prints the BR version information.
+//go:linkname goVersion runtime.buildVersion
+var goVersion string
+
+// LogBRInfo logs version information about BR.
 func LogBRInfo() {
 	log.Info("Welcome to Backup & Restore (BR)")
 	log.Info("BR", zap.String("release-version", BRReleaseVersion))
 	log.Info("BR", zap.String("git-hash", BRGitHash))
 	log.Info("BR", zap.String("git-branch", BRGitBranch))
+	log.Info("BR", zap.String("go-version", goVersion))
 	log.Info("BR", zap.String("utc-build-time", BRBuildTS))
 	log.Info("BR", zap.Bool("race-enabled", israce.RaceEnabled))
 }
 
-// PrintBRInfo prints the BR version information without log info.
-func PrintBRInfo() {
-	fmt.Println("Release Version:", BRReleaseVersion)
-	fmt.Println("Git Commit Hash:", BRGitHash)
-	fmt.Println("Git Branch:", BRGitBranch)
-	fmt.Println("UTC Build Time: ", BRBuildTS)
-	fmt.Println("Race Enabled: ", israce.RaceEnabled)
+// BRInfo returns version information about BR.
+func BRInfo() string {
+	buf := bytes.Buffer{}
+	fmt.Fprintf(&buf, "Release Version: %s\n", BRReleaseVersion)
+	fmt.Fprintf(&buf, "Git Commit Hash: %s\n", BRGitHash)
+	fmt.Fprintf(&buf, "Git Branch: %s\n", BRGitBranch)
+	fmt.Fprintf(&buf, "Go Version: %s\n", goVersion)
+	fmt.Fprintf(&buf, "UTC Build Time: %s\n", BRBuildTS)
+	fmt.Fprintf(&buf, "Race Enabled: %t", israce.RaceEnabled)
+	return buf.String()
 }
 
 // LogArguments prints origin command arguments

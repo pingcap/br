@@ -19,6 +19,7 @@ import (
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var (
@@ -52,12 +53,18 @@ const (
 	FlagSlowLogFile = "slow-log-file"
 
 	flagDatabase = "db"
+	flagTable    = "table"
 
-	flagTable = "table"
+	flagVersion      = "version"
+	flagVersionShort = "V"
 )
 
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
+	cmd.Version = utils.BRInfo()
+	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display information about BR")
+	cmd.SetVersionTemplate("{{printf \"%s\" .Version}}\n")
+
 	cmd.PersistentFlags().StringP(FlagPD, "u", "127.0.0.1:2379", "PD address")
 	cmd.PersistentFlags().String(FlagCA, "", "CA certificate path for TLS connection")
 	cmd.PersistentFlags().String(FlagCert, "", "Certificate path for TLS connection")
