@@ -5,7 +5,7 @@ See also,
 - [TiKV Changelog](https://github.com/tikv/tikv/blob/master/CHANGELOG.md),
 - [PD Changelog](https://github.com/pingcap/pd/blob/master/CHANGELOG.md).
 
-## [3.1.0-beta.1] - 2020-1-10
+## [3.1.0-beta.1] - 2020-01-10
 
 - Fix the inaccurate backup progress information [#127](https://github.com/pingcap/br/pull/127)
 - Improve the performance of splitting Regions [#122](https://github.com/pingcap/br/pull/122)

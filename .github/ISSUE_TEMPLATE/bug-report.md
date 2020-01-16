@@ -19,5 +19,11 @@ If possible, provide a recipe for reproducing the error.
 
 
 
-4. What version of PD are you using (`br version`)?
+4. What version of BR and TiDB/TiKV/PD are you using?
 
+<!--
+br -V
+tidb-server -V
+tikv-server -V
+pd-server -V
+-->
