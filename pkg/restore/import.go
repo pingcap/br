@@ -15,7 +15,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
-	restoreutil "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/summary"
 )
 
@@ -60,12 +59,12 @@ type ImporterClient interface {
 
 type importClient struct {
 	mu         sync.Mutex
-	metaClient restoreutil.SplitClient
+	metaClient SplitClient
 	clients    map[uint64]import_sstpb.ImportSSTClient
 }
 
 // NewImportClient returns a new ImporterClient
-func NewImportClient(metaClient restoreutil.SplitClient) ImporterClient {
+func NewImportClient(metaClient SplitClient) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
 		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
@@ -133,7 +132,7 @@ func (ic *importClient) getImportClient(
 
 // FileImporter used to import a file to TiKV.
 type FileImporter struct {
-	metaClient   restoreutil.SplitClient
+	metaClient   SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
 	rateLimit    uint64
@@ -145,7 +144,7 @@ type FileImporter struct {
 // NewFileImporter returns a new file importClient.
 func NewFileImporter(
 	ctx context.Context,
-	metaClient restoreutil.SplitClient,
+	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
 	rateLimit uint64,
@@ -163,7 +162,7 @@ func NewFileImporter(
 
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File, rewriteRules *restoreutil.RewriteRules) error {
+func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRules) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
 	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
@@ -255,9 +254,9 @@ func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
 }
 
 func (importer *FileImporter) downloadSST(
-	regionInfo *restoreutil.RegionInfo,
+	regionInfo *RegionInfo,
 	file *backup.File,
-	rewriteRules *restoreutil.RewriteRules,
+	rewriteRules *RewriteRules,
 ) (*import_sstpb.SSTMeta, bool, error) {
 	id, err := uuid.New().MarshalBinary()
 	if err != nil {
@@ -312,7 +311,7 @@ func (importer *FileImporter) downloadSST(
 
 func (importer *FileImporter) ingestSST(
 	sstMeta *import_sstpb.SSTMeta,
-	regionInfo *restoreutil.RegionInfo,
+	regionInfo *RegionInfo,
 ) error {
 	leader := regionInfo.Leader
 	if leader == nil {

@@ -9,10 +9,6 @@ issues:
       text: "Potential HTTP request made with variable url"
       linters:
         - gosec
-    - path: .go
-      text: "Use of weak random number generator"
-      linters:
-        - gosec
     # TODO Remove it.
     - path: client.go
       text: "SA1019:"

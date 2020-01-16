@@ -1,4 +1,4 @@
-package restoreutil
+package restore
 
 import (
 	"bytes"

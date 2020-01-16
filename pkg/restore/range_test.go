@@ -1,21 +1,16 @@
-package restoreutil
+package restore
 
 import (
 	"bytes"
-	"testing"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/tidb/tablecodec"
 )
 
-func TestRestoreUtil(t *testing.T) {
-	TestingT(t)
-}
+type testRangeSuite struct{}
 
-type testRestoreUtilSuite struct{}
-
-var _ = Suite(&testRestoreUtilSuite{})
+var _ = Suite(&testRangeSuite{})
 
 type rangeEquals struct {
 	*CheckerInfo
@@ -40,7 +35,7 @@ func (checker *rangeEquals) Check(params []interface{}, names []string) (result 
 	return true, ""
 }
 
-func (s *testRestoreUtilSuite) TestSortRange(c *C) {
+func (s *testRangeSuite) TestSortRange(c *C) {
 	dataRules := []*import_sstpb.RewriteRule{
 		{OldKeyPrefix: tablecodec.GenTableRecordPrefix(1), NewKeyPrefix: tablecodec.GenTableRecordPrefix(4)},
 		{OldKeyPrefix: tablecodec.GenTableRecordPrefix(2), NewKeyPrefix: tablecodec.GenTableRecordPrefix(5)},
