@@ -13,12 +13,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	restore_util "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/summary"
 )
 

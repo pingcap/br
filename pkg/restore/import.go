@@ -12,10 +12,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/pd/pkg/codec"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
+	restore_util "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/summary"
 )
 

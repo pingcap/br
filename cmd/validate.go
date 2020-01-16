@@ -15,11 +15,11 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/pd/pkg/mock/mockid"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
+	restore_util "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )

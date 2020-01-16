@@ -5,8 +5,9 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
+
+	restore_util "github.com/pingcap/br/pkg/restoreutil"
 )
 
 var _ = Suite(&testRestoreUtilSuite{})
