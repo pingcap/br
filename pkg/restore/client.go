@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
-	restore_util "github.com/pingcap/br/pkg/restoreutil"
+	restoreutil "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -108,7 +108,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	metaClient := restore_util.NewClient(rc.pdClient)
+	metaClient := restoreutil.NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
@@ -189,8 +189,8 @@ func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-) (*restore_util.RewriteRules, []*model.TableInfo, error) {
-	rewriteRules := &restore_util.RewriteRules{
+) (*restoreutil.RewriteRules, []*model.TableInfo, error) {
+	rewriteRules := &restoreutil.RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
@@ -232,7 +232,7 @@ func (rc *Client) setSpeedLimit() error {
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *restoreutil.RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -300,7 +300,7 @@ func (rc *Client) RestoreTable(
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *restoreutil.RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -336,7 +336,7 @@ func (rc *Client) RestoreDatabase(
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *restoreutil.RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()

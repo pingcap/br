@@ -1,4 +1,4 @@
-package restore_util
+package restoreutil
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// Constants for split retry machinery.
 const (
 	SplitRetryTimes       = 32
 	SplitRetryInterval    = 50 * time.Millisecond
@@ -31,12 +32,11 @@ const (
 
 // RegionSplitter is a executor of region split by rules.
 type RegionSplitter struct {
-	client    Client
-	rangeTree *RangeTree
+	client SplitClient
 }
 
 // NewRegionSplitter returns a new RegionSplitter.
-func NewRegionSplitter(client Client) *RegionSplitter {
+func NewRegionSplitter(client SplitClient) *RegionSplitter {
 	return &RegionSplitter{
 		client: client,
 	}
@@ -166,7 +166,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 		}
 		return false, errors.Errorf("get operator error: %s", respErr.GetType())
 	}
-	retryTimes := ctx.Value("retryTimes").(int)
+	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {
 		log.Warn("get operator", zap.Uint64("regionID", regionID), zap.Stringer("resp", resp))
 	}
@@ -186,23 +186,25 @@ func (rs *RegionSplitter) waitForSplit(ctx context.Context, regionID uint64) {
 		}
 		if ok {
 			break
-		} else {
-			interval = 2 * interval
-			if interval > SplitMaxCheckInterval {
-				interval = SplitMaxCheckInterval
-			}
-			time.Sleep(interval)
 		}
+		interval = 2 * interval
+		if interval > SplitMaxCheckInterval {
+			interval = SplitMaxCheckInterval
+		}
+		time.Sleep(interval)
 	}
-	return
 }
+
+type retryTimeKey struct{}
+
+var retryTimes = new(retryTimeKey)
 
 func (rs *RegionSplitter) waitForScatterRegion(ctx context.Context, regionInfo *RegionInfo) {
 	interval := ScatterWaitInterval
 	regionID := regionInfo.Region.GetId()
 	for i := 0; i < ScatterWaitMaxRetryTimes; i++ {
-		ctx = context.WithValue(ctx, "retryTimes", i)
-		ok, err := rs.isScatterRegionFinished(ctx, regionID)
+		ctx1 := context.WithValue(ctx, retryTimes, i)
+		ok, err := rs.isScatterRegionFinished(ctx1, regionID)
 		if err != nil {
 			log.Warn("scatter region failed: do not have the region",
 				zap.Stringer("region", regionInfo.Region))
@@ -210,17 +212,18 @@ func (rs *RegionSplitter) waitForScatterRegion(ctx context.Context, regionInfo *
 		}
 		if ok {
 			break
-		} else {
-			interval = 2 * interval
-			if interval > ScatterMaxWaitInterval {
-				interval = ScatterMaxWaitInterval
-			}
-			time.Sleep(interval)
 		}
+		interval = 2 * interval
+		if interval > ScatterMaxWaitInterval {
+			interval = ScatterMaxWaitInterval
+		}
+		time.Sleep(interval)
 	}
 }
 
-func (rs *RegionSplitter) splitAndScatterRegions(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) ([]*RegionInfo, error) {
+func (rs *RegionSplitter) splitAndScatterRegions(
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) ([]*RegionInfo, error) {
 	newRegions, err := rs.client.BatchSplitRegions(ctx, regionInfo, keys)
 	if err != nil {
 		return nil, err
@@ -270,7 +273,7 @@ func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	splitKey = codec.EncodeBytes([]byte{}, splitKey)
 	for _, region := range regions {
 		// If splitKey is the boundary of the region
-		if bytes.Compare(splitKey, region.Region.GetStartKey()) == 0 {
+		if bytes.Equal(splitKey, region.Region.GetStartKey()) {
 			return nil
 		}
 		// If splitKey is in a region

@@ -15,7 +15,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
-	restore_util "github.com/pingcap/br/pkg/restoreutil"
+	restoreutil "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/summary"
 )
 
@@ -60,12 +60,12 @@ type ImporterClient interface {
 
 type importClient struct {
 	mu         sync.Mutex
-	metaClient restore_util.Client
+	metaClient restoreutil.SplitClient
 	clients    map[uint64]import_sstpb.ImportSSTClient
 }
 
 // NewImportClient returns a new ImporterClient
-func NewImportClient(metaClient restore_util.Client) ImporterClient {
+func NewImportClient(metaClient restoreutil.SplitClient) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
 		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
@@ -133,7 +133,7 @@ func (ic *importClient) getImportClient(
 
 // FileImporter used to import a file to TiKV.
 type FileImporter struct {
-	metaClient   restore_util.Client
+	metaClient   restoreutil.SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
 	rateLimit    uint64
@@ -145,7 +145,7 @@ type FileImporter struct {
 // NewFileImporter returns a new file importClient.
 func NewFileImporter(
 	ctx context.Context,
-	metaClient restore_util.Client,
+	metaClient restoreutil.SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
 	rateLimit uint64,
@@ -163,7 +163,7 @@ func NewFileImporter(
 
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+func (importer *FileImporter) Import(file *backup.File, rewriteRules *restoreutil.RewriteRules) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
 	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
@@ -179,9 +179,9 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
-		if err != nil {
-			return errors.Trace(err)
+		regionInfos, err1 := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
+		if err1 != nil {
+			return errors.Trace(err1)
 		}
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
@@ -190,20 +190,20 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_ut
 			info := regionInfo
 			// Try to download file.
 			err = withRetry(func() error {
-				var err error
+				var err2 error
 				var isEmpty bool
-				downloadMeta, isEmpty, err = importer.downloadSST(info, file, rewriteRules)
-				if err != nil {
+				downloadMeta, isEmpty, err2 = importer.downloadSST(info, file, rewriteRules)
+				if err2 != nil {
 					if err != errRewriteRuleNotFound {
 						log.Warn("download file failed",
 							zap.Stringer("file", file),
 							zap.Stringer("region", info.Region),
 							zap.Binary("startKey", startKey),
 							zap.Binary("endKey", endKey),
-							zap.Error(err),
+							zap.Error(err2),
 						)
 					}
-					return err
+					return err2
 				}
 				if isEmpty {
 					log.Info(
@@ -255,9 +255,9 @@ func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
 }
 
 func (importer *FileImporter) downloadSST(
-	regionInfo *restore_util.RegionInfo,
+	regionInfo *restoreutil.RegionInfo,
 	file *backup.File,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *restoreutil.RewriteRules,
 ) (*import_sstpb.SSTMeta, bool, error) {
 	id, err := uuid.New().MarshalBinary()
 	if err != nil {
@@ -312,7 +312,7 @@ func (importer *FileImporter) downloadSST(
 
 func (importer *FileImporter) ingestSST(
 	sstMeta *import_sstpb.SSTMeta,
-	regionInfo *restore_util.RegionInfo,
+	regionInfo *restoreutil.RegionInfo,
 ) error {
 	leader := regionInfo.Leader
 	if leader == nil {

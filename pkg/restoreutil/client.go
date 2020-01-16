@@ -1,4 +1,4 @@
-package restore_util
+package restoreutil
 
 import (
 	"bytes"
@@ -22,8 +22,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Client is an external client used by RegionSplitter.
-type Client interface {
+// SplitClient is an external client used by RegionSplitter.
+type SplitClient interface {
 	// GetStore gets a store by a store id.
 	GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error)
 	// GetRegion gets a region which includes a specified key.
@@ -61,8 +61,8 @@ type pdClient struct {
 	storeCache map[uint64]*metapb.Store
 }
 
-// NewClient returns a client used by RegionSplitter.
-func NewClient(client pd.Client) Client {
+// NewSplitClient returns a client used by RegionSplitter.
+func NewSplitClient(client pd.Client) SplitClient {
 	return &pdClient{
 		client:     client,
 		storeCache: make(map[uint64]*metapb.Store),
@@ -129,10 +129,11 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		return nil, err
 	}
 	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
-	defer conn.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer conn.Close()
+
 	client := tikvpb.NewTikvClient(conn)
 	resp, err := client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
 		Context: &kvrpcpb.Context{
@@ -149,6 +150,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		return nil, errors.Errorf("split region failed: region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
 	}
 
+	// BUG: Left is deprecated, it may be nil even if split is succeed!
 	// Assume the new region is the left one.
 	newRegion := resp.GetLeft()
 	if newRegion == nil {
@@ -179,7 +181,9 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	}, nil
 }
 
-func (c *pdClient) BatchSplitRegions(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) ([]*RegionInfo, error) {
+func (c *pdClient) BatchSplitRegions(
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) ([]*RegionInfo, error) {
 	var peer *metapb.Peer
 	if regionInfo.Leader != nil {
 		peer = regionInfo.Leader
@@ -298,9 +302,7 @@ func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) er
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	ioutil.ReadAll(res.Body)
-	res.Body.Close()
-	return nil
+	return errors.Trace(res.Body.Close())
 }
 
 func (c *pdClient) DeletePlacementRule(ctx context.Context, groupID, ruleID string) error {
@@ -313,26 +315,31 @@ func (c *pdClient) DeletePlacementRule(ctx context.Context, groupID, ruleID stri
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	ioutil.ReadAll(res.Body)
-	res.Body.Close()
-	return nil
+	return errors.Trace(res.Body.Close())
 }
 
-func (c *pdClient) SetStoresLabel(ctx context.Context, stores []uint64, labelKey, labelValue string) error {
+func (c *pdClient) SetStoresLabel(
+	ctx context.Context, stores []uint64, labelKey, labelValue string,
+) error {
 	b := []byte(fmt.Sprintf(`{"%s": "%s"}`, labelKey, labelValue))
 	addr := c.getPDAPIAddr()
 	if addr == "" {
 		return errors.New("failed to add stores labels: no leader")
 	}
 	for _, id := range stores {
-		req, _ := http.NewRequestWithContext(ctx, "POST", addr+path.Join("/pd/api/v1/store", strconv.FormatUint(id, 10), "label"), bytes.NewReader(b))
+		req, _ := http.NewRequestWithContext(
+			ctx, "POST",
+			addr+path.Join("/pd/api/v1/store", strconv.FormatUint(id, 10), "label"),
+			bytes.NewReader(b),
+		)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return errors.WithStack(err)
 		}
-		ioutil.ReadAll(res.Body)
-		res.Body.Close()
-
+		err = res.Body.Close()
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	return nil
 }

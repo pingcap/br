@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
-	restore_util "github.com/pingcap/br/pkg/restoreutil"
+	restoreutil "github.com/pingcap/br/pkg/restoreutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -187,15 +187,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore_util.NewRangeTree()
+			rangeTree := restoreutil.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore_util.Range{
+				if out := rangeTree.InsertRange(restoreutil.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore_util.Range)),
+						zap.Stringer("out", out.(*restoreutil.Range)),
 						zap.Stringer("file", file),
 					)
 				}
@@ -206,7 +206,7 @@ func newBackupMetaCommand() *cobra.Command {
 			for offset := uint64(0); offset < tableIDOffset; offset++ {
 				_, _ = tableIDAllocator.Alloc() // Ignore error
 			}
-			rewriteRules := &restore_util.RewriteRules{
+			rewriteRules := &restoreutil.RewriteRules{
 				Table: make([]*import_sstpb.RewriteRule, 0),
 				Data:  make([]*import_sstpb.RewriteRule, 0),
 			}

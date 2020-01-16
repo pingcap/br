@@ -1,4 +1,4 @@
-package restore_util
+package restoreutil
 
 import (
 	"bytes"
@@ -50,16 +50,19 @@ func (s *testRestoreUtilSuite) TestSortRange(c *C) {
 		Data:  dataRules,
 	}
 	ranges1 := []Range{
-		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...), append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...)},
+		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...)},
 	}
 	rs1, err := sortRanges(ranges1, rewriteRules)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
 	c.Assert(rs1, RangeEquals, []Range{
-		{append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...), append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...)},
+		{append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...),
+			append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...)},
 	})
 
 	ranges2 := []Range{
-		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...), append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...)},
+		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...)},
 	}
 	_, err = sortRanges(ranges2, rewriteRules)
 	c.Assert(err, ErrorMatches, ".*table id does not match.*")

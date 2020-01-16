@@ -1,4 +1,4 @@
-package restore_util
+package restoreutil
 
 import (
 	"bytes"
@@ -115,7 +115,7 @@ func (rt *RangeTree) Find(key []byte) *Range {
 	return ret
 }
 
-// InsertRanges inserts ranges into the range tree.
+// InsertRange inserts ranges into the range tree.
 // it returns true if all ranges inserted successfully.
 // it returns false if there are some overlapped ranges.
 func (rt *RangeTree) InsertRange(rg Range) btree.Item {
@@ -141,6 +141,7 @@ type RegionInfo struct {
 	Leader *metapb.Peer
 }
 
+// RewriteRules contains rules for rewriting keys of tables.
 type RewriteRules struct {
 	Table []*import_sstpb.RewriteRule
 	Data  []*import_sstpb.RewriteRule

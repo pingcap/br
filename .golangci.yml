@@ -13,3 +13,8 @@ issues:
       text: "Use of weak random number generator"
       linters:
         - gosec
+    # TODO Remove it.
+    - path: client.go
+      text: "SA1019:"
+      linters:
+        - staticcheck
