@@ -3,8 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
-	_ "runtime" // import link package
-	_ "unsafe"  // required by go:linkname
+	"runtime"
 
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/israce"
@@ -19,10 +18,8 @@ var (
 	BRBuildTS        = "None"
 	BRGitHash        = "None"
 	BRGitBranch      = "None"
+	goVersion        = runtime.Version()
 )
-
-//go:linkname goVersion runtime.buildVersion
-var goVersion string
 
 // LogBRInfo logs version information about BR.
 func LogBRInfo() {

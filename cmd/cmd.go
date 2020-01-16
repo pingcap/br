@@ -62,7 +62,7 @@ const (
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
 	cmd.Version = utils.BRInfo()
-	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display information about BR")
+	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display version information about BR")
 	cmd.SetVersionTemplate("{{printf \"%s\" .Version}}\n")
 
 	cmd.PersistentFlags().StringP(FlagPD, "u", "127.0.0.1:2379", "PD address")
