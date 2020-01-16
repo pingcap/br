@@ -47,7 +47,6 @@ func main() {
 	cmd.AddFlags(rootCmd)
 	cmd.SetDefaultContext(ctx)
 	rootCmd.AddCommand(
-		cmd.NewVersionCommand(),
 		cmd.NewValidateCommand(),
 		cmd.NewBackupCommand(),
 		cmd.NewRestoreCommand(),

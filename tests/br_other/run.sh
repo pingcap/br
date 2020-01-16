@@ -55,4 +55,5 @@ fi
 run_sql "DROP DATABASE $DB;"
 
 # Test version
-run_br version
+run_br --version
+run_br -V
