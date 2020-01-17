@@ -242,8 +242,6 @@ func (rc *Client) RestoreTable(
 		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else {
-			summary.CollectSuccessUnit(key, elapsed)
 		}
 	}()
 
@@ -342,6 +340,7 @@ func (rc *Client) RestoreAll(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore All", zap.Duration("take", elapsed))
+		summary.CollectSuccessUnit("restore all", elapsed)
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)
