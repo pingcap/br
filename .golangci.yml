@@ -10,7 +10,7 @@ issues:
       linters:
         - gosec
     # TODO Remove it.
-    - path: client.go
+    - path: split_client.go
       text: "SA1019:"
       linters:
         - staticcheck
