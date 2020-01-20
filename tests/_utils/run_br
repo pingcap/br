@@ -17,4 +17,4 @@ set -eu
 
 TEST_DIR=/tmp/backup_restore_test
 
-bin/br.test -test.coverprofile="$TEST_DIR/cov.$TEST_NAME.$$.out.log" DEVEL "$@"
+bin/br.test -test.coverprofile="$TEST_DIR/cov.$TEST_NAME.$$.out.log" DEVEL "$@" -L "debug"

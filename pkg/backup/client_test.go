@@ -10,11 +10,11 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 
 	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
@@ -61,7 +61,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err := r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs := utils.DecodeTs(ts).Physical
+	pdTs := oracle.ExtractPhysical(ts)
 	duration := int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
@@ -72,27 +72,30 @@ func (r *testBackup) TestGetTS(c *C) {
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
 	c.Assert(err, IsNil)
-	pdTs = utils.DecodeTs(ts).Physical
+	pdTs = oracle.ExtractPhysical(ts)
 	duration = int(currentTs - pdTs)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "-1m"
 	timeAgo = "-1m"
-	expectedDuration = -60000
-	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, IsNil)
-	pdTs = utils.DecodeTs(ts).Physical
-	duration = int(currentTs - pdTs)
-	c.Assert(duration, Greater, expectedDuration-deviation)
-	c.Assert(duration, Less, expectedDuration+deviation)
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	c.Assert(err, ErrorMatches, "negative timeago is not allowed")
 
-	// timeago = "1000000h" exceed GCSafePoint
-	// because GCSafePoint in mockPDClient is 0
+	// timeago = "1000000h" overflows
 	timeAgo = "1000000h"
 	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, ErrorMatches, "given backup time exceed GCSafePoint")
+	c.Assert(err, ErrorMatches, "backup ts overflow.*")
+
+	// timeago = "10h" exceed GCSafePoint
+	p, l, err := r.backupClient.mgr.GetPDClient().GetTS(r.ctx)
+	c.Assert(err, IsNil)
+	now := oracle.ComposeTS(p, l)
+	_, err = r.backupClient.mgr.GetPDClient().UpdateGCSafePoint(r.ctx, now)
+	c.Assert(err, IsNil)
+	timeAgo = "10h"
+	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
 }
 
 func (r *testBackup) TestBuildTableRange(c *C) {
