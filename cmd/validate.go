@@ -15,7 +15,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/pd/pkg/mock/mockid"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -187,15 +186,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore_util.NewRangeTree()
+			rangeTree := restore.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore_util.Range{
+				if out := rangeTree.InsertRange(restore.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore_util.Range)),
+						zap.Stringer("out", out.(*restore.Range)),
 						zap.Stringer("file", file),
 					)
 				}
@@ -206,7 +205,7 @@ func newBackupMetaCommand() *cobra.Command {
 			for offset := uint64(0); offset < tableIDOffset; offset++ {
 				_, _ = tableIDAllocator.Alloc() // Ignore error
 			}
-			rewriteRules := &restore_util.RewriteRules{
+			rewriteRules := &restore.RewriteRules{
 				Table: make([]*import_sstpb.RewriteRule, 0),
 				Data:  make([]*import_sstpb.RewriteRule, 0),
 			}

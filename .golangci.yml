@@ -9,7 +9,8 @@ issues:
       text: "Potential HTTP request made with variable url"
       linters:
         - gosec
-    - path: .go
-      text: "Use of weak random number generator"
+    # TODO Remove it.
+    - path: split_client.go
+      text: "SA1019:"
       linters:
-        - gosec
+        - staticcheck

@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
@@ -108,7 +107,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	metaClient := restore_util.NewClient(rc.pdClient)
+	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
@@ -189,8 +188,8 @@ func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-) (*restore_util.RewriteRules, []*model.TableInfo, error) {
-	rewriteRules := &restore_util.RewriteRules{
+) (*RewriteRules, []*model.TableInfo, error) {
+	rewriteRules := &RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
@@ -232,7 +231,7 @@ func (rc *Client) setSpeedLimit() error {
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -300,7 +299,7 @@ func (rc *Client) RestoreTable(
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -336,7 +335,7 @@ func (rc *Client) RestoreDatabase(
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()

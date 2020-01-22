@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
@@ -76,7 +75,7 @@ func GetRewriteRules(
 	newTable *model.TableInfo,
 	oldTable *model.TableInfo,
 	newTimeStamp uint64,
-) *restore_util.RewriteRules {
+) *RewriteRules {
 	tableIDs := make(map[int64]int64)
 	tableIDs[oldTable.ID] = newTable.ID
 	if oldTable.Partition != nil {
@@ -119,7 +118,7 @@ func GetRewriteRules(
 		}
 	}
 
-	return &restore_util.RewriteRules{
+	return &RewriteRules{
 		Table: tableRules,
 		Data:  dataRules,
 	}
@@ -196,9 +195,9 @@ func withRetry(
 // ValidateFileRanges checks and returns the ranges of the files.
 func ValidateFileRanges(
 	files []*backup.File,
-	rewriteRules *restore_util.RewriteRules,
-) ([]restore_util.Range, error) {
-	ranges := make([]restore_util.Range, 0, len(files))
+	rewriteRules *RewriteRules,
+) ([]Range, error) {
+	ranges := make([]Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
@@ -217,7 +216,7 @@ func ValidateFileRanges(
 					zap.Stringer("file", file))
 				return nil, errors.New("table ids dont match")
 			}
-			ranges = append(ranges, restore_util.Range{
+			ranges = append(ranges, Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
 			})
@@ -228,7 +227,7 @@ func ValidateFileRanges(
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
-func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
 	if rewriteRules != nil && startRule == nil {
@@ -269,7 +268,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 }
 
 // Rewrites a raw key and returns a encoded key
-func rewriteRawKey(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
+func rewriteRawKey(key []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
 	if rewriteRules == nil {
 		return codec.EncodeBytes([]byte{}, key), nil
 	}
@@ -281,7 +280,7 @@ func rewriteRawKey(key []byte, rewriteRules *restore_util.RewriteRules) ([]byte,
 	return nil, nil
 }
 
-func matchOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+func matchOldPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
 		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
 			return rule
@@ -295,7 +294,7 @@ func matchOldPrefix(key []byte, rewriteRules *restore_util.RewriteRules) *import
 	return nil
 }
 
-func matchNewPrefix(key []byte, rewriteRules *restore_util.RewriteRules) *import_sstpb.RewriteRule {
+func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
 		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
 			return rule
@@ -319,8 +318,8 @@ func truncateTS(key []byte) []byte {
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
-	ranges []restore_util.Range,
-	rewriteRules *restore_util.RewriteRules,
+	ranges []Range,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -328,7 +327,7 @@ func SplitRanges(
 		elapsed := time.Since(start)
 		summary.CollectDuration("split region", elapsed)
 	}()
-	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient()))
 	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
@@ -336,7 +335,7 @@ func SplitRanges(
 	})
 }
 
-func rewriteFileKeys(file *backup.File, rewriteRules *restore_util.RewriteRules) (startKey, endKey []byte, err error) {
+func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	var rule *import_sstpb.RewriteRule
