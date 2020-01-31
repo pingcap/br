@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
@@ -110,8 +112,13 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 		}
 	case len(dbName) != 0 && len(tableName) == 0:
 		// database restore
+		fmt.Fprintf(os.Stderr, "dbName: %s\n", dbName)
 		db := client.GetDatabase(dbName)
-		err = client.CreateDatabase(db.Schema)
+		if db == nil {
+			err = errors.Errorf("database %s not found in backup", dbName)
+		} else {
+			err = client.CreateDatabase(db.Schema)
+		}
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -122,7 +129,11 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	case len(dbName) != 0 && len(tableName) != 0:
 		// table restore
 		db := client.GetDatabase(dbName)
-		err = client.CreateDatabase(db.Schema)
+		if db == nil {
+			err = errors.Errorf("database %s not found in backup", dbName)
+		} else {
+			err = client.CreateDatabase(db.Schema)
+		}
 		if err != nil {
 			return errors.Trace(err)
 		}
