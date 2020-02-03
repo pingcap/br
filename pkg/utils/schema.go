@@ -17,6 +17,8 @@ import (
 const (
 	// MetaFile represents file name
 	MetaFile = "backupmeta"
+	// TSFile
+	TSFile = "backupts"
 	// MetaJSONFile represents backup meta json file name
 	MetaJSONFile = "backupmeta.json"
 )

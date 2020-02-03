@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -108,6 +109,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
+	err = client.SaveBackupTS(ctx, backupTS)
+	if err != nil {
+		return err
+	}
+
 	defer summary.Summary(cmdName)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
@@ -170,6 +176,12 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
+
+	content, err := client.GetBackupTS(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(content))
 	return nil
 }
 
