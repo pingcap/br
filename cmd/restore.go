@@ -111,6 +111,9 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	case len(dbName) != 0 && len(tableName) == 0:
 		// database restore
 		db := client.GetDatabase(dbName)
+		if db == nil {
+			return errors.Errorf("database %s not found in backup", dbName)
+		}
 		err = client.CreateDatabase(db.Schema)
 		if err != nil {
 			return errors.Trace(err)
@@ -122,6 +125,9 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	case len(dbName) != 0 && len(tableName) != 0:
 		// table restore
 		db := client.GetDatabase(dbName)
+		if db == nil {
+			return errors.Errorf("database %s not found in backup", dbName)
+		}
 		err = client.CreateDatabase(db.Schema)
 		if err != nil {
 			return errors.Trace(err)
