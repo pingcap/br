@@ -29,8 +29,6 @@ run_sql "INSERT INTO $DB.$TABLE VALUES (\"a\", \"b\");"
 run_sql "INSERT INTO $DB.$TABLE VALUES (\"aa\", \"b\");"
 
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
-echo $row_count_ori
-sleep 10000
 
 # backup table
 echo "backup start..."
