@@ -28,7 +28,9 @@ run_sql "CREATE TABLE $DB.$TABLE( \
 run_sql "INSERT INTO $DB.$TABLE VALUES (\"a\", \"b\");"
 run_sql "INSERT INTO $DB.$TABLE VALUES (\"aa\", \"b\");"
 
-row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB$.$TAble;" | awk '/COUNT/{print $2}')
+row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+echo $row_count_ori
+sleep 10000
 
 # backup table
 echo "backup start..."
@@ -61,7 +63,7 @@ mv "$TEST_DIR/$DB/backupmeta_from_json" "$TEST_DIR/$DB/backupmeta"
 echo "restore start..."
 run_br --pd $PD_ADDR restore table --db $DB --table usertable1 -s "local://$TEST_DIR/$DB"
 
-row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB$.$TABLE;" | awk '/COUNT/{print $2}')
+row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 if [ "${row_count_ori}" != "${row_count_new}" ];then
     echo "TEST: [$TEST_NAME] failed!"
