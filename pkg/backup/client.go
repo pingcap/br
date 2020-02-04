@@ -126,8 +126,8 @@ func (bc *Client) SaveBackupTS(ctx context.Context, backupTS uint64) error {
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup ts", zap.Stringer("path", &backendURL))
 	fileString := fmt.Sprintf(
-		"**************************************" +
-			"\nStarted backup at: %v\nBackupTS: %d\n" +
+		"**************************************"+
+			"\nStarted backup at: %v\nBackupTS: %d\n"+
 			"**************************************",
 		time.Now().Format("2006-01-02 15:04:05"), backupTS)
 	return bc.storage.Write(ctx, utils.TSFile, []byte(fileString))
