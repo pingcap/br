@@ -26,15 +26,9 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const (
-	resetTsRetryTime       = 16
-	resetTSWaitInterval    = 50 * time.Millisecond
-	resetTSMaxWaitInterval = 500 * time.Millisecond
-
-	// defaultChecksumConcurrency is the default number of the concurrent
-	// checksum tasks.
-	defaultChecksumConcurrency = 64
-)
+// defaultChecksumConcurrency is the default number of the concurrent
+// checksum tasks.
+const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files
 type Client struct {
@@ -138,13 +132,10 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return withRetry(func() error {
+	return utils.WithRetry(func() error {
 		idx := i % len(pdAddrs)
 		return utils.ResetTS(pdAddrs[idx], restoreTS)
-	}, func(e error) bool {
-		i++
-		return true
-	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
+	}, newResetTSBackoffer())
 }
 
 // GetDatabases returns all databases.
@@ -237,8 +228,10 @@ func (rc *Client) RestoreTable(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("restore table",
-			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		if err == nil {
+			log.Info("Restore Table",
+				zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
+		}
 		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
@@ -304,8 +297,10 @@ func (rc *Client) RestoreDatabase(
 ) (err error) {
 	start := time.Now()
 	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		if err == nil {
+			elapsed := time.Since(start)
+			log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		}
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -340,8 +335,10 @@ func (rc *Client) RestoreAll(
 ) (err error) {
 	start := time.Now()
 	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore All", zap.Duration("take", elapsed))
+		if err == nil {
+			elapsed := time.Since(start)
+			log.Info("Restore All", zap.Duration("take", elapsed))
+		}
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)
