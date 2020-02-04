@@ -67,11 +67,15 @@ func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	case errResp, errGrpc:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
-	default:
-		// Don't continue to retry
+	case errRangeIsEmpty, errRewriteRuleNotFound:
+		// Excepted error, finish the operation
 		bo.delayTime = 0
 		bo.attempt = 0
-		log.Warn("undetemined error, stop to retry", zap.Error(err))
+	default:
+		// Unexcepted error
+		bo.delayTime = 0
+		bo.attempt = 0
+		log.Warn("unexcepted error, stop to retry", zap.Error(err))
 	}
 	if bo.delayTime > bo.maxDelayTime {
 		return bo.maxDelayTime
