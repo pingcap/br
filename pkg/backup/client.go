@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -123,14 +122,26 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend
 
 // SaveBackupTS saves the backup ts at the given path.
 func (bc *Client) SaveBackupTS(ctx context.Context, backupTS uint64) error {
+	if exists, _ := bc.storage.FileExists(ctx, utils.TSFile); exists {
+		return errors.New("this storage has backup file, consider clear this storage or change to new one")
+	}
 	backendURL := storage.FormatBackendURL(bc.backend)
+
 	log.Info("save backup ts", zap.Stringer("path", &backendURL))
-	fileString := fmt.Sprintf(
-		"**************************************"+
-			"\nStarted backup at: %v\nBackupTS: %d\n"+
-			"**************************************",
-		time.Now().Format("2006-01-02 15:04:05"), backupTS)
-	return bc.storage.Write(ctx, utils.TSFile, []byte(fileString))
+	type fileContent struct {
+		StartedAt string `json:"started_at"`
+		BackupTS  uint64 `json:"backup_ts"`
+	}
+	f := &fileContent{
+		StartedAt: time.Now().Format("2006-01-02 15:04:05"),
+		BackupTS:  backupTS,
+	}
+	fileBytes, err := json.MarshalIndent(f, "", "\t")
+	if err != nil {
+		return err
+	}
+
+	return bc.storage.Write(ctx, utils.TSFile, fileBytes)
 }
 
 // GetBackupTS get the backup ts from given path.
