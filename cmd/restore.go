@@ -65,15 +65,13 @@ func NewRestoreCommand() *cobra.Command {
 		"Run checksum after restore")
 	command.PersistentFlags().BoolP("online", "", false,
 		"Whether online when restore")
+	// TODO remove hidden flag if it's stable
+	_ = command.PersistentFlags().MarkHidden("online")
 
 	return command
 }
 
 func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error {
-	pdAddr, err := flagSet.GetString(FlagPD)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	ctx, cancel := context.WithCancel(GetDefaultContext())
 	defer cancel()
 
@@ -119,6 +117,9 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	case len(dbName) != 0 && len(tableName) == 0:
 		// database restore
 		db := client.GetDatabase(dbName)
+		if db == nil {
+			return errors.Errorf("database %s not found in backup", dbName)
+		}
 		err = client.CreateDatabase(db.Schema)
 		if err != nil {
 			return errors.Trace(err)
@@ -130,19 +131,28 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	case len(dbName) != 0 && len(tableName) != 0:
 		// table restore
 		db := client.GetDatabase(dbName)
+		if db == nil {
+			return errors.Errorf("database %s not found in backup", dbName)
+		}
 		err = client.CreateDatabase(db.Schema)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		table := db.GetTable(tableName)
 		files = table.Files
-		tables = utils.Tables{table}
+		tables = append(tables, table)
 	default:
 		return errors.New("must set db when table was set")
 	}
-
+	var newTS uint64
+	if client.IsIncremental() {
+		newTS, err = client.GetTS(ctx)
+		if err != nil {
+			return err
+		}
+	}
 	summary.CollectInt("restore files", len(files))
-	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables)
+	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -165,11 +175,19 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 		log.Error("split regions failed", zap.Error(err))
 		return errors.Trace(err)
 	}
-	pdAddrs := strings.Split(pdAddr, ",")
-	err = client.ResetTS(pdAddrs)
-	if err != nil {
-		log.Error("reset pd TS failed", zap.Error(err))
-		return errors.Trace(err)
+
+	if !client.IsIncremental() {
+		var pdAddr string
+		pdAddr, err = flagSet.GetString(FlagPD)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		pdAddrs := strings.Split(pdAddr, ",")
+		err = client.ResetTS(pdAddrs)
+		if err != nil {
+			log.Error("reset pd TS failed", zap.Error(err))
+			return errors.Trace(err)
+		}
 	}
 
 	removedSchedulers, err := RestorePrepareWork(ctx, client, mgr)

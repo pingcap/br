@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"sort"
 	"sync"
 	"time"
 
@@ -16,10 +15,9 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -113,7 +111,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	}
 	rc.backupMeta = backupMeta
 
-	metaClient := restore_util.NewClient(rc.pdClient)
+	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
@@ -192,11 +190,7 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	restoreTS := utils.EncodeTs(ts)
+	restoreTS := oracle.ComposeTS(p, l)
 	return restoreTS, nil
 }
 
@@ -254,17 +248,13 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
-) (*restore_util.RewriteRules, []*model.TableInfo, error) {
-	rewriteRules := &restore_util.RewriteRules{
+	newTS uint64,
+) (*RewriteRules, []*model.TableInfo, error) {
+	rewriteRules := &RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	// Sort the tables by id for ensuring the new tables has same id ordering as the old tables.
-	// We require this constrain since newTableID of tableID+1 must be not bigger
-	// than newTableID of tableID.
-	sort.Sort(utils.Tables(tables))
-	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
 		err := rc.db.CreateTable(rc.ctx, table)
 		if err != nil {
@@ -274,20 +264,10 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema)
-		tableIDMap[table.Schema.ID] = newTableInfo.ID
+		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
-	}
-	// If tableID + 1 has already exist, then we don't need to add a new rewrite rule for it.
-	for oldID, newID := range tableIDMap {
-		if _, ok := tableIDMap[oldID+1]; !ok {
-			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
-				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
-				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
-			})
-		}
 	}
 	return rewriteRules, newTables, nil
 }
@@ -312,7 +292,7 @@ func (rc *Client) setSpeedLimit() error {
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -327,6 +307,7 @@ func (rc *Client) RestoreTable(
 			summary.CollectSuccessUnit(key, elapsed)
 		}
 	}()
+
 	log.Debug("start to restore table",
 		zap.Stringer("table", table.Schema.Name),
 		zap.Stringer("db", table.Db.Name),
@@ -335,12 +316,11 @@ func (rc *Client) RestoreTable(
 	errCh := make(chan error, len(table.Files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
-	// We should encode the rewrite rewriteRules before using it to import files
-	encodedRules := encodeRewriteRules(rewriteRules)
 	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
 	}
+
 	for _, file := range table.Files {
 		wg.Add(1)
 		fileReplica := file
@@ -350,7 +330,7 @@ func (rc *Client) RestoreTable(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
 					updateCh <- struct{}{}
 				}
 			})
@@ -380,7 +360,7 @@ func (rc *Client) RestoreTable(
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -416,7 +396,7 @@ func (rc *Client) RestoreDatabase(
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -637,4 +617,10 @@ func (rc *Client) ValidateChecksum(
 	}
 	log.Info("validate checksum passed!!")
 	return nil
+}
+
+// IsIncremental returns whether this backup is incremental
+func (rc *Client) IsIncremental() bool {
+	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
+		rc.backupMeta.StartVersion == 0)
 }

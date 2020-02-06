@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -112,8 +113,9 @@ func (pending *Schemas) Start(
 		}
 		pending.wg.Wait()
 		close(pending.backupSchemaCh)
-		log.Info("Backup Checksum",
+		log.Info("backup checksum",
 			zap.Duration("take", time.Since(startAll)))
+		summary.CollectDuration("backup checksum", time.Since(startAll))
 	}()
 }
 

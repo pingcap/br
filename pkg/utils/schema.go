@@ -17,6 +17,8 @@ import (
 const (
 	// MetaFile represents file name
 	MetaFile = "backupmeta"
+	// MetaJSONFile represents backup meta json file name
+	MetaJSONFile = "backupmeta.json"
 )
 
 // Table wraps the schema and files of a table.
@@ -27,21 +29,6 @@ type Table struct {
 	TotalKvs   uint64
 	TotalBytes uint64
 	Files      []*backup.File
-}
-
-// Tables wraps a array of Table.
-type Tables []*Table
-
-func (tables Tables) Len() int {
-	return len(tables)
-}
-
-func (tables Tables) Less(i, j int) bool {
-	return tables[i].Schema.ID < tables[j].Schema.ID
-}
-
-func (tables Tables) Swap(i, j int) {
-	tables[i], tables[j] = tables[j], tables[i]
 }
 
 // Database wraps the schema and tables of a database.

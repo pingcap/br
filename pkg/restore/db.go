@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -77,10 +78,28 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		return errors.Trace(err)
 	}
 	createSQL := buf.String()
+	// Insert `IF NOT EXISTS` statement to skip the created tables
+	words := strings.SplitN(createSQL, " ", 3)
+	if len(words) > 2 && strings.ToUpper(words[0]) == "CREATE" && strings.ToUpper(words[1]) == "TABLE" {
+		createSQL = "CREATE TABLE IF NOT EXISTS " + words[2]
+	}
 	_, err = db.se.Execute(ctx, createSQL)
 	if err != nil {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Schema.Name),
+			zap.Error(err))
+		return errors.Trace(err)
+	}
+	alterAutoIncIDSQL := fmt.Sprintf(
+		"alter table %s auto_increment = %d",
+		escapeTableName(schema.Name),
+		schema.AutoIncID)
+	_, err = db.se.Execute(ctx, alterAutoIncIDSQL)
+	if err != nil {
+		log.Error("alter AutoIncID failed",
+			zap.String("SQL", alterAutoIncIDSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Schema.Name),
 			zap.Error(err))

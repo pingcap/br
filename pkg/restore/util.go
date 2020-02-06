@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
@@ -28,10 +27,16 @@ type files []*backup.File
 
 func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
 	for i := range fs {
-		err := arr.AppendReflected(fs[i])
-		if err != nil {
-			return err
-		}
+		arr.AppendString(fs[i].String())
+	}
+	return nil
+}
+
+type rules []*import_sstpb.RewriteRule
+
+func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
+	for i := range rs {
+		arr.AppendString(rs[i].String())
 	}
 	return nil
 }
@@ -66,31 +71,54 @@ func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
 }
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
-func GetRewriteRules(newTable *model.TableInfo, oldTable *model.TableInfo) *restore_util.RewriteRules {
-	tableRules := make([]*import_sstpb.RewriteRule, 0, 1)
-	tableRules = append(tableRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTable.ID),
-		NewKeyPrefix: tablecodec.EncodeTablePrefix(newTable.ID),
-	})
-
-	dataRules := make([]*import_sstpb.RewriteRule, 0, len(oldTable.Indices)+1)
-	dataRules = append(dataRules, &import_sstpb.RewriteRule{
-		OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTable.ID), recordPrefixSep...),
-		NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTable.ID), recordPrefixSep...),
-	})
-
+func GetRewriteRules(
+	newTable *model.TableInfo,
+	oldTable *model.TableInfo,
+	newTimeStamp uint64,
+) *RewriteRules {
+	tableIDs := make(map[int64]int64)
+	tableIDs[oldTable.ID] = newTable.ID
+	if oldTable.Partition != nil {
+		for _, srcPart := range oldTable.Partition.Definitions {
+			for _, destPart := range newTable.Partition.Definitions {
+				if srcPart.Name == destPart.Name {
+					tableIDs[srcPart.ID] = destPart.ID
+				}
+			}
+		}
+	}
+	indexIDs := make(map[int64]int64)
 	for _, srcIndex := range oldTable.Indices {
 		for _, destIndex := range newTable.Indices {
 			if srcIndex.Name == destIndex.Name {
-				dataRules = append(dataRules, &import_sstpb.RewriteRule{
-					OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTable.ID, srcIndex.ID),
-					NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTable.ID, destIndex.ID),
-				})
+				indexIDs[srcIndex.ID] = destIndex.ID
 			}
 		}
 	}
 
-	return &restore_util.RewriteRules{
+	tableRules := make([]*import_sstpb.RewriteRule, 0)
+	dataRules := make([]*import_sstpb.RewriteRule, 0)
+	for oldTableID, newTableID := range tableIDs {
+		tableRules = append(tableRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTableID),
+			NewKeyPrefix: tablecodec.EncodeTablePrefix(newTableID),
+			NewTimestamp: newTimeStamp,
+		})
+		dataRules = append(dataRules, &import_sstpb.RewriteRule{
+			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTableID), recordPrefixSep...),
+			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTableID), recordPrefixSep...),
+			NewTimestamp: newTimeStamp,
+		})
+		for oldIndexID, newIndexID := range indexIDs {
+			dataRules = append(dataRules, &import_sstpb.RewriteRule{
+				OldKeyPrefix: tablecodec.EncodeTableIndexPrefix(oldTableID, oldIndexID),
+				NewKeyPrefix: tablecodec.EncodeTableIndexPrefix(newTableID, newIndexID),
+				NewTimestamp: newTimeStamp,
+			})
+		}
+	}
+
+	return &RewriteRules{
 		Table: tableRules,
 		Data:  dataRules,
 	}
@@ -167,9 +195,9 @@ func withRetry(
 // ValidateFileRanges checks and returns the ranges of the files.
 func ValidateFileRanges(
 	files []*backup.File,
-	rewriteRules *restore_util.RewriteRules,
-) ([]restore_util.Range, error) {
-	ranges := make([]restore_util.Range, 0, len(files))
+	rewriteRules *RewriteRules,
+) ([]Range, error) {
+	ranges := make([]Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
@@ -179,7 +207,16 @@ func ValidateFileRanges(
 			if err != nil {
 				return nil, err
 			}
-			ranges = append(ranges, restore_util.Range{
+			startID := tablecodec.DecodeTableID(file.GetStartKey())
+			endID := tablecodec.DecodeTableID(file.GetEndKey())
+			if startID != endID {
+				log.Error("table ids dont match",
+					zap.Int64("startID", startID),
+					zap.Int64("endID", endID),
+					zap.Stringer("file", file))
+				return nil, errors.New("table ids dont match")
+			}
+			ranges = append(ranges, Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
 			})
@@ -190,10 +227,10 @@ func ValidateFileRanges(
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
-func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
-	_, startRule := rewriteRawKeyWithOriginalRules(file.GetStartKey(), rewriteRules)
-	if startRule == nil {
+	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
+	if rewriteRules != nil && startRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		log.Error(
 			"cannot find rewrite rule for file start key",
@@ -203,8 +240,8 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 		return errors.Errorf("cannot find rewrite rule")
 	}
 	// Check if the end key has a matched rewrite key
-	_, endRule := rewriteRawKeyWithOriginalRules(file.GetEndKey(), rewriteRules)
-	if endRule == nil {
+	_, endRule := rewriteRawKey(file.GetEndKey(), rewriteRules)
+	if rewriteRules != nil && endRule == nil {
 		tableID := tablecodec.DecodeTableID(file.GetEndKey())
 		log.Error(
 			"cannot find rewrite rule for file end key",
@@ -230,92 +267,45 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *restore_util.Rewri
 	return nil
 }
 
-// rules must be encoded
-func findRegionRewriteRule(
-	region *metapb.Region,
-	rewriteRules *restore_util.RewriteRules,
-) *import_sstpb.RewriteRule {
+// Rewrites a raw key and returns a encoded key
+func rewriteRawKey(key []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
+	if rewriteRules == nil {
+		return codec.EncodeBytes([]byte{}, key), nil
+	}
+	if len(key) > 0 {
+		rule := matchOldPrefix(key, rewriteRules)
+		ret := bytes.Replace(key, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1)
+		return codec.EncodeBytes([]byte{}, ret), rule
+	}
+	return nil, nil
+}
+
+func matchOldPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
-		// regions may have the new prefix
-		if bytes.HasPrefix(region.GetStartKey(), rule.GetNewKeyPrefix()) {
+		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
+			return rule
+		}
+	}
+	for _, rule := range rewriteRules.Table {
+		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
 			return rule
 		}
 	}
 	return nil
 }
 
-func encodeRewriteRules(rewriteRules *restore_util.RewriteRules) *restore_util.RewriteRules {
-	encodedTableRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Table))
-	encodedDataRules := make([]*import_sstpb.RewriteRule, 0, len(rewriteRules.Data))
-	for _, rule := range rewriteRules.Table {
-		encodedTableRules = append(encodedTableRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
-			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
-		})
-	}
+func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
-		encodedDataRules = append(encodedDataRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: encodeKeyPrefix(rule.GetOldKeyPrefix()),
-			NewKeyPrefix: encodeKeyPrefix(rule.GetNewKeyPrefix()),
-		})
-	}
-	return &restore_util.RewriteRules{
-		Table: encodedTableRules,
-		Data:  encodedDataRules,
-	}
-}
-
-func encodeKeyPrefix(key []byte) []byte {
-	encodedPrefix := make([]byte, 0)
-	ungroupedLen := len(key) % 8
-	encodedPrefix =
-		append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
-	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
-}
-
-// Encode a raw key and find a encoded rewrite rule to rewrite it.
-func rewriteRawKeyWithEncodedRules(
-	key []byte, encodedRules *restore_util.RewriteRules,
-) ([]byte, *import_sstpb.RewriteRule) {
-	if len(key) > 0 {
-		ret := codec.EncodeBytes([]byte{}, key)
-		for _, rule := range encodedRules.Data {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-		for _, rule := range encodedRules.Table {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
+		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
+			return rule
 		}
 	}
-	return []byte(""), nil
-}
-
-// Encode a raw key and find a rewrite rule to rewrite it.
-func rewriteRawKeyWithOriginalRules(
-	key []byte, rewriteRules *restore_util.RewriteRules,
-) ([]byte, *import_sstpb.RewriteRule) {
-	if len(key) > 0 {
-		ret := make([]byte, len(key))
-		copy(ret, key)
-		for _, rule := range rewriteRules.Data {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
-		}
-		for _, rule := range rewriteRules.Table {
-			// regions may have the new prefix
-			if bytes.HasPrefix(ret, rule.GetOldKeyPrefix()) {
-				return bytes.Replace(ret, rule.GetOldKeyPrefix(), rule.GetNewKeyPrefix(), 1), rule
-			}
+	for _, rule := range rewriteRules.Table {
+		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
+			return rule
 		}
 	}
-	return []byte(""), nil
+	return nil
 }
 
 func truncateTS(key []byte) []byte {
@@ -328,8 +318,8 @@ func truncateTS(key []byte) []byte {
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
-	ranges []restore_util.Range,
-	rewriteRules *restore_util.RewriteRules,
+	ranges []Range,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -337,10 +327,52 @@ func SplitRanges(
 		elapsed := time.Since(start)
 		summary.CollectDuration("split region", elapsed)
 	}()
-	splitter := restore_util.NewRegionSplitter(restore_util.NewClient(client.GetPDClient()))
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient()))
 	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
 		}
 	})
+}
+
+func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
+	startID := tablecodec.DecodeTableID(file.GetStartKey())
+	endID := tablecodec.DecodeTableID(file.GetEndKey())
+	var rule *import_sstpb.RewriteRule
+	if startID == endID {
+		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
+		if rewriteRules != nil && rule == nil {
+			err = errors.New("cannot find rewrite rule for start key")
+			return
+		}
+		endKey, rule = rewriteRawKey(file.GetEndKey(), rewriteRules)
+		if rewriteRules != nil && rule == nil {
+			err = errors.New("cannot find rewrite rule for end key")
+			return
+		}
+	} else {
+		log.Error("table ids dont matched",
+			zap.Int64("startID", startID),
+			zap.Int64("endID", endID),
+			zap.Binary("startKey", startKey),
+			zap.Binary("endKey", endKey))
+		err = errors.New("illegal table id")
+	}
+	return
+}
+
+func encodeKeyPrefix(key []byte) []byte {
+	encodedPrefix := make([]byte, 0)
+	ungroupedLen := len(key) % 8
+	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
+	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
+}
+
+// escape the identifier for pretty-printing.
+// For instance, the identifier "foo `bar`" will become "`foo ``bar```".
+// The sqlMode controls whether to escape with backquotes (`) or double quotes
+// (`"`) depending on whether mysql.ModeANSIQuotes is enabled.
+func escapeTableName(cis model.CIStr) string {
+	quote := "`"
+	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
 }

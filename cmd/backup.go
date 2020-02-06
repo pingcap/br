@@ -17,10 +17,12 @@ import (
 )
 
 const (
-	flagBackupTimeago     = "timeago"
-	flagBackupRateLimit   = "ratelimit"
-	flagBackupConcurrency = "concurrency"
-	flagBackupChecksum    = "checksum"
+	flagBackupTimeago       = "timeago"
+	flagBackupRateLimit     = "ratelimit"
+	flagBackupRateLimitUnit = "ratelimit-unit"
+	flagBackupConcurrency   = "concurrency"
+	flagBackupChecksum      = "checksum"
+	flagLastBackupTS        = "lastbackupts"
 )
 
 func defineBackupFlags(flagSet *pflag.FlagSet) {
@@ -33,6 +35,13 @@ func defineBackupFlags(flagSet *pflag.FlagSet) {
 		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
 	flagSet.BoolP(flagBackupChecksum, "", true,
 		"Run checksum after backup")
+	flagSet.Uint64P(flagLastBackupTS, "", 0, "the last time backup ts")
+	_ = flagSet.MarkHidden(flagLastBackupTS)
+
+	// Test only flag.
+	flagSet.Uint64P(
+		flagBackupRateLimitUnit, "", utils.MB, "The unit of rate limit of the backup task")
+	_ = flagSet.MarkHidden(flagBackupRateLimitUnit)
 }
 
 func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
@@ -54,6 +63,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	if err != nil {
 		return err
 	}
+	ratelimitUnit, err := flagSet.GetUint64(flagBackupRateLimitUnit)
+	if err != nil {
+		return err
+	}
+	ratelimit *= ratelimitUnit
 
 	concurrency, err := flagSet.GetUint32(flagBackupConcurrency)
 	if err != nil {
@@ -67,6 +81,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	checksum, err := flagSet.GetBool(flagBackupChecksum)
 	if err != nil {
 		return err
+	}
+
+	lastBackupTS, err := flagSet.GetUint64(flagLastBackupTS)
+	if err != nil {
+		return nil
 	}
 
 	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
@@ -114,7 +133,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	updateCh := utils.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !HasLogFile())
 	err = client.BackupRanges(
-		ctx, ranges, backupTS, ratelimit, concurrency, updateCh)
+		ctx, ranges, lastBackupTS, backupTS, ratelimit, concurrency, updateCh)
 	if err != nil {
 		return err
 	}
