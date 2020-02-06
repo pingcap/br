@@ -38,6 +38,27 @@ func NewDB(store kv.Storage) (*DB, error) {
 	}, nil
 }
 
+// ExecDDL executes the query of a ddl job.
+func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
+	switchDbSQL := fmt.Sprintf("use %s;", ddlJob.SchemaName)
+	_, err := db.se.Execute(ctx, switchDbSQL)
+	if err != nil {
+		log.Error("switch db failed",
+			zap.String("query", switchDbSQL),
+			zap.String("db", ddlJob.SchemaName),
+			zap.Error(err))
+		return errors.Trace(err)
+	}
+	_, err = db.se.Execute(ctx, ddlJob.Query)
+	if err != nil {
+		log.Error("execute ddl query failed",
+			zap.String("query", ddlJob.Query),
+			zap.String("db", ddlJob.SchemaName),
+			zap.Error(err))
+	}
+	return errors.Trace(err)
+}
+
 // CreateDatabase executes a CREATE DATABASE SQL.
 func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	var buf bytes.Buffer
@@ -49,16 +70,15 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	createSQL := buf.String()
 	_, err = db.se.Execute(ctx, createSQL)
 	if err != nil {
-		log.Error("create database failed", zap.String("SQL", createSQL), zap.Error(err))
-		return errors.Trace(err)
+		log.Error("create database failed", zap.String("query", createSQL), zap.Error(err))
 	}
-	return nil
+	return errors.Trace(err)
 }
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	var buf bytes.Buffer
-	schema := table.Schema
+	schema := table.Info
 	err := executor.ConstructResultOfShowCreateTable(db.se, schema, newIDAllocator(schema.AutoIncID), &buf)
 	if err != nil {
 		log.Error(
@@ -88,7 +108,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		log.Error("create table failed",
 			zap.String("SQL", createSQL),
 			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", table.Schema.Name),
+			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -99,13 +119,12 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	_, err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
-			zap.String("SQL", alterAutoIncIDSQL),
+			zap.String("query", alterAutoIncIDSQL),
 			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", table.Schema.Name),
+			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
-		return errors.Trace(err)
 	}
-	return nil
+	return errors.Trace(err)
 }
 
 // Close closes the connection

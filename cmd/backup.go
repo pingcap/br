@@ -116,6 +116,11 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
+	ddlJobs, err := backup.GetBackupDDLJobs(mgr.GetDomain(), lastBackupTS, backupTS)
+	if err != nil {
+		return err
+	}
+
 	// The number of regions need to backup
 	approximateRegions := 0
 	for _, r := range ranges {
@@ -166,7 +171,7 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 	// Checksum has finished
 	close(updateCh)
 
-	err = client.SaveBackupMeta(ctx)
+	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
 		return err
 	}

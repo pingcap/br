@@ -60,16 +60,16 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("\"t\""))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
 	table := utils.Table{
-		Schema: tableInfo.Meta(),
-		Db:     dbInfo,
+		Info: tableInfo.Meta(),
+		Db:   dbInfo,
 	}
 	// Get the next AutoIncID
 	idAlloc := autoid.NewAllocator(s.mock.Storage, dbInfo.ID, false)
-	globalAutoID, err := idAlloc.NextGlobalAutoID(table.Schema.ID)
+	globalAutoID, err := idAlloc.NextGlobalAutoID(table.Info.ID)
 	c.Assert(err, IsNil, Commentf("Error allocate next auto id"))
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
-	table.Schema.AutoIncID = globalAutoID + 100
+	table.Info.AutoIncID = globalAutoID + 100
 	db, err := NewDB(s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")

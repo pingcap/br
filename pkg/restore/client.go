@@ -2,8 +2,10 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -47,6 +49,7 @@ type Client struct {
 	tableWorkerPool *utils.WorkerPool
 
 	databases       map[string]*utils.Database
+	ddlJobs         []*model.Job
 	backupMeta      *backup.BackupMeta
 	db              *DB
 	rateLimit       uint64
@@ -104,7 +107,16 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	if err != nil {
 		return errors.Trace(err)
 	}
+	var ddlJobs []*model.Job
+	err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	rc.databases = databases
+	sort.Slice(ddlJobs, func(i, j int) bool {
+		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
+	})
+	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
 
 	metaClient := NewSplitClient(rc.pdClient)
@@ -161,6 +173,11 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 	return rc.databases[name]
 }
 
+// GetDDLJobs returns ddl jobs
+func (rc *Client) GetDDLJobs() []*model.Job {
+	return rc.ddlJobs
+}
+
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(
 	dom *domain.Domain,
@@ -199,16 +216,32 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Schema.Name)
+		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
+		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
 	}
 	return rewriteRules, newTables, nil
+}
+
+// ExecDDLs executes the queries of the ddl jobs.
+func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
+	// Sort the ddl jobs by schema version in ascending order.
+	sort.Slice(ddlJobs, func(i, j int) bool {
+		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
+	})
+	for _, job := range ddlJobs {
+		err := rc.db.ExecDDL(rc.ctx, job)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		log.Info("execute ddl query", zap.String("db", job.SchemaName), zap.String("query", job.Query))
+	}
+	return nil
 }
 
 func (rc *Client) setSpeedLimit() error {
@@ -238,8 +271,8 @@ func (rc *Client) RestoreTable(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("restore table",
-			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
-		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
+			zap.Stringer("table", table.Info.Name), zap.Duration("take", elapsed))
+		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Info.Name.String())
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
 		} else {
@@ -248,7 +281,7 @@ func (rc *Client) RestoreTable(
 	}()
 
 	log.Debug("start to restore table",
-		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("table", table.Info.Name),
 		zap.Stringer("db", table.Db.Name),
 		zap.Array("files", files(table.Files)),
 	)
@@ -281,7 +314,7 @@ func (rc *Client) RestoreTable(
 			wg.Wait()
 			log.Error(
 				"restore table failed",
-				zap.Stringer("table", table.Schema.Name),
+				zap.Stringer("table", table.Info.Name),
 				zap.Stringer("db", table.Db.Name),
 				zap.Error(err),
 			)
@@ -290,7 +323,7 @@ func (rc *Client) RestoreTable(
 	}
 	log.Info(
 		"finish to restore table",
-		zap.Stringer("table", table.Schema.Name),
+		zap.Stringer("table", table.Info.Name),
 		zap.Stringer("db", table.Db.Name),
 	)
 	return nil
@@ -305,7 +338,7 @@ func (rc *Client) RestoreDatabase(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
+		log.Info("Restore Database", zap.Stringer("db", db.Info.Name), zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(db.Tables))
 	wg := new(sync.WaitGroup)
@@ -474,7 +507,7 @@ func (rc *Client) ValidateChecksum(
 					checksumResp.TotalBytes != table.TotalBytes {
 					log.Error("failed in validate checksum",
 						zap.String("database", table.Db.Name.L),
-						zap.String("table", table.Schema.Name.L),
+						zap.String("table", table.Info.Name.L),
 						zap.Uint64("origin tidb crc64", table.Crc64Xor),
 						zap.Uint64("calculated crc64", checksumResp.Checksum),
 						zap.Uint64("origin tidb total kvs", table.TotalKvs),
