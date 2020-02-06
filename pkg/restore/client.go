@@ -451,7 +451,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 		return errors.Trace(err)
 	}
 
-	emptyRules := &restore_util.RewriteRules{}
+	emptyRules := &RewriteRules{}
 	for _, file := range files {
 		wg.Add(1)
 		fileReplica := file

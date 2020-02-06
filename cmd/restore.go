@@ -8,7 +8,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
@@ -251,7 +250,7 @@ func runRawRestore(flagSet *flag.FlagSet, startKey, endKey []byte, cf string) er
 	}
 
 	// Empty rewrite rules
-	rewriteRules := &restore_util.RewriteRules{}
+	rewriteRules := &restore.RewriteRules{}
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
