@@ -5,7 +5,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 )
 
@@ -34,7 +33,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
-	rules := &restore_util.RewriteRules{
+	rules := &RewriteRules{
 		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
