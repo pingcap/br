@@ -50,16 +50,10 @@ func (r *testBackup) TestGetTS(c *C) {
 		deviation = 100
 	)
 
-	// timeago not valid
-	timeAgo := "invalid"
-	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
-	c.Assert(err, ErrorMatches, "time: invalid duration invalid")
-
 	// timeago not work
-	timeAgo = ""
 	expectedDuration := 0
 	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err := r.backupClient.GetTS(r.ctx, timeAgo)
+	ts, err := r.backupClient.GetTS(r.ctx, 0)
 	c.Assert(err, IsNil)
 	pdTs := oracle.ExtractPhysical(ts)
 	duration := int(currentTs - pdTs)
@@ -67,10 +61,9 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "1.5m"
-	timeAgo = "1.5m"
 	expectedDuration = 90000
 	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
-	ts, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	ts, err = r.backupClient.GetTS(r.ctx, 90*time.Second)
 	c.Assert(err, IsNil)
 	pdTs = oracle.ExtractPhysical(ts)
 	duration = int(currentTs - pdTs)
@@ -78,13 +71,11 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "-1m"
-	timeAgo = "-1m"
-	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	_, err = r.backupClient.GetTS(r.ctx, -time.Minute)
 	c.Assert(err, ErrorMatches, "negative timeago is not allowed")
 
 	// timeago = "1000000h" overflows
-	timeAgo = "1000000h"
-	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	_, err = r.backupClient.GetTS(r.ctx, 1000000*time.Hour)
 	c.Assert(err, ErrorMatches, "backup ts overflow.*")
 
 	// timeago = "10h" exceed GCSafePoint
@@ -93,8 +84,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	now := oracle.ComposeTS(p, l)
 	_, err = r.backupClient.mgr.GetPDClient().UpdateGCSafePoint(r.ctx, now)
 	c.Assert(err, IsNil)
-	timeAgo = "10h"
-	_, err = r.backupClient.GetTS(r.ctx, timeAgo)
+	_, err = r.backupClient.GetTS(r.ctx, 10*time.Hour)
 	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
 }
 
