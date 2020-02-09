@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
+	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
@@ -182,15 +183,15 @@ func BuildBackupRangeAndSchema(
 	backupSchemas := newBackupSchemas()
 	for _, dbInfo := range info.AllSchemas() {
 		// skip system databases
-		if filter.IsSystemSchema(dbInfo.Name.L) {
+		if util.IsMemOrSysDB(dbInfo.Name.L) {
 			continue
 		}
 
 		var dbData []byte
-		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
+		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
 
 		for _, tableInfo := range dbInfo.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: dbInfo.Name.O, Name: tableInfo.Name.O}) {
+			if !tableFilter.Match(&filter.Table{Schema: dbInfo.Name.L, Name: tableInfo.Name.L}) {
 				// Skip tables other than the given table.
 				continue
 			}
