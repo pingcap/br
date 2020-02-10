@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -59,7 +60,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunBackup starts a backup task inside the current goroutine.
-func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
+func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -71,7 +72,7 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD)
 	if err != nil {
 		return err
 	}
