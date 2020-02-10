@@ -18,7 +18,7 @@ type ExternalStorage interface {
 }
 
 // Create creates ExternalStorage
-func Create(ctx context.Context, backend *backup.StorageBackend) (ExternalStorage, error) {
+func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) (ExternalStorage, error) {
 	switch backend := backend.Backend.(type) {
 	case *backup.StorageBackend_Local:
 		return newLocalStorage(backend.Local.Path)
@@ -26,14 +26,14 @@ func Create(ctx context.Context, backend *backup.StorageBackend) (ExternalStorag
 		if backend.S3 == nil {
 			return nil, errors.New("s3 config not found")
 		}
-		return newS3Storage(backend.S3)
+		return newS3Storage(backend.S3, sendCreds)
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:
 		if backend.Gcs == nil {
 			return nil, errors.New("GCS config not found")
 		}
-		return newGCSStorage(ctx, backend.Gcs)
+		return newGCSStorage(ctx, backend.Gcs, sendCreds)
 	default:
 		return nil, errors.Errorf("storage %T is not supported yet", backend)
 	}

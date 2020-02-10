@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
@@ -50,7 +51,7 @@ func newIDAllocator(id int64) *idAllocator {
 	return &idAllocator{id: id}
 }
 
-func (alloc *idAllocator) Alloc(tableID int64, n uint64) (min int64, max int64, err error) {
+func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
 	return alloc.id, alloc.id, nil
 }
 
@@ -68,6 +69,10 @@ func (alloc *idAllocator) End() int64 {
 
 func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
 	return alloc.id, nil
+}
+
+func (alloc *idAllocator) GetType() autoid.AllocatorType {
+	return autoid.RowIDAllocType
 }
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
