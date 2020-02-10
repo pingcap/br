@@ -2,16 +2,13 @@ package utils
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/sqlexec"
 )
 
 const (
@@ -104,36 +101,6 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	}
 
 	return databases, nil
-}
-
-// ResultSetToStringSlice changes the RecordSet to [][]string. port from tidb
-func ResultSetToStringSlice(ctx context.Context, s session.Session, rs sqlexec.RecordSet) ([][]string, error) {
-	rows, err := session.GetRows4Test(ctx, s, rs)
-	if err != nil {
-		return nil, err
-	}
-	err = rs.Close()
-	if err != nil {
-		return nil, err
-	}
-	sRows := make([][]string, len(rows))
-	for i := range rows {
-		row := rows[i]
-		iRow := make([]string, row.Len())
-		for j := 0; j < row.Len(); j++ {
-			if row.IsNull(j) {
-				iRow[j] = "<nil>"
-			} else {
-				d := row.GetDatum(j, &rs.Fields()[j].Column.FieldType)
-				iRow[j], err = d.ToString()
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-		sRows[i] = iRow
-	}
-	return sRows, nil
 }
 
 // EncloseName formats name in sql
