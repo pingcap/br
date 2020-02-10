@@ -30,7 +30,7 @@ build_for_integration_test:
 	GO111MODULE=on go build -race -o bin/gc tests/br_z_gc_safepoint/*.go
 
 test:
-	GO111MODULE=on go test -race -tags leak,brtest ./...
+	GO111MODULE=on go test -race -tags leak ./...
 
 testcover:
 	GO111MODULE=on retool do overalls \

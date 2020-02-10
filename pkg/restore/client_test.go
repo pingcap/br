@@ -13,18 +13,19 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/gluetidb"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreClientSuite{})
 
 type testRestoreClientSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testRestoreClientSuite) SetUpTest(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
