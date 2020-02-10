@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/glue_tidb"
+	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -22,7 +22,7 @@ var (
 	initOnce       = sync.Once{}
 	defaultContext context.Context
 	hasLogFile     uint64
-	tidbGlue       = glue_tidb.Glue{}
+	tidbGlue       = gluetidb.Glue{}
 )
 
 const (

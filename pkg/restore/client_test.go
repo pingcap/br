@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/testleak"
 
-	"github.com/pingcap/br/pkg/glue_tidb"
+	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -37,7 +37,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	defer s.mock.Stop()
 
 	client := Client{}
-	db, err := NewDB(glue_tidb.Glue{}, s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil)
 	client.db = db
 	client.ctx = context.Background()
@@ -94,7 +94,7 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	defer s.mock.Stop()
 
 	client := Client{}
-	db, err := NewDB(glue_tidb.Glue{}, s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil)
 	client.db = db
 	client.ctx = context.Background()

@@ -1,16 +1,17 @@
-package glue_tidb
+package gluetidb
 
 import (
 	"bytes"
 	"context"
 
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
+
+	"github.com/pingcap/br/pkg/glue"
 )
 
 // Glue is an implementation of glue.Glue using a new TiDB session.

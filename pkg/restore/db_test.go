@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
-	"github.com/pingcap/br/pkg/glue_tidb"
+	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -71,7 +71,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
 	table.Schema.AutoIncID = globalAutoID + 100
-	db, err := NewDB(glue_tidb.Glue{}, s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
 	// Test empty collate value
