@@ -60,13 +60,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV())
+	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
