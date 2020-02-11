@@ -194,6 +194,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			err1 = importer.ingestSST(downloadMeta, info)
 			// If error is `NotLeader`, update the region info and retry
 			for err1 == errNotLeader {
+				log.Debug("ingest sst returns not leader error, retry it",
+					zap.Stringer("region", info.Region))
 				var newInfo *RegionInfo
 				newInfo, err1 = importer.metaClient.GetRegion(ctx, info.Region.GetStartKey())
 				if err1 != nil {

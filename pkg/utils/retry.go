@@ -30,8 +30,7 @@ func WithRetry(
 			select {
 			case <-ctx.Done():
 				return lastErr
-			default:
-				time.Sleep(backoffer.NextBackoff(err))
+			case <-time.After(backoffer.NextBackoff(err)):
 			}
 		} else {
 			return nil
