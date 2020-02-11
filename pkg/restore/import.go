@@ -159,7 +159,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		zap.Stringer("file", file),
 		zap.Binary("startKey", startKey),
 		zap.Binary("endKey", endKey))
-	err = utils.WithRetry(func() error {
+	err = utils.WithRetry(importer.ctx, func() error {
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
 		defer cancel()
 		// Scan regions covered by the file range
@@ -173,7 +173,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			info := regionInfo
 			// Try to download file.
 			var downloadMeta *import_sstpb.SSTMeta
-			err1 = utils.WithRetry(func() error {
+			err1 = utils.WithRetry(importer.ctx, func() error {
 				var e error
 				downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
 				return e

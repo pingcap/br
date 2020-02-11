@@ -11,19 +11,19 @@ import (
 )
 
 var (
-	errNotLeader           = errors.New("not leader")
-	errKeyNotInRegion      = errors.New("key not in region")
-	errResp                = errors.New("response error")
-	errRewriteRuleNotFound = errors.New("rewrite rule not found")
-	errRangeIsEmpty        = errors.New("range is empty")
-	errGrpc                = errors.New("gRPC error")
+	errNotLeader           = errors.NewNoStackError("not leader")
+	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
+	errResp                = errors.NewNoStackError("response error")
+	errRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
+	errRangeIsEmpty        = errors.NewNoStackError("range is empty")
+	errGrpc                = errors.NewNoStackError("gRPC error")
 
 	// TODO: add `error` field to `DownloadResponse` for distinguish the errors of gRPC
 	// and the errors of request
-	errBadFormat      = errors.New("bad format")
-	errWrongKeyPrefix = errors.New("wrong key prefix")
-	errFileCorrupted  = errors.New("file corrupted")
-	errCannotRead     = errors.New("cannot read externel storage")
+	errBadFormat      = errors.NewNoStackError("bad format")
+	errWrongKeyPrefix = errors.NewNoStackError("wrong key prefix")
+	errFileCorrupted  = errors.NewNoStackError("file corrupted")
+	errCannotRead     = errors.NewNoStackError("cannot read externel storage")
 )
 
 const (

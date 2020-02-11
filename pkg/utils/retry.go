@@ -1,6 +1,9 @@
 package utils
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // RetryableFunc presents a retryable opreation
 type RetryableFunc func() error
@@ -15,6 +18,7 @@ type Backoffer interface {
 
 // WithRetry retrys a given operation with a backoff policy
 func WithRetry(
+	ctx context.Context,
 	retryableFunc RetryableFunc,
 	backoffer Backoffer,
 ) error {
@@ -23,7 +27,12 @@ func WithRetry(
 		err := retryableFunc()
 		if err != nil {
 			lastErr = err
-			time.Sleep(backoffer.NextBackoff(err))
+			select {
+			case <-ctx.Done():
+				return lastErr
+			default:
+				time.Sleep(backoffer.NextBackoff(err))
+			}
 		} else {
 			return nil
 		}

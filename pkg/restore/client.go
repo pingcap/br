@@ -132,7 +132,7 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return utils.WithRetry(func() error {
+	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
 		return utils.ResetTS(pdAddrs[idx], restoreTS)
 	}, newResetTSBackoffer())

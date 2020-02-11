@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"context"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -27,7 +28,7 @@ func (s *testBackofferSuite) TearDownSuite(c *C) {
 
 func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 	var counter int
-	err := utils.WithRetry(func() error {
+	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
 		case 0:
@@ -48,7 +49,7 @@ func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 		delayTime:    time.Nanosecond,
 		maxDelayTime: time.Nanosecond,
 	}
-	err = utils.WithRetry(func() error {
+	err = utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		return errResp
 	}, &backoffer)
