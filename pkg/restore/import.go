@@ -160,7 +160,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		zap.Binary("startKey", startKey),
 		zap.Binary("endKey", endKey))
 	err = utils.WithRetry(importer.ctx, func() error {
-		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
+		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, err1 := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
@@ -197,7 +197,7 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 				log.Debug("ingest sst returns not leader error, retry it",
 					zap.Stringer("region", info.Region))
 				var newInfo *RegionInfo
-				newInfo, err1 = importer.metaClient.GetRegion(ctx, info.Region.GetStartKey())
+				newInfo, err1 = importer.metaClient.GetRegion(importer.ctx, info.Region.GetStartKey())
 				if err1 != nil {
 					break
 				}
@@ -271,7 +271,7 @@ func (importer *FileImporter) downloadSST(
 			return nil, extractDownloadSSTError(err)
 		}
 		if resp.GetIsEmpty() {
-			return nil, errRangeIsEmpty
+			return nil, errors.Trace(errRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
@@ -299,18 +299,18 @@ func (importer *FileImporter) ingestSST(
 	log.Debug("download SST", zap.Stringer("sstMeta", sstMeta))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	respErr := resp.GetError()
 	if respErr != nil {
 		log.Debug("ingest sst resp error", zap.Stringer("error", respErr))
 		if respErr.GetKeyNotInRegion() != nil {
-			return errKeyNotInRegion
+			return errors.Trace(errKeyNotInRegion)
 		}
 		if respErr.GetNotLeader() != nil {
-			return errNotLeader
+			return errors.Trace(errNotLeader)
 		}
-		return errResp
+		return errors.Trace(errResp)
 	}
 	return nil
 }
@@ -336,5 +336,5 @@ func extractDownloadSSTError(e error) error {
 	case strings.Contains(e.Error(), "Cannot read"):
 		err = errCannotRead
 	}
-	return err
+	return errors.Trace(err)
 }
