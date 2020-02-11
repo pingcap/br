@@ -12,6 +12,7 @@ import (
 
 var (
 	errNotLeader           = errors.NewNoStackError("not leader")
+	errEpochNotMatch       = errors.NewNoStackError("epoch not match")
 	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
 	errResp                = errors.NewNoStackError("response error")
 	errRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")

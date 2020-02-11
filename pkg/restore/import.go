@@ -194,11 +194,16 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			err1 = importer.ingestSST(downloadMeta, info)
 			// If error is `NotLeader`, update the region info and retry
 			for err1 == errNotLeader {
-				info, err1 = importer.metaClient.GetRegion(ctx, info.Region.GetStartKey())
+				var newInfo *RegionInfo
+				newInfo, err1 = importer.metaClient.GetRegion(ctx, info.Region.GetStartKey())
 				if err1 != nil {
 					break
 				}
-				err1 = importer.ingestSST(downloadMeta, info)
+				if !checkRegionEpoch(newInfo, info) {
+					err1 = errEpochNotMatch
+					break
+				}
+				err1 = importer.ingestSST(downloadMeta, newInfo)
 			}
 			if err1 != nil {
 				log.Error("ingest file failed",
@@ -306,6 +311,15 @@ func (importer *FileImporter) ingestSST(
 		return errResp
 	}
 	return nil
+}
+
+func checkRegionEpoch(new, old *RegionInfo) bool {
+	if new.Region.GetId() == old.Region.GetId() &&
+		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
+		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
+		return true
+	}
+	return false
 }
 
 func extractDownloadSSTError(e error) error {
