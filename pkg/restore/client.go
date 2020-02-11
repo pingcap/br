@@ -2,7 +2,6 @@ package restore
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -219,9 +218,9 @@ func (rc *Client) setSpeedLimit() error {
 	return nil
 }
 
-// RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(
-	table *utils.Table,
+// RestoreFiles tries to restore the files.
+func (rc *Client) RestoreFiles(
+	files []*backup.File,
 	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
@@ -229,23 +228,18 @@ func (rc *Client) RestoreTable(
 	defer func() {
 		elapsed := time.Since(start)
 		if err == nil {
-			log.Info("Restore Table",
-				zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
-		}
-		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
-		if err != nil {
-			summary.CollectFailureUnit(key, err)
+			log.Info("Restore Files",
+				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+			summary.CollectSuccessUnit("files", elapsed)
 		} else {
-			summary.CollectSuccessUnit(key, elapsed)
+			summary.CollectFailureUnit("files", err)
 		}
 	}()
 
-	log.Debug("start to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-		zap.Array("files", files(table.Files)),
+	log.Debug("start to restore files",
+		zap.Int("files", len(files)),
 	)
-	errCh := make(chan error, len(table.Files))
+	errCh := make(chan error, len(files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	err = rc.setSpeedLimit()
@@ -253,7 +247,7 @@ func (rc *Client) RestoreTable(
 		return err
 	}
 
-	for _, file := range table.Files {
+	for _, file := range files {
 		wg.Add(1)
 		fileReplica := file
 		rc.workerPool.Apply(
@@ -267,100 +261,15 @@ func (rc *Client) RestoreTable(
 				}
 			})
 	}
-	for range table.Files {
+	for range files {
 		err := <-errCh
 		if err != nil {
 			rc.cancel()
 			wg.Wait()
 			log.Error(
-				"restore table failed",
-				zap.Stringer("table", table.Schema.Name),
-				zap.Stringer("db", table.Db.Name),
+				"restore files failed",
 				zap.Error(err),
 			)
-			return err
-		}
-	}
-	log.Info(
-		"finish to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-	)
-	return nil
-}
-
-// RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(
-	db *utils.Database,
-	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		if err == nil {
-			elapsed := time.Since(start)
-			log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
-		}
-	}()
-	errCh := make(chan error, len(db.Tables))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, table := range db.Tables {
-		wg.Add(1)
-		tblReplica := table
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreTable(
-				tblReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-	for range db.Tables {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
-			return err
-		}
-	}
-	return nil
-}
-
-// RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(
-	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		if err == nil {
-			elapsed := time.Since(start)
-			log.Info("Restore All", zap.Duration("take", elapsed))
-		}
-	}()
-	errCh := make(chan error, len(rc.databases))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, db := range rc.databases {
-		wg.Add(1)
-		dbReplica := db
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreDatabase(
-				dbReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-
-	for range rc.databases {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
 			return err
 		}
 	}
