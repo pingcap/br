@@ -23,9 +23,7 @@ echo "load data..."
 # create database
 run_sql "CREATE DATABASE IF NOT EXISTS $DB;"
 # create table
-run_sql "CREATE TABLE IF NOT EXISTS ${DB}.${TABLE} (\
-    c1 INT, \
-);"
+run_sql "CREATE TABLE IF NOT EXISTS ${DB}.${TABLE} (c1 INT);"
 # insert records
 for i in $(seq $ROW_COUNT); do
     run_sql "INSERT INTO ${DB}.${TABLE}(c1) VALUES ($i);"
@@ -68,5 +66,6 @@ if [ "${row_count_inc}" != "${ROW_COUNT}" ];then
     echo "TEST: [$TEST_NAME] incremental restore fail on database $DB"
     exit 1
 fi
+run_sql "INSERT INTO ${DB}.${TABLE}(c2) VALUES ('1');"
 
 run_sql "DROP DATABASE $DB;"

@@ -23,9 +23,7 @@ echo "load data..."
 # create database
 run_sql "CREATE DATABASE IF NOT EXISTS $DB;"
 # create table
-run_sql "CREATE TABLE IF NOT EXISTS ${DB}.${TABLE} (\
-    c1 INT, \
-);"
+run_sql "CREATE TABLE IF NOT EXISTS ${DB}.${TABLE} (c1 INT);"
 # insert records
 for i in $(seq $ROW_COUNT); do
     run_sql "INSERT INTO ${DB}.${TABLE} VALUES ($i);"
@@ -38,9 +36,9 @@ run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/full" --ratelimit 5 -
 wait
 # run ddls
 echo "run ddls..."
-ALTER TABLE ${DB}.${TABLE} ADD COLUMN c2 INT NOT NULL;
-ALTER TABLE ${DB}.${TABLE} ADD COLUMN c3 INT NOT NULL;
-ALTER TABLE ${DB}.${TABLE} DROP COLUMN c3 INT NOT NULL;
+run_sql "ALTER TABLE ${DB}.${TABLE} ADD COLUMN c2 INT NOT NULL;";
+run_sql "ALTER TABLE ${DB}.${TABLE} ADD COLUMN c3 INT NOT NULL;";
+run_sql "ALTER TABLE ${DB}.${TABLE} DROP COLUMN c3;";
 # incremental backup
 echo "incremental backup start..."
 last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | tail -n1)
