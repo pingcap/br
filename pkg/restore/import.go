@@ -20,7 +20,7 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const importScanResgionTime = 10 * time.Second
+const importScanRegionTime = 10 * time.Second
 
 // ImporterClient is used to import a file to TiKV
 type ImporterClient interface {
