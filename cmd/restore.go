@@ -181,6 +181,7 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	default:
 		return errors.New("must set db when table was set")
 	}
+	summary.CollectInt("restore files", len(files))
 	var newTS uint64
 	if client.IsIncremental() {
 		newTS, err = client.GetTS(ctx)
@@ -188,7 +189,10 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 			return err
 		}
 	}
-	summary.CollectInt("restore files", len(files))
+	err = client.ExecDDLs(ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return errors.Trace(err)
@@ -198,11 +202,6 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 		return errors.Trace(err)
 	}
 	summary.CollectInt("restore ranges", len(ranges))
-
-	err = client.ExecDDLs(ddlJobs)
-	if err != nil {
-		return errors.Trace(err)
-	}
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(

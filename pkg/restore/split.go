@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -105,6 +106,9 @@ SplitRegions:
 			var newRegions []*RegionInfo
 			newRegions, err = rs.splitAndScatterRegions(ctx, regionMap[regionID], keys)
 			if err != nil {
+				if strings.Contains(err.Error(), "no valid key") {
+					continue
+				}
 				interval = 2 * interval
 				if interval > SplitMaxRetryInterval {
 					interval = SplitMaxRetryInterval
@@ -120,7 +124,7 @@ SplitRegions:
 		}
 		break
 	}
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "no valid key") {
 		return errors.Trace(err)
 	}
 	log.Info("splitting regions done, wait for scattering regions",

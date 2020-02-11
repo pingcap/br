@@ -118,6 +118,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	})
 	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
+	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)

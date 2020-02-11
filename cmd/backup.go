@@ -5,6 +5,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
@@ -116,9 +117,12 @@ func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
 		return err
 	}
 
-	ddlJobs, err := backup.GetBackupDDLJobs(mgr.GetDomain(), lastBackupTS, backupTS)
-	if err != nil {
-		return err
+	ddlJobs := make([]*model.Job, 0)
+	if lastBackupTS > 0 {
+		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), lastBackupTS, backupTS)
+		if err != nil {
+			return err
+		}
 	}
 
 	// The number of regions need to backup

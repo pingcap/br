@@ -135,7 +135,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
-	log.Info("save backup meta", zap.Stringer("path", &backendURL))
+	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("jobs", len(ddlJobs)))
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
@@ -301,27 +301,34 @@ func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*mod
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Debug("get default jobs", zap.Int("jobs", len(defaultJobs)))
 	allJobs = append(allJobs, defaultJobs...)
 	addIndexJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.AddIndexJobListKey)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Debug("get add index jobs", zap.Int("jobs", len(addIndexJobs)))
 	allJobs = append(allJobs, addIndexJobs...)
 	historyJobs, err := snapMeta.GetAllHistoryDDLJobs()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	log.Debug("get history jobs", zap.Int("jobs", len(historyJobs)))
 	allJobs = append(allJobs, historyJobs...)
 
 	completedJobs := make([]*model.Job, 0)
 	for _, job := range allJobs {
-		if job.State != model.JobStateDone ||
-			job.BinlogInfo == nil ||
-			job.BinlogInfo.SchemaVersion <= lastSchemaVersion {
-			continue
+		log.Debug("get job",
+			zap.String("query", job.Query),
+			zap.Int64("schemaVersion", job.BinlogInfo.SchemaVersion),
+			zap.Int64("lastSchemaVersion", lastSchemaVersion),
+			zap.Stringer("state", job.State))
+		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
+			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
+			completedJobs = append(completedJobs, job)
 		}
-		completedJobs = append(completedJobs, job)
 	}
+	log.Debug("get completed jobs", zap.Int("jobs", len(completedJobs)))
 	return completedJobs, nil
 }
 
