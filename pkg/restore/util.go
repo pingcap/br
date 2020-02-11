@@ -17,21 +17,11 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-type files []*backup.File
-
-func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range fs {
-		arr.AppendString(fs[i].String())
-	}
-	return nil
-}
 
 // idAllocator always returns a specified ID
 type idAllocator struct {
