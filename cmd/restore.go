@@ -91,97 +91,13 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	if err != nil {
 		return errors.Trace(err)
 	}
-
-	files := make([]*backup.File, 0)
-	tables := make([]*utils.Table, 0)
-	ddlJobs := make([]*model.Job, 0)
-
-	defer summary.Summary(cmdName)
-
-	switch {
-	case len(dbName) == 0 && len(tableName) == 0:
-		// full restore
-		for _, db := range client.GetDatabases() {
-			err = client.CreateDatabase(db.Info)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			for _, table := range db.Tables {
-				files = append(files, table.Files...)
-			}
-			tables = append(tables, db.Tables...)
-		}
-		ddlJobs = client.GetDDLJobs()
-	case len(dbName) != 0 && len(tableName) == 0:
-		// database restore
-		db := client.GetDatabase(dbName)
-		if db == nil {
-			return errors.Errorf("database %s not found in backup", dbName)
-		}
-		err = client.CreateDatabase(db.Info)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		for _, table := range db.Tables {
-			files = append(files, table.Files...)
-		}
-		tables = db.Tables
-		allDDLJobs := client.GetDDLJobs()
-		// Sort the ddl jobs by schema version in descending order.
-		sort.Slice(allDDLJobs, func(i, j int) bool {
-			return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
-		})
-		// The map is for resolving some corner case.
-		// Let "t=2" indicates that the id of database "t" is 2, if there is a ddl execution sequence is:
-		// rename "a" to "b"(a=1) -> drop "b"(b=1) -> create "b"(b=2) -> rename "b" to "a"(a=2)
-		// Which we cannot find the "create" DDL by name and id.
-		// To cover †his case, we must find all ids the database ever had.
-		dbIDs := make(map[int64]bool)
-		for _, job := range allDDLJobs {
-			if job.SchemaID == db.Info.ID ||
-				(job.BinlogInfo.DBInfo != nil && job.BinlogInfo.DBInfo.ID == db.Info.ID) ||
-				dbIDs[job.SchemaID] {
-				dbIDs[job.SchemaID] = true
-				if job.BinlogInfo.DBInfo != nil {
-					dbIDs[job.BinlogInfo.DBInfo.ID] = true
-				}
-				ddlJobs = append(ddlJobs, job)
-			}
-		}
-	case len(dbName) != 0 && len(tableName) != 0:
-		// table restore
-		db := client.GetDatabase(dbName)
-		if db == nil {
-			return errors.Errorf("database %s not found in backup", dbName)
-		}
-		err = client.CreateDatabase(db.Info)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		table := db.GetTable(tableName)
-		files = table.Files
-		tables = append(tables, table)
-		allDDLJobs := client.GetDDLJobs()
-		// Sort the ddl jobs by schema version in descending order.
-		sort.Slice(allDDLJobs, func(i, j int) bool {
-			return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
-		})
-		tableIDs := make(map[int64]bool)
-		for _, job := range allDDLJobs {
-			if job.SchemaID == table.Info.ID ||
-				(job.BinlogInfo.TableInfo != nil && job.BinlogInfo.TableInfo.ID == table.Info.ID) ||
-				tableIDs[job.SchemaID] {
-				tableIDs[job.SchemaID] = true
-				if job.BinlogInfo.TableInfo != nil {
-					tableIDs[job.BinlogInfo.TableInfo.ID] = true
-				}
-				ddlJobs = append(ddlJobs, job)
-			}
-		}
-	default:
-		return errors.New("must set db when table was set")
+	files, tables, ddlJobs, err := getRestoreInfos(client, dbName, tableName)
+	if err != nil {
+		return errors.Trace(err)
 	}
+
 	summary.CollectInt("restore files", len(files))
+	defer summary.Summary(cmdName)
 	var newTS uint64
 	if client.IsIncremental() {
 		newTS, err = client.GetTS(ctx)
@@ -259,6 +175,100 @@ func runRestore(flagSet *flag.FlagSet, cmdName, dbName, tableName string) error 
 	close(updateCh)
 
 	return nil
+}
+
+func getRestoreInfos(
+	client *restore.Client, dbName, tableName string,
+) ([]*backup.File, []*utils.Table, []*model.Job, error) {
+	var err error
+	files := make([]*backup.File, 0)
+	tables := make([]*utils.Table, 0)
+	ddlJobs := make([]*model.Job, 0)
+	switch {
+	case len(dbName) == 0 && len(tableName) == 0:
+		// full restore
+		for _, db := range client.GetDatabases() {
+			err = client.CreateDatabase(db.Info)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			for _, table := range db.Tables {
+				files = append(files, table.Files...)
+			}
+			tables = append(tables, db.Tables...)
+		}
+		ddlJobs = client.GetDDLJobs()
+	case len(dbName) != 0 && len(tableName) == 0:
+		// database restore
+		db := client.GetDatabase(dbName)
+		if db == nil {
+			return nil, nil, nil, errors.Errorf("database %s not found in backup", dbName)
+		}
+		err = client.CreateDatabase(db.Info)
+		if err != nil {
+			return nil, nil, nil, errors.Trace(err)
+		}
+		for _, table := range db.Tables {
+			files = append(files, table.Files...)
+		}
+		tables = db.Tables
+		allDDLJobs := client.GetDDLJobs()
+		// Sort the ddl jobs by schema version in descending order.
+		sort.Slice(allDDLJobs, func(i, j int) bool {
+			return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
+		})
+		// The map is for resolving some corner case.
+		// Let "t=2" indicates that the id of database "t" is 2, if there is a ddl execution sequence is:
+		// rename "a" to "b"(a=1) -> drop "b"(b=1) -> create "b"(b=2) -> rename "b" to "a"(a=2)
+		// Which we cannot find the "create" DDL by name and id.
+		// To cover †his case, we must find all ids the database ever had.
+		dbIDs := make(map[int64]bool)
+		for _, job := range allDDLJobs {
+			if job.SchemaID == db.Info.ID ||
+				(job.BinlogInfo.DBInfo != nil && job.BinlogInfo.DBInfo.ID == db.Info.ID) ||
+				dbIDs[job.SchemaID] {
+				dbIDs[job.SchemaID] = true
+				if job.BinlogInfo.DBInfo != nil {
+					dbIDs[job.BinlogInfo.DBInfo.ID] = true
+				}
+				ddlJobs = append(ddlJobs, job)
+			}
+		}
+	case len(dbName) != 0 && len(tableName) != 0:
+		// table restore
+		db := client.GetDatabase(dbName)
+		if db == nil {
+			return nil, nil, nil, errors.Errorf("database %s not found in backup", dbName)
+		}
+		err = client.CreateDatabase(db.Info)
+		if err != nil {
+			return nil, nil, nil, errors.Trace(err)
+		}
+		table := db.GetTable(tableName)
+		files = table.Files
+		tables = append(tables, table)
+		allDDLJobs := client.GetDDLJobs()
+		// Sort the ddl jobs by schema version in descending order.
+		sort.Slice(allDDLJobs, func(i, j int) bool {
+			return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
+		})
+		tableIDs := make(map[int64]bool)
+		for _, job := range allDDLJobs {
+			if job.SchemaID == table.Info.ID ||
+				(job.BinlogInfo.TableInfo != nil && job.BinlogInfo.TableInfo.ID == table.Info.ID) ||
+				tableIDs[job.SchemaID] {
+				tableIDs[job.SchemaID] = true
+				if job.BinlogInfo.TableInfo != nil {
+					tableIDs[job.BinlogInfo.TableInfo.ID] = true
+				}
+				ddlJobs = append(ddlJobs, job)
+			}
+		}
+	default:
+		return nil, nil, nil, errors.New("must set db when table was set")
+	}
+
+	return files, tables, ddlJobs, nil
 }
 
 func newFullRestoreCommand() *cobra.Command {
