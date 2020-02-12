@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -222,7 +223,15 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		ctx,
 		store.GetAddress(),
 		opt,
-		grpc.WithBackoffMaxDelay(time.Second*3),
+		grpc.WithConnectParams(grpc.ConnectParams{
+			Backoff: backoff.Config{
+				BaseDelay:  time.Second,     // Default was 1s.
+				Multiplier: 1.6,             // Default
+				Jitter:     0.2,             // Default
+				MaxDelay:   3 * time.Second, // Default was 120s.
+			},
+			MinConnectTimeout: 5 * time.Second,
+		}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                time.Duration(keepAlive) * time.Second,
 			Timeout:             time.Duration(keepAliveTimeout) * time.Second,

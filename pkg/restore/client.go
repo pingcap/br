@@ -13,11 +13,12 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
@@ -106,7 +107,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	metaClient := restore_util.NewClient(rc.pdClient)
+	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
@@ -128,11 +129,7 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	restoreTS := utils.EncodeTs(ts)
+	restoreTS := oracle.ComposeTS(p, l)
 	return restoreTS, nil
 }
 
@@ -191,8 +188,8 @@ func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-) (*restore_util.RewriteRules, []*model.TableInfo, error) {
-	rewriteRules := &restore_util.RewriteRules{
+) (*RewriteRules, []*model.TableInfo, error) {
+	rewriteRules := &RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
@@ -234,7 +231,7 @@ func (rc *Client) setSpeedLimit() error {
 // RestoreTable tries to restore the data of a table.
 func (rc *Client) RestoreTable(
 	table *utils.Table,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -302,7 +299,7 @@ func (rc *Client) RestoreTable(
 // RestoreDatabase tries to restore the data of a database
 func (rc *Client) RestoreDatabase(
 	db *utils.Database,
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -338,7 +335,7 @@ func (rc *Client) RestoreDatabase(
 
 // RestoreAll tries to restore all the data of backup files.
 func (rc *Client) RestoreAll(
-	rewriteRules *restore_util.RewriteRules,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -397,7 +394,15 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			gctx,
 			store.GetAddress(),
 			opt,
-			grpc.WithBackoffMaxDelay(time.Second*3),
+			grpc.WithConnectParams(grpc.ConnectParams{
+				Backoff: backoff.Config{
+					BaseDelay:  time.Second,     // Default was 1s.
+					Multiplier: 1.6,             // Default
+					Jitter:     0.2,             // Default
+					MaxDelay:   3 * time.Second, // Default was 120s.
+				},
+				MinConnectTimeout: 5 * time.Second,
+			}),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
 				Time:                time.Duration(keepAlive) * time.Second,
 				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
