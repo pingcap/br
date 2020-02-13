@@ -14,6 +14,7 @@ var (
 	errNotLeader           = errors.NewNoStackError("not leader")
 	errEpochNotMatch       = errors.NewNoStackError("epoch not match")
 	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
+	errRegionNotFound      = errors.NewNoStackError("region not found")
 	errResp                = errors.NewNoStackError("response error")
 	errRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
 	errRangeIsEmpty        = errors.NewNoStackError("range is empty")

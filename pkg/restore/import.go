@@ -299,6 +299,9 @@ func (importer *FileImporter) ingestSST(
 	log.Debug("download SST", zap.Stringer("sstMeta", sstMeta))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
+		if strings.Contains(err.Error(), "RegionNotFound") {
+			return errors.Trace(errRegionNotFound)
+		}
 		return errors.Trace(err)
 	}
 	respErr := resp.GetError()
@@ -310,7 +313,7 @@ func (importer *FileImporter) ingestSST(
 		if respErr.GetNotLeader() != nil {
 			return errors.Trace(errNotLeader)
 		}
-		return errors.Trace(errResp)
+		return errors.Wrap(errResp, respErr.String())
 	}
 	return nil
 }
