@@ -149,7 +149,7 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	if err != nil {
 		return err
 	}
-	err = client.RestoreAll(rewriteRules, updateCh)
+	err = client.RestoreFiles(files, rewriteRules, updateCh)
 	// always run the post-work even on error, so we don't stuck in the import mode or emptied schedulers
 	postErr := restorePostWork(ctx, client, mgr, removedSchedulers)
 
@@ -207,7 +207,7 @@ func filterRestoreFiles(
 	return
 }
 
-func filterDDLJobs(client *restore.Client, cfg *RestoreConfig) (ddlJobs []*model.Job, err error) {
+func filterDDLJobs(client *restore.Client, cfg *RestoreConfig) ([]*model.Job, error) {
 	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
 	if err != nil {
 		return nil, err
@@ -220,6 +220,7 @@ func filterDDLJobs(client *restore.Client, cfg *RestoreConfig) (ddlJobs []*model
 
 	dbIDs := make(map[int64]bool)
 	tableIDs := make(map[int64]bool)
+	ddlJobs := make([]*model.Job, 0)
 	for _, db := range client.GetDatabases() {
 		for _, table := range db.Tables {
 			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
@@ -245,7 +246,7 @@ func filterDDLJobs(client *restore.Client, cfg *RestoreConfig) (ddlJobs []*model
 			ddlJobs = append(ddlJobs, job)
 		}
 	}
-	return
+	return ddlJobs, err
 }
 
 // restorePreWork executes some prepare work before restore
