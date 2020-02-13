@@ -113,9 +113,6 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 		return errors.Trace(err)
 	}
 	rc.databases = databases
-	sort.Slice(ddlJobs, func(i, j int) bool {
-		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
-	})
 	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
@@ -276,8 +273,6 @@ func (rc *Client) RestoreTable(
 		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Info.Name.String())
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else {
-			summary.CollectSuccessUnit(key, elapsed)
 		}
 	}()
 
@@ -376,6 +371,7 @@ func (rc *Client) RestoreAll(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore All", zap.Duration("take", elapsed))
+		summary.CollectSuccessUnit("restore all", elapsed)
 	}()
 	errCh := make(chan error, len(rc.databases))
 	wg := new(sync.WaitGroup)

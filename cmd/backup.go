@@ -1,185 +1,21 @@
 package cmd
 
 import (
-	"context"
-
-	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
-	"github.com/pingcap/br/pkg/backup"
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const (
-	flagBackupTimeago       = "timeago"
-	flagBackupRateLimit     = "ratelimit"
-	flagBackupRateLimitUnit = "ratelimit-unit"
-	flagBackupConcurrency   = "concurrency"
-	flagBackupChecksum      = "checksum"
-	flagLastBackupTS        = "lastbackupts"
-)
-
-func defineBackupFlags(flagSet *pflag.FlagSet) {
-	flagSet.StringP(
-		flagBackupTimeago, "", "",
-		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
-	flagSet.Uint64P(
-		flagBackupRateLimit, "", 0, "The rate limit of the backup task, MB/s per node")
-	flagSet.Uint32P(
-		flagBackupConcurrency, "", 4, "The size of thread pool on each node that execute the backup task")
-	flagSet.BoolP(flagBackupChecksum, "", true,
-		"Run checksum after backup")
-	flagSet.Uint64P(flagLastBackupTS, "", 0, "the last time backup ts")
-	_ = flagSet.MarkHidden(flagLastBackupTS)
-
-	// Test only flag.
-	flagSet.Uint64P(
-		flagBackupRateLimitUnit, "", utils.MB, "The unit of rate limit of the backup task")
-	_ = flagSet.MarkHidden(flagBackupRateLimitUnit)
-}
-
-func runBackup(flagSet *pflag.FlagSet, cmdName, db, table string) error {
-	ctx, cancel := context.WithCancel(defaultContext)
-	defer cancel()
-
-	mgr, err := GetDefaultMgr()
-	if err != nil {
+func runBackupCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.BackupConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	defer mgr.Close()
-
-	timeago, err := flagSet.GetString(flagBackupTimeago)
-	if err != nil {
-		return err
-	}
-
-	ratelimit, err := flagSet.GetUint64(flagBackupRateLimit)
-	if err != nil {
-		return err
-	}
-	ratelimitUnit, err := flagSet.GetUint64(flagBackupRateLimitUnit)
-	if err != nil {
-		return err
-	}
-	ratelimit *= ratelimitUnit
-
-	concurrency, err := flagSet.GetUint32(flagBackupConcurrency)
-	if err != nil {
-		return err
-	}
-	if concurrency == 0 {
-		err = errors.New("at least one thread required")
-		return err
-	}
-
-	checksum, err := flagSet.GetBool(flagBackupChecksum)
-	if err != nil {
-		return err
-	}
-
-	lastBackupTS, err := flagSet.GetUint64(flagLastBackupTS)
-	if err != nil {
-		return nil
-	}
-
-	u, err := storage.ParseBackendFromFlags(flagSet, FlagStorage)
-	if err != nil {
-		return err
-	}
-
-	client, err := backup.NewBackupClient(ctx, mgr)
-	if err != nil {
-		return nil
-	}
-
-	err = client.SetStorage(ctx, u)
-	if err != nil {
-		return err
-	}
-
-	backupTS, err := client.GetTS(ctx, timeago)
-	if err != nil {
-		return err
-	}
-
-	defer summary.Summary(cmdName)
-
-	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), backupTS, db, table)
-	if err != nil {
-		return err
-	}
-
-	ddlJobs := make([]*model.Job, 0)
-	if lastBackupTS > 0 {
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), lastBackupTS, backupTS)
-		if err != nil {
-			return err
-		}
-	}
-
-	// The number of regions need to backup
-	approximateRegions := 0
-	for _, r := range ranges {
-		var regionCount int
-		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
-		if err != nil {
-			return err
-		}
-		approximateRegions += regionCount
-	}
-
-	summary.CollectInt("backup total regions", approximateRegions)
-	// Backup
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
-		ctx, cmdName, int64(approximateRegions), !HasLogFile())
-	err = client.BackupRanges(
-		ctx, ranges, lastBackupTS, backupTS, ratelimit, concurrency, updateCh)
-	if err != nil {
-		return err
-	}
-	// Backup has finished
-	close(updateCh)
-
-	// Checksum
-	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-	if backupSchemas.Len() < backupSchemasConcurrency {
-		backupSchemasConcurrency = backupSchemas.Len()
-	}
-	updateCh = utils.StartProgress(
-		ctx, "Checksum", int64(backupSchemas.Len()), !HasLogFile())
-	backupSchemas.SetSkipChecksum(!checksum)
-	backupSchemas.Start(
-		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
-
-	err = client.CompleteMeta(backupSchemas)
-	if err != nil {
-		return err
-	}
-
-	valid, err := client.FastChecksum()
-	if err != nil {
-		return err
-	}
-	if !valid {
-		log.Error("backup FastChecksum failed!")
-	}
-	// Checksum has finished
-	close(updateCh)
-
-	err = client.SaveBackupMeta(ctx, ddlJobs)
-	if err != nil {
-		return err
-	}
-	return nil
+	return task.RunBackup(GetDefaultContext(), cmdName, &cfg)
 }
 
 // NewBackupCommand return a full backup subcommand.
@@ -209,7 +45,7 @@ func NewBackupCommand() *cobra.Command {
 		newTableBackupCommand(),
 	)
 
-	defineBackupFlags(command.PersistentFlags())
+	task.DefineBackupFlags(command.PersistentFlags())
 	return command
 }
 
@@ -220,7 +56,7 @@ func newFullBackupCommand() *cobra.Command {
 		Short: "backup all database",
 		RunE: func(command *cobra.Command, _ []string) error {
 			// empty db/table means full backup.
-			return runBackup(command.Flags(), "Full backup", "", "")
+			return runBackupCommand(command, "Full backup")
 		},
 	}
 	return command
@@ -232,19 +68,10 @@ func newDbBackupCommand() *cobra.Command {
 		Use:   "db",
 		Short: "backup a database",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString(flagDatabase)
-			if err != nil {
-				return err
-			}
-			if len(db) == 0 {
-				return errors.Errorf("empty database name is not allowed")
-			}
-			return runBackup(command.Flags(), "Database backup", db, "")
+			return runBackupCommand(command, "Database backup")
 		},
 	}
-	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
-	_ = command.MarkFlagRequired(flagDatabase)
-
+	task.DefineDatabaseFlags(command)
 	return command
 }
 
@@ -254,26 +81,9 @@ func newTableBackupCommand() *cobra.Command {
 		Use:   "table",
 		Short: "backup a table",
 		RunE: func(command *cobra.Command, _ []string) error {
-			db, err := command.Flags().GetString(flagDatabase)
-			if err != nil {
-				return err
-			}
-			if len(db) == 0 {
-				return errors.Errorf("empty database name is not allowed")
-			}
-			table, err := command.Flags().GetString(flagTable)
-			if err != nil {
-				return err
-			}
-			if len(table) == 0 {
-				return errors.Errorf("empty table name is not allowed")
-			}
-			return runBackup(command.Flags(), "Table backup", db, table)
+			return runBackupCommand(command, "Table backup")
 		},
 	}
-	command.Flags().StringP(flagDatabase, "", "", "backup a table in the specific db")
-	command.Flags().StringP(flagTable, "t", "", "backup the specific table")
-	_ = command.MarkFlagRequired(flagDatabase)
-	_ = command.MarkFlagRequired(flagTable)
+	task.DefineTableFlags(command)
 	return command
 }

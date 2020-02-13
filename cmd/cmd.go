@@ -2,47 +2,28 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"sync"
 	"sync/atomic"
 
-	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var (
 	initOnce       = sync.Once{}
 	defaultContext context.Context
-	pdAddress      string
 	hasLogFile     uint64
-
-	connOnce   = sync.Once{}
-	defaultMgr *conn.Mgr
 )
 
 const (
-	// FlagPD is the name of url flag.
-	FlagPD = "pd"
-	// FlagCA is the name of CA flag.
-	FlagCA = "ca"
-	// FlagCert is the name of cert flag.
-	FlagCert = "cert"
-	// FlagKey is the name of key flag.
-	FlagKey = "key"
-	// FlagStorage is the name of storage flag.
-	FlagStorage = "storage"
 	// FlagLogLevel is the name of log-level flag.
 	FlagLogLevel = "log-level"
 	// FlagLogFile is the name of log-file flag.
@@ -51,9 +32,6 @@ const (
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
-
-	flagDatabase = "db"
-	flagTable    = "table"
 
 	flagVersion      = "version"
 	flagVersionShort = "V"
@@ -65,19 +43,13 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display version information about BR")
 	cmd.SetVersionTemplate("{{printf \"%s\" .Version}}\n")
 
-	cmd.PersistentFlags().StringP(FlagPD, "u", "127.0.0.1:2379", "PD address")
-	cmd.PersistentFlags().String(FlagCA, "", "CA certificate path for TLS connection")
-	cmd.PersistentFlags().String(FlagCert, "", "Certificate path for TLS connection")
-	cmd.PersistentFlags().String(FlagKey, "", "Private key path for TLS connection")
-	cmd.PersistentFlags().StringP(FlagStorage, "s", "",
-		`specify the url where backup storage, eg, "local:///path/to/save"`)
 	cmd.PersistentFlags().StringP(FlagLogLevel, "L", "info",
 		"Set the log level")
 	cmd.PersistentFlags().String(FlagLogFile, "",
 		"Set the log file path. If not set, logs will output to stdout")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
-	storage.DefineFlags(cmd.PersistentFlags())
+	task.DefineCommonFlags(cmd.PersistentFlags())
 
 	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
 		"Set the slow log file path. If not set, discard slow logs")
@@ -140,12 +112,6 @@ func Init(cmd *cobra.Command) (err error) {
 				}
 			}
 		}()
-		// Set the PD server address.
-		pdAddress, e = cmd.Flags().GetString(FlagPD)
-		if e != nil {
-			err = e
-			return
-		}
 	})
 	return err
 }
@@ -153,30 +119,6 @@ func Init(cmd *cobra.Command) (err error) {
 // HasLogFile returns whether we set a log file
 func HasLogFile() bool {
 	return atomic.LoadUint64(&hasLogFile) != uint64(0)
-}
-
-// GetDefaultMgr returns the default mgr for command line usage.
-func GetDefaultMgr() (*conn.Mgr, error) {
-	if pdAddress == "" {
-		return nil, errors.New("pd address can not be empty")
-	}
-
-	// Lazy initialize and defaultMgr
-	var err error
-	connOnce.Do(func() {
-		var storage kv.Storage
-		storage, err = tikv.Driver{}.Open(
-			// Disable GC because TiDB enables GC already.
-			fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
-		if err != nil {
-			return
-		}
-		defaultMgr, err = conn.NewMgr(defaultContext, pdAddress, storage.(tikv.Storage))
-	})
-	if err != nil {
-		return nil, err
-	}
-	return defaultMgr, nil
 }
 
 // SetDefaultContext sets the default context for command line usage.

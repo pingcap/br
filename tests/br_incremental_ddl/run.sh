@@ -36,6 +36,13 @@ run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/full" --db $DB -t $T
 echo "run ddls..."
 run_sql "RENAME TABLE ${DB}.${TABLE} to ${DB}.${TABLE}1;"
 run_sql "DROP TABLE ${DB}.${TABLE}1;"
+
+run_sql "RENAME DATABASE ${DB} to ${DB}1;"
+run_sql "DROP DATABASE ${DB}1;"
+run_sql "CREATE DATABASE ${DB}1;"
+run_sql "RENAME DATABASE ${DB}1 to ${DB};"
+
+
 run_sql "CREATE TABLE ${DB}.${TABLE}1 (c2 CHAR(255));"
 run_sql "RENAME TABLE ${DB}.${TABLE}1 to ${DB}.${TABLE};"
 # insert records
