@@ -140,7 +140,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	err = client.RestoreAll(rewriteRules, updateCh)
+	err = client.RestoreFiles(files, rewriteRules, updateCh)
 	// always run the post-work even on error, so we don't stuck in the import mode or emptied schedulers
 	postErr := restorePostWork(ctx, client, mgr, removedSchedulers)
 
