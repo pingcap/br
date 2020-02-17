@@ -222,12 +222,22 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	sort.Slice(ddlJobs, func(i, j int) bool {
 		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
 	})
+
+	for _, job := range ddlJobs {
+		log.Debug("pre-execute ddl jobs",
+			zap.String("db", job.SchemaName),
+			zap.String("query", job.Query),
+			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
+	}
 	for _, job := range ddlJobs {
 		err := rc.db.ExecDDL(rc.ctx, job)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		log.Info("execute ddl query", zap.String("db", job.SchemaName), zap.String("query", job.Query))
+		log.Info("execute ddl query",
+			zap.String("db", job.SchemaName),
+			zap.String("query", job.Query),
+			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
 	}
 	return nil
 }

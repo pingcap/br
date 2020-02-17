@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/pingcap/errors"
@@ -40,20 +41,24 @@ func NewDB(store kv.Storage) (*DB, error) {
 
 // ExecDDL executes the query of a ddl job.
 func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
-	switchDbSQL := fmt.Sprintf("use %s;", ddlJob.SchemaName)
-	_, err := db.se.Execute(ctx, switchDbSQL)
-	if err != nil {
-		log.Error("switch db failed",
-			zap.String("query", switchDbSQL),
-			zap.String("db", ddlJob.SchemaName),
-			zap.Error(err))
-		return errors.Trace(err)
+	var err error
+	if ddlJob.BinlogInfo.TableInfo != nil {
+		switchDbSQL := fmt.Sprintf("use %s;", ddlJob.SchemaName)
+		_, err = db.se.Execute(ctx, switchDbSQL)
+		if err != nil {
+			log.Error("switch db failed",
+				zap.String("query", switchDbSQL),
+				zap.String("db", ddlJob.SchemaName),
+				zap.Error(err))
+			return errors.Trace(err)
+		}
 	}
 	_, err = db.se.Execute(ctx, ddlJob.Query)
 	if err != nil {
 		log.Error("execute ddl query failed",
 			zap.String("query", ddlJob.Query),
 			zap.String("db", ddlJob.SchemaName),
+			zap.Int64("historySchemaVersion", ddlJob.BinlogInfo.SchemaVersion),
 			zap.Error(err))
 	}
 	return errors.Trace(err)
@@ -130,4 +135,65 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 // Close closes the connection
 func (db *DB) Close() {
 	db.se.Close()
+}
+
+// FilterDDLJobs filters ddl jobs
+func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*model.Job) {
+	// Sort the ddl jobs by schema version in descending order.
+	sort.Slice(allDDLJobs, func(i, j int) bool {
+		return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
+	})
+	dbs := getDatabases(tables)
+	for _, db := range dbs {
+		// These maps is for solving some corner case.
+		// e.g. let "t=2" indicates that the id of database "t" is 2, if the ddl execution sequence is:
+		// rename "a" to "b"(a=1) -> drop "b"(b=1) -> create "b"(b=2) -> rename "b" to "a"(a=2)
+		// Which we cannot find the "create" DDL by name and id directly.
+		// To cover †his case, we must find all names and ids the database/table ever had.
+		dbIDs := make(map[int64]bool)
+		dbIDs[db.ID] = true
+		dbNames := make(map[string]bool)
+		dbNames[db.Name.String()] = true
+		for _, job := range allDDLJobs {
+			if job.BinlogInfo.DBInfo != nil {
+				if dbIDs[job.SchemaID] || dbNames[job.BinlogInfo.DBInfo.Name.String()] {
+					ddlJobs = append(ddlJobs, job)
+					// The the jobs executed with the old id, like the step 2 in the example above.
+					dbIDs[job.SchemaID] = true
+					// For the jobs executed after rename, like the step 3 in the example above.
+					dbNames[job.BinlogInfo.DBInfo.Name.String()] = true
+				}
+			}
+		}
+	}
+
+	for _, table := range tables {
+		tableIDs := make(map[int64]bool)
+		tableIDs[table.Info.ID] = true
+		tableNames := make(map[string]bool)
+		tableNames[table.Info.Name.String()] = true
+		for _, job := range allDDLJobs {
+			if job.BinlogInfo.TableInfo != nil {
+				if tableIDs[job.TableID] || tableNames[job.BinlogInfo.TableInfo.Name.String()] {
+					ddlJobs = append(ddlJobs, job)
+					tableIDs[job.TableID] = true
+					// For truncate table, the id may be changed
+					tableIDs[job.BinlogInfo.TableInfo.ID] = true
+					tableNames[job.BinlogInfo.TableInfo.Name.String()] = true
+				}
+			}
+		}
+	}
+	return ddlJobs
+}
+
+func getDatabases(tables []*utils.Table) (dbs []*model.DBInfo) {
+	dbIDs := make(map[int64]bool)
+	for _, table := range tables {
+		if !dbIDs[table.Db.ID] {
+			dbs = append(dbs, table.Db)
+			dbIDs[table.Db.ID] = true
+		}
+	}
+	return
 }

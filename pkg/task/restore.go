@@ -2,12 +2,10 @@ package task
 
 import (
 	"context"
-	"sort"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -105,7 +103,7 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 			return err
 		}
 	}
-	ddlJobs, err := filterDDLJobs(client, cfg)
+	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 	if err != nil {
 		return err
 	}
@@ -205,48 +203,6 @@ func filterRestoreFiles(
 	}
 
 	return
-}
-
-func filterDDLJobs(client *restore.Client, cfg *RestoreConfig) ([]*model.Job, error) {
-	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
-	if err != nil {
-		return nil, err
-	}
-	allDDLJobs := client.GetDDLJobs()
-	// Sort the ddl jobs by schema version in descending order.
-	sort.Slice(allDDLJobs, func(i, j int) bool {
-		return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
-	})
-
-	dbIDs := make(map[int64]bool)
-	tableIDs := make(map[int64]bool)
-	ddlJobs := make([]*model.Job, 0)
-	for _, db := range client.GetDatabases() {
-		for _, table := range db.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
-				continue
-			}
-			dbIDs[db.Info.ID] = true
-			tableIDs[table.Info.ID] = true
-		}
-	}
-
-	for _, job := range allDDLJobs {
-		if dbIDs[job.SchemaID] ||
-			(job.BinlogInfo.DBInfo != nil && dbIDs[job.BinlogInfo.DBInfo.ID]) ||
-			tableIDs[job.TableID] ||
-			(job.BinlogInfo.TableInfo != nil && tableIDs[job.BinlogInfo.TableInfo.ID]) {
-			dbIDs[job.SchemaID] = true
-			if job.BinlogInfo.DBInfo != nil {
-				dbIDs[job.BinlogInfo.DBInfo.ID] = true
-			}
-			if job.BinlogInfo.TableInfo != nil {
-				tableIDs[job.BinlogInfo.TableInfo.ID] = true
-			}
-			ddlJobs = append(ddlJobs, job)
-		}
-	}
-	return ddlJobs, err
 }
 
 // restorePreWork executes some prepare work before restore
