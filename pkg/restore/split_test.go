@@ -315,8 +315,8 @@ func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {
 	c.Assert(needSplit([]byte("b"), regions), IsNil)
 	// In region
 	region := needSplit([]byte("c"), regions)
-	c.Assert(region.Region.GetStartKey(), Equals, codec.EncodeBytes([]byte{}, []byte("b")))
-	c.Assert(region.Region.GetEndKey(), Equals, codec.EncodeBytes([]byte{}, []byte("d")))
+	c.Assert(bytes.Compare(region.Region.GetStartKey(), codec.EncodeBytes([]byte{}, []byte("b"))), Equals, 0)
+	c.Assert(bytes.Compare(region.Region.GetEndKey(), codec.EncodeBytes([]byte{}, []byte("d"))), Equals, 0)
 	// Region end key
 	c.Assert(needSplit([]byte("d"), regions), IsNil)
 	// Out of region

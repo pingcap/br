@@ -149,7 +149,8 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 	}
 
 	if cfg.LastBackupTS == 0 {
-		valid, err := client.FastChecksum()
+		var valid bool
+		valid, err = client.FastChecksum()
 		if err != nil {
 			return err
 		}
