@@ -148,12 +148,18 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 		return err
 	}
 
-	valid, err := client.FastChecksum()
-	if err != nil {
-		return err
-	}
-	if !valid {
-		log.Error("backup FastChecksum mismatch!")
+	if cfg.LastBackupTS == 0 {
+		valid, err := client.FastChecksum()
+		if err != nil {
+			return err
+		}
+		if !valid {
+			log.Error("backup FastChecksum mismatch!")
+			return errors.Errorf("mismatched checksum")
+		}
+
+	} else {
+		log.Warn("Skip fast checksum in incremental backup")
 	}
 	// Checksum has finished
 	close(updateCh)
