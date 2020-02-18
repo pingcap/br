@@ -280,7 +280,7 @@ func validateRegions(regions map[uint64]*RegionInfo) bool {
 		return false
 	}
 FindRegion:
-	for i := 1; i < 12; i++ {
+	for i := 1; i < len(keys); i++ {
 		for _, region := range regions {
 			startKey := []byte(keys[i-1])
 			if len(startKey) != 0 {
@@ -298,4 +298,27 @@ FindRegion:
 		return false
 	}
 	return true
+}
+
+func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {
+	regions := []*RegionInfo{
+		{
+			Region: &metapb.Region{
+				StartKey: codec.EncodeBytes([]byte{}, []byte("b")),
+				EndKey:   codec.EncodeBytes([]byte{}, []byte("d")),
+			},
+		},
+	}
+	// Out of region
+	c.Assert(needSplit([]byte("a"), regions), IsNil)
+	// Region start key
+	c.Assert(needSplit([]byte("b"), regions), IsNil)
+	// In region
+	region := needSplit([]byte("c"), regions)
+	c.Assert(region.Region.GetStartKey(), Equals, codec.EncodeBytes([]byte{}, []byte("b")))
+	c.Assert(region.Region.GetEndKey(), Equals, codec.EncodeBytes([]byte{}, []byte("d")))
+	// Region end key
+	c.Assert(needSplit([]byte("d"), regions), IsNil)
+	// Out of region
+	c.Assert(needSplit([]byte("e"), regions), IsNil)
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 )
@@ -104,10 +105,17 @@ SplitRegions:
 		}
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
-			newRegions, err = rs.splitAndScatterRegions(ctx, regionMap[regionID], keys)
+			region := regionMap[regionID]
+			newRegions, err = rs.splitAndScatterRegions(ctx, region, keys)
 			if err != nil {
 				if strings.Contains(err.Error(), "no valid key") {
-					continue
+					for _, key := range keys {
+						log.Error("no valid key",
+							zap.Binary("startKey", region.Region.StartKey),
+							zap.Binary("endKey", region.Region.EndKey),
+							zap.Binary("key", codec.EncodeBytes([]byte{}, key)))
+					}
+					return errors.Trace(err)
 				}
 				interval = 2 * interval
 				if interval > SplitMaxRetryInterval {
@@ -119,12 +127,13 @@ SplitRegions:
 				}
 				continue SplitRegions
 			}
+			log.Debug("split regions", zap.Stringer("region", region.Region), zap.ByteStrings("keys", keys))
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
 		break
 	}
-	if err != nil && !strings.Contains(err.Error(), "no valid key") {
+	if err != nil {
 		return errors.Trace(err)
 	}
 	log.Info("splitting regions done, wait for scattering regions",
@@ -254,7 +263,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionI
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
 	for _, rg := range ranges {
-		checkKeys = append(checkKeys, rg.EndKey)
+		checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
 	}
 	for _, key := range checkKeys {
 		if region := needSplit(key, regions); region != nil {
@@ -263,7 +272,10 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionI
 				splitKeys = make([][]byte, 0, 1)
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
-			log.Debug("get key for split region", zap.Binary("key", key), zap.Stringer("region", region.Region))
+			log.Debug("get key for split region",
+				zap.Binary("key", key),
+				zap.Binary("startKey", region.Region.StartKey),
+				zap.Binary("endKey", region.Region.EndKey))
 		}
 	}
 	return splitKeyMap
@@ -287,6 +299,15 @@ func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 		}
 	}
 	return nil
+}
+
+func truncateRowKey(key []byte) []byte {
+	if bytes.HasPrefix(key, []byte("t")) &&
+		len(key) > tablecodec.RecordRowKeyLen &&
+		bytes.HasPrefix(key[9:], []byte("_r")) {
+		return key[:tablecodec.RecordRowKeyLen]
+	}
+	return key
 }
 
 func beforeEnd(key []byte, end []byte) bool {

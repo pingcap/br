@@ -283,11 +283,6 @@ func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*mod
 
 	completedJobs := make([]*model.Job, 0)
 	for _, job := range allJobs {
-		log.Debug("get job",
-			zap.String("query", job.Query),
-			zap.Int64("schemaVersion", job.BinlogInfo.SchemaVersion),
-			zap.Int64("lastSchemaVersion", lastSchemaVersion),
-			zap.Stringer("state", job.State))
 		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
 			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
 			completedJobs = append(completedJobs, job)
