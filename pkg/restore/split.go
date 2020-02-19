@@ -301,10 +301,16 @@ func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	return nil
 }
 
+var (
+	tablePrefix  = []byte{'t'}
+	idLen        = 8
+	recordPrefix = []byte("_r")
+)
+
 func truncateRowKey(key []byte) []byte {
-	if bytes.HasPrefix(key, []byte("t")) &&
+	if bytes.HasPrefix(key, tablePrefix) &&
 		len(key) > tablecodec.RecordRowKeyLen &&
-		bytes.HasPrefix(key[9:], []byte("_r")) {
+		bytes.HasPrefix(key[len(tablePrefix)+idLen:], recordPrefix) {
 		return key[:tablecodec.RecordRowKeyLen]
 	}
 	return key

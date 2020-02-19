@@ -9,6 +9,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/storage"
@@ -101,6 +102,11 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 
 	ddlJobs := make([]*model.Job, 0)
 	if cfg.LastBackupTS > 0 {
+		err = backup.CheckGCSafepoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
+		if err != nil {
+			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
+			return err
+		}
 		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
 		if err != nil {
 			return err
@@ -160,7 +166,8 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 		}
 
 	} else {
-		log.Warn("Skip fast checksum in incremental backup")
+		// Since we don't support checksum for incremental data, fast checksum should be skipped.
+		log.Info("Skip fast checksum in incremental backup")
 	}
 	// Checksum has finished
 	close(updateCh)

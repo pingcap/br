@@ -224,12 +224,6 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	})
 
 	for _, job := range ddlJobs {
-		log.Debug("pre-execute ddl jobs",
-			zap.String("db", job.SchemaName),
-			zap.String("query", job.Query),
-			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
-	}
-	for _, job := range ddlJobs {
 		err := rc.db.ExecDDL(rc.ctx, job)
 		if err != nil {
 			return errors.Trace(err)
