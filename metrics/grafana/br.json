@@ -45,7 +45,7 @@
     "list": [
       {
         "builtIn": 1,
-        "datasource": "${DS_TEST_CLUSTER}",
+        "datasource": "${DS_TEST-CLUSTER}",
         "enable": true,
         "hide": true,
         "iconColor": "rgba(0, 211, 255, 1)",
