@@ -16,11 +16,14 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
+	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
@@ -66,44 +69,40 @@ func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 }
 
 // GetTS returns the latest timestamp.
-func (bc *Client) GetTS(ctx context.Context, timeAgo string) (uint64, error) {
+func (bc *Client) GetTS(ctx context.Context, duration time.Duration) (uint64, error) {
 	p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+	backupTS := oracle.ComposeTS(p, l)
 
-	if timeAgo != "" {
-		duration, err := time.ParseDuration(timeAgo)
-		if err != nil {
-			return 0, errors.Trace(err)
-		}
-		t := duration.Nanoseconds() / int64(time.Millisecond)
-		log.Info("backup time ago", zap.Int64("MillisecondsAgo", t))
+	switch {
+	case duration < 0:
+		return 0, errors.New("negative timeago is not allowed")
+	case duration > 0:
+		log.Info("backup time ago", zap.Duration("timeago", duration))
 
-		// check backup time do not exceed GCSafePoint
-		safePoint, err := GetGCSafePoint(ctx, bc.mgr.GetPDClient())
-		if err != nil {
-			return 0, errors.Trace(err)
+		backupTime := oracle.GetTimeFromTS(backupTS)
+		backupAgo := backupTime.Add(-duration)
+		if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
+			return 0, errors.New("backup ts overflow please choose a smaller timeago")
 		}
-		if p-t < safePoint.Physical {
-			return 0, errors.New("given backup time exceed GCSafePoint")
-		}
-		p -= t
+		backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
 	}
 
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
+	// check backup time do not exceed GCSafePoint
+	err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	if err != nil {
+		return 0, errors.Trace(err)
 	}
-	backupTS := utils.EncodeTs(ts)
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
 	var err error
-	bc.storage, err = storage.Create(ctx, backend)
+	bc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
 		return err
 	}
@@ -172,63 +171,27 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 func BuildBackupRangeAndSchema(
 	dom *domain.Domain,
 	storage kv.Storage,
+	tableFilter *filter.Filter,
 	backupTS uint64,
-	dbName, tableName string,
 ) ([]Range, *Schemas, error) {
-	SystemDatabases := [3]string{
-		"information_schema",
-		"performance_schema",
-		"mysql",
-	}
-
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	var dbInfos []*model.DBInfo
-	var cTableName model.CIStr
-	switch {
-	case len(dbName) == 0 && len(tableName) != 0:
-		return nil, nil, errors.New("no database is not specified")
-	case len(dbName) != 0 && len(tableName) == 0:
-		// backup database
-		cDBName := model.NewCIStr(dbName)
-		dbInfo, exist := info.SchemaByName(cDBName)
-		if !exist {
-			return nil, nil, errors.Errorf("schema %s not found", dbName)
-		}
-		dbInfos = append(dbInfos, dbInfo)
-	case len(dbName) != 0 && len(tableName) != 0:
-		// backup table
-		cTableName = model.NewCIStr(tableName)
-		cDBName := model.NewCIStr(dbName)
-		dbInfo, exist := info.SchemaByName(cDBName)
-		if !exist {
-			return nil, nil, errors.Errorf("schema %s not found", dbName)
-		}
-		dbInfos = append(dbInfos, dbInfo)
-	case len(dbName) == 0 && len(tableName) == 0:
-		// backup full
-		dbInfos = info.AllSchemas()
-	}
 
 	ranges := make([]Range, 0)
 	backupSchemas := newBackupSchemas()
-LoadDb:
-	for _, dbInfo := range dbInfos {
+	for _, dbInfo := range info.AllSchemas() {
 		// skip system databases
-		for _, sysDbName := range SystemDatabases {
-			if sysDbName == dbInfo.Name.L {
-				continue LoadDb
-			}
+		if util.IsMemOrSysDB(dbInfo.Name.L) {
+			continue
 		}
-		dbData, err := json.Marshal(dbInfo)
-		if err != nil {
-			return nil, nil, errors.Trace(err)
-		}
-		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false)
+
+		var dbData []byte
+		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
+
 		for _, tableInfo := range dbInfo.Tables {
-			if len(cTableName.L) != 0 && cTableName.L != tableInfo.Name.L {
+			if !tableFilter.Match(&filter.Table{Schema: dbInfo.Name.L, Name: tableInfo.Name.L}) {
 				// Skip tables other than the given table.
 				continue
 			}
@@ -242,6 +205,12 @@ LoadDb:
 				zap.Stringer("table", tableInfo.Name),
 				zap.Int64("AutoIncID", globalAutoID))
 
+			if dbData == nil {
+				dbData, err = json.Marshal(dbInfo)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+			}
 			tableData, err := json.Marshal(tableInfo)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
@@ -266,11 +235,8 @@ LoadDb:
 		}
 	}
 
-	if len(cTableName.L) != 0 {
-		// Must find the given table.
-		if backupSchemas.Len() == 0 {
-			return nil, nil, errors.Errorf("table %s not found", cTableName)
-		}
+	if backupSchemas.Len() == 0 {
+		return nil, nil, errors.New("nothing to backup")
 	}
 	return ranges, backupSchemas, nil
 }
@@ -281,7 +247,7 @@ func (bc *Client) BackupRanges(
 	ranges []Range,
 	lastBackupTS uint64,
 	backupTS uint64,
-	rate uint64,
+	rateLimit uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
 ) error {
@@ -297,7 +263,7 @@ func (bc *Client) BackupRanges(
 	go func() {
 		for _, r := range ranges {
 			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, lastBackupTS, backupTS, rate, concurrency, updateCh)
+				ctx, r.StartKey, r.EndKey, lastBackupTS, backupTS, rateLimit, concurrency, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -342,7 +308,7 @@ func (bc *Client) backupRange(
 	startKey, endKey []byte,
 	lastBackupTS uint64,
 	backupTS uint64,
-	rateMBs uint64,
+	rateLimit uint64,
 	concurrency uint32,
 	updateCh chan<- struct{},
 ) (err error) {
@@ -357,12 +323,10 @@ func (bc *Client) backupRange(
 			summary.CollectSuccessUnit(key, elapsed)
 		}
 	}()
-	// The unit of rate limit in protocol is bytes per second.
-	rateLimit := rateMBs * 1024 * 1024
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
 		zap.Binary("EndKey", endKey),
-		zap.Uint64("RateLimit", rateMBs),
+		zap.Uint64("RateLimit", rateLimit),
 		zap.Uint32("Concurrency", concurrency))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
