@@ -20,7 +20,7 @@ require (
 	github.com/onsi/gomega v1.7.1 // indirect
 	github.com/pingcap/check v0.0.0-20191216031241-8a5a85928f12
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200108025604-a4dc183d2af5
+	github.com/pingcap/kvproto v0.0.0-20200210234432-a965739f8162
 	github.com/pingcap/log v0.0.0-20191012051959-b742a5d432e9
 	github.com/pingcap/parser v0.0.0-20200109073933-a9496438d77d
 	github.com/pingcap/pd v1.1.0-beta.0.20191219054547-4d65bbefbc6d

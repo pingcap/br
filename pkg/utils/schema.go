@@ -24,7 +24,7 @@ const (
 // Table wraps the schema and files of a table.
 type Table struct {
 	Db         *model.DBInfo
-	Schema     *model.TableInfo
+	Info       *model.TableInfo
 	Crc64Xor   uint64
 	TotalKvs   uint64
 	TotalBytes uint64
@@ -33,14 +33,14 @@ type Table struct {
 
 // Database wraps the schema and tables of a database.
 type Database struct {
-	Schema *model.DBInfo
+	Info   *model.DBInfo
 	Tables []*Table
 }
 
 // GetTable returns a table of the database by name.
 func (db *Database) GetTable(name string) *Table {
 	for _, table := range db.Tables {
-		if table.Schema.Name.String() == name {
+		if table.Info.Name.String() == name {
 			return table
 		}
 	}
@@ -61,7 +61,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		db, ok := databases[dbInfo.Name.String()]
 		if !ok {
 			db = &Database{
-				Schema: dbInfo,
+				Info:   dbInfo,
 				Tables: make([]*Table, 0),
 			}
 			databases[dbInfo.Name.String()] = db
@@ -94,7 +94,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		}
 		table := &Table{
 			Db:         dbInfo,
-			Schema:     tableInfo,
+			Info:       tableInfo,
 			Crc64Xor:   schema.Crc64Xor,
 			TotalKvs:   schema.TotalKvs,
 			TotalBytes: schema.TotalBytes,
