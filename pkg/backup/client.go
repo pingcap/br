@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
@@ -119,7 +120,12 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(ctx context.Context) error {
+func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) error {
+	ddlJobsData, err := json.Marshal(ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	bc.backupMeta.Ddls = ddlJobsData
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -127,7 +133,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context) error {
 	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
-	log.Info("save backup meta", zap.Stringer("path", &backendURL))
+	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("jobs", len(ddlJobs)))
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
@@ -239,6 +245,51 @@ func BuildBackupRangeAndSchema(
 		return nil, nil, errors.New("nothing to backup")
 	}
 	return ranges, backupSchemas, nil
+}
+
+// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS]
+func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
+	snapMeta, err := dom.GetSnapshotMeta(backupTS)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	lastSnapMeta, err := dom.GetSnapshotMeta(lastBackupTS)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	allJobs := make([]*model.Job, 0)
+	defaultJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.DefaultJobListKey)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	log.Debug("get default jobs", zap.Int("jobs", len(defaultJobs)))
+	allJobs = append(allJobs, defaultJobs...)
+	addIndexJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.AddIndexJobListKey)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	log.Debug("get add index jobs", zap.Int("jobs", len(addIndexJobs)))
+	allJobs = append(allJobs, addIndexJobs...)
+	historyJobs, err := snapMeta.GetAllHistoryDDLJobs()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	log.Debug("get history jobs", zap.Int("jobs", len(historyJobs)))
+	allJobs = append(allJobs, historyJobs...)
+
+	completedJobs := make([]*model.Job, 0)
+	for _, job := range allJobs {
+		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
+			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
+			completedJobs = append(completedJobs, job)
+		}
+	}
+	log.Debug("get completed jobs", zap.Int("jobs", len(completedJobs)))
+	return completedJobs, nil
 }
 
 // BackupRanges make a backup of the given key ranges.

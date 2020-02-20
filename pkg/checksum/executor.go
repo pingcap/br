@@ -61,7 +61,7 @@ func buildChecksumRequest(
 	reqs := make([]*kv.Request, 0, (len(newTable.Indices)+1)*(len(partDefs)+1))
 	var oldTableID int64
 	if oldTable != nil {
-		oldTableID = oldTable.Schema.ID
+		oldTableID = oldTable.Info.ID
 	}
 	rs, err := buildRequest(newTable, newTable.ID, oldTable, oldTableID, startTS)
 	if err != nil {
@@ -72,7 +72,7 @@ func buildChecksumRequest(
 	for _, partDef := range partDefs {
 		var oldPartID int64
 		if oldTable != nil {
-			for _, oldPartDef := range oldTable.Schema.Partition.Definitions {
+			for _, oldPartDef := range oldTable.Info.Partition.Definitions {
 				if oldPartDef.Name == partDef.Name {
 					oldPartID = oldPartDef.ID
 				}
@@ -108,7 +108,7 @@ func buildRequest(
 		}
 		var oldIndexInfo *model.IndexInfo
 		if oldTable != nil {
-			for _, oldIndex := range oldTable.Schema.Indices {
+			for _, oldIndex := range oldTable.Info.Indices {
 				if oldIndex.Name == indexInfo.Name {
 					oldIndexInfo = oldIndex
 					break
@@ -117,7 +117,7 @@ func buildRequest(
 			if oldIndexInfo == nil {
 				log.Panic("index not found",
 					zap.Reflect("table", tableInfo),
-					zap.Reflect("oldTable", oldTable.Schema),
+					zap.Reflect("oldTable", oldTable.Info),
 					zap.Stringer("index", indexInfo.Name))
 			}
 		}
