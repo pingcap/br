@@ -28,7 +28,7 @@ for i in $(seq $DDL_COUNT); do
     run_sql "USE $DB; ALTER TABLE $TABLE ADD INDEX (FIELD$i);"
 done
 
-for i in $(sql $DDL_COUNT); do
+for i in $(seq $DDL_COUNT); do
     if (( RANDOM % 2 )); then
         run_sql "USE $DB; ALTER TABLE $TABLE DROP INDEX FIELD$i;"
     fi

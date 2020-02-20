@@ -5,7 +5,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/tablecodec"
 )
 
@@ -34,7 +33,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
-	rules := &restore_util.RewriteRules{
+	rules := &RewriteRules{
 		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
@@ -54,10 +53,10 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 
 	// Range is not overlap, no rule found.
 	_, err = ValidateFileRanges(
-		[]*backup.File{&backup.File{
+		[]*backup.File{{
 			Name:     "file_write.sst",
-			StartKey: []byte(tablecodec.EncodeTablePrefix(0)),
-			EndKey:   []byte(tablecodec.EncodeTablePrefix(1)),
+			StartKey: tablecodec.EncodeTablePrefix(0),
+			EndKey:   tablecodec.EncodeTablePrefix(1),
 		}},
 		rules,
 	)
@@ -65,10 +64,10 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 
 	// No rule for end key.
 	_, err = ValidateFileRanges(
-		[]*backup.File{&backup.File{
+		[]*backup.File{{
 			Name:     "file_write.sst",
-			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
-			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(2),
 		}},
 		rules,
 	)
@@ -76,29 +75,29 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 
 	// Add a rule for end key.
 	rules.Table = append(rules.Table, &import_sstpb.RewriteRule{
-		OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
-		NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(3)),
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
 	_, err = ValidateFileRanges(
-		[]*backup.File{&backup.File{
+		[]*backup.File{{
 			Name:     "file_write.sst",
-			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
-			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(2),
 		}},
 		rules,
 	)
-	c.Assert(err, IsNil)
+	c.Assert(err, ErrorMatches, "table ids dont match")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
-		OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
-		NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
+		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
+		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
 	_, err = ValidateFileRanges(
-		[]*backup.File{&backup.File{
+		[]*backup.File{{
 			Name:     "file_write.sst",
-			StartKey: []byte(tablecodec.EncodeTablePrefix(1)),
-			EndKey:   []byte(tablecodec.EncodeTablePrefix(2)),
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(2),
 		}},
 		rules,
 	)

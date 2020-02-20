@@ -65,33 +65,33 @@ You can get one from
 https://console.cloud.google.com/apis/credentials.`)
 
 	_ = flags.MarkHidden(gcsEndpointOption)
+	_ = flags.MarkHidden(gcsStorageClassOption)
+	_ = flags.MarkHidden(gcsPredefinedACL)
+	_ = flags.MarkHidden(gcsCredentialsFile)
 }
 
-func getBackendOptionsFromGCSFlags(flags *pflag.FlagSet) (options GCSBackendOptions, err error) {
+func (options *GCSBackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
+	var err error
 	options.Endpoint, err = flags.GetString(gcsEndpointOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 
 	options.StorageClass, err = flags.GetString(gcsStorageClassOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 
 	options.PredefinedACL, err = flags.GetString(gcsPredefinedACL)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 
 	options.CredentialsFile, err = flags.GetString(gcsCredentialsFile)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
-	return
+	return nil
 }
 
 type gcsStorage struct {
@@ -139,11 +139,16 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 	return true, nil
 }
 
-func newGCSStorage(ctx context.Context, gcs *backup.GCS) (*gcsStorage, error) {
-	return newGCSStorageWithHTTPClient(ctx, gcs, nil)
+func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {
+	return newGCSStorageWithHTTPClient(ctx, gcs, nil, sendCredential)
 }
 
-func newGCSStorageWithHTTPClient(ctx context.Context, gcs *backup.GCS, hclient *http.Client) (*gcsStorage, error) {
+func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
+	ctx context.Context,
+	gcs *backup.GCS,
+	hclient *http.Client,
+	sendCredential bool,
+) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)

@@ -66,7 +66,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 			},
 		}
 	}
-	rules, newTables, err := client.CreateTables(s.mock.Domain, tables)
+	rules, newTables, err := client.CreateTables(s.mock.Domain, tables, 0)
 	c.Assert(err, IsNil)
 	for _, nt := range newTables {
 		c.Assert(nt.Name.String(), Matches, "test[0-3]")
@@ -85,7 +85,6 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 
 	for i := 0; i < len(tables); i++ {
 		c.Assert(oldTableIDExist[int64(i)], IsTrue, Commentf("table rule does not exist"))
-		c.Assert(oldTableIDExist[int64(i+1)], IsTrue, Commentf("table rule does not exist"))
 	}
 }
 

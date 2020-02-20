@@ -11,24 +11,18 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
-	flag "github.com/spf13/pflag"
-	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
-var schedulers = map[string]struct{}{
-	"balance-leader-scheduler":     {},
-	"balance-hot-region-scheduler": {},
-	"balance-region-scheduler":     {},
-
-	"shuffle-leader-scheduler":     {},
-	"shuffle-region-scheduler":     {},
-	"shuffle-hot-region-scheduler": {},
+func runRestoreCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		return err
+	}
+	return task.RunRestore(GetDefaultContext(), cmdName, &cfg)
 }
 
 // NewRestoreCommand returns a restore subcommand
@@ -55,15 +49,7 @@ func NewRestoreCommand() *cobra.Command {
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
 	)
-
-	command.PersistentFlags().Uint("concurrency", 128,
-		"The size of thread pool that execute the restore task")
-	command.PersistentFlags().Uint64("ratelimit", 0,
-		"The rate limit of the restore task, MB/s per node. Set to 0 for unlimited speed.")
-	command.PersistentFlags().BoolP("checksum", "", true,
-		"Run checksum after restore")
-	command.PersistentFlags().BoolP("online", "", false,
-		"Whether online when restore")
+	task.DefineRestoreFlags(command.PersistentFlags())
 
 	return command
 }
@@ -211,7 +197,7 @@ func newFullRestoreCommand() *cobra.Command {
 		Use:   "full",
 		Short: "restore all tables",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRestore(cmd.Flags(), "Full Restore", "", "")
+			return runRestoreCommand(cmd, "Full restore")
 		},
 	}
 	return command
@@ -222,18 +208,10 @@ func newDbRestoreCommand() *cobra.Command {
 		Use:   "db",
 		Short: "restore tables in a database",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			db, err := cmd.Flags().GetString(flagDatabase)
-			if err != nil {
-				return err
-			}
-			if len(db) == 0 {
-				return errors.New("empty database name is not allowed")
-			}
-			return runRestore(cmd.Flags(), "Database Restore", db, "")
+			return runRestoreCommand(cmd, "Database restore")
 		},
 	}
-	command.Flags().String(flagDatabase, "", "database name")
-	_ = command.MarkFlagRequired(flagDatabase)
+	task.DefineDatabaseFlags(command)
 	return command
 }
 
@@ -242,29 +220,10 @@ func newTableRestoreCommand() *cobra.Command {
 		Use:   "table",
 		Short: "restore a table",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			db, err := cmd.Flags().GetString(flagDatabase)
-			if err != nil {
-				return err
-			}
-			if len(db) == 0 {
-				return errors.New("empty database name is not allowed")
-			}
-			table, err := cmd.Flags().GetString(flagTable)
-			if err != nil {
-				return err
-			}
-			if len(table) == 0 {
-				return errors.New("empty table name is not allowed")
-			}
-			return runRestore(cmd.Flags(), "Table Restore", db, table)
+			return runRestoreCommand(cmd, "Table restore")
 		},
 	}
-
-	command.Flags().String(flagDatabase, "", "database name")
-	command.Flags().String(flagTable, "", "table name")
-
-	_ = command.MarkFlagRequired(flagDatabase)
-	_ = command.MarkFlagRequired(flagTable)
+	task.DefineTableFlags(command)
 	return command
 }
 

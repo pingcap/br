@@ -21,6 +21,7 @@ import (
 	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
@@ -33,15 +34,9 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const (
-	resetTsRetryTime       = 16
-	resetTSWaitInterval    = 50 * time.Millisecond
-	resetTSMaxWaitInterval = 500 * time.Millisecond
-
-	// defaultChecksumConcurrency is the default number of the concurrent
-	// checksum tasks.
-	defaultChecksumConcurrency = 64
-)
+// defaultChecksumConcurrency is the default number of the concurrent
+// checksum tasks.
+const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files
 type Client struct {
@@ -118,7 +113,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.databases = databases
 	rc.backupMeta = backupMeta
 
-	metaClient := restore_util.NewClient(rc.pdClient)
+	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
@@ -140,11 +135,7 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	ts := utils.Timestamp{
-		Physical: p,
-		Logical:  l,
-	}
-	restoreTS := utils.EncodeTs(ts)
+	restoreTS := oracle.ComposeTS(p, l)
 	return restoreTS, nil
 }
 
@@ -153,13 +144,10 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return withRetry(func() error {
+	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
 		return utils.ResetTS(pdAddrs[idx], restoreTS)
-	}, func(e error) bool {
-		i++
-		return true
-	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
+	}, newResetTSBackoffer())
 }
 
 // GetDatabases returns all databases.
@@ -202,17 +190,13 @@ func (rc *Client) CreateDatabase(db *model.DBInfo) error {
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
-) (*restore_util.RewriteRules, []*model.TableInfo, error) {
-	rewriteRules := &restore_util.RewriteRules{
+	newTS uint64,
+) (*RewriteRules, []*model.TableInfo, error) {
+	rewriteRules := &RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	// Sort the tables by id for ensuring the new tables has same id ordering as the old tables.
-	// We require this constrain since newTableID of tableID+1 must be not bigger
-	// than newTableID of tableID.
-	sort.Sort(utils.Tables(tables))
-	tableIDMap := make(map[int64]int64)
 	for _, table := range tables {
 		err := rc.db.CreateTable(rc.ctx, table)
 		if err != nil {
@@ -222,20 +206,10 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema)
-		tableIDMap[table.Schema.ID] = newTableInfo.ID
+		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
-	}
-	// If tableID + 1 has already exist, then we don't need to add a new rewrite rule for it.
-	for oldID, newID := range tableIDMap {
-		if _, ok := tableIDMap[oldID+1]; !ok {
-			rewriteRules.Table = append(rewriteRules.Table, &import_sstpb.RewriteRule{
-				OldKeyPrefix: tablecodec.EncodeTablePrefix(oldID + 1),
-				NewKeyPrefix: tablecodec.EncodeTablePrefix(newID + 1),
-			})
-		}
 	}
 	return rewriteRules, newTables, nil
 }
@@ -257,39 +231,36 @@ func (rc *Client) setSpeedLimit() error {
 	return nil
 }
 
-// RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(
-	table *utils.Table,
-	rewriteRules *restore_util.RewriteRules,
+// RestoreFiles tries to restore the files.
+func (rc *Client) RestoreFiles(
+	files []*backup.File,
+	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("restore table",
-			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
-		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
-		if err != nil {
-			summary.CollectFailureUnit(key, err)
+		if err == nil {
+			log.Info("Restore Files",
+				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+			summary.CollectSuccessUnit("files", elapsed)
 		} else {
-			summary.CollectSuccessUnit(key, elapsed)
+			summary.CollectFailureUnit("files", err)
 		}
 	}()
-	log.Debug("start to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-		zap.Array("files", files(table.Files)),
+
+	log.Debug("start to restore files",
+		zap.Int("files", len(files)),
 	)
-	errCh := make(chan error, len(table.Files))
+	errCh := make(chan error, len(files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
-	// We should encode the rewrite rewriteRules before using it to import files
-	encodedRules := encodeRewriteRules(rewriteRules)
 	err = rc.setSpeedLimit()
 	if err != nil {
 		return err
 	}
-	for _, file := range table.Files {
+
+	for _, file := range files {
 		wg.Add(1)
 		fileReplica := file
 		rc.workerPool.Apply(
@@ -298,101 +269,20 @@ func (rc *Client) RestoreTable(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- nil
-				case errCh <- rc.fileImporter.Import(fileReplica, encodedRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
 					updateCh <- struct{}{}
 				}
 			})
 	}
-	for range table.Files {
+	for range files {
 		err := <-errCh
 		if err != nil {
 			rc.cancel()
 			wg.Wait()
 			log.Error(
-				"restore table failed",
-				zap.Stringer("table", table.Schema.Name),
-				zap.Stringer("db", table.Db.Name),
+				"restore files failed",
 				zap.Error(err),
 			)
-			return err
-		}
-	}
-	log.Info(
-		"finish to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-	)
-	return nil
-}
-
-// RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(
-	db *utils.Database,
-	rewriteRules *restore_util.RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
-	}()
-	errCh := make(chan error, len(db.Tables))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, table := range db.Tables {
-		wg.Add(1)
-		tblReplica := table
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreTable(
-				tblReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-	for range db.Tables {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
-			return err
-		}
-	}
-	return nil
-}
-
-// RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(
-	rewriteRules *restore_util.RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore All", zap.Duration("take", elapsed))
-	}()
-	errCh := make(chan error, len(rc.databases))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, db := range rc.databases {
-		wg.Add(1)
-		dbReplica := db
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreDatabase(
-				dbReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-
-	for range rc.databases {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
 			return err
 		}
 	}
@@ -676,4 +566,10 @@ func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.Table
 
 func (rc *Client) getRuleID(tableID int64) string {
 	return "restore-t" + strconv.FormatInt(tableID, 10)
+}
+
+// IsIncremental returns whether this backup is incremental
+func (rc *Client) IsIncremental() bool {
+	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
+		rc.backupMeta.StartVersion == 0)
 }
