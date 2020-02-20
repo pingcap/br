@@ -111,7 +111,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(err))
+					log.Warn("splitting regions failed, retry it", zap.Error(err), zap.ByteStrings("keys", keys))
 				}
 				continue SplitRegions
 			}
@@ -259,6 +259,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionI
 				splitKeys = make([][]byte, 0, 1)
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
+			log.Debug("get key for split region", zap.Binary("key", key), zap.Stringer("region", region.Region))
 		}
 	}
 	return splitKeyMap

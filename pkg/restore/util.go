@@ -13,33 +13,15 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-type files []*backup.File
-
-func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range fs {
-		arr.AppendString(fs[i].String())
-	}
-	return nil
-}
-
-type rules []*import_sstpb.RewriteRule
-
-func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range rs {
-		arr.AppendString(rs[i].String())
-	}
-	return nil
-}
 
 // idAllocator always returns a specified ID
 type idAllocator struct {
@@ -50,7 +32,7 @@ func newIDAllocator(id int64) *idAllocator {
 	return &idAllocator{id: id}
 }
 
-func (alloc *idAllocator) Alloc(tableID int64, n uint64) (min int64, max int64, err error) {
+func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
 	return alloc.id, alloc.id, nil
 }
 
@@ -68,6 +50,10 @@ func (alloc *idAllocator) End() int64 {
 
 func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
 	return alloc.id, nil
+}
+
+func (alloc *idAllocator) GetType() autoid.AllocatorType {
+	return autoid.RowIDAllocType
 }
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
@@ -158,38 +144,9 @@ func getSSTMetaFromFile(
 			Start: rangeStart,
 			End:   rangeEnd,
 		},
+		RegionId:    region.GetId(),
+		RegionEpoch: region.GetRegionEpoch(),
 	}
-}
-
-type retryableFunc func() error
-type continueFunc func(error) bool
-
-func withRetry(
-	retryableFunc retryableFunc,
-	continueFunc continueFunc,
-	attempts uint,
-	delayTime time.Duration,
-	maxDelayTime time.Duration,
-) error {
-	var lastErr error
-	for i := uint(0); i < attempts; i++ {
-		err := retryableFunc()
-		if err != nil {
-			lastErr = err
-			// If this is the last attempt, do not wait
-			if !continueFunc(err) || i == attempts-1 {
-				break
-			}
-			delayTime = 2 * delayTime
-			if delayTime > maxDelayTime {
-				delayTime = maxDelayTime
-			}
-			time.Sleep(delayTime)
-		} else {
-			return nil
-		}
-	}
-	return lastErr
 }
 
 // ValidateFileRanges checks and returns the ranges of the files.

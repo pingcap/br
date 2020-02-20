@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -54,24 +54,14 @@ func newCheckSumCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			s, err := storage.Create(ctx, u)
-			if err != nil {
-				return errors.Trace(err)
-			}
 
-			metaData, err := s.Read(ctx, utils.MetaFile)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
 			if err != nil {
-				return errors.Trace(err)
-			}
-
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(metaData, backupMeta)
-			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			dbs, err := utils.LoadBackupTables(backupMeta)
@@ -152,24 +142,14 @@ func newBackupMetaCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
+
+			var cfg task.Config
+			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, _, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
 			if err != nil {
-				log.Error("create storage failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			data, err := s.Read(ctx, utils.MetaFile)
-			if err != nil {
-				log.Error("load backupmeta failed", zap.Error(err))
-				return err
-			}
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(data, backupMeta)
-			if err != nil {
-				log.Error("parse backupmeta failed", zap.Error(err))
+				log.Error("read backupmeta failed", zap.Error(err))
 				return err
 			}
 			dbs, err := utils.LoadBackupTables(backupMeta)
@@ -241,8 +221,7 @@ func newBackupMetaCommand() *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().String("path", "", "the path of backupmeta")
-	command.Flags().Uint64P("offset", "", 0, "the offset of table id alloctor")
+	command.Flags().Uint64("offset", 0, "the offset of table id alloctor")
 	command.Hidden = true
 	return command
 }
@@ -254,24 +233,16 @@ func decodeBackupMetaCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
-				return errors.Trace(err)
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
 			if err != nil {
-				return errors.Trace(err)
-			}
-			metaData, err := s.Read(ctx, utils.MetaFile)
-			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(metaData, backupMeta)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			backupMetaJSON, err := json.Marshal(backupMeta)
 			if err != nil {
 				return errors.Trace(err)
@@ -309,14 +280,16 @@ func encodeBackupMetaCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
-				return errors.Trace(err)
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, s, err := task.GetStorage(ctx, &cfg)
 			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
+
 			metaData, err := s.Read(ctx, utils.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)
