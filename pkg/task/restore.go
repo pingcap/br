@@ -103,6 +103,14 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 			return err
 		}
 	}
+	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
+	if err != nil {
+		return err
+	}
+	err = client.ExecDDLs(ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return err
@@ -178,12 +186,12 @@ func filterRestoreFiles(
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: db.Schema.Name.O, Name: table.Schema.Name.O}) {
+			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
 				continue
 			}
 
 			if !createdDatabase {
-				if err = client.CreateDatabase(db.Schema); err != nil {
+				if err = client.CreateDatabase(db.Info); err != nil {
 					return nil, nil, err
 				}
 				createdDatabase = true

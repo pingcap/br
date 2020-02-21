@@ -52,7 +52,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	for i := len(tables) - 1; i >= 0; i-- {
 		tables[i] = &utils.Table{
 			Db: dbSchema,
-			Schema: &model.TableInfo{
+			Info: &model.TableInfo{
 				ID:   int64(i),
 				Name: model.NewCIStr("test" + strconv.Itoa(i)),
 				Columns: []*model.ColumnInfo{{
