@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -332,4 +333,38 @@ func encodeKeyPrefix(key []byte) []byte {
 func escapeTableName(cis model.CIStr) string {
 	quote := "`"
 	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
+}
+
+// paginateScanRegion scan regions with a limit pagination and
+// return all regions at once.
+// It reduces max gRPC message size.
+func paginateScanRegion(
+	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
+) ([]*RegionInfo, error) {
+	regions := []*RegionInfo{}
+
+	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
+		log.Fatal("startKey >= endKey",
+			zap.Binary("startKey", startKey), zap.Binary("endKey", endKey))
+	}
+
+	for {
+		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		fmt.Println("scan regions length", len(batch))
+		regions = append(regions, batch...)
+		if len(batch) < limit {
+			// No more region
+			break
+		}
+		startKey = batch[len(batch)-1].Region.GetEndKey()
+		if len(startKey) == 0 ||
+			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
+			// All key space have scanned
+			break
+		}
+	}
+	return regions, nil
 }

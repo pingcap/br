@@ -21,6 +21,7 @@ import (
 )
 
 const importScanRegionTime = 10 * time.Second
+const scanRegionPaginationLimit = int(128)
 
 // ImporterClient is used to import a file to TiKV
 type ImporterClient interface {
@@ -163,7 +164,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err1 := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
+		regionInfos, err1 := paginateScanRegion(
+			ctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
 		if err1 != nil {
 			return errors.Trace(err1)
 		}

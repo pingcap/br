@@ -87,8 +87,7 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		var regions []*RegionInfo
-		regions, err = rs.client.ScanRegions(ctx, minKey, maxKey, 0)
+		regions, err := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
 		if err != nil {
 			return errors.Trace(err)
 		}
