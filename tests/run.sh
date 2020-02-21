@@ -24,6 +24,7 @@ TIDB_ADDR="127.0.0.1:4000"
 TIDB_STATUS_ADDR="127.0.0.1:10080"
 # actaul tikv_addr are TIKV_ADDR${i}
 TIKV_ADDR="127.0.0.1:2016"
+TIKV_STATUS_ADDR="127.0.0.1:2018"
 TIKV_COUNT=4
 
 stop_services() {
@@ -55,6 +56,7 @@ start_services() {
         bin/tikv-server \
             --pd "$PD_ADDR" \
             -A "$TIKV_ADDR$i" \
+            --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
             -C "tests/config/tikv.toml" \
             -s "$TEST_DIR/tikv${i}" &
