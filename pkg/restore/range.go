@@ -1,7 +1,6 @@
 package restore
 
 import (
-	"github.com/google/btree"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -52,14 +51,7 @@ func sortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			return nil, errors.Errorf("ranges overlapped: %s, %s", out, rg)
 		}
 	}
-	sortedRanges := make([]rtree.Range, 0, len(ranges))
-	rangeTree.Ascend(func(rg btree.Item) bool {
-		if rg == nil {
-			return false
-		}
-		sortedRanges = append(sortedRanges, *rg.(*rtree.Range))
-		return true
-	})
+	sortedRanges := rangeTree.GetSortedRanges()
 	return sortedRanges, nil
 }
 

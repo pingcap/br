@@ -166,12 +166,24 @@ func (rangeTree *RangeTree) Put(
 }
 
 // InsertRange inserts ranges into the range tree.
-// it returns true if all ranges inserted successfully.
-// it returns false if there are some overlapped ranges.
+// It returns a non-nil range if there are soe overlapped ranges.
 func (rangeTree *RangeTree) InsertRange(rg Range) *Range {
 	out := rangeTree.ReplaceOrInsert(&rg)
 	if out == nil {
 		return nil
 	}
 	return out.(*Range)
+}
+
+// GetSortedRanges collects and returns sorted ranges.
+func (rangeTree *RangeTree) GetSortedRanges() []Range {
+	sortedRanges := make([]Range, 0, rangeTree.Len())
+	rangeTree.Ascend(func(rg btree.Item) bool {
+		if rg == nil {
+			return false
+		}
+		sortedRanges = append(sortedRanges, *rg.(*Range))
+		return true
+	})
+	return sortedRanges
 }

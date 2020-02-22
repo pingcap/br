@@ -15,6 +15,7 @@ import (
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 const (
@@ -123,6 +124,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	summary.CollectInt("restore ranges", len(ranges))
 
+	ranges = restore.AttachFilesToRanges(files, ranges)
+
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
 		ctx,
@@ -131,17 +134,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		int64(len(ranges)+len(files)),
 		!cfg.LogProgress)
 
-	removedSchedulers, err := restorePreWork(ctx, client, mgr)
+	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
 		return err
 	}
 
-	err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
-	if err != nil {
-		log.Error("split regions failed", zap.Error(err))
-		return err
-	}
-
+	// Do not reset timestamp if we are doing incremental restore, because
+	// we are not allowed to decrease timestamp.
 	if !client.IsIncremental() {
 		if err = client.ResetTS(cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
@@ -149,15 +148,40 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	err = client.RestoreFiles(files, rewriteRules, updateCh)
-	// always run the post-work even on error, so we don't stuck in the import mode or emptied schedulers
-	postErr := restorePostWork(ctx, client, mgr, removedSchedulers)
+	// Restore sst files in batch, the max size of batches are 64.
+	batchSize := 64
+	batches := make([][]rtree.Range, 0, (len(ranges)+batchSize-1)/batchSize)
+	for batchSize < len(ranges) {
+		ranges, batches = ranges[batchSize:], append(batches, ranges[0:batchSize:batchSize])
+	}
+	batches = append(batches, ranges)
 
+	for _, rangeBatch := range batches {
+		// Split regions by the given rangeBatch.
+		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
+		if err != nil {
+			log.Error("split regions failed", zap.Error(err))
+			return err
+		}
+
+		// Collect related files in the given rangeBatch.
+		fileBatch := make([]*backup.File, 0, 2*len(rangeBatch))
+		for _, rg := range rangeBatch {
+			fileBatch = append(fileBatch, rg.Files...)
+		}
+
+		// After split, we can restore backup files.
+		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
+		if err != nil {
+			break
+		}
+	}
+
+	// Always run the post-work even on error, so we don't stuck in the import
+	// mode or emptied schedulers
+	err = restorePostWork(ctx, client, mgr, clusterCfg)
 	if err != nil {
 		return err
-	}
-	if postErr != nil {
-		return postErr
 	}
 
 	// Restore has finished.
