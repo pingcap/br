@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -55,17 +56,17 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunRestore starts a restore task inside the current goroutine.
-func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
+func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, mgr.GetPDClient(), mgr.GetTiKV())
+	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV())
 	if err != nil {
 		return err
 	}

@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -53,11 +54,12 @@ type Client struct {
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
+	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	db, err := NewDB(store)
+	db, err := NewDB(g, store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)

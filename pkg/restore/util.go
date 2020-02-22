@@ -324,12 +324,3 @@ func encodeKeyPrefix(key []byte) []byte {
 	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
-
-// escape the identifier for pretty-printing.
-// For instance, the identifier "foo `bar`" will become "`foo ``bar```".
-// The sqlMode controls whether to escape with backquotes (`) or double quotes
-// (`"`) depending on whether mysql.ModeANSIQuotes is enabled.
-func escapeTableName(cis model.CIStr) string {
-	quote := "`"
-	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
-}

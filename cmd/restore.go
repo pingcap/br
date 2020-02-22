@@ -14,7 +14,7 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	return task.RunRestore(GetDefaultContext(), cmdName, &cfg)
+	return task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
 // NewRestoreCommand returns a restore subcommand

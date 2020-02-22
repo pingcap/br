@@ -15,7 +15,7 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	return task.RunBackup(GetDefaultContext(), cmdName, &cfg)
+	return task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
 // NewBackupCommand return a full backup subcommand.
