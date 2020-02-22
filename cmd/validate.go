@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 // NewValidateCommand return a debug subcommand.
@@ -166,15 +167,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore.NewRangeTree()
+			rangeTree := rtree.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore.Range{
+				if out := rangeTree.InsertRange(rtree.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore.Range)),
+						zap.Stringer("out", out),
 						zap.Stringer("file", file),
 					)
 				}

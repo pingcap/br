@@ -1,0 +1,177 @@
+// Copyright 2020 PingCAP, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package rtree
+
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/google/btree"
+	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
+)
+
+// Range represents a backup response.
+type Range struct {
+	StartKey []byte
+	EndKey   []byte
+	Files    []*backup.File
+	// Addition data attached in Range
+	// Attachment interface{}
+}
+
+// String formats a range to a string
+func (rg *Range) String() string {
+	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
+}
+
+// Intersect returns
+func (rg *Range) Intersect(
+	start, end []byte,
+) (subStart, subEnd []byte, isIntersect bool) {
+	// empty mean the max end key
+	if len(rg.EndKey) != 0 && bytes.Compare(start, rg.EndKey) >= 0 {
+		isIntersect = false
+		return
+	}
+	if len(end) != 0 && bytes.Compare(end, rg.StartKey) <= 0 {
+		isIntersect = false
+		return
+	}
+	isIntersect = true
+	if bytes.Compare(start, rg.StartKey) >= 0 {
+		subStart = start
+	} else {
+		subStart = rg.StartKey
+	}
+	switch {
+	case len(end) == 0:
+		subEnd = rg.EndKey
+	case len(rg.EndKey) == 0:
+		subEnd = end
+	case bytes.Compare(end, rg.EndKey) < 0:
+		subEnd = end
+	default:
+		subEnd = rg.EndKey
+	}
+	return
+}
+
+// Contains check if the range contains the given key, [start, end)
+func (rg *Range) Contains(key []byte) bool {
+	start, end := rg.StartKey, rg.EndKey
+	return bytes.Compare(key, start) >= 0 &&
+		(len(end) == 0 || bytes.Compare(key, end) < 0)
+}
+
+// Less impls btree.Item
+func (rg *Range) Less(than btree.Item) bool {
+	// rg.StartKey < than.StartKey
+	ta := than.(*Range)
+	return bytes.Compare(rg.StartKey, ta.StartKey) < 0
+}
+
+var _ btree.Item = &Range{}
+
+// RangeTree is sorted tree for Ranges.
+// All the ranges it stored do not overlap.
+type RangeTree struct {
+	*btree.BTree
+}
+
+// NewRangeTree returns an empty range tree.
+func NewRangeTree() RangeTree {
+	return RangeTree{
+		BTree: btree.New(32),
+	}
+}
+
+// Find is a helper function to find an item that contains the range start
+// key.
+func (rangeTree *RangeTree) Find(rg *Range) *Range {
+	var ret *Range
+	rangeTree.DescendLessOrEqual(rg, func(i btree.Item) bool {
+		ret = i.(*Range)
+		return false
+	})
+
+	if ret == nil || !ret.Contains(rg.StartKey) {
+		return nil
+	}
+
+	return ret
+}
+
+// getOverlaps gets the ranges which are overlapped with the specified range range.
+func (rangeTree *RangeTree) getOverlaps(rg *Range) []*Range {
+	// note that find() gets the last item that is less or equal than the range.
+	// in the case: |_______a_______|_____b_____|___c___|
+	// new range is     |______d______|
+	// find() will return Range of range_a
+	// and both startKey of range_a and range_b are less than endKey of range_d,
+	// thus they are regarded as overlapped ranges.
+	found := rangeTree.Find(rg)
+	if found == nil {
+		found = rg
+	}
+
+	var overlaps []*Range
+	rangeTree.AscendGreaterOrEqual(found, func(i btree.Item) bool {
+		over := i.(*Range)
+		if len(rg.EndKey) > 0 && bytes.Compare(rg.EndKey, over.StartKey) <= 0 {
+			return false
+		}
+		overlaps = append(overlaps, over)
+		return true
+	})
+	return overlaps
+}
+
+// Update inserts range into tree and delete overlapping ranges.
+func (rangeTree *RangeTree) Update(rg Range) {
+	overlaps := rangeTree.getOverlaps(&rg)
+	// Range has backuped, overwrite overlapping range.
+	for _, item := range overlaps {
+		log.Info("delete overlapping range",
+			zap.Binary("StartKey", item.StartKey),
+			zap.Binary("EndKey", item.EndKey),
+		)
+		rangeTree.Delete(item)
+	}
+	rangeTree.ReplaceOrInsert(&rg)
+}
+
+// Put forms a range and inserts it into tree.
+func (rangeTree *RangeTree) Put(
+	startKey, endKey []byte, files []*backup.File,
+) {
+	rg := Range{
+		StartKey: startKey,
+		EndKey:   endKey,
+		Files:    files,
+	}
+	rangeTree.Update(rg)
+}
+
+// InsertRange inserts ranges into the range tree.
+// it returns true if all ranges inserted successfully.
+// it returns false if there are some overlapped ranges.
+func (rangeTree *RangeTree) InsertRange(rg Range) *Range {
+	out := rangeTree.ReplaceOrInsert(&rg)
+	if out == nil {
+		return nil
+	}
+	return out.(*Range)
+}

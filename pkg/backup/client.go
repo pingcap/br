@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 // ClientMgr manages connections needed by backup.
@@ -179,13 +180,13 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	tableFilter *filter.Filter,
 	backupTS uint64,
-) ([]Range, *Schemas, error) {
+) ([]rtree.Range, *Schemas, error) {
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
 
-	ranges := make([]Range, 0)
+	ranges := make([]rtree.Range, 0)
 	backupSchemas := newBackupSchemas()
 	for _, dbInfo := range info.AllSchemas() {
 		// skip system databases
@@ -233,7 +234,7 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, err
 			}
 			for _, r := range tableRanges {
-				ranges = append(ranges, Range{
+				ranges = append(ranges, rtree.Range{
 					StartKey: r.StartKey,
 					EndKey:   r.EndKey,
 				})
@@ -295,7 +296,7 @@ func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*mod
 // BackupRanges make a backup of the given key ranges.
 func (bc *Client) BackupRanges(
 	ctx context.Context,
-	ranges []Range,
+	ranges []rtree.Range,
 	lastBackupTS uint64,
 	backupTS uint64,
 	rateLimit uint64,
@@ -400,12 +401,12 @@ func (bc *Client) backupRange(
 	}
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
-	var results RangeTree
+	var results rtree.RangeTree
 	results, err = push.pushBackup(req, allStores, updateCh)
 	if err != nil {
 		return err
 	}
-	log.Info("finish backup push down", zap.Int("Ok", results.len()))
+	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
@@ -422,14 +423,14 @@ func (bc *Client) backupRange(
 		zap.Reflect("StartVersion", lastBackupTS),
 		zap.Reflect("EndVersion", backupTS))
 
-	results.tree.Ascend(func(i btree.Item) bool {
-		r := i.(*Range)
+	results.Ascend(func(i btree.Item) bool {
+		r := i.(*rtree.Range)
 		bc.backupMeta.Files = append(bc.backupMeta.Files, r.Files...)
 		return true
 	})
 
 	// Check if there are duplicated files.
-	results.checkDupFiles()
+	checkDupFiles(&results)
 
 	return nil
 }
@@ -467,13 +468,13 @@ func (bc *Client) fineGrainedBackup(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-	rangeTree RangeTree,
+	rangeTree rtree.RangeTree,
 	updateCh chan<- struct{},
 ) error {
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
-		incomplete := rangeTree.getIncompleteRange(startKey, endKey)
+		incomplete := getIncompleteRange(&rangeTree, startKey, endKey)
 		if len(incomplete) == 0 {
 			return nil
 		}
@@ -481,7 +482,7 @@ func (bc *Client) fineGrainedBackup(
 		// Step2, retry backup on incomplete range
 		respCh := make(chan *backup.BackupResponse, 4)
 		errCh := make(chan error, 4)
-		retry := make(chan Range, 4)
+		retry := make(chan rtree.Range, 4)
 
 		max := &struct {
 			ms int
@@ -540,7 +541,7 @@ func (bc *Client) fineGrainedBackup(
 					zap.Binary("StartKey", resp.StartKey),
 					zap.Binary("EndKey", resp.EndKey),
 				)
-				rangeTree.put(resp.StartKey, resp.EndKey, resp.Files)
+				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
 				updateCh <- struct{}{}
@@ -626,7 +627,7 @@ func onBackupResponse(
 func (bc *Client) handleFineGrained(
 	ctx context.Context,
 	bo *tikv.Backoffer,
-	rg Range,
+	rg rtree.Range,
 	lastBackupTS uint64,
 	backupTS uint64,
 	rateLimit uint64,

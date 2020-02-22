@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 var recordPrefixSep = []byte("_r")
@@ -153,8 +154,8 @@ func getSSTMetaFromFile(
 func ValidateFileRanges(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
-) ([]Range, error) {
-	ranges := make([]Range, 0, len(files))
+) ([]rtree.Range, error) {
+	ranges := make([]rtree.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
@@ -173,7 +174,7 @@ func ValidateFileRanges(
 					zap.Stringer("file", file))
 				return nil, errors.New("table ids dont match")
 			}
-			ranges = append(ranges, Range{
+			ranges = append(ranges, rtree.Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
 			})
@@ -275,7 +276,7 @@ func truncateTS(key []byte) []byte {
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
-	ranges []Range,
+	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) error {
