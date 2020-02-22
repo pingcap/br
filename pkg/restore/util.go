@@ -3,7 +3,6 @@ package restore
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -353,7 +352,6 @@ func paginateScanRegion(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		fmt.Println("scan regions length", len(batch))
 		regions = append(regions, batch...)
 		if len(batch) < limit {
 			// No more region

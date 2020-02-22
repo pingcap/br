@@ -3,7 +3,6 @@ package restore
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"sync"
 
 	. "github.com/pingcap/check"
@@ -153,7 +152,6 @@ func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit 
 	infos := c.regionsInfo.ScanRange(key, endKey, limit)
 	regions := make([]*RegionInfo, 0, len(infos))
 	for _, info := range infos {
-		fmt.Printf("region %v\n", info)
 		regions = append(regions, &RegionInfo{
 			Region: info.GetMeta(),
 			Leader: info.GetLeader(),
