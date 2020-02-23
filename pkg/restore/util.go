@@ -325,15 +325,6 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// escape the identifier for pretty-printing.
-// For instance, the identifier "foo `bar`" will become "`foo ``bar```".
-// The sqlMode controls whether to escape with backquotes (`) or double quotes
-// (`"`) depending on whether mysql.ModeANSIQuotes is enabled.
-func escapeTableName(cis model.CIStr) string {
-	quote := "`"
-	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
-}
-
 // paginateScanRegion scan regions with a limit pagination and
 // return all regions at once.
 // It reduces max gRPC message size.

@@ -20,7 +20,6 @@ import (
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
@@ -28,6 +27,7 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -90,7 +90,7 @@ func pdRequest(
 }
 
 // NewMgr creates a new Mgr.
-func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, error) {
+func NewMgr(ctx context.Context, g glue.Glue, pdAddrs string, storage tikv.Storage) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
@@ -138,7 +138,7 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 		return nil, errors.Errorf("tikv cluster not health %+v", stores)
 	}
 
-	dom, err := session.BootstrapSession(storage)
+	dom, err := g.BootstrapSession(storage)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

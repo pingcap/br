@@ -16,32 +16,41 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
+ROW_COUNT=100
+PATH="tests/$TEST_NAME:bin:$PATH"
 
-run_sql "CREATE DATABASE $DB;"
-
-go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
-row_count_ori_full=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+echo "load data..."
+# create database
+run_sql "CREATE DATABASE IF NOT EXISTS $DB;"
+# create table
+run_sql "CREATE TABLE IF NOT EXISTS ${DB}.${TABLE} (c1 INT);"
+# insert records
+for i in $(seq $ROW_COUNT); do
+    run_sql "INSERT INTO ${DB}.${TABLE} VALUES ($i);"
+done
 
 # full backup
-echo "full backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/full" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
-
-go-ycsb run mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
-
+echo "backup full start..."
+run_sql "CREATE INDEX idx_c1 ON ${DB}.${TABLE}(c1)" &
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/full" --ratelimit 5 --concurrency 4
+wait
+# run ddls
+echo "run ddls..."
+run_sql "ALTER TABLE ${DB}.${TABLE} ADD COLUMN c2 INT NOT NULL;";
+run_sql "ALTER TABLE ${DB}.${TABLE} ADD COLUMN c3 INT NOT NULL;";
+run_sql "ALTER TABLE ${DB}.${TABLE} DROP COLUMN c3;";
 # incremental backup
 echo "incremental backup start..."
 last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | tail -n1)
 run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
-row_count_ori_inc=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 run_sql "DROP DATABASE $DB;"
-
 # full restore
 echo "full restore start..."
 run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB/full" --pd $PD_ADDR
 row_count_full=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 # check full restore
-if [ "${row_count_full}" != "${row_count_ori_full}" ];then
+if [ "${row_count_full}" != "${ROW_COUNT}" ];then
     echo "TEST: [$TEST_NAME] full restore fail on database $DB"
     exit 1
 fi
@@ -50,8 +59,15 @@ echo "incremental restore start..."
 run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB/inc" --pd $PD_ADDR
 row_count_inc=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 # check full restore
-if [ "${row_count_inc}" != "${row_count_ori_inc}" ];then
+if [ "${row_count_inc}" != "${ROW_COUNT}" ];then
     echo "TEST: [$TEST_NAME] incremental restore fail on database $DB"
+    exit 1
+fi
+run_sql "INSERT INTO ${DB}.${TABLE} VALUES (1, 1);"
+row_count_insert=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+# check insert count
+if [ "${row_count_insert}" != "$(expr $row_count_inc + 1)" ];then
+    echo "TEST: [$TEST_NAME] insert record fail on database $DB"
     exit 1
 fi
 
