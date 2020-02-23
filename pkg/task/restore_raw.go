@@ -119,10 +119,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Trace(err)
 	}
 
-	err = restorePostWork(ctx, client, mgr, removedSchedulers)
-	if err != nil {
-		return errors.Trace(err)
-	}
+	restorePostWork(ctx, client, mgr, removedSchedulers)
 	// Restore has finished.
 	close(updateCh)
 
