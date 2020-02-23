@@ -37,10 +37,9 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient        pd.Client
-	fileImporter    FileImporter
-	workerPool      *utils.WorkerPool
-	tableWorkerPool *utils.WorkerPool
+	pdClient     pd.Client
+	fileImporter FileImporter
+	workerPool   *utils.WorkerPool
 
 	databases       map[string]*utils.Database
 	ddlJobs         []*model.Job
@@ -66,11 +65,10 @@ func NewRestoreClient(
 	}
 
 	return &Client{
-		ctx:             ctx,
-		cancel:          cancel,
-		pdClient:        pdClient,
-		tableWorkerPool: utils.NewWorkerPool(128, "table"),
-		db:              db,
+		ctx:      ctx,
+		cancel:   cancel,
+		pdClient: pdClient,
+		db:       db,
 	}, nil
 }
 
