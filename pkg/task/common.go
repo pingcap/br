@@ -78,8 +78,13 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.String(flagKey, "", "Private key path for TLS connection")
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
-	flags.Uint32(flagConcurrency, 4, "The size of thread pool on each node that executes the task")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+
+	// Default concurrency is different for backup and restore.
+	// Leave it 0 and let them adjust the value.
+	flags.Uint32(flagConcurrency, 0, "The size of thread pool on each node that executes the task")
+	// It may confuse users , so just hide it.
+	_ = flags.MarkHidden(flagConcurrency)
 
 	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)

@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"math"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -32,6 +33,11 @@ var schedulers = map[string]struct{}{
 	"shuffle-hot-region-scheduler": {},
 }
 
+const (
+	defaultRestoreConcurrency = 128
+	maxRestoreBatchSizeLimit  = 256
+)
+
 // RestoreConfig is the configuration specific for restore tasks.
 type RestoreConfig struct {
 	Config
@@ -53,7 +59,14 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return cfg.Config.ParseFromFlags(flags)
+	err = cfg.Config.ParseFromFlags(flags)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if cfg.Config.Concurrency == 0 {
+		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	return nil
 }
 
 // RunRestore starts a restore task inside the current goroutine.
@@ -148,8 +161,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	// Restore sst files in batch, the max size of batches are 64.
-	batchSize := 64
+	// Restore sst files in batch.
+	batchSize := int(math.Min(maxRestoreBatchSizeLimit /* 256 */, float64(cfg.Concurrency)))
 	batches := make([][]rtree.Range, 0, (len(ranges)+batchSize-1)/batchSize)
 	for batchSize < len(ranges) {
 		ranges, batches = ranges[batchSize:], append(batches, ranges[0:batchSize:batchSize])
