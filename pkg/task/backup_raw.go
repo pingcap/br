@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -66,7 +67,7 @@ func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunBackupRaw starts a backup task inside the current goroutine.
-func RunBackupRaw(c context.Context, cmdName string, cfg *BackupRawConfig) error {
+func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRawConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -74,7 +75,7 @@ func RunBackupRaw(c context.Context, cmdName string, cfg *BackupRawConfig) error
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD)
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func RunBackupRaw(c context.Context, cmdName string, cfg *BackupRawConfig) error
 	close(updateCh)
 
 	// Checksum
-	err = client.SaveBackupMeta(ctx)
+	err = client.SaveBackupMeta(ctx, nil)
 	if err != nil {
 		return err
 	}
