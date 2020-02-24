@@ -10,7 +10,7 @@ import (
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/utils/rtree"
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // pushDown warps a backup task.

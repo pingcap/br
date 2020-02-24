@@ -2,7 +2,6 @@ package task
 
 import (
 	"context"
-	"math"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -14,9 +13,9 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 const (
@@ -162,14 +161,20 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := int(math.Min(maxRestoreBatchSizeLimit /* 256 */, float64(cfg.Concurrency)))
-	batches := make([][]rtree.Range, 0, (len(ranges)+batchSize-1)/batchSize)
-	for batchSize < len(ranges) {
-		ranges, batches = ranges[batchSize:], append(batches, ranges[0:batchSize:batchSize])
+	batchSize := int(cfg.Concurrency)
+	if batchSize > maxRestoreBatchSizeLimit {
+		batchSize = maxRestoreBatchSizeLimit // 256
 	}
-	batches = append(batches, ranges)
+	for {
+		if len(ranges) == 0 {
+			break
+		}
+		if batchSize > len(ranges) {
+			batchSize = len(ranges)
+		}
+		var rangeBatch []rtree.Range
+		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
 
-	for _, rangeBatch := range batches {
 		// Split regions by the given rangeBatch.
 		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
 		if err != nil {

@@ -104,23 +104,13 @@ func (tc *logCollector) CollectFailureUnit(name string, reason error) {
 func (tc *logCollector) CollectDuration(name string, t time.Duration) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	val, ok := tc.durations[name]
-	if ok {
-		tc.durations[name] = val + t
-		return
-	}
-	tc.durations[name] = t
+	tc.durations[name] += t
 }
 
 func (tc *logCollector) CollectInt(name string, t int) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	val, ok := tc.ints[name]
-	if ok {
-		tc.ints[name] = val + t
-		return
-	}
-	tc.ints[name] = t
+	tc.ints[name] += t
 }
 
 func (tc *logCollector) Summary(name string) {

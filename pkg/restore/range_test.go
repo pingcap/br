@@ -7,7 +7,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/tidb/tablecodec"
 
-	"github.com/pingcap/br/pkg/utils/rtree"
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 type testRangeSuite struct{}

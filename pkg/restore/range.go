@@ -8,7 +8,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/utils/rtree"
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // sortRanges checks if the range overlapped and sort them

@@ -19,9 +19,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 // NewValidateCommand return a debug subcommand.
