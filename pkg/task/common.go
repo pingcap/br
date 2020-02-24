@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
-	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -214,12 +213,6 @@ func newMgr(ctx context.Context, g glue.Glue, pds []string, tlsConfig TLSConfig)
 
 	securityOption := pd.SecurityOption{}
 	if tlsConfig.IsEnabled() {
-		conf := config.GetGlobalConfig()
-		conf.Security.ClusterSSLCA = tlsConfig.CA
-		conf.Security.ClusterSSLCert = tlsConfig.Cert
-		conf.Security.ClusterSSLKey = tlsConfig.Key
-		config.StoreGlobalConfig(conf)
-
 		securityOption.CAPath = tlsConfig.CA
 		securityOption.CertPath = tlsConfig.Cert
 		securityOption.KeyPath = tlsConfig.Key
@@ -230,7 +223,7 @@ func newMgr(ctx context.Context, g glue.Glue, pds []string, tlsConfig TLSConfig)
 	}
 
 	// Disable GC because TiDB enables GC already.
-	store, err := tikv.Driver{}.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+	store, err := g.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress), securityOption)
 	if err != nil {
 		return nil, err
 	}
