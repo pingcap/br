@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -331,13 +332,12 @@ func encodeKeyPrefix(key []byte) []byte {
 func paginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
-	regions := []*RegionInfo{}
-
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		log.Fatal("startKey >= endKey",
-			zap.Binary("startKey", startKey), zap.Binary("endKey", endKey))
+		return nil, errors.Errorf("startKey >= endKey, startKey %s, endkey %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	}
 
+	regions := []*RegionInfo{}
 	for {
 		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
 		if err != nil {
