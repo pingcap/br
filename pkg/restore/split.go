@@ -14,7 +14,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/utils/rtree"
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // Constants for split retry machinery.

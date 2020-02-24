@@ -29,10 +29,10 @@ import (
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 // ClientMgr manages connections needed by backup.

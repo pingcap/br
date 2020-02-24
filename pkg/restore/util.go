@@ -18,8 +18,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
-	"github.com/pingcap/br/pkg/utils/rtree"
 )
 
 var recordPrefixSep = []byte("_r")
