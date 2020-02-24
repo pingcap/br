@@ -38,7 +38,7 @@ func (suit *testCollectorSuite) TestSumDurationInt(c *C) {
 				return
 			}
 		}
-		c.Assert(fields, DeepEquals, field) // Must fail and prints detail
+		c.Error(fields, "do not contain", field)
 	}
 	assertContains(zap.Duration("a", time.Second))
 	assertContains(zap.Duration("b", 2*time.Second))
