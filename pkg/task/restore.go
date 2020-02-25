@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb-tools/pkg/filter"
+	"github.com/pingcap/tidb/model"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
@@ -76,6 +77,10 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	if cfg.Online {
 		client.EnableOnline()
 	}
+	err = client.LoadRestoreStores(ctx)
+	if err != nil {
+		return err
+	}
 
 	defer summary.Summary(cmdName)
 
@@ -114,6 +119,10 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	}
 	summary.CollectInt("restore ranges", len(ranges))
 
+	if err := splitPrepareWork(ctx, client, newTables); err != nil {
+		return err
+	}
+
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
 		ctx,
@@ -148,6 +157,10 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	}
 	if postErr != nil {
 		return postErr
+	}
+
+	if err := splitPostWork(ctx, client, newTables); err != nil {
+		return err
 	}
 
 	// Restore has finished.
@@ -249,6 +262,34 @@ func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers 
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func splitPrepareWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.SetupPlacementRules(ctx, tables)
+	if err != nil {
+		log.Error("setup placement rules failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+
+	err = client.WaitPlacementSchedule(ctx, tables)
+	if err != nil {
+		log.Error("wait placement schedule failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.ResetPlacementRules(ctx, tables)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = client.ResetRestoreLabels(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
 	return nil
 }
