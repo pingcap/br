@@ -6,8 +6,8 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
-	"github.com/pingcap/tidb/model"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
@@ -128,7 +128,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	summary.CollectInt("restore ranges", len(ranges))
 
-	if err := splitPrepareWork(ctx, client, newTables); err != nil {
+	if err = splitPrepareWork(ctx, client, newTables); err != nil {
 		return err
 	}
 
@@ -168,7 +168,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return postErr
 	}
 
-	if err := splitPostWork(ctx, client, newTables); err != nil {
+	if err = splitPostWork(ctx, client, newTables); err != nil {
 		return err
 	}
 
