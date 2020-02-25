@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -178,7 +179,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context, pds []string) (*conn.Mgr, error) {
+func newMgr(ctx context.Context, g glue.Glue, pds []string) (*conn.Mgr, error) {
 	pdAddress := strings.Join(pds, ",")
 	if len(pdAddress) == 0 {
 		return nil, errors.New("pd address can not be empty")
@@ -189,7 +190,7 @@ func newMgr(ctx context.Context, pds []string) (*conn.Mgr, error) {
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, pdAddress, store.(tikv.Storage))
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage))
 }
 
 // GetStorage gets the storage backend from the config.

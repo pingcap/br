@@ -196,19 +196,19 @@ func newBackupMetaCommand() *cobra.Command {
 				newTable := new(model.TableInfo)
 				tableID, _ := tableIDAllocator.Alloc()
 				newTable.ID = int64(tableID)
-				newTable.Name = table.Schema.Name
-				newTable.Indices = make([]*model.IndexInfo, len(table.Schema.Indices))
-				for i, indexInfo := range table.Schema.Indices {
+				newTable.Name = table.Info.Name
+				newTable.Indices = make([]*model.IndexInfo, len(table.Info.Indices))
+				for i, indexInfo := range table.Info.Indices {
 					indexID, _ := indexIDAllocator.Alloc()
 					newTable.Indices[i] = &model.IndexInfo{
 						ID:   int64(indexID),
 						Name: indexInfo.Name,
 					}
 				}
-				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
+				rules := restore.GetRewriteRules(newTable, table.Info, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
-				tableIDMap[table.Schema.ID] = int64(tableID)
+				tableIDMap[table.Info.ID] = int64(tableID)
 			}
 			// Validate rewrite rules
 			for _, file := range files {

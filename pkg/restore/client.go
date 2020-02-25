@@ -3,8 +3,10 @@ package restore
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -29,6 +31,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -49,6 +52,7 @@ type Client struct {
 	tableWorkerPool *utils.WorkerPool
 
 	databases       map[string]*utils.Database
+	ddlJobs         []*model.Job
 	backupMeta      *backup.BackupMeta
 	db              *DB
 	rateLimit       uint64
@@ -61,11 +65,12 @@ type Client struct {
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
+	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	db, err := NewDB(store)
+	db, err := NewDB(g, store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -109,8 +114,15 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	if err != nil {
 		return errors.Trace(err)
 	}
+	var ddlJobs []*model.Job
+	err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	rc.databases = databases
+	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
+	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient)
 	importClient := NewImportClient(metaClient)
@@ -163,6 +175,11 @@ func (rc *Client) GetDatabase(name string) *utils.Database {
 	return rc.databases[name]
 }
 
+// GetDDLJobs returns ddl jobs
+func (rc *Client) GetDDLJobs() []*model.Job {
+	return rc.ddlJobs
+}
+
 // GetTableSchema returns the schema of a table from TiDB.
 func (rc *Client) GetTableSchema(
 	dom *domain.Domain,
@@ -201,16 +218,36 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Schema.Name)
+		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
+		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
 	}
 	return rewriteRules, newTables, nil
+}
+
+// ExecDDLs executes the queries of the ddl jobs.
+func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
+	// Sort the ddl jobs by schema version in ascending order.
+	sort.Slice(ddlJobs, func(i, j int) bool {
+		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
+	})
+
+	for _, job := range ddlJobs {
+		err := rc.db.ExecDDL(rc.ctx, job)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		log.Info("execute ddl query",
+			zap.String("db", job.SchemaName),
+			zap.String("query", job.Query),
+			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
+	}
+	return nil
 }
 
 func (rc *Client) setSpeedLimit() error {
@@ -392,7 +429,7 @@ func (rc *Client) ValidateChecksum(
 					checksumResp.TotalBytes != table.TotalBytes {
 					log.Error("failed in validate checksum",
 						zap.String("database", table.Db.Name.L),
-						zap.String("table", table.Schema.Name.L),
+						zap.String("table", table.Info.Name.L),
 						zap.Uint64("origin tidb crc64", table.Crc64Xor),
 						zap.Uint64("calculated crc64", checksumResp.Checksum),
 						zap.Uint64("origin tidb total kvs", table.TotalKvs),
