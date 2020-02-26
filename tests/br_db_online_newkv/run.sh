@@ -72,7 +72,10 @@ if [ "$table_count" -ne "2" ];then
     exit 1
 fi
 
+echo "reset placement rules..."
 bin/pd-ctl config set enable-placement-rules false
 
+echo "drop database"
 run_sql "DROP DATABASE $DB;"
 
+echo "test complete"
