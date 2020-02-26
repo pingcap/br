@@ -41,6 +41,8 @@ run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit
 
 run_sql "DROP DATABASE $DB;"
 
+echo "enable placement rules"
+
 # enable placement rules
 bin/pd-ctl config set enable-placement-rules true
 
