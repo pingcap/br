@@ -44,7 +44,7 @@ run_sql "DROP DATABASE $DB;"
 echo "enable placement rules"
 
 # enable placement rules
-bin/pd-ctl config set enable-placement-rules true
+pd-ctl config set enable-placement-rules true
 
 # add new tikv for restore
 # actaul tikv_addr are TIKV_ADDR${i}
@@ -54,13 +54,13 @@ TIKV_COUNT=3
 
 echo "Starting restore TiKV..."
 for i in $(seq $TIKV_COUNT); do
-    bin/tikv-server \
-        --pd "$PD_ADDR" \
-        -A "$TIKV_ADDR$i" \
-        --status-addr "$TIKV_STATUS_ADDR$i" \
-        --log-file "$TEST_DIR/restore-tikv${i}.log" \
-        -C "tests/config/restore-tikv.toml" \
-        -s "$TEST_DIR/restore-tikv${i}" &
+    tikv-server \
+      --pd "$PD_ADDR" \
+      -A "$TIKV_ADDR$i" \
+      --status-addr "$TIKV_STATUS_ADDR$i" \
+      --log-file "$TEST_DIR/restore-tikv${i}.log" \
+      -C "tests/config/restore-tikv.toml" \
+      -s "$TEST_DIR/restore-tikv${i}" &
 done
 sleep 5
 
@@ -75,7 +75,7 @@ if [ "$table_count" -ne "2" ];then
 fi
 
 echo "reset placement rules..."
-bin/pd-ctl config set enable-placement-rules false
+pd-ctl config set enable-placement-rules false
 
 echo "drop database"
 run_sql "DROP DATABASE $DB;"
