@@ -10,7 +10,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -101,7 +100,7 @@ func NewMgr(
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
 	if tlsConf != nil {
-		transport := reflect.New(reflect.ValueOf(http.DefaultTransport).Elem().Type()).Interface().(*http.Transport)
+		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConf
 		cli.Transport = transport
 	}

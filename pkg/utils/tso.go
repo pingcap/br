@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strings"
 	"time"
 
@@ -29,7 +28,7 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	prefix := "http://"
 	if tlsConf != nil {
 		prefix = "https://"
-		transport := reflect.New(reflect.ValueOf(http.DefaultTransport).Elem().Type()).Interface().(*http.Transport)
+		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConf
 		cli.Transport = transport
 	}
