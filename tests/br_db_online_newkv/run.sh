@@ -42,7 +42,6 @@ run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit
 run_sql "DROP DATABASE $DB;"
 
 # enable placement rules
-echo "enable placement rules"
 echo "config set enable-placement-rules true" | pd-ctl
 
 # add new tikv for restore
@@ -73,10 +72,6 @@ if [ "$table_count" -ne "2" ];then
     exit 1
 fi
 
-echo "reset placement rules..."
 echo "config set enable-placement-rules false" | pd-ctl
 
-echo "drop database"
 run_sql "DROP DATABASE $DB;"
-
-echo "test complete"
