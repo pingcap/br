@@ -83,7 +83,7 @@ func NewRestoreClient(
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
-		toolClient:      NewSplitClient(pdClient),
+		toolClient:      NewSplitClient(pdClient, tlsConf),
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 		tlsConf:         tlsConf,
