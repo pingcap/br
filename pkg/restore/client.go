@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
@@ -49,6 +51,7 @@ type Client struct {
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
+	tlsConf         *tls.Config
 
 	databases       map[string]*utils.Database
 	ddlJobs         []*model.Job
@@ -67,6 +70,7 @@ func NewRestoreClient(
 	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
+	tlsConf *tls.Config,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	db, err := NewDB(g, store)
@@ -82,6 +86,7 @@ func NewRestoreClient(
 		toolClient:      NewSplitClient(pdClient),
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
+		tlsConf:         tlsConf,
 	}, nil
 }
 
@@ -123,8 +128,8 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
-	metaClient := NewSplitClient(rc.pdClient)
-	importClient := NewImportClient(metaClient)
+	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
+	importClient := NewImportClient(metaClient, rc.tlsConf)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
 }
@@ -137,6 +142,11 @@ func (rc *Client) SetConcurrency(c uint) {
 // EnableOnline sets the mode of restore to online.
 func (rc *Client) EnableOnline() {
 	rc.isOnline = true
+}
+
+// GetTLSConfig returns the tls config
+func (rc *Client) GetTLSConfig() *tls.Config {
+	return rc.tlsConf
 }
 
 // GetTS gets a new timestamp from PD
@@ -156,7 +166,7 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	i := 0
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
-		return utils.ResetTS(pdAddrs[idx], restoreTS)
+		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
 	}, newResetTSBackoffer())
 }
 
@@ -343,6 +353,9 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	bfConf.MaxDelay = time.Second * 3
 	for _, store := range stores {
 		opt := grpc.WithInsecure()
+		if rc.tlsConf != nil {
+			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
+		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
 		keepAlive := 10
 		keepAliveTimeout := 3

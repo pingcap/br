@@ -30,6 +30,9 @@ require (
 	github.com/sirupsen/logrus v1.4.2
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.3
+	github.com/syndtr/goleveldb v1.0.1-0.20190625010220-02440ea7a285 // indirect
+	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
+	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.opencensus.io v0.22.2 // indirect
 	go.uber.org/zap v1.13.0
 	golang.org/x/net v0.0.0-20191011234655-491137f69257 // indirect
