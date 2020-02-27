@@ -71,6 +71,12 @@ static:
 		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
+		--disable wsl \
+		--disable funlen \
+		--disable whitespace \
+		--disable gocognit \
+		--disable godox \
+		--disable gomnd \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint:

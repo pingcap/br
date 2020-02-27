@@ -37,6 +37,7 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 && resp.StatusCode != 403 {
 		buf := new(bytes.Buffer)
 		_, err := buf.ReadFrom(resp.Body)
