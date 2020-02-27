@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/pd/server/schedule/placement"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
@@ -46,7 +45,7 @@ type Client struct {
 	cancel context.CancelFunc
 
 	pdClient        pd.Client
-	toolClient      restore_util.Client
+	toolClient      SplitClient
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
@@ -80,7 +79,7 @@ func NewRestoreClient(
 		ctx:             ctx,
 		cancel:          cancel,
 		pdClient:        pdClient,
-		toolClient:      restore_util.NewClient(pdClient),
+		toolClient:      NewSplitClient(pdClient),
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
 	}, nil
