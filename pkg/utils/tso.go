@@ -2,10 +2,12 @@ package utils
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/pingcap/errors"
 )
@@ -15,16 +17,23 @@ const (
 )
 
 // ResetTS resets the timestamp of PD to a bigger value
-func ResetTS(pdAddr string, ts uint64) error {
+func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	req, err := json.Marshal(struct {
 		TSO string `json:"tso,omitempty"`
 	}{TSO: fmt.Sprintf("%d", ts)})
 	if err != nil {
 		return err
 	}
-	// TODO: Support TLS
-	reqURL := "http://" + pdAddr + resetTSURL
-	resp, err := http.Post(reqURL, "application/json", strings.NewReader(string(req)))
+	cli := &http.Client{Timeout: 30 * time.Second}
+	prefix := "http://"
+	if tlsConf != nil {
+		prefix = "https://"
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConf
+		cli.Transport = transport
+	}
+	reqURL := prefix + pdAddr + resetTSURL
+	resp, err := cli.Post(reqURL, "application/json", strings.NewReader(string(req)))
 	if err != nil {
 		return errors.Trace(err)
 	}

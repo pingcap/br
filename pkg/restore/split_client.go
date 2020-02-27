@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -20,6 +21,7 @@ import (
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/pd/server/schedule/placement"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // SplitClient is an external client used by RegionSplitter.
@@ -58,13 +60,15 @@ type SplitClient interface {
 type pdClient struct {
 	mu         sync.Mutex
 	client     pd.Client
+	tlsConf    *tls.Config
 	storeCache map[uint64]*metapb.Store
 }
 
 // NewSplitClient returns a client used by RegionSplitter.
-func NewSplitClient(client pd.Client) SplitClient {
+func NewSplitClient(client pd.Client, tlsConf *tls.Config) SplitClient {
 	return &pdClient{
 		client:     client,
+		tlsConf:    tlsConf,
 		storeCache: make(map[uint64]*metapb.Store),
 	}
 }
@@ -199,7 +203,11 @@ func (c *pdClient) BatchSplitRegions(
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
+	opt := grpc.WithInsecure()
+	if c.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConf))
+	}
+	conn, err := grpc.Dial(store.GetAddress(), opt)
 	if err != nil {
 		return nil, err
 	}
