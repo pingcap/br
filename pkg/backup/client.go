@@ -73,25 +73,33 @@ func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 }
 
 // GetTS returns the latest timestamp.
-func (bc *Client) GetTS(ctx context.Context, duration time.Duration) (uint64, error) {
-	p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
-	backupTS := oracle.ComposeTS(p, l)
-
-	switch {
-	case duration < 0:
-		return 0, errors.New("negative timeago is not allowed")
-	case duration > 0:
-		log.Info("backup time ago", zap.Duration("timeago", duration))
-
-		backupTime := oracle.GetTimeFromTS(backupTS)
-		backupAgo := backupTime.Add(-duration)
-		if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
-			return 0, errors.New("backup ts overflow please choose a smaller timeago")
+func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) (uint64, error) {
+	var (
+		backupTS uint64
+		err      error
+	)
+	if ts > 0 {
+		backupTS = ts
+	} else {
+		p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return 0, errors.Trace(err)
 		}
-		backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
+		backupTS = oracle.ComposeTS(p, l)
+
+		switch {
+		case duration < 0:
+			return 0, errors.New("negative timeago is not allowed")
+		case duration > 0:
+			log.Info("backup time ago", zap.Duration("timeago", duration))
+
+			backupTime := oracle.GetTimeFromTS(backupTS)
+			backupAgo := backupTime.Add(-duration)
+			if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
+				return 0, errors.New("backup ts overflow please choose a smaller timeago")
+			}
+			backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
+		}
 	}
 
 	// check backup time do not exceed GCSafePoint
