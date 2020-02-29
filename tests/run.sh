@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Copyright 2019 PingCAP, Inc.
 #
@@ -39,5 +39,5 @@ for script in tests/*/run.sh; do
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
-    sh "$script"
+    bash "$script"
 done
