@@ -306,7 +306,7 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("download SST", zap.Stringer("sstMeta", sstMeta), zap.Reflect("leader", leader))
+	log.Debug("ingest SST", zap.Stringer("sstMeta", sstMeta), zap.Reflect("leader", leader))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
 		if strings.Contains(err.Error(), "RegionNotFound") {
