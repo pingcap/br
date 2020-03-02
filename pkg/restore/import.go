@@ -2,6 +2,7 @@ package restore
 
 import (
 	"context"
+	"crypto/tls"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/pingcap/pd/pkg/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -47,13 +49,15 @@ type importClient struct {
 	mu         sync.Mutex
 	metaClient SplitClient
 	clients    map[uint64]import_sstpb.ImportSSTClient
+	tlsConf    *tls.Config
 }
 
 // NewImportClient returns a new ImporterClient
-func NewImportClient(metaClient SplitClient) ImporterClient {
+func NewImportClient(metaClient SplitClient, tlsConf *tls.Config) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
 		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
+		tlsConf:    tlsConf,
 	}
 }
 
@@ -107,7 +111,11 @@ func (ic *importClient) getImportClient(
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
+	opt := grpc.WithInsecure()
+	if ic.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(ic.tlsConf))
+	}
+	conn, err := grpc.Dial(store.GetAddress(), opt)
 	if err != nil {
 		return nil, err
 	}

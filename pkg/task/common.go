@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,10 +10,12 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.etcd.io/etcd/pkg/transport"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -48,6 +51,25 @@ type TLSConfig struct {
 	CA   string `json:"ca" toml:"ca"`
 	Cert string `json:"cert" toml:"cert"`
 	Key  string `json:"key" toml:"key"`
+}
+
+// IsEnabled checks if TLS open or not
+func (tls *TLSConfig) IsEnabled() bool {
+	return tls.CA != ""
+}
+
+// ToTLSConfig generate tls.Config
+func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
+	tlsInfo := transport.TLSInfo{
+		CertFile:      tls.Cert,
+		KeyFile:       tls.Key,
+		TrustedCAFile: tls.CA,
+	}
+	tlsConfig, err := tlsInfo.ClientConfig()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return tlsConfig, nil
 }
 
 // Config is the common configuration for all BRIE tasks.
@@ -184,18 +206,33 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context, g glue.Glue, pds []string) (*conn.Mgr, error) {
+func newMgr(ctx context.Context, g glue.Glue, pds []string, tlsConfig TLSConfig) (*conn.Mgr, error) {
+	var (
+		tlsConf *tls.Config
+		err     error
+	)
 	pdAddress := strings.Join(pds, ",")
 	if len(pdAddress) == 0 {
 		return nil, errors.New("pd address can not be empty")
 	}
 
+	securityOption := pd.SecurityOption{}
+	if tlsConfig.IsEnabled() {
+		securityOption.CAPath = tlsConfig.CA
+		securityOption.CertPath = tlsConfig.Cert
+		securityOption.KeyPath = tlsConfig.Key
+		tlsConf, err = tlsConfig.ToTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Disable GC because TiDB enables GC already.
-	store, err := tikv.Driver{}.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+	store, err := g.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress), securityOption)
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage))
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption)
 }
 
 // GetStorage gets the storage backend from the config.

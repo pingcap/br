@@ -79,7 +79,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, g, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS)
 	if err != nil {
 		return err
 	}
