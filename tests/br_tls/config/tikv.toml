@@ -1,0 +1,19 @@
+# config of tikv
+
+[coprocessor]
+region-max-keys = 20
+region-split-keys = 12
+
+[rocksdb]
+max-open-files = 4096
+[raftdb]
+max-open-files = 4096
+[raftstore]
+# true (default value) for high reliability, this can prevent data loss when power failure.
+sync-log = false
+
+[security]
+# set the path for certificates. Empty string means disabling secure connectoins.
+ca-path = "tests/br_tls/certificates/ca.pem"
+cert-path = "tests/br_tls/certificates/server.pem"
+key-path = "tests/br_tls/certificates/server-key.pem"

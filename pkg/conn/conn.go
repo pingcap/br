@@ -3,6 +3,7 @@ package conn
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/glue"
@@ -46,6 +48,7 @@ type Mgr struct {
 		addrs []string
 		cli   *http.Client
 	}
+	tlsConf  *tls.Config
 	dom      *domain.Domain
 	storage  tikv.Storage
 	grpcClis struct {
@@ -60,9 +63,6 @@ func pdRequest(
 	ctx context.Context,
 	addr string, prefix string,
 	cli *http.Client, method string, body io.Reader) ([]byte, error) {
-	if addr != "" && !strings.HasPrefix("http", addr) {
-		addr = "http://" + addr
-	}
 	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -90,12 +90,33 @@ func pdRequest(
 }
 
 // NewMgr creates a new Mgr.
-func NewMgr(ctx context.Context, g glue.Glue, pdAddrs string, storage tikv.Storage) (*Mgr, error) {
+func NewMgr(
+	ctx context.Context,
+	g glue.Glue,
+	pdAddrs string,
+	storage tikv.Storage,
+	tlsConf *tls.Config,
+	securityOption pd.SecurityOption) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
+	if tlsConf != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConf
+		cli.Transport = transport
+	}
+
+	processedAddrs := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
+		if addr != "" && !strings.HasPrefix("http", addr) {
+			if tlsConf != nil {
+				addr = "https://" + addr
+			} else {
+				addr = "http://" + addr
+			}
+		}
+		processedAddrs = append(processedAddrs, addr)
 		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
 		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
@@ -111,7 +132,7 @@ func NewMgr(ctx context.Context, g glue.Glue, pdAddrs string, storage tikv.Stora
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
 	}
 	pdClient, err := pd.NewClient(
-		addrs, pd.SecurityOption{}, pd.WithGRPCDialOptions(maxCallMsgSize...))
+		addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
@@ -147,8 +168,9 @@ func NewMgr(ctx context.Context, g glue.Glue, pdAddrs string, storage tikv.Stora
 		pdClient: pdClient,
 		storage:  storage,
 		dom:      dom,
+		tlsConf:  tlsConf,
 	}
-	mgr.pdHTTP.addrs = addrs
+	mgr.pdHTTP.addrs = processedAddrs
 	mgr.pdHTTP.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return mgr, nil
@@ -224,6 +246,9 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		return nil, errors.Trace(err)
 	}
 	opt := grpc.WithInsecure()
+	if mgr.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(mgr.tlsConf))
+	}
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	keepAlive := 10
 	keepAliveTimeout := 3
@@ -274,6 +299,11 @@ func (mgr *Mgr) GetPDClient() pd.Client {
 // GetTiKV returns a tikv storage.
 func (mgr *Mgr) GetTiKV() tikv.Storage {
 	return mgr.storage
+}
+
+// GetTLSConfig returns the tls config
+func (mgr *Mgr) GetTLSConfig() *tls.Config {
+	return mgr.tlsConf
 }
 
 // GetLockResolver gets the LockResolver.

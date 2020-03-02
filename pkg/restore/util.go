@@ -285,7 +285,7 @@ func SplitRanges(
 		elapsed := time.Since(start)
 		summary.CollectDuration("split region", elapsed)
 	}()
-	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient()))
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
 	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
