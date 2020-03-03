@@ -5,11 +5,14 @@ import (
 	"context"
 
 	"github.com/pingcap/parser/model"
+	pd "github.com/pingcap/pd/client"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/store/tikv"
 
 	"github.com/pingcap/br/pkg/glue"
 )
@@ -33,6 +36,18 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 		return nil, err
 	}
 	return &tidbSession{se: se}, nil
+}
+
+// Open implements glue.Glue
+func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
+	if option.CAPath != "" {
+		conf := config.GetGlobalConfig()
+		conf.Security.ClusterSSLCA = option.CAPath
+		conf.Security.ClusterSSLCert = option.CertPath
+		conf.Security.ClusterSSLKey = option.KeyPath
+		config.StoreGlobalConfig(conf)
+	}
+	return tikv.Driver{}.Open(path)
 }
 
 // Execute implements glue.Session
