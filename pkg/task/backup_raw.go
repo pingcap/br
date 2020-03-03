@@ -16,6 +16,13 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
+const (
+	flagKeyFormat        = "format"
+	flagTiKVColumnFamily = "cf"
+	flagStartKey         = "start"
+	flagEndKey           = "end"
+)
+
 // BackupRawConfig is the configuration specific for backup tasks.
 type BackupRawConfig struct {
 	Config
@@ -27,27 +34,31 @@ type BackupRawConfig struct {
 
 // DefineRawBackupFlags defines common flags for the backup command.
 func DefineRawBackupFlags(command *cobra.Command) {
-	command.Flags().StringP("format", "", "hex", "start/end key format, support raw|escaped|hex")
-	command.Flags().StringP("cf", "", "default", "backup specify cf, correspond to tikv cf")
-	command.Flags().StringP("start", "", "", "backup raw kv start key, key is inclusive")
-	command.Flags().StringP("end", "", "", "backup raw kv end key, key is exclusive")
+	command.Flags().StringP(flagKeyFormat, "", "hex", "start/end key format, support raw|escaped|hex")
+	command.Flags().StringP(flagTiKVColumnFamily, "", "default", "backup specify cf, correspond to tikv cf")
+	command.Flags().StringP(flagStartKey, "", "", "backup raw kv start key, key is inclusive")
+	command.Flags().StringP(flagEndKey, "", "", "backup raw kv end key, key is exclusive")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
 func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
-	start, err := flags.GetString("start")
+	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
 		return err
 	}
-	cfg.StartKey, err = utils.ParseKey(flags, start)
+	start, err := flags.GetString(flagStartKey)
 	if err != nil {
 		return err
 	}
-	end, err := flags.GetString("end")
+	cfg.StartKey, err = utils.ParseKey(format, start)
 	if err != nil {
 		return err
 	}
-	cfg.EndKey, err = utils.ParseKey(flags, end)
+	end, err := flags.GetString(flagEndKey)
+	if err != nil {
+		return err
+	}
+	cfg.EndKey, err = utils.ParseKey(format, end)
 	if err != nil {
 		return err
 	}
@@ -56,7 +67,7 @@ func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.New("endKey must be greater than startKey")
 	}
 
-	cfg.CF, err = flags.GetString("cf")
+	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {
 		return err
 	}
@@ -75,7 +86,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRaw
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, g, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS)
 	if err != nil {
 		return err
 	}

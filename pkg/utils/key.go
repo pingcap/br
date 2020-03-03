@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
-	"github.com/spf13/pflag"
 )
 
 // ParseKey parse key by given format
-func ParseKey(flags *pflag.FlagSet, key string) ([]byte, error) {
-	switch flags.Lookup("format").Value.String() {
+func ParseKey(format, key string) ([]byte, error) {
+	switch format {
 	case "raw":
 		return []byte(key), nil
 	case "escaped":
@@ -28,6 +27,7 @@ func ParseKey(flags *pflag.FlagSet, key string) ([]byte, error) {
 	return nil, errors.New("unknown format")
 }
 
+// Ref PD: https://github.com/pingcap/pd/blob/master/tools/pd-ctl/pdctl/command/region_command.go#L334
 func unescapedKey(text string) ([]byte, error) {
 	var buf []byte
 	r := bytes.NewBuffer([]byte(text))
