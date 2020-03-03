@@ -37,6 +37,7 @@ func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64
 }
 
 func (alloc *idAllocator) AllocSeqCache(sequenceID int64) (min int64, max int64, round int64, err error) {
+	// TODO fix this function after support backup sequence
 	return 0, 0, 0, nil
 }
 
