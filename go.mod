@@ -20,11 +20,11 @@ require (
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200217103621-528e82bf7248
+	github.com/pingcap/kvproto v0.0.0-20200221125103-35b65c96516e
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v0.0.0-20200218113622-517beb2e39c2
 	github.com/pingcap/pd v1.1.0-beta.0.20200106144140-f5a7aa985497
-	github.com/pingcap/tidb v1.1.0-beta.0.20200223044457-aedea3ec5e1e
+	github.com/pingcap/tidb v1.1.0-beta.0.20200303080309-9ae471c0eea8
 	github.com/pingcap/tidb-tools v4.0.0-beta+incompatible
 	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
 	github.com/prometheus/client_golang v1.0.0
