@@ -334,6 +334,11 @@ func (bc *Client) BackupRanges(
 			log.Error("check GC safepoint failed", zap.Error(err))
 			return err
 		}
+		err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), lastBackupTS)
+		if err != nil {
+			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
+			return err
+		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
 			return err
