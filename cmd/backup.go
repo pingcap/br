@@ -18,6 +18,14 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 	return task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
+func runBackupRawCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.BackupRawConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		return err
+	}
+	return task.RunBackupRaw(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+}
+
 // NewBackupCommand return a full backup subcommand.
 func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -43,6 +51,7 @@ func NewBackupCommand() *cobra.Command {
 		newFullBackupCommand(),
 		newDbBackupCommand(),
 		newTableBackupCommand(),
+		newRawBackupCommand(),
 	)
 
 	task.DefineBackupFlags(command.PersistentFlags())
@@ -85,5 +94,19 @@ func newTableBackupCommand() *cobra.Command {
 		},
 	}
 	task.DefineTableFlags(command)
+	return command
+}
+
+// newRawBackupCommand return a raw kv range backup subcommand.
+func newRawBackupCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "raw",
+		Short: "backup a raw kv range from TiKV cluster",
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runBackupRawCommand(command, "Raw backup")
+		},
+	}
+
+	task.DefineRawBackupFlags(command)
 	return command
 }

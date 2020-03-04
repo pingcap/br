@@ -11,7 +11,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -36,7 +36,7 @@ import (
 
 // ClientMgr manages connections needed by backup.
 type ClientMgr interface {
-	GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error)
+	GetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
 	GetPDClient() pd.Client
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
@@ -53,9 +53,9 @@ type Client struct {
 	mgr       ClientMgr
 	clusterID uint64
 
-	backupMeta backup.BackupMeta
+	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
-	backend    *backup.StorageBackend
+	backend    *kvproto.StorageBackend
 }
 
 // NewBackupClient returns a new backup client
@@ -101,7 +101,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration) (uint64, er
 }
 
 // SetStorage set ExternalStorage for client
-func (bc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBackend, sendCreds bool) error {
 	var err error
 	bc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
@@ -222,7 +222,7 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 
-			schema := backup.Schema{
+			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
 			}
@@ -296,10 +296,7 @@ func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*mod
 func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []Range,
-	lastBackupTS uint64,
-	backupTS uint64,
-	rateLimit uint64,
-	concurrency uint32,
+	req kvproto.BackupRequest,
 	updateCh chan<- struct{},
 ) error {
 	start := time.Now()
@@ -313,8 +310,8 @@ func (bc *Client) BackupRanges(
 	defer cancel()
 	go func() {
 		for _, r := range ranges {
-			err := bc.backupRange(
-				ctx, r.StartKey, r.EndKey, lastBackupTS, backupTS, rateLimit, concurrency, updateCh)
+			err := bc.BackupRange(
+				ctx, r.StartKey, r.EndKey, req, updateCh)
 			if err != nil {
 				errCh <- err
 				return
@@ -329,7 +326,7 @@ func (bc *Client) BackupRanges(
 
 	finished := false
 	for {
-		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
+		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.EndVersion)
 		if err != nil {
 			log.Error("check GC safepoint failed", zap.Error(err))
 			return err
@@ -353,14 +350,11 @@ func (bc *Client) BackupRanges(
 	}
 }
 
-// backupRange make a backup of the given key range.
-func (bc *Client) backupRange(
+// BackupRange make a backup of the given key range.
+func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
-	lastBackupTS uint64,
-	backupTS uint64,
-	rateLimit uint64,
-	concurrency uint32,
+	req kvproto.BackupRequest,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
@@ -377,8 +371,8 @@ func (bc *Client) backupRange(
 	log.Info("backup started",
 		zap.Binary("StartKey", startKey),
 		zap.Binary("EndKey", endKey),
-		zap.Uint64("RateLimit", rateLimit),
-		zap.Uint32("Concurrency", concurrency))
+		zap.Uint64("RateLimit", req.RateLimit),
+		zap.Uint32("Concurrency", req.Concurrency))
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -388,16 +382,11 @@ func (bc *Client) backupRange(
 		return errors.Trace(err)
 	}
 
-	req := backup.BackupRequest{
-		ClusterId:      bc.clusterID,
-		StartKey:       startKey,
-		EndKey:         endKey,
-		StartVersion:   lastBackupTS,
-		EndVersion:     backupTS,
-		StorageBackend: bc.backend,
-		RateLimit:      rateLimit,
-		Concurrency:    concurrency,
-	}
+	req.ClusterId = bc.clusterID
+	req.StartKey = startKey
+	req.EndKey = endKey
+	req.StorageBackend = bc.backend
+
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
 	var results RangeTree
@@ -410,17 +399,27 @@ func (bc *Client) backupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey, lastBackupTS,
-		backupTS, rateLimit, concurrency, results, updateCh)
+		ctx, startKey, endKey, req.StartVersion,
+		req.EndVersion, req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
 		return err
 	}
 
-	bc.backupMeta.StartVersion = lastBackupTS
-	bc.backupMeta.EndVersion = backupTS
-	log.Info("backup time range",
-		zap.Reflect("StartVersion", lastBackupTS),
-		zap.Reflect("EndVersion", backupTS))
+	bc.backupMeta.StartVersion = req.StartVersion
+	bc.backupMeta.EndVersion = req.EndVersion
+	bc.backupMeta.IsRawKv = req.IsRawKv
+	if req.IsRawKv {
+		bc.backupMeta.RawRanges = append(bc.backupMeta.RawRanges,
+			&kvproto.RawRange{StartKey: startKey, EndKey: endKey, Cf: req.Cf})
+		log.Info("backup raw ranges",
+			zap.ByteString("startKey", startKey),
+			zap.ByteString("endKey", endKey),
+			zap.String("cf", req.Cf))
+	} else {
+		log.Info("backup time range",
+			zap.Reflect("StartVersion", req.StartVersion),
+			zap.Reflect("EndVersion", req.EndVersion))
+	}
 
 	results.tree.Ascend(func(i btree.Item) bool {
 		r := i.(*Range)
@@ -479,7 +478,7 @@ func (bc *Client) fineGrainedBackup(
 		}
 		log.Info("start fine grained backup", zap.Int("incomplete", len(incomplete)))
 		// Step2, retry backup on incomplete range
-		respCh := make(chan *backup.BackupResponse, 4)
+		respCh := make(chan *kvproto.BackupResponse, 4)
 		errCh := make(chan error, 4)
 		retry := make(chan Range, 4)
 
@@ -566,15 +565,15 @@ func onBackupResponse(
 	bo *tikv.Backoffer,
 	backupTS uint64,
 	lockResolver *tikv.LockResolver,
-	resp *backup.BackupResponse,
-) (*backup.BackupResponse, int, error) {
+	resp *kvproto.BackupResponse,
+) (*kvproto.BackupResponse, int, error) {
 	log.Debug("onBackupResponse", zap.Reflect("resp", resp))
 	if resp.Error == nil {
 		return resp, 0, nil
 	}
 	backoffMs := 0
 	switch v := resp.Error.Detail.(type) {
-	case *backup.Error_KvError:
+	case *kvproto.Error_KvError:
 		if lockErr := v.KvError.Locked; lockErr != nil {
 			// Try to resolve lock.
 			log.Warn("backup occur kv error", zap.Reflect("error", v))
@@ -592,7 +591,7 @@ func onBackupResponse(
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
 		return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
 
-	case *backup.Error_RegionError:
+	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
 		// Ignore following errors.
 		if !(regionErr.EpochNotMatch != nil ||
@@ -610,7 +609,7 @@ func onBackupResponse(
 		// TODO: a better backoff.
 		backoffMs = 1000 /* 1s */
 		return nil, backoffMs, nil
-	case *backup.Error_ClusterIdError:
+	case *kvproto.Error_ClusterIdError:
 		log.Error("backup occur cluster ID error",
 			zap.Reflect("error", v))
 		err := errors.Errorf("%v", resp.Error)
@@ -631,7 +630,7 @@ func (bc *Client) handleFineGrained(
 	backupTS uint64,
 	rateLimit uint64,
 	concurrency uint32,
-	respCh chan<- *backup.BackupResponse,
+	respCh chan<- *kvproto.BackupResponse,
 ) (int, error) {
 	leader, pderr := bc.findRegionLeader(ctx, rg.StartKey)
 	if pderr != nil {
@@ -640,7 +639,7 @@ func (bc *Client) handleFineGrained(
 	storeID := leader.GetStoreId()
 	max := 0
 
-	req := backup.BackupRequest{
+	req := kvproto.BackupRequest{
 		ClusterId:      bc.clusterID,
 		StartKey:       rg.StartKey, // TODO: the range may cross region.
 		EndKey:         rg.EndKey,
@@ -659,7 +658,7 @@ func (bc *Client) handleFineGrained(
 	err = SendBackup(
 		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
-		func(resp *backup.BackupResponse) error {
+		func(resp *kvproto.BackupResponse) error {
 			response, backoffMs, err1 :=
 				onBackupResponse(bo, backupTS, lockResolver, resp)
 			if err1 != nil {
@@ -684,9 +683,9 @@ func (bc *Client) handleFineGrained(
 func SendBackup(
 	ctx context.Context,
 	storeID uint64,
-	client backup.BackupClient,
-	req backup.BackupRequest,
-	respFn func(*backup.BackupResponse) error,
+	client kvproto.BackupClient,
+	req kvproto.BackupRequest,
+	respFn func(*kvproto.BackupResponse) error,
 ) error {
 	log.Info("try backup", zap.Any("backup request", req))
 	ctx, cancel := context.WithCancel(ctx)
