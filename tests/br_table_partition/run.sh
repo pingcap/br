@@ -30,25 +30,23 @@ done
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
-for i in $(seq $DB_COUNT); do
-    run_sql "DROP DATABASE $DB${i};"
-done
+run_sql "DROP DATABASE $DB;"
 
 # restore full
 echo "restore start..."
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
-for i in $(seq $DB_COUNT); do
+for i in $(seq $TABLE_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 fail=false
-for i in $(seq $DB_COUNT); do
+for i in $(seq $TABLE_COUNT); do
     if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
         fail=true
-        echo "TEST: [$TEST_NAME] fail on database $DB${i}"
+        echo "TEST: [$TEST_NAME] fail on table $DB.$TABLE${i}"
     fi
-    echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+    echo "database $DB.$TABLE${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
 done
 
 if $fail; then
