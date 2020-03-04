@@ -46,7 +46,7 @@ for i in $(seq $TABLE_COUNT); do
         fail=true
         echo "TEST: [$TEST_NAME] fail on table $DB.$TABLE${i}"
     fi
-    echo "database $DB.$TABLE${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+    echo "table $DB.$TABLE${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
 done
 
 if $fail; then

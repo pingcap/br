@@ -127,7 +127,7 @@ start_services_withTLS() {
         --data-dir "$TEST_DIR/pd" &
     # wait until PD is online...
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cert $1/certificates/client.pem \
         --key $1/certificates/client-key.pem \
         -o /dev/null -sf "https://$PD_ADDR/pd/api/v1/version"; do
         i=$((i+1))
@@ -149,7 +149,7 @@ start_services_withTLS() {
     done
 
     echo "Waiting initializing TiKV..."
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cert $1/certificates/client.pem \
             --key $1/certificates/client-key.pem \
             -sf "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
        i=$((i+1))
@@ -171,7 +171,7 @@ start_services_withTLS() {
 
     echo "Verifying TiDB is started..."
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cert $1/certificates/client.pem \
             --key $1/certificates/client-key.pem \
             -o /dev/null -sf "https://$TIDB_IP:10080/status"; do
         i=$((i+1))
@@ -183,7 +183,7 @@ start_services_withTLS() {
     done
 
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cert $1/certificates/client.pem \
             --key $1/certificates/client-key.pem \
             "https://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
