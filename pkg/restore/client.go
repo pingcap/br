@@ -3,9 +3,11 @@ package restore
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/hex"
-	"fmt"
+	"encoding/json"
 	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -21,22 +23,18 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const (
-	resetTsRetryTime       = 16
-	resetTSWaitInterval    = 50 * time.Millisecond
-	resetTSMaxWaitInterval = 500 * time.Millisecond
-
-	// defaultChecksumConcurrency is the default number of the concurrent
-	// checksum tasks.
-	defaultChecksumConcurrency = 64
-)
+// defaultChecksumConcurrency is the default number of the concurrent
+// checksum tasks.
+const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files
 type Client struct {
@@ -47,8 +45,10 @@ type Client struct {
 	fileImporter    FileImporter
 	workerPool      *utils.WorkerPool
 	tableWorkerPool *utils.WorkerPool
+	tlsConf         *tls.Config
 
 	databases       map[string]*utils.Database
+	ddlJobs         []*model.Job
 	backupMeta      *backup.BackupMeta
 	db              *DB
 	rateLimit       uint64
@@ -59,11 +59,13 @@ type Client struct {
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
+	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
+	tlsConf *tls.Config,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	db, err := NewDB(store)
+	db, err := NewDB(g, store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
@@ -75,6 +77,7 @@ func NewRestoreClient(
 		pdClient:        pdClient,
 		tableWorkerPool: utils.NewWorkerPool(128, "table"),
 		db:              db,
+		tlsConf:         tlsConf,
 	}, nil
 }
 
@@ -109,10 +112,17 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 		}
 		rc.databases = databases
 	}
+	var ddlJobs []*model.Job
+	err := json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
+	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
-	metaClient := NewSplitClient(rc.pdClient)
-	importClient := NewImportClient(metaClient)
+	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
+	importClient := NewImportClient(metaClient, rc.tlsConf)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
 }
@@ -184,6 +194,11 @@ func (rc *Client) EnableOnline() {
 	rc.isOnline = true
 }
 
+// GetTLSConfig returns the tls config
+func (rc *Client) GetTLSConfig() *tls.Config {
+	return rc.tlsConf
+}
+
 // GetTS gets a new timestamp from PD
 func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	p, l, err := rc.pdClient.GetTS(ctx)
@@ -199,13 +214,10 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return withRetry(func() error {
+	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
-		return utils.ResetTS(pdAddrs[idx], restoreTS)
-	}, func(e error) bool {
-		i++
-		return true
-	}, resetTsRetryTime, resetTSWaitInterval, resetTSMaxWaitInterval)
+		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
+	}, newResetTSBackoffer())
 }
 
 // GetDatabases returns all databases.
@@ -220,6 +232,11 @@ func (rc *Client) GetDatabases() []*utils.Database {
 // GetDatabase returns a database by name
 func (rc *Client) GetDatabase(name string) *utils.Database {
 	return rc.databases[name]
+}
+
+// GetDDLJobs returns ddl jobs
+func (rc *Client) GetDDLJobs() []*model.Job {
+	return rc.ddlJobs
 }
 
 // GetTableSchema returns the schema of a table from TiDB.
@@ -260,16 +277,36 @@ func (rc *Client) CreateTables(
 		if err != nil {
 			return nil, nil, err
 		}
-		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Schema.Name)
+		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
 		if err != nil {
 			return nil, nil, err
 		}
-		rules := GetRewriteRules(newTableInfo, table.Schema, newTS)
+		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, newTableInfo)
 	}
 	return rewriteRules, newTables, nil
+}
+
+// ExecDDLs executes the queries of the ddl jobs.
+func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
+	// Sort the ddl jobs by schema version in ascending order.
+	sort.Slice(ddlJobs, func(i, j int) bool {
+		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
+	})
+
+	for _, job := range ddlJobs {
+		err := rc.db.ExecDDL(rc.ctx, job)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		log.Info("execute ddl query",
+			zap.String("db", job.SchemaName),
+			zap.String("query", job.Query),
+			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
+	}
+	return nil
 }
 
 func (rc *Client) setSpeedLimit() error {
@@ -289,31 +326,28 @@ func (rc *Client) setSpeedLimit() error {
 	return nil
 }
 
-// RestoreTable tries to restore the data of a table.
-func (rc *Client) RestoreTable(
-	table *utils.Table,
+// RestoreFiles tries to restore the files.
+func (rc *Client) RestoreFiles(
+	files []*backup.File,
 	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		log.Info("restore table",
-			zap.Stringer("table", table.Schema.Name), zap.Duration("take", elapsed))
-		key := fmt.Sprintf("%s.%s", table.Db.Name.String(), table.Schema.Name.String())
-		if err != nil {
-			summary.CollectFailureUnit(key, err)
+		if err == nil {
+			log.Info("Restore Files",
+				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+			summary.CollectSuccessUnit("files", elapsed)
 		} else {
-			summary.CollectSuccessUnit(key, elapsed)
+			summary.CollectFailureUnit("files", err)
 		}
 	}()
 
-	log.Debug("start to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-		zap.Array("files", files(table.Files)),
+	log.Debug("start to restore files",
+		zap.Int("files", len(files)),
 	)
-	errCh := make(chan error, len(table.Files))
+	errCh := make(chan error, len(files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
 	err = rc.setSpeedLimit()
@@ -321,7 +355,7 @@ func (rc *Client) RestoreTable(
 		return err
 	}
 
-	for _, file := range table.Files {
+	for _, file := range files {
 		wg.Add(1)
 		fileReplica := file
 		rc.workerPool.Apply(
@@ -335,96 +369,15 @@ func (rc *Client) RestoreTable(
 				}
 			})
 	}
-	for range table.Files {
+	for range files {
 		err := <-errCh
 		if err != nil {
 			rc.cancel()
 			wg.Wait()
 			log.Error(
-				"restore table failed",
-				zap.Stringer("table", table.Schema.Name),
-				zap.Stringer("db", table.Db.Name),
+				"restore files failed",
 				zap.Error(err),
 			)
-			return err
-		}
-	}
-	log.Info(
-		"finish to restore table",
-		zap.Stringer("table", table.Schema.Name),
-		zap.Stringer("db", table.Db.Name),
-	)
-	return nil
-}
-
-// RestoreDatabase tries to restore the data of a database
-func (rc *Client) RestoreDatabase(
-	db *utils.Database,
-	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore Database", zap.Stringer("db", db.Schema.Name), zap.Duration("take", elapsed))
-	}()
-	errCh := make(chan error, len(db.Tables))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, table := range db.Tables {
-		wg.Add(1)
-		tblReplica := table
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreTable(
-				tblReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-	for range db.Tables {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
-			return err
-		}
-	}
-	return nil
-}
-
-// RestoreAll tries to restore all the data of backup files.
-func (rc *Client) RestoreAll(
-	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
-) (err error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Restore All", zap.Duration("take", elapsed))
-	}()
-	errCh := make(chan error, len(rc.databases))
-	wg := new(sync.WaitGroup)
-	defer close(errCh)
-	for _, db := range rc.databases {
-		wg.Add(1)
-		dbReplica := db
-		rc.tableWorkerPool.Apply(func() {
-			defer wg.Done()
-			select {
-			case <-rc.ctx.Done():
-				errCh <- nil
-			case errCh <- rc.RestoreDatabase(
-				dbReplica, rewriteRules, updateCh):
-			}
-		})
-	}
-
-	for range rc.databases {
-		err = <-errCh
-		if err != nil {
-			wg.Wait()
 			return err
 		}
 	}
@@ -507,6 +460,9 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	bfConf.MaxDelay = time.Second * 3
 	for _, store := range stores {
 		opt := grpc.WithInsecure()
+		if rc.tlsConf != nil {
+			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
+		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
 		keepAlive := 10
 		keepAliveTimeout := 3
@@ -592,7 +548,7 @@ func (rc *Client) ValidateChecksum(
 					checksumResp.TotalBytes != table.TotalBytes {
 					log.Error("failed in validate checksum",
 						zap.String("database", table.Db.Name.L),
-						zap.String("table", table.Schema.Name.L),
+						zap.String("table", table.Info.Name.L),
 						zap.Uint64("origin tidb crc64", table.Crc64Xor),
 						zap.Uint64("calculated crc64", checksumResp.Checksum),
 						zap.Uint64("origin tidb total kvs", table.TotalKvs),

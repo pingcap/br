@@ -5,11 +5,15 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -59,7 +63,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunBackup starts a backup task inside the current goroutine.
-func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
+func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -71,7 +75,7 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS)
 	if err != nil {
 		return err
 	}
@@ -98,6 +102,19 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 		return err
 	}
 
+	ddlJobs := make([]*model.Job, 0)
+	if cfg.LastBackupTS > 0 {
+		err = backup.CheckGCSafepoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
+		if err != nil {
+			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
+			return err
+		}
+		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
+		if err != nil {
+			return err
+		}
+	}
+
 	// The number of regions need to backup
 	approximateRegions := 0
 	for _, r := range ranges {
@@ -115,8 +132,15 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
+
+	req := kvproto.BackupRequest{
+		StartVersion: cfg.LastBackupTS,
+		EndVersion:   backupTS,
+		RateLimit:    cfg.RateLimit,
+		Concurrency:  cfg.Concurrency,
+	}
 	err = client.BackupRanges(
-		ctx, ranges, cfg.LastBackupTS, backupTS, cfg.RateLimit, cfg.Concurrency, updateCh)
+		ctx, ranges, req, updateCh)
 	if err != nil {
 		return err
 	}
@@ -139,17 +163,25 @@ func RunBackup(c context.Context, cmdName string, cfg *BackupConfig) error {
 		return err
 	}
 
-	valid, err := client.FastChecksum()
-	if err != nil {
-		return err
-	}
-	if !valid {
-		log.Error("backup FastChecksum mismatch!")
+	if cfg.LastBackupTS == 0 {
+		var valid bool
+		valid, err = client.FastChecksum()
+		if err != nil {
+			return err
+		}
+		if !valid {
+			log.Error("backup FastChecksum mismatch!")
+			return errors.Errorf("mismatched checksum")
+		}
+
+	} else {
+		// Since we don't support checksum for incremental data, fast checksum should be skipped.
+		log.Info("Skip fast checksum in incremental backup")
 	}
 	// Checksum has finished
 	close(updateCh)
 
-	err = client.SaveBackupMeta(ctx)
+	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
 		return err
 	}

@@ -28,7 +28,7 @@ for i in $(seq $DDL_COUNT); do
     run_sql "USE $DB; ALTER TABLE $TABLE ADD INDEX (FIELD$i);"
 done
 
-for i in $(sql $DDL_COUNT); do
+for i in $(seq $DDL_COUNT); do
     if (( RANDOM % 2 )); then
         run_sql "USE $DB; ALTER TABLE $TABLE DROP INDEX FIELD$i;"
     fi
@@ -36,7 +36,7 @@ done
 
 # backup full
 echo "backup start..."
-br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG
 
 checksum_count=$(cat $LOG | grep "fast checksum success" | wc -l | xargs)
 
@@ -50,7 +50,7 @@ run_sql "DROP DATABASE $DB;"
 
 # restore full
 echo "restore start..."
-br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 

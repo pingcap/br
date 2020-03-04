@@ -17,30 +17,11 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-type files []*backup.File
-
-func (fs files) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range fs {
-		arr.AppendString(fs[i].String())
-	}
-	return nil
-}
-
-type rules []*import_sstpb.RewriteRule
-
-func (rs rules) MarshalLogArray(arr zapcore.ArrayEncoder) error {
-	for i := range rs {
-		arr.AppendString(rs[i].String())
-	}
-	return nil
-}
 
 // idAllocator always returns a specified ID
 type idAllocator struct {
@@ -163,38 +144,9 @@ func getSSTMetaFromFile(
 			Start: rangeStart,
 			End:   rangeEnd,
 		},
+		RegionId:    region.GetId(),
+		RegionEpoch: region.GetRegionEpoch(),
 	}
-}
-
-type retryableFunc func() error
-type continueFunc func(error) bool
-
-func withRetry(
-	retryableFunc retryableFunc,
-	continueFunc continueFunc,
-	attempts uint,
-	delayTime time.Duration,
-	maxDelayTime time.Duration,
-) error {
-	var lastErr error
-	for i := uint(0); i < attempts; i++ {
-		err := retryableFunc()
-		if err != nil {
-			lastErr = err
-			// If this is the last attempt, do not wait
-			if !continueFunc(err) || i == attempts-1 {
-				break
-			}
-			delayTime = 2 * delayTime
-			if delayTime > maxDelayTime {
-				delayTime = maxDelayTime
-			}
-			time.Sleep(delayTime)
-		} else {
-			return nil
-		}
-	}
-	return lastErr
 }
 
 // ValidateFileRanges checks and returns the ranges of the files.
@@ -332,7 +284,7 @@ func SplitRanges(
 		elapsed := time.Since(start)
 		summary.CollectDuration("split region", elapsed)
 	}()
-	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient()))
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
 	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
@@ -371,13 +323,4 @@ func encodeKeyPrefix(key []byte) []byte {
 	ungroupedLen := len(key) % 8
 	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
-}
-
-// escape the identifier for pretty-printing.
-// For instance, the identifier "foo `bar`" will become "`foo ``bar```".
-// The sqlMode controls whether to escape with backquotes (`) or double quotes
-// (`"`) depending on whether mysql.ModeANSIQuotes is enabled.
-func escapeTableName(cis model.CIStr) string {
-	quote := "`"
-	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
 }

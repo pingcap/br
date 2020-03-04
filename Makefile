@@ -28,6 +28,8 @@ build_for_integration_test:
 	GO111MODULE=on go build -race -o bin/locker tests/br_key_locked/*.go
 	# build gc
 	GO111MODULE=on go build -race -o bin/gc tests/br_z_gc_safepoint/*.go
+	# build rawkv client
+	GO111MODULE=on go build -race -o bin/rawkv tests/br_rawkv/*.go
 
 test:
 	GO111MODULE=on go test -race -tags leak ./...
@@ -71,6 +73,12 @@ static:
 		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
+		--disable wsl \
+		--disable funlen \
+		--disable whitespace \
+		--disable gocognit \
+		--disable godox \
+		--disable gomnd \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint:

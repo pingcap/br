@@ -8,18 +8,18 @@ import (
 	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/util/testleak"
 
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 var _ = Suite(&testSaftPointSuite{})
 
 type testSaftPointSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testSaftPointSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 

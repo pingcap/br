@@ -1,4 +1,4 @@
-package utils
+package mock
 
 import (
 	"database/sql"
@@ -28,8 +28,8 @@ import (
 
 var pprofOnce sync.Once
 
-// MockCluster is mock tidb cluster, includes tikv and pd.
-type MockCluster struct {
+// Cluster is mock tidb cluster, includes tikv and pd.
+type Cluster struct {
 	*server.Server
 	*mocktikv.Cluster
 	mocktikv.MVCCStore
@@ -40,8 +40,8 @@ type MockCluster struct {
 	PDClient pd.Client
 }
 
-// NewMockCluster create a new mock cluster.
-func NewMockCluster() (*MockCluster, error) {
+// NewCluster create a new mock cluster.
+func NewCluster() (*Cluster, error) {
 	pprofOnce.Do(func() {
 		go func() {
 			// Make sure pprof is registered.
@@ -72,7 +72,7 @@ func NewMockCluster() (*MockCluster, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &MockCluster{
+	return &Cluster{
 		Cluster:   cluster,
 		MVCCStore: mvccStore,
 		Storage:   storage,
@@ -82,7 +82,7 @@ func NewMockCluster() (*MockCluster, error) {
 }
 
 // Start runs a mock cluster
-func (mock *MockCluster) Start() error {
+func (mock *Cluster) Start() error {
 	statusURL, err := url.Parse(tempurl.Alloc())
 	if err != nil {
 		return err
@@ -124,7 +124,7 @@ func (mock *MockCluster) Start() error {
 }
 
 // Stop stops a mock cluster
-func (mock *MockCluster) Stop() {
+func (mock *Cluster) Stop() {
 	if mock.Domain != nil {
 		mock.Domain.Close()
 	}
