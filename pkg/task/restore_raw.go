@@ -1,13 +1,13 @@
 package task
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -15,69 +15,45 @@ import (
 
 // RestoreRawConfig is the configuration specific for raw kv restore tasks.
 type RestoreRawConfig struct {
-	Config
+	RawKvConfig
 
-	StartKey []byte
-	EndKey   []byte
-	CF       string
-	Online   bool //`json:"online" toml:"online"`
+	Online bool `json:"online" toml:"online"`
 }
 
 // DefineRawRestoreFlags defines common flags for the backup command.
 func DefineRawRestoreFlags(command *cobra.Command) {
-	command.Flags().StringP("format", "", "hex", "start/end key format, support raw|escaped|hex")
-	command.Flags().StringP("cf", "", "default", "backup specify cf, correspond to tikv cf")
-	command.Flags().StringP("start", "", "", "backup raw kv start key, key is inclusive")
-	command.Flags().StringP("end", "", "", "backup raw kv end key, key is exclusive")
+	command.Flags().StringP(flagKeyFormat, "", "hex", "start/end key format, support raw|escaped|hex")
+	command.Flags().StringP(flagTiKVColumnFamily, "", "default", "backup specify cf, correspond to tikv cf")
+	command.Flags().StringP(flagStartKey, "", "", "backup raw kv start key, key is inclusive")
+	command.Flags().StringP(flagEndKey, "", "", "backup raw kv end key, key is exclusive")
+
+	command.Flags().Bool(flagOnline, false, "Whether online when restore")
+	// TODO remove hidden flag if it's stable
+	_ = command.Flags().MarkHidden(flagOnline)
 }
 
-// ParseFromFlags parses the restore-related flags from the flag set.
+// ParseFromFlags parses the backup-related flags from the flag set.
 func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
-	// TODO: Wait for merging #101
-	//start, err := flags.GetString("start")
-	//if err != nil {
-	//	return err
-	//}
-	//cfg.StartKey, err = utils.ParseKey(flags, start)
-	//if err != nil {
-	//	return err
-	//}
-	//end, err := flags.GetString("end")
-	//if err != nil {
-	//	return err
-	//}
-	//cfg.EndKey, err = utils.ParseKey(flags, end)
-	//if err != nil {
-	//	return err
-	//}
-
-	if bytes.Compare(cfg.StartKey, cfg.EndKey) > 0 {
-		return errors.New("input endKey must greater or equal than startKey")
-	}
-
 	var err error
-	cfg.CF, err = flags.GetString("cf")
+	cfg.Online, err = flags.GetBool(flagOnline)
 	if err != nil {
-		return err
-	}
-	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-	return nil
+	return cfg.RawKvConfig.ParseFromFlags(flags)
 }
 
 // RunRestoreRaw starts a raw kv restore task inside the current goroutine.
-func RunRestoreRaw(c context.Context, cmdName string, cfg *RestoreRawConfig) error {
+func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, mgr.GetPDClient(), mgr.GetTiKV())
+	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}

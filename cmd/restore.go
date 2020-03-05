@@ -4,6 +4,7 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
+	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -18,11 +19,13 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 }
 
 func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
-	cfg := task.RestoreRawConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	cfg := task.RestoreRawConfig{
+		RawKvConfig: task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}},
+	}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	return task.RunRestoreRaw(GetDefaultContext(), cmdName, &cfg)
+	return task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
 }
 
 // NewRestoreCommand returns a restore subcommand

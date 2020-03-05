@@ -23,13 +23,18 @@ const (
 	flagEndKey           = "end"
 )
 
-// BackupRawConfig is the configuration specific for backup tasks.
-type BackupRawConfig struct {
+// RawKvConfig is the common config for rawkv backup and restore.
+type RawKvConfig struct {
 	Config
 
 	StartKey []byte `json:"start-key" toml:"start-key"`
 	EndKey   []byte `json:"end-key" toml:"end-key"`
 	CF       string `json:"cf" toml:"cf"`
+}
+
+// BackupRawConfig is the configuration specific for backup tasks.
+type BackupRawConfig struct {
+	RawKvConfig
 }
 
 // DefineRawBackupFlags defines common flags for the backup command.
@@ -41,7 +46,7 @@ func DefineRawBackupFlags(command *cobra.Command) {
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
-func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
+func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
 		return err

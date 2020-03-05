@@ -5,6 +5,7 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
+	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -19,11 +20,13 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 }
 
 func runBackupRawCommand(command *cobra.Command, cmdName string) error {
-	cfg := task.BackupRawConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	cfg := task.BackupRawConfig{
+		RawKvConfig: task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}},
+	}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	return task.RunBackupRaw(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+	return task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
 }
 
 // NewBackupCommand return a full backup subcommand.

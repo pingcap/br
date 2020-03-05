@@ -32,13 +32,12 @@ run_br --pd $PD_ADDR backup raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 31 --
 # delete data in range[start-key, end-key)
 bin/rawkv --pd $PD_ADDR --mode delete --start-key 31 --end-key 3130303030303030
 
-# TODO: Finish check after restore ready
 # restore rawkv
-# echo "restore start..."
-# run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 31 --end 3130303030303030 --format hex --concurrency 4
+echo "restore start..."
+run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 31 --end 3130303030303030 --format hex --concurrency 4
 
 # output checksum after restore
-# bin/rawkv --pd $PD_ADDR --mode checksum --start-key 31 --end-key 3130303030303030 > /$TEST_DIR/checksum.out
+bin/rawkv --pd $PD_ADDR --mode checksum --start-key 31 --end-key 3130303030303030 > /$TEST_DIR/checksum.out
 
 checksum_new=$(cat /$TEST_DIR/checksum.out | grep result | awk '{print $3}')
 
