@@ -3,6 +3,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -323,4 +324,36 @@ func encodeKeyPrefix(key []byte) []byte {
 	ungroupedLen := len(key) % 8
 	encodedPrefix = append(encodedPrefix, codec.EncodeBytes([]byte{}, key[:len(key)-ungroupedLen])...)
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
+}
+
+// paginateScanRegion scan regions with a limit pagination and
+// return all regions at once.
+// It reduces max gRPC message size.
+func paginateScanRegion(
+	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
+) ([]*RegionInfo, error) {
+	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
+		return nil, errors.Errorf("startKey >= endKey, startKey %s, endkey %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
+
+	regions := []*RegionInfo{}
+	for {
+		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		regions = append(regions, batch...)
+		if len(batch) < limit {
+			// No more region
+			break
+		}
+		startKey = batch[len(batch)-1].Region.GetEndKey()
+		if len(startKey) == 0 ||
+			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
+			// All key space have scanned
+			break
+		}
+	}
+	return regions, nil
 }
