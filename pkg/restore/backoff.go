@@ -11,7 +11,6 @@ import (
 )
 
 var (
-	errNotLeader           = errors.NewNoStackError("not leader")
 	errEpochNotMatch       = errors.NewNoStackError("epoch not match")
 	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
 	errRegionNotFound      = errors.NewNoStackError("region not found")
@@ -66,7 +65,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case errResp, errGrpc, errEpochNotMatch, errNotLeader:
+	case errResp, errGrpc, errEpochNotMatch:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	case errRangeIsEmpty, errRewriteRuleNotFound:
