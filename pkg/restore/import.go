@@ -172,10 +172,10 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err1 := paginateScanRegion(
+		regionInfos, errScanRegion := paginateScanRegion(
 			ctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
-		if err1 != nil {
-			return errors.Trace(err1)
+		if errScanRegion != nil {
+			return errors.Trace(errScanRegion)
 		}
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
@@ -183,13 +183,13 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			info := regionInfo
 			// Try to download file.
 			var downloadMeta *import_sstpb.SSTMeta
-			err1 = utils.WithRetry(importer.ctx, func() error {
+			errDownload := utils.WithRetry(importer.ctx, func() error {
 				var e error
 				downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
 				return e
 			}, newDownloadSSTBackoffer())
-			if err1 != nil {
-				if err1 == errRewriteRuleNotFound || err1 == errRangeIsEmpty {
+			if errDownload != nil {
+				if errDownload == errRewriteRuleNotFound || errDownload == errRangeIsEmpty {
 					// Skip this region
 					continue
 				}
@@ -198,33 +198,69 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 					zap.Stringer("region", info.Region),
 					zap.Binary("startKey", startKey),
 					zap.Binary("endKey", endKey),
-					zap.Error(err1))
-				return err1
+					zap.Error(errDownload))
+				return errDownload
 			}
-			err1 = importer.ingestSST(downloadMeta, info)
-			// If error is `NotLeader`, update the region info and retry
-			for errors.Cause(err1) == errNotLeader {
-				var newInfo *RegionInfo
-				newInfo, err1 = importer.metaClient.GetRegion(importer.ctx, info.Region.GetStartKey())
-				log.Debug("ingest sst returns not leader error, retry it",
-					zap.Stringer("region", info.Region),
-					zap.Stringer("newRegion", newInfo.Region))
-				if err1 != nil {
-					break
+
+			ingestResp, errIngest := importer.ingestSST(downloadMeta, info)
+		ingestRetry:
+			for errIngest == nil {
+				errPb := ingestResp.GetError()
+				if errPb == nil {
+					// Ingest success
+					break ingestRetry
 				}
-				if !checkRegionEpoch(newInfo, info) {
-					err1 = errEpochNotMatch
-					break
+				switch {
+				case errPb.NotLeader != nil:
+					// If error is `NotLeader`, update the region info and retry
+					var newInfo *RegionInfo
+					if newLeader := errPb.GetNotLeader().GetLeader(); newLeader != nil {
+						newInfo = &RegionInfo{
+							Leader: newLeader,
+							Region: info.Region,
+						}
+					} else {
+						// Slow path, get region from PD
+						newInfo, errIngest = importer.metaClient.GetRegion(
+							importer.ctx, info.Region.GetStartKey())
+						if errIngest != nil {
+							break ingestRetry
+						}
+					}
+					log.Debug("ingest sst returns not leader error, retry it",
+						zap.Stringer("region", info.Region),
+						zap.Stringer("newLeader", newInfo.Leader))
+
+					if !checkRegionEpoch(newInfo, info) {
+						errIngest = errors.AddStack(errEpochNotMatch)
+						break ingestRetry
+					}
+					ingestResp, errIngest = importer.ingestSST(downloadMeta, newInfo)
+				case errPb.EpochNotMatch != nil:
+					// TODO handle epoch not match error
+					//      1. retry download if needed
+					//      2. retry ingest
+					errIngest = errors.AddStack(errEpochNotMatch)
+					break ingestRetry
+				case errPb.RegionNotFound != nil:
+					errIngest = errors.AddStack(errRegionNotFound)
+					break ingestRetry
+				case errPb.KeyNotInRegion != nil:
+					errIngest = errors.AddStack(errKeyNotInRegion)
+					break ingestRetry
+				default:
+					errIngest = errors.Errorf("ingest error %s", errPb)
+					break ingestRetry
 				}
-				err1 = importer.ingestSST(downloadMeta, newInfo)
 			}
-			if err1 != nil {
+
+			if errIngest != nil {
 				log.Error("ingest file failed",
 					zap.Stringer("file", file),
 					zap.Stringer("range", downloadMeta.GetRange()),
 					zap.Stringer("region", info.Region),
-					zap.Error(err1))
-				return err1
+					zap.Error(errIngest))
+				return errIngest
 			}
 			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
 			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
@@ -293,7 +329,7 @@ func (importer *FileImporter) downloadSST(
 func (importer *FileImporter) ingestSST(
 	sstMeta *import_sstpb.SSTMeta,
 	regionInfo *RegionInfo,
-) error {
+) (*import_sstpb.IngestResponse, error) {
 	leader := regionInfo.Leader
 	if leader == nil {
 		leader = regionInfo.Region.GetPeers()[0]
@@ -310,23 +346,9 @@ func (importer *FileImporter) ingestSST(
 	log.Debug("ingest SST", zap.Stringer("sstMeta", sstMeta), zap.Reflect("leader", leader))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
-		if strings.Contains(err.Error(), "RegionNotFound") {
-			return errors.Trace(errRegionNotFound)
-		}
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
-	respErr := resp.GetError()
-	if respErr != nil {
-		log.Debug("ingest sst resp error", zap.Stringer("error", respErr))
-		if respErr.GetKeyNotInRegion() != nil {
-			return errors.Trace(errKeyNotInRegion)
-		}
-		if respErr.GetNotLeader() != nil {
-			return errors.Trace(errNotLeader)
-		}
-		return errors.Wrap(errResp, respErr.String())
-	}
-	return nil
+	return resp, nil
 }
 
 func checkRegionEpoch(new, old *RegionInfo) bool {
@@ -350,5 +372,5 @@ func extractDownloadSSTError(e error) error {
 	case strings.Contains(e.Error(), "Cannot read"):
 		err = errCannotRead
 	}
-	return errors.Trace(err)
+	return errors.Annotatef(err, "%s", e)
 }
