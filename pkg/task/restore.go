@@ -72,10 +72,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer client.Close()
 
-	if client.IsRawKvMode() {
-		return errors.New("cannot do transactional restore from raw kv data")
-	}
-
 	client.SetRateLimit(cfg.RateLimit)
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
@@ -90,6 +86,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
+	}
+
+	if client.IsRawKvMode() {
+		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
 	files, tables, err := filterRestoreFiles(client, cfg)
