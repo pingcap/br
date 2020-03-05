@@ -21,7 +21,7 @@ type testClient struct {
 	mu           sync.RWMutex
 	stores       map[uint64]*metapb.Store
 	regions      map[uint64]*RegionInfo
-	regionsInfo  *core.RegionsInfo
+	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
 }
 

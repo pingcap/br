@@ -91,10 +91,9 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		var regions []*RegionInfo
-		regions, err = rs.client.ScanRegions(ctx, minKey, maxKey, 0)
-		if err != nil {
-			return errors.Trace(err)
+		regions, err1 := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		if err1 != nil {
+			return errors.Trace(err1)
 		}
 		if len(regions) == 0 {
 			log.Warn("cannot scan any region")
