@@ -36,7 +36,7 @@ Notice BR supports building with Go version `Go >= 1.13`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
-## Get started in 2 minute!
+## Get started in 2 minutes!
 
 ```sh
 # Start TiDB cluster
