@@ -48,9 +48,7 @@ docker-compose -f docker-compose.yaml up --remove-orphans
 docker exec -it br_control_1 bash
 
 # Load testing data to TiDB
-cd /go/src/github.com/pingcap/go-ycsb && \
-make && \
-bin/go-ycsb load mysql -p workload=core \
+go-ycsb load mysql -p workload=core \
     -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root \
     -p recordcount=100000 -p threadcount=100
 
@@ -58,7 +56,6 @@ bin/go-ycsb load mysql -p workload=core \
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
 
 # Build BR and backup!
-cd /go/src/github.com/pingcap/br && \
 make release && \
 bin/br backup full --pd pd0:2379 --storage "local:///data/backup/full" \
     --log-file "/logs/br_backup.log"
