@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2020 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backup
+package rtree
 
 import (
 	"fmt"
@@ -31,63 +31,19 @@ func newRange(start, end []byte) *Range {
 	}
 }
 
-func (s *testRangeTreeSuite) TestRangeIntersect(c *C) {
-	rg := newRange([]byte("a"), []byte("c"))
-
-	start, end, isIntersect := rg.intersect([]byte(""), []byte(""))
-	c.Assert(isIntersect, Equals, true)
-	c.Assert(start, DeepEquals, []byte("a"))
-	c.Assert(end, DeepEquals, []byte("c"))
-
-	start, end, isIntersect = rg.intersect([]byte(""), []byte("a"))
-	c.Assert(isIntersect, Equals, false)
-	c.Assert(start, DeepEquals, []byte(nil))
-	c.Assert(end, DeepEquals, []byte(nil))
-
-	start, end, isIntersect = rg.intersect([]byte(""), []byte("b"))
-	c.Assert(isIntersect, Equals, true)
-	c.Assert(start, DeepEquals, []byte("a"))
-	c.Assert(end, DeepEquals, []byte("b"))
-
-	start, end, isIntersect = rg.intersect([]byte("a"), []byte("b"))
-	c.Assert(isIntersect, Equals, true)
-	c.Assert(start, DeepEquals, []byte("a"))
-	c.Assert(end, DeepEquals, []byte("b"))
-
-	start, end, isIntersect = rg.intersect([]byte("aa"), []byte("b"))
-	c.Assert(isIntersect, Equals, true)
-	c.Assert(start, DeepEquals, []byte("aa"))
-	c.Assert(end, DeepEquals, []byte("b"))
-
-	start, end, isIntersect = rg.intersect([]byte("b"), []byte("c"))
-	c.Assert(isIntersect, Equals, true)
-	c.Assert(start, DeepEquals, []byte("b"))
-	c.Assert(end, DeepEquals, []byte("c"))
-
-	start, end, isIntersect = rg.intersect([]byte(""), []byte{1})
-	c.Assert(isIntersect, Equals, false)
-	c.Assert(start, DeepEquals, []byte(nil))
-	c.Assert(end, DeepEquals, []byte(nil))
-
-	start, end, isIntersect = rg.intersect([]byte("c"), []byte(""))
-	c.Assert(isIntersect, Equals, false)
-	c.Assert(start, DeepEquals, []byte(nil))
-	c.Assert(end, DeepEquals, []byte(nil))
-}
-
 func (s *testRangeTreeSuite) TestRangeTree(c *C) {
-	rangeTree := newRangeTree()
-	c.Assert(rangeTree.tree.Get(newRange([]byte(""), []byte(""))), IsNil)
+	rangeTree := NewRangeTree()
+	c.Assert(rangeTree.Get(newRange([]byte(""), []byte(""))), IsNil)
 
 	search := func(key []byte) *Range {
-		rg := rangeTree.tree.Get(newRange(key, []byte("")))
+		rg := rangeTree.Get(newRange(key, []byte("")))
 		if rg == nil {
 			return nil
 		}
 		return rg.(*Range)
 	}
 	assertIncomplete := func(startKey, endKey []byte, ranges []Range) {
-		incomplete := rangeTree.getIncompleteRange(startKey, endKey)
+		incomplete := rangeTree.GetIncompleteRange(startKey, endKey)
 		c.Logf("%#v %#v\n%#v\n%#v\n", startKey, endKey, incomplete, ranges)
 		c.Assert(len(incomplete), Equals, len(ranges))
 		for idx, rg := range incomplete {
@@ -111,8 +67,8 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	rangeC := newRange([]byte("c"), []byte("d"))
 	rangeD := newRange([]byte("d"), []byte(""))
 
-	rangeTree.update(rangeA)
-	c.Assert(rangeTree.len(), Equals, 1)
+	rangeTree.Update(*rangeA)
+	c.Assert(rangeTree.Len(), Equals, 1)
 	assertIncomplete([]byte("a"), []byte("b"), []Range{})
 	assertIncomplete([]byte(""), []byte(""),
 		[]Range{
@@ -120,8 +76,8 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 			{StartKey: []byte("b"), EndKey: []byte("")},
 		})
 
-	rangeTree.update(rangeC)
-	c.Assert(rangeTree.len(), Equals, 2)
+	rangeTree.Update(*rangeC)
+	c.Assert(rangeTree.Len(), Equals, 2)
 	assertIncomplete([]byte("a"), []byte("c"), []Range{
 		{StartKey: []byte("b"), EndKey: []byte("c")},
 	})
@@ -136,55 +92,99 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 		})
 
 	c.Assert(search([]byte{}), IsNil)
-	c.Assert(search([]byte("a")), Equals, rangeA)
+	c.Assert(search([]byte("a")), DeepEquals, rangeA)
 	c.Assert(search([]byte("b")), IsNil)
-	c.Assert(search([]byte("c")), Equals, rangeC)
+	c.Assert(search([]byte("c")), DeepEquals, rangeC)
 	c.Assert(search([]byte("d")), IsNil)
 
-	rangeTree.update(rangeB)
-	c.Assert(rangeTree.len(), Equals, 3)
-	c.Assert(search([]byte("b")), Equals, rangeB)
+	rangeTree.Update(*rangeB)
+	c.Assert(rangeTree.Len(), Equals, 3)
+	c.Assert(search([]byte("b")), DeepEquals, rangeB)
 	assertIncomplete([]byte(""), []byte(""),
 		[]Range{
 			{StartKey: []byte(""), EndKey: []byte("a")},
 			{StartKey: []byte("d"), EndKey: []byte("")},
 		})
 
-	rangeTree.update(rangeD)
-	c.Assert(rangeTree.len(), Equals, 4)
-	c.Assert(search([]byte("d")), Equals, rangeD)
+	rangeTree.Update(*rangeD)
+	c.Assert(rangeTree.Len(), Equals, 4)
+	c.Assert(search([]byte("d")), DeepEquals, rangeD)
 	assertIncomplete([]byte(""), []byte(""), []Range{
 		{StartKey: []byte(""), EndKey: []byte("a")},
 	})
 
 	// None incomplete for any range after insert range 0
-	rangeTree.update(range0)
-	c.Assert(rangeTree.len(), Equals, 5)
+	rangeTree.Update(*range0)
+	c.Assert(rangeTree.Len(), Equals, 5)
 
 	// Overwrite range B and C.
 	rangeBD := newRange([]byte("b"), []byte("d"))
-	rangeTree.update(rangeBD)
-	c.Assert(rangeTree.len(), Equals, 4)
+	rangeTree.Update(*rangeBD)
+	c.Assert(rangeTree.Len(), Equals, 4)
 	assertAllComplete()
 
 	// Overwrite range BD, c-d should be empty
-	rangeTree.update(rangeB)
-	c.Assert(rangeTree.len(), Equals, 4)
+	rangeTree.Update(*rangeB)
+	c.Assert(rangeTree.Len(), Equals, 4)
 	assertIncomplete([]byte(""), []byte(""), []Range{
 		{StartKey: []byte("c"), EndKey: []byte("d")},
 	})
 
-	rangeTree.update(rangeC)
-	c.Assert(rangeTree.len(), Equals, 5)
+	rangeTree.Update(*rangeC)
+	c.Assert(rangeTree.Len(), Equals, 5)
 	assertAllComplete()
 }
 
+func (s *testRangeTreeSuite) TestRangeIntersect(c *C) {
+	rg := newRange([]byte("a"), []byte("c"))
+
+	start, end, isIntersect := rg.Intersect([]byte(""), []byte(""))
+	c.Assert(isIntersect, Equals, true)
+	c.Assert(start, DeepEquals, []byte("a"))
+	c.Assert(end, DeepEquals, []byte("c"))
+
+	start, end, isIntersect = rg.Intersect([]byte(""), []byte("a"))
+	c.Assert(isIntersect, Equals, false)
+	c.Assert(start, DeepEquals, []byte(nil))
+	c.Assert(end, DeepEquals, []byte(nil))
+
+	start, end, isIntersect = rg.Intersect([]byte(""), []byte("b"))
+	c.Assert(isIntersect, Equals, true)
+	c.Assert(start, DeepEquals, []byte("a"))
+	c.Assert(end, DeepEquals, []byte("b"))
+
+	start, end, isIntersect = rg.Intersect([]byte("a"), []byte("b"))
+	c.Assert(isIntersect, Equals, true)
+	c.Assert(start, DeepEquals, []byte("a"))
+	c.Assert(end, DeepEquals, []byte("b"))
+
+	start, end, isIntersect = rg.Intersect([]byte("aa"), []byte("b"))
+	c.Assert(isIntersect, Equals, true)
+	c.Assert(start, DeepEquals, []byte("aa"))
+	c.Assert(end, DeepEquals, []byte("b"))
+
+	start, end, isIntersect = rg.Intersect([]byte("b"), []byte("c"))
+	c.Assert(isIntersect, Equals, true)
+	c.Assert(start, DeepEquals, []byte("b"))
+	c.Assert(end, DeepEquals, []byte("c"))
+
+	start, end, isIntersect = rg.Intersect([]byte(""), []byte{1})
+	c.Assert(isIntersect, Equals, false)
+	c.Assert(start, DeepEquals, []byte(nil))
+	c.Assert(end, DeepEquals, []byte(nil))
+
+	start, end, isIntersect = rg.Intersect([]byte("c"), []byte(""))
+	c.Assert(isIntersect, Equals, false)
+	c.Assert(start, DeepEquals, []byte(nil))
+	c.Assert(end, DeepEquals, []byte(nil))
+}
+
 func BenchmarkRangeTreeUpdate(b *testing.B) {
-	rangeTree := newRangeTree()
+	rangeTree := NewRangeTree()
 	for i := 0; i < b.N; i++ {
-		item := &Range{
+		item := Range{
 			StartKey: []byte(fmt.Sprintf("%20d", i)),
 			EndKey:   []byte(fmt.Sprintf("%20d", i+1))}
-		rangeTree.update(item)
+		rangeTree.Update(item)
 	}
 }

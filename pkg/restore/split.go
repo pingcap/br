@@ -13,6 +13,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // Constants for split retry machinery.
@@ -54,7 +56,7 @@ type OnSplitFunc func(key [][]byte)
 // note: all ranges and rewrite rules must have raw key.
 func (rs *RegionSplitter) Split(
 	ctx context.Context,
-	ranges []Range,
+	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
 	onSplit OnSplitFunc,
 ) error {
@@ -89,10 +91,9 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		var regions []*RegionInfo
-		regions, err = rs.client.ScanRegions(ctx, minKey, maxKey, 0)
-		if err != nil {
-			return errors.Trace(err)
+		regions, err1 := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		if err1 != nil {
+			return errors.Trace(err1)
 		}
 		if len(regions) == 0 {
 			log.Warn("cannot scan any region")
@@ -253,7 +254,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 
 // getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // 	the ranges, groups the split keys by region id
-func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionInfo) map[uint64][][]byte {
+func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
 	for _, rule := range rewriteRules.Table {
