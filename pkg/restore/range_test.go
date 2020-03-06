@@ -6,6 +6,8 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/tidb/tablecodec"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 type testRangeSuite struct{}
@@ -21,8 +23,8 @@ var RangeEquals Checker = &rangeEquals{
 }
 
 func (checker *rangeEquals) Check(params []interface{}, names []string) (result bool, error string) {
-	obtained := params[0].([]Range)
-	expected := params[1].([]Range)
+	obtained := params[0].([]rtree.Range)
+	expected := params[1].([]rtree.Range)
 	if len(obtained) != len(expected) {
 		return false, ""
 	}
@@ -44,20 +46,20 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  dataRules,
 	}
-	ranges1 := []Range{
-		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
-			append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...)},
+	ranges1 := []rtree.Range{
+		{StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			EndKey: append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...), Files: nil},
 	}
 	rs1, err := sortRanges(ranges1, rewriteRules)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
-	c.Assert(rs1, RangeEquals, []Range{
-		{append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...),
-			append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...)},
+	c.Assert(rs1, RangeEquals, []rtree.Range{
+		{StartKey: append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...),
+			EndKey: append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...), Files: nil},
 	})
 
-	ranges2 := []Range{
-		{append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
-			append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...)},
+	ranges2 := []rtree.Range{
+		{StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			EndKey: append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...), Files: nil},
 	}
 	_, err = sortRanges(ranges2, rewriteRules)
 	c.Assert(err, ErrorMatches, ".*table id does not match.*")
@@ -66,10 +68,10 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 	rewriteRules1 := initRewriteRules()
 	rs3, err := sortRanges(ranges3, rewriteRules1)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
-	c.Assert(rs3, RangeEquals, []Range{
-		{[]byte("bbd"), []byte("bbf")},
-		{[]byte("bbf"), []byte("bbj")},
-		{[]byte("xxa"), []byte("xxe")},
-		{[]byte("xxe"), []byte("xxz")},
+	c.Assert(rs3, RangeEquals, []rtree.Range{
+		{StartKey: []byte("bbd"), EndKey: []byte("bbf"), Files: nil},
+		{StartKey: []byte("bbf"), EndKey: []byte("bbj"), Files: nil},
+		{StartKey: []byte("xxa"), EndKey: []byte("xxe"), Files: nil},
+		{StartKey: []byte("xxe"), EndKey: []byte("xxz"), Files: nil},
 	})
 }

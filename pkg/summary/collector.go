@@ -36,7 +36,9 @@ type LogCollector interface {
 	Summary(name string)
 }
 
-var collector = newLogCollector()
+type logFunc func(msg string, fields ...zap.Field)
+
+var collector = newLogCollector(log.Info)
 
 type logCollector struct {
 	mu             sync.Mutex
@@ -45,16 +47,21 @@ type logCollector struct {
 	successCosts   map[string]time.Duration
 	successData    map[string]uint64
 	failureReasons map[string]error
-	fields         []zap.Field
+	durations      map[string]time.Duration
+	ints           map[string]int
+
+	log logFunc
 }
 
-func newLogCollector() LogCollector {
+func newLogCollector(log logFunc) LogCollector {
 	return &logCollector{
 		unitCount:      0,
-		fields:         make([]zap.Field, 0),
 		successCosts:   make(map[string]time.Duration),
 		successData:    make(map[string]uint64),
 		failureReasons: make(map[string]error),
+		durations:      make(map[string]time.Duration),
+		ints:           make(map[string]int),
+		log:            log,
 	}
 }
 
@@ -97,19 +104,20 @@ func (tc *logCollector) CollectFailureUnit(name string, reason error) {
 func (tc *logCollector) CollectDuration(name string, t time.Duration) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	tc.fields = append(tc.fields, zap.Duration(name, t))
+	tc.durations[name] += t
 }
 
 func (tc *logCollector) CollectInt(name string, t int) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	tc.fields = append(tc.fields, zap.Int(name, t))
+	tc.ints[name] += t
 }
 
 func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
-		tc.fields = tc.fields[:0]
+		tc.durations = make(map[string]time.Duration)
+		tc.ints = make(map[string]int)
 		tc.successCosts = make(map[string]time.Duration)
 		tc.failureReasons = make(map[string]error)
 		tc.mu.Unlock()
@@ -131,11 +139,17 @@ func (tc *logCollector) Summary(name string) {
 		}
 	}
 
-	logFields := tc.fields
+	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints))
+	for key, val := range tc.durations {
+		logFields = append(logFields, zap.Duration(key, val))
+	}
+	for key, val := range tc.ints {
+		logFields = append(logFields, zap.Int(key, val))
+	}
+
 	if len(tc.failureReasons) != 0 {
 		names := make([]string, 0, len(tc.failureReasons))
 		for name := range tc.failureReasons {
-			// logFields = append(logFields, zap.NamedError(name, reason))
 			names = append(names, name)
 		}
 		logFields = append(logFields, zap.Strings(msg, names))
@@ -162,7 +176,7 @@ func (tc *logCollector) Summary(name string) {
 		msg += fmt.Sprintf(", %s: %d", name, data)
 	}
 
-	log.Info(name+" summary: "+msg, logFields...)
+	tc.log(name+" summary: "+msg, logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside

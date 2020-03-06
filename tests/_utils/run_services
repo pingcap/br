@@ -39,6 +39,7 @@ start_services() {
     stop_services
 
     echo "Starting PD..."
+    mkdir -p "$TEST_DIR/pd"
     bin/pd-server \
         --client-urls "http://$PD_ADDR" \
         --log-file "$TEST_DIR/pd.log" \
@@ -47,7 +48,7 @@ start_services() {
     i=0
     while ! curl -o /dev/null -sf "http://$PD_ADDR/pd/api/v1/version"; do
        i=$((i+1))
-       if [ "$i" -gt 10 ]; then
+       if [ "$i" -gt 20 ]; then
           echo 'Failed to start PD'
           exit 1
        fi
@@ -56,6 +57,7 @@ start_services() {
 
     echo "Starting TiKV..."
     for i in $(seq $TIKV_COUNT); do
+        mkdir -p "$TEST_DIR/tikv${i}"
         bin/tikv-server \
             --pd "$PD_ADDR" \
             -A "$TIKV_ADDR$i" \
@@ -64,7 +66,16 @@ start_services() {
             -C "tests/config/tikv.toml" \
             -s "$TEST_DIR/tikv${i}" &
     done
-    sleep 1
+
+    echo "Waiting initializing TiKV..."
+    while ! curl -sf "http://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
+       i=$((i+1))
+       if [ "$i" -gt 20 ]; then
+          echo 'Failed to initialize TiKV cluster'
+          exit 1
+       fi
+       sleep 3
+    done
 
     echo "Starting TiDB..."
     bin/tidb-server \
@@ -79,7 +90,7 @@ start_services() {
     i=0
     while ! curl -o /dev/null -sf "http://$TIDB_IP:10080/status"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start TiDB'
             exit 1
         fi
@@ -89,7 +100,7 @@ start_services() {
     i=0
     while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
             exit 1
         fi
@@ -116,11 +127,12 @@ start_services_withTLS() {
         --data-dir "$TEST_DIR/pd" &
     # wait until PD is online...
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cacert $1/certificates/ca.pem \
+        --cert $1/certificates/client.pem \
         --key $1/certificates/client-key.pem \
         -o /dev/null -sf "https://$PD_ADDR/pd/api/v1/version"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start PD'
             exit 1
         fi
@@ -136,7 +148,19 @@ start_services_withTLS() {
             -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
     done
-    sleep 1
+
+    echo "Waiting initializing TiKV..."
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
+            --key $1/certificates/client-key.pem \
+            -sf "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
+       i=$((i+1))
+       if [ "$i" -gt 20 ]; then
+          echo 'Failed to initialize TiKV cluster'
+          exit 1
+       fi
+       sleep 3
+    done
 
     echo "Starting TiDB..."
     bin/tidb-server \
@@ -149,11 +173,12 @@ start_services_withTLS() {
 
     echo "Verifying TiDB is started..."
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
             --key $1/certificates/client-key.pem \
             -o /dev/null -sf "https://$TIDB_IP:10080/status"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start TiDB'
             exit 1
         fi
@@ -161,11 +186,12 @@ start_services_withTLS() {
     done
 
     i=0
-    while ! curl -k --cert $1/certificates/client.pem \
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
             --key $1/certificates/client-key.pem \
             "https://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
             exit 1
         fi
