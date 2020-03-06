@@ -86,16 +86,19 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
+		tidbLogCfg := logutil.LogConfig{}
 		if len(slowLogFilename) != 0 {
-			slowCfg := logutil.LogConfig{SlowQueryFile: slowLogFilename}
-			e = logutil.InitLogger(&slowCfg)
-			if e != nil {
-				err = e
-				return
-			}
+			tidbLogCfg.SlowQueryFile = slowLogFilename
 		} else {
 			// Hack! Discard slow log by setting log level to PanicLevel
 			logutil.SlowQueryLogger.SetLevel(logrus.PanicLevel)
+			// Disable annoying TiDB Log.
+			tidbLogCfg.Level = "fatal"
+		}
+		e = logutil.InitLogger(&tidbLogCfg)
+		if e != nil {
+			err = e
+			return
 		}
 
 		// Initialize the pprof server.
