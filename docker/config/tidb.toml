@@ -1,0 +1,90 @@
+# TiDB Configuration.
+
+# TiDB server host.
+host = "0.0.0.0"
+
+# TiDB server port.
+port = 4000
+
+# Run ddl worker on this tidb-server.
+run-ddl = true
+
+# Schema lease duration, very dangerous to change only if you know what you do.
+lease = "360s"
+
+# When create table, split a separated region for it. It is recommended to
+# turn off this option if there will be a large number of tables created.
+split-table = true
+
+# The limit of concurrent executed sessions.
+token-limit = 1000
+
+[log]
+# Log level: debug, info, warn, error, fatal.
+level = "info"
+
+# Log format, one of json, text, console.
+format = "text"
+
+# Disable automatic timestamp in output
+disable-timestamp = false
+
+# Stores slow query log into separated files.
+slow-query-file = ""
+
+# Queries with execution time greater than this value will be logged. (Milliseconds)
+slow-threshold = 300
+
+# Queries with internal result greater than this value will be logged.
+expensive-threshold = 10000
+
+# Maximum query length recorded in log.
+query-log-max-len = 2048
+
+# File logging.
+[log.file]
+# Log file name.
+filename = ""
+
+# Max log file size in MB (upper limit to 4096MB).
+max-size = 300
+
+# Max log file keep days. No clean up by default.
+max-days = 0
+
+# Maximum number of old log files to retain. No clean up by default.
+max-backups = 0
+
+[security]
+# Path of file that contains list of trusted SSL CAs for connection with mysql client.
+ssl-ca = ""
+
+# Path of file that contains X509 certificate in PEM format for connection with mysql client.
+ssl-cert = ""
+
+# Path of file that contains X509 key in PEM format for connection with mysql client.
+ssl-key = ""
+
+# Path of file that contains list of trusted SSL CAs for connection with cluster components.
+cluster-ssl-ca = ""
+
+# Path of file that contains X509 certificate in PEM format for connection with cluster components.
+cluster-ssl-cert = ""
+
+# Path of file that contains X509 key in PEM format for connection with cluster components.
+cluster-ssl-key = ""
+
+[tikv-client]
+# Max gRPC connections that will be established with each tikv-server.
+grpc-connection-count = 16
+
+# After a duration of this time in seconds if the client doesn't see any activity it pings
+# the server to see if the transport is still alive.
+grpc-keepalive-time = 10
+
+# After having pinged for keepalive check, the client waits for a duration of Timeout in seconds
+# and if no activity is seen even after that the connection is closed.
+grpc-keepalive-timeout = 3
+
+# max time for commit command, must be twice bigger than raft election timeout.
+commit-timeout = "41s"
