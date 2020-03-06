@@ -19,6 +19,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
 
@@ -154,8 +155,8 @@ func getSSTMetaFromFile(
 func ValidateFileRanges(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
-) ([]Range, error) {
-	ranges := make([]Range, 0, len(files))
+) ([]rtree.Range, error) {
+	ranges := make([]rtree.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
@@ -174,7 +175,7 @@ func ValidateFileRanges(
 					zap.Stringer("file", file))
 				return nil, errors.New("table ids dont match")
 			}
-			ranges = append(ranges, Range{
+			ranges = append(ranges, rtree.Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
 			})
@@ -182,6 +183,39 @@ func ValidateFileRanges(
 		}
 	}
 	return ranges, nil
+}
+
+// AttachFilesToRanges attach files to ranges.
+// Panic if range is overlapped or no range for files.
+func AttachFilesToRanges(
+	files []*backup.File,
+	ranges []rtree.Range,
+) []rtree.Range {
+	rangeTree := rtree.NewRangeTree()
+	for _, rg := range ranges {
+		rangeTree.Update(rg)
+	}
+	for _, f := range files {
+
+		rg := rangeTree.Find(&rtree.Range{
+			StartKey: f.GetStartKey(),
+			EndKey:   f.GetEndKey(),
+		})
+		if rg == nil {
+			log.Fatal("range not found",
+				zap.Binary("startKey", f.GetStartKey()),
+				zap.Binary("endKey", f.GetEndKey()))
+		}
+		file := *f
+		rg.Files = append(rg.Files, &file)
+	}
+	if rangeTree.Len() != len(ranges) {
+		log.Fatal("ranges overlapped",
+			zap.Int("ranges length", len(ranges)),
+			zap.Int("tree length", rangeTree.Len()))
+	}
+	sortedRanges := rangeTree.GetSortedRanges()
+	return sortedRanges
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
@@ -276,7 +310,7 @@ func truncateTS(key []byte) []byte {
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
-	ranges []Range,
+	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
 	updateCh chan<- struct{},
 ) error {
@@ -300,6 +334,10 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 	if startID == endID {
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
+			log.Error("cannot find rewrite rule",
+				zap.Binary("startKey", file.GetStartKey()),
+				zap.Reflect("rewrite table", rewriteRules.Table),
+				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.New("cannot find rewrite rule for start key")
 			return
 		}
