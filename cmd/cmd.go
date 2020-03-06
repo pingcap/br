@@ -93,6 +93,7 @@ func Init(cmd *cobra.Command) (err error) {
 			// Hack! Discard slow log by setting log level to PanicLevel
 			logutil.SlowQueryLogger.SetLevel(logrus.PanicLevel)
 			// Disable annoying TiDB Log.
+			// TODO: some error logs outputs randomly, we need to fix them in TiDB.
 			tidbLogCfg.Level = "fatal"
 		}
 		e = logutil.InitLogger(&tidbLogCfg)
