@@ -603,11 +603,16 @@ func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.Table
 		return nil
 	}
 	log.Info("start reseting placement rules")
+	var failedTables []int64
 	for _, t := range tables {
 		err := rc.toolClient.DeletePlacementRule(ctx, "pd", rc.getRuleID(t.ID))
 		if err != nil {
-			return err
+			log.Info("failed to delete placement rule for table", zap.Int64("table-id", t.ID))
+			failedTables = append(failedTables, t.ID)
 		}
+	}
+	if len(failedTables) > 0 {
+		return errors.Errorf("failed to delete placement rules for tables %v", failedTables)
 	}
 	return nil
 }
