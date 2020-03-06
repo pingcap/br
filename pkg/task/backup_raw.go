@@ -11,6 +11,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -102,7 +103,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRaw
 
 	defer summary.Summary(cmdName)
 
-	backupRange := backup.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
+	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
 
 	// The number of regions need to backup
 	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
