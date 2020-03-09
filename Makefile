@@ -12,27 +12,32 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
+RACEFLAG = ""
+ifeq ("$(WITH_RACE)", "1")
+	RACEFLAG = -race
+endif
+
 all: check test build
 
-release:
-	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -o bin/br
-
 build:
-	GO111MODULE=on go build -ldflags '$(LDFLAGS)' -race -o bin/br
+	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
+
+dev:
+	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
 
 build_for_integration_test:
 	GO111MODULE=on go test -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
 		-o bin/br.test
 	# build key locker
-	GO111MODULE=on go build -race -o bin/locker tests/br_key_locked/*.go
+	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go
 	# build gc
-	GO111MODULE=on go build -race -o bin/gc tests/br_z_gc_safepoint/*.go
+	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go
 	# build rawkv client
-	GO111MODULE=on go build -race -o bin/rawkv tests/br_rawkv/*.go
+	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go
 
 test:
-	GO111MODULE=on go test -race -tags leak ./...
+	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
 
 testcover:
 	GO111MODULE=on retool do overalls \
