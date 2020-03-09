@@ -31,6 +31,7 @@ func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "backup",
 		Short: "backup a TiDB cluster",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err

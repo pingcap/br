@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/pingcap/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/cmd"
@@ -42,7 +41,7 @@ func main() {
 		Use:              "br",
 		Short:            "br is a TiDB/TiKV cluster backup restore tool.",
 		TraverseChildren: true,
-		SilenceUsage:     true,
+		SilenceUsage:     false,
 	}
 	cmd.AddFlags(rootCmd)
 	cmd.SetDefaultContext(ctx)
@@ -53,7 +52,6 @@ func main() {
 	)
 	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
-		rootCmd.Println(errors.ErrorStack(err))
 		os.Exit(1)
 	}
 }

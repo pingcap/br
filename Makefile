@@ -12,7 +12,6 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
-RACEFLAG = ""
 ifeq ("$(WITH_RACE)", "1")
 	RACEFLAG = -race
 endif
@@ -20,9 +19,6 @@ endif
 all: check test build
 
 build:
-	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
-
-dev:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
 
 build_for_integration_test:
