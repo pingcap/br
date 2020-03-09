@@ -1,0 +1,10 @@
+codecov:
+  require_ci_to_pass: yes
+
+coverage:
+  status:
+    project:
+      default:
+        # Allow the coverage to drop by 3%
+        threshold: 3%
+    patch: off

@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -37,6 +38,7 @@ const (
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
+	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -125,7 +127,12 @@ func NewMgr(
 		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
-	pdClient, err := pd.NewClient(addrs, securityOption)
+	maxCallMsgSize := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
+	}
+	pdClient, err := pd.NewClient(
+		addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err

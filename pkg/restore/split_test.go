@@ -10,21 +10,30 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/pd/server/core"
 	"github.com/pingcap/pd/server/schedule/placement"
 	"github.com/pingcap/tidb/util/codec"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 type testClient struct {
 	mu           sync.RWMutex
 	stores       map[uint64]*metapb.Store
 	regions      map[uint64]*RegionInfo
+	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
 }
 
 func newTestClient(stores map[uint64]*metapb.Store, regions map[uint64]*RegionInfo, nextRegionID uint64) *testClient {
+	regionsInfo := core.NewRegionsInfo()
+	for _, regionInfo := range regions {
+		regionsInfo.AddRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
+	}
 	return &testClient{
 		stores:       stores,
 		regions:      regions,
+		regionsInfo:  regionsInfo,
 		nextRegionID: nextRegionID,
 	}
 }
@@ -142,16 +151,13 @@ func (c *testClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.Ge
 }
 
 func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
-	regions := make([]*RegionInfo, 0)
-	for _, region := range c.regions {
-		if limit > 0 && len(regions) >= limit {
-			break
-		}
-		if (len(region.Region.GetEndKey()) != 0 && bytes.Compare(region.Region.GetEndKey(), key) <= 0) ||
-			bytes.Compare(region.Region.GetStartKey(), endKey) > 0 {
-			continue
-		}
-		regions = append(regions, region)
+	infos := c.regionsInfo.ScanRange(key, endKey, limit)
+	regions := make([]*RegionInfo, 0, len(infos))
+	for _, info := range infos {
+		regions = append(regions, &RegionInfo{
+			Region: info.GetMeta(),
+			Leader: info.GetLeader(),
+		})
 	}
 	return regions, nil
 }
@@ -234,21 +240,21 @@ func initTestClient() *testClient {
 }
 
 // range: [aaa, aae), [aae, aaz), [ccd, ccf), [ccf, ccj)
-func initRanges() []Range {
-	var ranges [4]Range
-	ranges[0] = Range{
+func initRanges() []rtree.Range {
+	var ranges [4]rtree.Range
+	ranges[0] = rtree.Range{
 		StartKey: []byte("aaa"),
 		EndKey:   []byte("aae"),
 	}
-	ranges[1] = Range{
+	ranges[1] = rtree.Range{
 		StartKey: []byte("aae"),
 		EndKey:   []byte("aaz"),
 	}
-	ranges[2] = Range{
+	ranges[2] = rtree.Range{
 		StartKey: []byte("ccd"),
 		EndKey:   []byte("ccf"),
 	}
-	ranges[3] = Range{
+	ranges[3] = rtree.Range{
 		StartKey: []byte("ccf"),
 		EndKey:   []byte("ccj"),
 	}

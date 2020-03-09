@@ -39,11 +39,10 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient        pd.Client
-	fileImporter    FileImporter
-	workerPool      *utils.WorkerPool
-	tableWorkerPool *utils.WorkerPool
-	tlsConf         *tls.Config
+	pdClient     pd.Client
+	fileImporter FileImporter
+	workerPool   *utils.WorkerPool
+	tlsConf      *tls.Config
 
 	databases       map[string]*utils.Database
 	ddlJobs         []*model.Job
@@ -70,12 +69,11 @@ func NewRestoreClient(
 	}
 
 	return &Client{
-		ctx:             ctx,
-		cancel:          cancel,
-		pdClient:        pdClient,
-		tableWorkerPool: utils.NewWorkerPool(128, "table"),
-		db:              db,
-		tlsConf:         tlsConf,
+		ctx:      ctx,
+		cancel:   cancel,
+		pdClient: pdClient,
+		db:       db,
+		tlsConf:  tlsConf,
 	}, nil
 }
 

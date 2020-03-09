@@ -22,6 +22,8 @@ import (
 const (
 	flagBackupTimeago = "timeago"
 	flagLastBackupTS  = "lastbackupts"
+
+	defaultBackupConcurrency = 4
 )
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -58,6 +60,9 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
+	}
+	if cfg.Config.Concurrency == 0 {
+		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
 	return nil
 }
