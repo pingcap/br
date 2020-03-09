@@ -141,13 +141,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	summary.CollectInt("restore ranges", len(ranges))
 
-<<<<<<< HEAD
 	if err = splitPrepareWork(ctx, client, newTables); err != nil {
 		return err
 	}
-=======
+
 	ranges = restore.AttachFilesToRanges(files, ranges)
->>>>>>> master
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
