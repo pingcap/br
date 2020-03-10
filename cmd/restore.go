@@ -22,8 +22,9 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "restore",
-		Short: "restore a TiKV cluster from a backup",
+		Use:          "restore",
+		Short:        "restore a TiKV cluster from a backup",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err

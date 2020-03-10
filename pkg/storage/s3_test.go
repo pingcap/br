@@ -74,7 +74,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "!http:12345",
 			},
-			errMsg:    "parse !http:12345: first path segment in URL cannot contain colon",
+			errMsg:    "parse (.*)!http:12345(.*): first path segment in URL cannot contain colon",
 			errReturn: true,
 		},
 	}
