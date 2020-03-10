@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -26,8 +27,9 @@ import (
 // NewValidateCommand return a debug subcommand.
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:   "validate <subcommand>",
-		Short: "commands to check/debug backup data",
+		Use:          "validate <subcommand>",
+		Short:        "commands to check/debug backup data",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -166,15 +168,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore.NewRangeTree()
+			rangeTree := rtree.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore.Range{
+				if out := rangeTree.InsertRange(rtree.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore.Range)),
+						zap.Stringer("out", out),
 						zap.Stringer("file", file),
 					)
 				}

@@ -48,7 +48,7 @@ start_services() {
     i=0
     while ! curl -o /dev/null -sf "http://$PD_ADDR/pd/api/v1/version"; do
        i=$((i+1))
-       if [ "$i" -gt 10 ]; then
+       if [ "$i" -gt 20 ]; then
           echo 'Failed to start PD'
           exit 1
        fi
@@ -70,7 +70,7 @@ start_services() {
     echo "Waiting initializing TiKV..."
     while ! curl -sf "http://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
        i=$((i+1))
-       if [ "$i" -gt 10 ]; then
+       if [ "$i" -gt 20 ]; then
           echo 'Failed to initialize TiKV cluster'
           exit 1
        fi
@@ -90,7 +90,7 @@ start_services() {
     i=0
     while ! curl -o /dev/null -sf "http://$TIDB_IP:10080/status"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start TiDB'
             exit 1
         fi
@@ -100,7 +100,7 @@ start_services() {
     i=0
     while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
             exit 1
         fi
@@ -132,7 +132,7 @@ start_services_withTLS() {
         --key $1/certificates/client-key.pem \
         -o /dev/null -sf "https://$PD_ADDR/pd/api/v1/version"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start PD'
             exit 1
         fi
@@ -155,7 +155,7 @@ start_services_withTLS() {
             --key $1/certificates/client-key.pem \
             -sf "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
        i=$((i+1))
-       if [ "$i" -gt 10 ]; then
+       if [ "$i" -gt 20 ]; then
           echo 'Failed to initialize TiKV cluster'
           exit 1
        fi
@@ -178,7 +178,7 @@ start_services_withTLS() {
             --key $1/certificates/client-key.pem \
             -o /dev/null -sf "https://$TIDB_IP:10080/status"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to start TiDB'
             exit 1
         fi
@@ -191,7 +191,7 @@ start_services_withTLS() {
             --key $1/certificates/client-key.pem \
             "https://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
-        if [ "$i" -gt 10 ]; then
+        if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
             exit 1
         fi
