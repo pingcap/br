@@ -89,9 +89,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	summary.CollectInt("restore files", len(files))
 
 	// Empty rewrite rules
-	rewriteRules := &restore.RewriteRules{}
+	//rewriteRules := &restore.RewriteRules{
+	//	Data: []*import_sstpb.RewriteRule{{}},
+	//}
 
-	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
+	ranges, err := restore.ValidateFileRanges(files, nil)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -105,7 +107,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		int64(len(ranges)+len(files)),
 		!cfg.LogProgress)
 
-	err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
+	err = restore.SplitRanges(ctx, client, ranges, nil, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}

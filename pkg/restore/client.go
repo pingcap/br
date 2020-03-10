@@ -98,7 +98,10 @@ func (rc *Client) IsOnline() bool {
 
 // Close a client
 func (rc *Client) Close() {
-	rc.db.Close()
+	// rc.db can be nil in raw kv mode.
+	if rc.db != nil {
+		rc.db.Close()
+	}
 	rc.cancel()
 	log.Info("Restore client closed")
 }
@@ -169,7 +172,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 				// The file is before the range to be restored.
 				continue
 			}
-			if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) >= 0 {
+			if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) <= 0 {
 				// The file is after the range to be restored.
 				// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
 				continue
@@ -178,6 +181,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			files = append(files, file)
 		}
 
+		// There should be at most one backed up range that covers the restoring range.
 		return files, nil
 	}
 

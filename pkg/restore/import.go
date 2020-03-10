@@ -176,7 +176,14 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRules) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
-	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
+	var startKey, endKey []byte
+	var err error
+	if importer.isRawKvMode {
+		startKey = file.StartKey
+		endKey = file.EndKey
+	} else {
+		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+	}
 	if err != nil {
 		return err
 	}
@@ -200,7 +207,11 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			var downloadMeta *import_sstpb.SSTMeta
 			errDownload := utils.WithRetry(importer.ctx, func() error {
 				var e error
-				downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
+				if importer.isRawKvMode {
+					downloadMeta, e = importer.downloadRawKVSST(info, file)
+				} else {
+					downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
+				}
 				return e
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
@@ -316,20 +327,6 @@ func (importer *FileImporter) downloadSST(
 	}
 	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
 
-	// For raw kv mode, cut the SST file's range to fit in the restoring range.
-	if importer.isRawKvMode {
-		if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
-			sstMeta.Range.Start = importer.rawStartKey
-		}
-		// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
-		if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
-			sstMeta.Range.End = importer.rawEndKey
-		}
-		if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
-			return nil, errors.Trace(errRangeIsEmpty)
-		}
-	}
-
 	req := &import_sstpb.DownloadRequest{
 		Sst:            sstMeta,
 		StorageBackend: importer.backend,
@@ -352,6 +349,55 @@ func (importer *FileImporter) downloadSST(
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
 	sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
+	return &sstMeta, nil
+}
+
+func (importer *FileImporter) downloadRawKVSST(
+	regionInfo *RegionInfo,
+	file *backup.File,
+) (*import_sstpb.SSTMeta, error) {
+	id, err := uuid.New().MarshalBinary()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	// Empty rule
+	var rule import_sstpb.RewriteRule
+	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
+
+	// Cut the SST file's range to fit in the restoring range.
+	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
+		sstMeta.Range.Start = importer.rawStartKey
+	}
+	// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
+	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+		sstMeta.Range.End = importer.rawEndKey
+	}
+	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
+		return nil, errors.Trace(errRangeIsEmpty)
+	}
+
+	req := &import_sstpb.DownloadRequest{
+		Sst:            sstMeta,
+		StorageBackend: importer.backend,
+		Name:           file.GetName(),
+		RewriteRule:    rule,
+	}
+	log.Debug("download SST",
+		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("region", regionInfo.Region),
+	)
+	var resp *import_sstpb.DownloadResponse
+	for _, peer := range regionInfo.Region.GetPeers() {
+		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		if err != nil {
+			return nil, extractDownloadSSTError(err)
+		}
+		if resp.GetIsEmpty() {
+			return nil, errors.Trace(errRangeIsEmpty)
+		}
+	}
+	sstMeta.Range.Start = resp.Range.GetStart()
+	sstMeta.Range.End = resp.Range.GetEnd()
 	return &sstMeta, nil
 }
 
