@@ -27,8 +27,9 @@ import (
 // NewValidateCommand return a debug subcommand.
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:   "validate <subcommand>",
-		Short: "commands to check/debug backup data",
+		Use:          "validate <subcommand>",
+		Short:        "commands to check/debug backup data",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
