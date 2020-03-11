@@ -24,8 +24,8 @@ type RestoreRawConfig struct {
 func DefineRawRestoreFlags(command *cobra.Command) {
 	command.Flags().StringP(flagKeyFormat, "", "hex", "start/end key format, support raw|escaped|hex")
 	command.Flags().StringP(flagTiKVColumnFamily, "", "default", "restore specify cf, correspond to tikv cf")
-	command.Flags().StringP(flagStartKey, "", "", "backup raw kv start key, key is inclusive")
-	command.Flags().StringP(flagEndKey, "", "", "backup raw kv end key, key is exclusive")
+	command.Flags().StringP(flagStartKey, "", "", "restore raw kv start key, key is inclusive")
+	command.Flags().StringP(flagEndKey, "", "", "restore raw kv end key, key is exclusive")
 
 	command.Flags().Bool(flagOnline, false, "Whether online when restore")
 	// TODO remove hidden flag if it's stable
@@ -87,11 +87,6 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
 	summary.CollectInt("restore files", len(files))
-
-	// Empty rewrite rules
-	//rewriteRules := &restore.RewriteRules{
-	//	Data: []*import_sstpb.RewriteRule{{}},
-	//}
 
 	ranges, err := restore.ValidateFileRanges(files, nil)
 	if err != nil {
