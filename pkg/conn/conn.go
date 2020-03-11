@@ -57,6 +57,7 @@ type Mgr struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+	ownsStorage bool
 }
 
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
@@ -167,10 +168,11 @@ func NewMgr(
 	}
 
 	mgr := &Mgr{
-		pdClient: pdClient,
-		storage:  storage,
-		dom:      dom,
-		tlsConf:  tlsConf,
+		pdClient:    pdClient,
+		storage:     storage,
+		dom:         dom,
+		tlsConf:     tlsConf,
+		ownsStorage: g.OwnsStorage(),
 	}
 	mgr.pdHTTP.addrs = processedAddrs
 	mgr.pdHTTP.cli = cli
@@ -388,11 +390,14 @@ func (mgr *Mgr) Close() {
 
 	// Gracefully shutdown domain so it does not affect other TiDB DDL.
 	// Must close domain before closing storage, otherwise it gets stuck forever.
-	if mgr.dom != nil {
-		mgr.dom.Close()
+	if mgr.ownsStorage {
+		if mgr.dom != nil {
+			mgr.dom.Close()
+		}
+
+		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		mgr.storage.Close()
 	}
 
-	atomic.StoreUint32(&tikv.ShuttingDown, 1)
-	mgr.storage.Close()
 	mgr.pdClient.Close()
 }
