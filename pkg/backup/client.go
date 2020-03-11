@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -380,7 +381,7 @@ func (bc *Client) BackupRange(
 	defer cancel()
 
 	var allStores []*metapb.Store
-	allStores, err = bc.mgr.GetPDClient().GetAllStores(ctx, pd.WithExcludeTombstone())
+	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient())
 	if err != nil {
 		return errors.Trace(err)
 	}

@@ -15,6 +15,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/pd/server/core"
 	"github.com/pingcap/pd/server/statistics"
 	"github.com/pingcap/tidb/util/codec"
@@ -148,4 +149,58 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 	resp, err = s.mgr.getRegionCountWith(ctx, mock, []byte{1, 2}, []byte{1, 4})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 2)
+}
+
+type fakePDClient struct {
+	pd.Client
+}
+
+func (fpdc fakePDClient) GetAllStores(context.Context, ...pd.GetStoreOption) ([]*metapb.Store, error) {
+	return []*metapb.Store{
+		{
+			Id: 1,
+		},
+		{
+			Id: 2,
+			Labels: []*metapb.StoreLabel{
+				{Key: "engine", Value: "tiflash"},
+			},
+		},
+		{
+			Id: 3,
+			Labels: []*metapb.StoreLabel{
+				{Key: "engine", Value: "tikv"},
+			},
+		},
+		{
+			Id: 4,
+			Labels: []*metapb.StoreLabel{
+				{Key: "engine", Value: "tiflash"},
+				{Key: "else", Value: "tiflash"},
+			},
+		},
+		{
+			Id: 5,
+			Labels: []*metapb.StoreLabel{
+				{Key: "else", Value: "tiflash"},
+				{Key: "engine", Value: "tikv"},
+			},
+		},
+	}, nil
+}
+
+func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
+	var pdClient fakePDClient
+	stores, err := GetAllTiKVStores(context.Background(), pdClient)
+	c.Assert(err, IsNil)
+
+	foundStores := make(map[uint64]int)
+	for _, store := range stores {
+		foundStores[store.Id]++
+	}
+	c.Assert(foundStores, DeepEquals, map[uint64]int{
+		1: 1,
+		3: 1,
+		5: 1,
+	})
 }

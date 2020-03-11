@@ -92,6 +92,30 @@ func pdRequest(
 	return r, nil
 }
 
+// GetAllTiKVStores returns all TiKV stores registered to the PD client. The
+// stores must not be a tombstone and must never contain a label `engine=tiflash`.
+func GetAllTiKVStores(ctx context.Context, pdClient pd.Client) ([]*metapb.Store, error) {
+	// get all live stores.
+	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	if err != nil {
+		return nil, err
+	}
+
+	// filter out all stores which are TiFlash.
+	j := 0
+skipStore:
+	for _, store := range stores {
+		for _, label := range store.Labels {
+			if label.Key == "engine" && label.Value == "tiflash" {
+				continue skipStore
+			}
+		}
+		stores[j] = store
+		j++
+	}
+	return stores[:j], nil
+}
+
 // NewMgr creates a new Mgr.
 func NewMgr(
 	ctx context.Context,
@@ -143,7 +167,7 @@ func NewMgr(
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	stores, err := GetAllTiKVStores(ctx, pdClient)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err
