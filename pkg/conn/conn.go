@@ -92,9 +92,26 @@ func pdRequest(
 	return r, nil
 }
 
+// UnexpectedStoreBehavior is the action to do in GetAllTiKVStores when a
+// non-TiKV store (e.g. TiFlash store) is found.
+type UnexpectedStoreBehavior uint8
+
+const (
+	// ErrorOnTiFlash causes GetAllTiKVStores to return error when the store is
+	// found to be a TiFlash node.
+	ErrorOnTiFlash UnexpectedStoreBehavior = 0
+	// SkipTiFlash causes GetAllTiKVStores to skip the store when it is found to
+	// be a TiFlash node.
+	SkipTiFlash UnexpectedStoreBehavior = 1
+)
+
 // GetAllTiKVStores returns all TiKV stores registered to the PD client. The
 // stores must not be a tombstone and must never contain a label `engine=tiflash`.
-func GetAllTiKVStores(ctx context.Context, pdClient pd.Client) ([]*metapb.Store, error) {
+func GetAllTiKVStores(
+	ctx context.Context,
+	pdClient pd.Client,
+	unexpectedStoreBehavior UnexpectedStoreBehavior,
+) ([]*metapb.Store, error) {
 	// get all live stores.
 	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
@@ -107,7 +124,10 @@ skipStore:
 	for _, store := range stores {
 		for _, label := range store.Labels {
 			if label.Key == "engine" && label.Value == "tiflash" {
-				continue skipStore
+				if unexpectedStoreBehavior == SkipTiFlash {
+					continue skipStore
+				}
+				return nil, errors.Errorf("cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 			}
 		}
 		stores[j] = store
@@ -123,7 +143,9 @@ func NewMgr(
 	pdAddrs string,
 	storage tikv.Storage,
 	tlsConf *tls.Config,
-	securityOption pd.SecurityOption) (*Mgr, error) {
+	securityOption pd.SecurityOption,
+	unexpectedStoreBehavior UnexpectedStoreBehavior,
+) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
@@ -167,7 +189,7 @@ func NewMgr(
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := GetAllTiKVStores(ctx, pdClient)
+	stores, err := GetAllTiKVStores(ctx, pdClient, unexpectedStoreBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err

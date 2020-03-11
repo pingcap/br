@@ -381,7 +381,7 @@ func (bc *Client) BackupRange(
 	defer cancel()
 
 	var allStores []*metapb.Store
-	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient())
+	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}

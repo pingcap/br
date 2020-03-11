@@ -251,7 +251,7 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 
 func (rc *Client) setSpeedLimit() error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient)
+		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.ErrorOnTiFlash)
 		if err != nil {
 			return err
 		}
@@ -335,7 +335,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient)
+	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.ErrorOnTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}
