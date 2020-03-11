@@ -36,6 +36,41 @@ Notice BR supports building with Go version `Go >= 1.13`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
+## Quick start
+
+```sh
+# Start TiDB cluster
+docker-compose -f docker-compose.yaml rm -s -v && \
+docker-compose -f docker-compose.yaml build && \
+docker-compose -f docker-compose.yaml up --remove-orphans
+
+# Attach to control container to run BR
+docker exec -it br_control_1 bash
+
+# Load testing data to TiDB
+go-ycsb load mysql -p workload=core \
+    -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root \
+    -p recordcount=100000 -p threadcount=100
+
+# How many rows do we get? 100000 rows.
+mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+
+# Build BR and backup!
+make release && \
+bin/br backup full --pd pd0:2379 --storage "local:///data/backup/full" \
+    --log-file "/logs/br_backup.log"
+
+# Let's drop database.
+mysql -uroot -htidb -P4000 -E -e "DROP DATABASE test; SHOW DATABASES;"
+
+# Restore!
+bin/br restore full --pd pd0:2379 --storage "local:///data/backup/full" \
+    --log-file "/logs/br_restore.log"
+
+# How many rows do we get again? Expected to be 100000 rows.
+mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+```
+
 ## Contributing
 
 Contributions are welcomed and greatly appreciated. See [CONTRIBUTING](./CONTRIBUTING.md)

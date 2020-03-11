@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -86,16 +88,20 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
+		tidbLogCfg := logutil.LogConfig{}
 		if len(slowLogFilename) != 0 {
-			slowCfg := logutil.LogConfig{SlowQueryFile: slowLogFilename}
-			e = logutil.InitLogger(&slowCfg)
-			if e != nil {
-				err = e
-				return
-			}
+			tidbLogCfg.SlowQueryFile = slowLogFilename
 		} else {
 			// Hack! Discard slow log by setting log level to PanicLevel
 			logutil.SlowQueryLogger.SetLevel(logrus.PanicLevel)
+			// Disable annoying TiDB Log.
+			// TODO: some error logs outputs randomly, we need to fix them in TiDB.
+			tidbLogCfg.Level = "fatal"
+		}
+		e = logutil.InitLogger(&tidbLogCfg)
+		if e != nil {
+			err = e
+			return
 		}
 
 		// Initialize the pprof server.
