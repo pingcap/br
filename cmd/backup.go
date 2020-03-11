@@ -102,9 +102,10 @@ func newTableBackupCommand() *cobra.Command {
 
 // newRawBackupCommand return a raw kv range backup subcommand.
 func newRawBackupCommand() *cobra.Command {
+	// TODO: remove experimental tag if it's stable
 	command := &cobra.Command{
 		Use:   "raw",
-		Short: "backup a raw kv range from TiKV cluster",
+		Short: "(experimental) backup a raw kv range from TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupRawCommand(command, "Raw backup")
 		},
