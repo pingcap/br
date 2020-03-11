@@ -48,9 +48,8 @@ type RestoreConfig struct {
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
-	flags.Bool("online", false, "Whether online when restore")
-	// TODO remove hidden flag if it's stable
-	_ = flags.MarkHidden("online")
+	// TODO remove experimental tag if it's stable
+	flags.Bool("online", false, "(experimental) Whether online when restore")
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
