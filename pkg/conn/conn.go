@@ -162,7 +162,7 @@ func NewMgr(
 		return nil, errors.Errorf("tikv cluster not health %+v", stores)
 	}
 
-	dom, err := g.BootstrapSession(storage)
+	dom, err := g.GetDomain(storage)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

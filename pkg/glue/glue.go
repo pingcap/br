@@ -14,7 +14,7 @@ import (
 
 // Glue is an abstraction of TiDB function calls used in BR.
 type Glue interface {
-	BootstrapSession(store kv.Storage) (*domain.Domain, error)
+	GetDomain(store kv.Storage) (*domain.Domain, error)
 	CreateSession(store kv.Storage) (Session, error)
 	Open(path string, option pd.SecurityOption) (kv.Storage, error)
 
