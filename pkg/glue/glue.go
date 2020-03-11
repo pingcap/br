@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package glue
 
 import (
@@ -15,6 +17,10 @@ type Glue interface {
 	GetDomain(store kv.Storage) (*domain.Domain, error)
 	CreateSession(store kv.Storage) (Session, error)
 	Open(path string, option pd.SecurityOption) (kv.Storage, error)
+
+	// OwnsStorage returns whether the storage returned by Open() is owned
+	// If this method returns false, the connection manager will never close the storage.
+	OwnsStorage() bool
 }
 
 // Session is an abstraction of the session.Session interface.

@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package gluetidb
 
 import (
@@ -48,6 +50,11 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 		config.StoreGlobalConfig(conf)
 	}
 	return tikv.Driver{}.Open(path)
+}
+
+// OwnsStorage implements glue.Glue
+func (Glue) OwnsStorage() bool {
+	return true
 }
 
 // Execute implements glue.Session
