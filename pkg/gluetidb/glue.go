@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package gluetidb
 
 import (
@@ -25,9 +27,9 @@ type tidbSession struct {
 	se session.Session
 }
 
-// BootstrapSession implements glue.Glue
-func (Glue) BootstrapSession(store kv.Storage) (*domain.Domain, error) {
-	return session.BootstrapSession(store)
+// GetDomain implements glue.Glue
+func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
+	return session.GetDomain(store)
 }
 
 // CreateSession implements glue.Glue
@@ -42,6 +44,11 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 // Open implements glue.Glue
 func (g Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 	return g.tikvGlue.Open(path, option)
+}
+
+// OwnsStorage implements glue.Glue
+func (Glue) OwnsStorage() bool {
+	return true
 }
 
 // Execute implements glue.Session
