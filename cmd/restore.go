@@ -97,7 +97,7 @@ func newTableRestoreCommand() *cobra.Command {
 func newRawRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "raw",
-		Short: "restore a raw kv range to TiKV cluster",
+		Short: "(experimental) restore a raw kv range to TiKV cluster",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreRawCommand(cmd, "Raw restore")
 		},
