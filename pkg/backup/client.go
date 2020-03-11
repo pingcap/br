@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -429,7 +431,7 @@ func (bc *Client) BackupRange(
 	})
 
 	// Check if there are duplicated files.
-	rtree.CheckDupFiles(&results)
+	checkDupFiles(&results)
 
 	return nil
 }
