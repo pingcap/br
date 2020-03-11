@@ -26,9 +26,9 @@ type tidbSession struct {
 	se session.Session
 }
 
-// BootstrapSession implements glue.Glue
-func (Glue) BootstrapSession(store kv.Storage) (*domain.Domain, error) {
-	return session.BootstrapSession(store)
+// GetDomain implements glue.Glue
+func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
+	return session.GetDomain(store)
 }
 
 // CreateSession implements glue.Glue
@@ -50,6 +50,11 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 		config.StoreGlobalConfig(conf)
 	}
 	return tikv.Driver{}.Open(path)
+}
+
+// OwnsStorage implements glue.Glue
+func (Glue) OwnsStorage() bool {
+	return true
 }
 
 // Execute implements glue.Session
