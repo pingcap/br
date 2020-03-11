@@ -97,7 +97,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	// TODO: How to show progress?
 	updateCh := utils.StartProgress(
 		ctx,
-		"Table Restore",
+		"Raw Restore",
 		// Split/Scatter + Download/Ingest
 		int64(len(ranges)+len(files)),
 		!cfg.LogProgress)
