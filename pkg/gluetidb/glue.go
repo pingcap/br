@@ -50,6 +50,11 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 	return tikv.Driver{}.Open(path)
 }
 
+// OwnsStorage implements glue.Glue
+func (Glue) OwnsStorage() bool {
+	return true
+}
+
 // Execute implements glue.Session
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
