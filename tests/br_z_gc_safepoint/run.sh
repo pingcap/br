@@ -23,6 +23,8 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 
+MAX_UINT64=9223372036854775807
+
 run_sql "CREATE DATABASE $DB;"
 
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
@@ -39,7 +41,25 @@ echo "backup start (expect fail)..."
 run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
 
 if [ "$backup_gc_fail" -ne "1" ];then
-    echo "TEST: [$TEST_NAME] failed!"
+    echo "TEST: [$TEST_NAME] test check backup ts failed!"
+    exit 1
+fi
+
+backup_gc_fail=0
+echo "incremental backup start (expect fail)..."
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --lastbackupts 1 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
+
+if [ "$backup_gc_fail" -ne "1" ];then
+    echo "TEST: [$TEST_NAME] test check last backup ts failed!"
+    exit 1
+fi
+
+backup_gc_fail=0
+echo "incremental backup with max_uint64 start (expect fail)..."
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --lastbackupts $MAX_UINT64 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
+
+if [ "$backup_gc_fail" -ne "1" ];then
+    echo "TEST: [$TEST_NAME] test check max backup ts failed!"
     exit 1
 fi
 

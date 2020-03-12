@@ -324,8 +324,8 @@ func (bc *Client) BackupRanges(
 		close(errCh)
 	}()
 
-	// Check GC safepoint every 30s.
-	t := time.NewTicker(time.Second * 30)
+	// Check GC safepoint every 5s.
+	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
 	finished := false
@@ -334,6 +334,13 @@ func (bc *Client) BackupRanges(
 		if err != nil {
 			log.Error("check GC safepoint failed", zap.Error(err))
 			return err
+		}
+		if req.StartVersion > 0 {
+			err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.StartVersion)
+			if err != nil {
+				log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
+				return err
+			}
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.

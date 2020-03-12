@@ -43,8 +43,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		flagBackupTimeago, 0,
 		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
-	flags.Uint64(flagLastBackupTS, 0, "the last time backup ts")
-	_ = flags.MarkHidden(flagLastBackupTS)
+	// TODO: remove experimental tag if it's stable
+	flags.Uint64(flagLastBackupTS, 0, "(experimental) the last time backup ts")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -112,6 +112,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	ddlJobs := make([]*model.Job, 0)
 	if cfg.LastBackupTS > 0 {
+		if backupTS < cfg.LastBackupTS {
+			log.Error("LastBackupTS is larger than current TS")
+			return errors.New("LastBackupTS is larger than current TS")
+		}
 		err = backup.CheckGCSafepoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
