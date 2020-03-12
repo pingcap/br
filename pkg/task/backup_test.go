@@ -32,5 +32,5 @@ func (s *testBackupSuite) TestParseTSString(c *C) {
 	_, offset := time.Now().Local().Zone()
 	ts, err = parseTSString("2018-05-11 01:42:23")
 	c.Assert(err, IsNil)
-	c.Assert(int(ts), Equals, 400032515489792000 - (offset*1000) << 18)
+	c.Assert(int(ts), Equals, 400032515489792000-(offset*1000)<<18)
 }

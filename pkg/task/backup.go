@@ -53,7 +53,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Uint64(flagLastBackupTS, 0, "(experimental) the last time backup ts,"+
 		" use for incremental backup, support TSO only")
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
-		" e.g. '400036290571534337', '2018-05-11 01:42:23' ")
+		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
