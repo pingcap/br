@@ -50,7 +50,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		"The history version of the backup task, e.g. 1m, 1h. Do not exceed GCSafePoint")
 
 	// TODO: remove experimental tag if it's stable
-	flags.Uint64(flagLastBackupTS, 0, "(experimental) the last time backup ts, use for incremental backup, support TSO only")
+	flags.Uint64(flagLastBackupTS, 0, "(experimental) the last time backup ts,"+
+		" use for incremental backup, support TSO only")
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23' ")
 }

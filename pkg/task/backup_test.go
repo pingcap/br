@@ -2,6 +2,7 @@ package task
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/pingcap/check"
 )
@@ -28,7 +29,9 @@ func (s *testBackupSuite) TestParseTSString(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(int(ts), Equals, 400036290571534337)
 
+	utcTS := 400024965742563200
+	_, offset := time.Now().Local().Zone()
 	ts, err = parseTSString("2018-05-11 01:42:23")
 	c.Assert(err, IsNil)
-	c.Assert(int(ts), Equals, 400024965742592000)
+	c.Assert(int(ts), Equals, utcTS+offset)
 }
