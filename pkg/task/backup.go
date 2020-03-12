@@ -226,14 +226,16 @@ func parseTSString(ts string) (uint64, error) {
 	if tso, err := strconv.ParseUint(ts, 10, 64); err == nil {
 		return tso, nil
 	}
+
+	loc := time.Local
 	sc := &stmtctx.StatementContext{
-		TimeZone: time.Local,
+		TimeZone: loc,
 	}
 	t, err := types.ParseTime(sc, ts, mysql.TypeTimestamp, types.MaxFsp)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	t1, err := t.GoTime(time.Local)
+	t1, err := t.GoTime(loc)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
