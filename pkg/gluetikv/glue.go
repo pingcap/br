@@ -13,8 +13,8 @@ import (
 // Glue is an implementation of glue.Glue that accesses only TiKV without TiDB.
 type Glue struct{}
 
-// BootstrapSession implements glue.Glue
-func (Glue) BootstrapSession(store kv.Storage) (*domain.Domain, error) {
+// GetDomain implements glue.Glue
+func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
 	return nil, nil
 }
 
@@ -33,4 +33,9 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 		config.StoreGlobalConfig(conf)
 	}
 	return tikv.Driver{}.Open(path)
+}
+
+// OwnsStorage implements glue.Glue
+func (Glue) OwnsStorage() bool {
+	return true
 }
