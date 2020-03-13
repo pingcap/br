@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -18,8 +20,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/client"
-	"github.com/pingcap/pd/server/schedule/placement"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"

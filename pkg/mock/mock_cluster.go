@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package mock
 
 import (
@@ -14,8 +16,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/client"
-	"github.com/pingcap/pd/pkg/tempurl"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/pkg/tempurl"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"

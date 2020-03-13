@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package storage
 
 import (
@@ -72,7 +74,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "!http:12345",
 			},
-			errMsg:    "parse !http:12345: first path segment in URL cannot contain colon",
+			errMsg:    "parse (.*)!http:12345(.*): first path segment in URL cannot contain colon",
 			errReturn: true,
 		},
 	}

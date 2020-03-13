@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -29,8 +31,9 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 // NewBackupCommand return a full backup subcommand.
 func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "backup",
-		Short: "backup a TiDB cluster",
+		Use:          "backup",
+		Short:        "backup a TiDB/TiKV cluster",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -99,9 +102,10 @@ func newTableBackupCommand() *cobra.Command {
 
 // newRawBackupCommand return a raw kv range backup subcommand.
 func newRawBackupCommand() *cobra.Command {
+	// TODO: remove experimental tag if it's stable
 	command := &cobra.Command{
 		Use:   "raw",
-		Short: "backup a raw kv range from TiKV cluster",
+		Short: "(experimental) backup a raw kv range from TiKV cluster",
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupRawCommand(command, "Raw backup")
 		},

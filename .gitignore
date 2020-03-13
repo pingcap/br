@@ -7,3 +7,5 @@ backupmeta
 *.ngo
 *.coverprofile
 coverage.txt
+docker/data/
+docker/logs/

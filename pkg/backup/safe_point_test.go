@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -5,7 +7,7 @@ import (
 	"sync"
 
 	. "github.com/pingcap/check"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/mock"
