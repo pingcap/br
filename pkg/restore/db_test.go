@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -13,18 +15,20 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/gluetidb"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreSchemaSuite{})
 
 type testRestoreSchemaSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testRestoreSchemaSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 	c.Assert(s.mock.Start(), IsNil)
 }
@@ -70,7 +74,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
 	table.Info.AutoIncID = globalAutoID + 100
-	db, err := NewDB(s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
 	// Test empty collate value

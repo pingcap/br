@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -14,14 +16,15 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
-	return task.RunRestore(GetDefaultContext(), cmdName, &cfg)
+	return task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "restore",
-		Short: "restore a TiKV cluster from a backup",
+		Use:          "restore",
+		Short:        "restore a TiDB/TiKV cluster",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err

@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -7,18 +9,19 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testBackofferSuite{})
 
 type testBackofferSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testBackofferSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 

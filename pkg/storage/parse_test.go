@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package storage
 
 import (
@@ -19,7 +21,7 @@ var _ = Suite(&testStorageSuite{})
 
 func (r *testStorageSuite) TestCreateStorage(c *C) {
 	_, err := ParseBackend("1invalid:", nil)
-	c.Assert(err, ErrorMatches, "parse 1invalid:: first path segment in URL cannot contain colon")
+	c.Assert(err, ErrorMatches, "parse (.*)1invalid:(.*): first path segment in URL cannot contain colon")
 
 	_, err = ParseBackend("net:storage", nil)
 	c.Assert(err, ErrorMatches, "storage net not support yet")

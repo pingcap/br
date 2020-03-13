@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -12,18 +14,20 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/gluetidb"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreClientSuite{})
 
 type testRestoreClientSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testRestoreClientSuite) SetUpTest(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
@@ -36,7 +40,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	defer s.mock.Stop()
 
 	client := Client{}
-	db, err := NewDB(s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil)
 	client.db = db
 	client.ctx = context.Background()
@@ -93,7 +97,7 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	defer s.mock.Stop()
 
 	client := Client{}
-	db, err := NewDB(s.mock.Storage)
+	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil)
 	client.db = db
 	client.ctx = context.Background()

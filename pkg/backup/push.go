@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -9,6 +11,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // pushDown warps a backup task.
@@ -35,9 +39,9 @@ func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
 	stores []*metapb.Store,
 	updateCh chan<- struct{},
-) (RangeTree, error) {
+) (rtree.RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
-	res := newRangeTree()
+	res := rtree.NewRangeTree()
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
 		storeID := s.GetId()
@@ -82,7 +86,7 @@ func (push *pushDown) pushBackup(
 			}
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
-				res.put(
+				res.Put(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress

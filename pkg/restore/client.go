@@ -1,7 +1,10 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"math"
 	"sort"
@@ -13,16 +16,18 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -36,10 +41,10 @@ type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	pdClient        pd.Client
-	fileImporter    FileImporter
-	workerPool      *utils.WorkerPool
-	tableWorkerPool *utils.WorkerPool
+	pdClient     pd.Client
+	fileImporter FileImporter
+	workerPool   *utils.WorkerPool
+	tlsConf      *tls.Config
 
 	databases       map[string]*utils.Database
 	ddlJobs         []*model.Job
@@ -53,22 +58,24 @@ type Client struct {
 // NewRestoreClient returns a new RestoreClient
 func NewRestoreClient(
 	ctx context.Context,
+	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
+	tlsConf *tls.Config,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	db, err := NewDB(store)
+	db, err := NewDB(g, store)
 	if err != nil {
 		cancel()
 		return nil, errors.Trace(err)
 	}
 
 	return &Client{
-		ctx:             ctx,
-		cancel:          cancel,
-		pdClient:        pdClient,
-		tableWorkerPool: utils.NewWorkerPool(128, "table"),
-		db:              db,
+		ctx:      ctx,
+		cancel:   cancel,
+		pdClient: pdClient,
+		db:       db,
+		tlsConf:  tlsConf,
 	}, nil
 }
 
@@ -110,8 +117,8 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
-	metaClient := NewSplitClient(rc.pdClient)
-	importClient := NewImportClient(metaClient)
+	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
+	importClient := NewImportClient(metaClient, rc.tlsConf)
 	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
 	return nil
 }
@@ -124,6 +131,11 @@ func (rc *Client) SetConcurrency(c uint) {
 // EnableOnline sets the mode of restore to online.
 func (rc *Client) EnableOnline() {
 	rc.isOnline = true
+}
+
+// GetTLSConfig returns the tls config
+func (rc *Client) GetTLSConfig() *tls.Config {
+	return rc.tlsConf
 }
 
 // GetTS gets a new timestamp from PD
@@ -143,7 +155,7 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	i := 0
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
-		return utils.ResetTS(pdAddrs[idx], restoreTS)
+		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
 	}, newResetTSBackoffer())
 }
 
@@ -330,6 +342,9 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	bfConf.MaxDelay = time.Second * 3
 	for _, store := range stores {
 		opt := grpc.WithInsecure()
+		if rc.tlsConf != nil {
+			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
+		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
 		keepAlive := 10
 		keepAliveTimeout := 3
