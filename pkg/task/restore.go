@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package task
 
 import (
@@ -6,6 +8,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -46,9 +49,8 @@ type RestoreConfig struct {
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
-	flags.Bool("online", false, "Whether online when restore")
-	// TODO remove hidden flag if it's stable
-	_ = flags.MarkHidden("online")
+	// TODO remove experimental tag if it's stable
+	flags.Bool("online", false, "(experimental) Whether online when restore")
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -89,6 +91,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
 		client.EnableOnline()
+	}
+	err = client.LoadRestoreStores(ctx)
+	if err != nil {
+		return err
 	}
 
 	defer summary.Summary(cmdName)
@@ -135,6 +141,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	summary.CollectInt("restore ranges", len(ranges))
+
+	if err = splitPrepareWork(ctx, client, newTables); err != nil {
+		return err
+	}
 
 	ranges = restore.AttachFilesToRanges(files, ranges)
 
@@ -199,6 +209,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// mode or emptied schedulers
 	err = restorePostWork(ctx, client, mgr, clusterCfg)
 	if err != nil {
+		return err
+	}
+
+	if err = splitPostWork(ctx, client, newTables); err != nil {
 		return err
 	}
 
@@ -301,6 +315,34 @@ func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers 
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func splitPrepareWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.SetupPlacementRules(ctx, tables)
+	if err != nil {
+		log.Error("setup placement rules failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+
+	err = client.WaitPlacementSchedule(ctx, tables)
+	if err != nil {
+		log.Error("wait placement schedule failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.ResetPlacementRules(ctx, tables)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = client.ResetRestoreLabels(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
 	return nil
 }

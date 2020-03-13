@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package utils
 
 import (
@@ -55,7 +57,7 @@ func (pp *ProgressPrinter) goPrintProgress(
 		bar.Set(pb.Color, true)
 		bar.SetWriter(&wrappedWriter{name: pp.name})
 	} else {
-		tmpl := `{{string . "barName" | red}} {{ bar . "<" "-" (cycle . "-" "\\" "|" "/" ) "." ">"}} {{percent .}}`
+		tmpl := `{{string . "barName" | green}} {{ bar . "<" "-" (cycle . "-" "\\" "|" "/" ) "." ">"}} {{percent .}}`
 		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
 		bar.Set("barName", pp.name)
 	}

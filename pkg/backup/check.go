@@ -1,4 +1,6 @@
-package rtree
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
+package backup
 
 import (
 	"encoding/hex"
@@ -6,14 +8,16 @@ import (
 	"github.com/google/btree"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
-// CheckDupFiles checks if there are any files are duplicated.
-func CheckDupFiles(rangeTree *RangeTree) {
+// checkDupFiles checks if there are any files are duplicated.
+func checkDupFiles(rangeTree *rtree.RangeTree) {
 	// Name -> SHA256
 	files := make(map[string][]byte)
 	rangeTree.Ascend(func(i btree.Item) bool {
-		rg := i.(*Range)
+		rg := i.(*rtree.Range)
 		for _, f := range rg.Files {
 			old, ok := files[f.Name]
 			if ok {

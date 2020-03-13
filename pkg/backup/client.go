@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -15,7 +17,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
@@ -71,25 +73,33 @@ func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 }
 
 // GetTS returns the latest timestamp.
-func (bc *Client) GetTS(ctx context.Context, duration time.Duration) (uint64, error) {
-	p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
-	backupTS := oracle.ComposeTS(p, l)
-
-	switch {
-	case duration < 0:
-		return 0, errors.New("negative timeago is not allowed")
-	case duration > 0:
-		log.Info("backup time ago", zap.Duration("timeago", duration))
-
-		backupTime := oracle.GetTimeFromTS(backupTS)
-		backupAgo := backupTime.Add(-duration)
-		if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
-			return 0, errors.New("backup ts overflow please choose a smaller timeago")
+func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) (uint64, error) {
+	var (
+		backupTS uint64
+		err      error
+	)
+	if ts > 0 {
+		backupTS = ts
+	} else {
+		p, l, err := bc.mgr.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return 0, errors.Trace(err)
 		}
-		backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
+		backupTS = oracle.ComposeTS(p, l)
+
+		switch {
+		case duration < 0:
+			return 0, errors.New("negative timeago is not allowed")
+		case duration > 0:
+			log.Info("backup time ago", zap.Duration("timeago", duration))
+
+			backupTime := oracle.GetTimeFromTS(backupTS)
+			backupAgo := backupTime.Add(-duration)
+			if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
+				return 0, errors.New("backup ts overflow please choose a smaller timeago")
+			}
+			backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
+		}
 	}
 
 	// check backup time do not exceed GCSafePoint
@@ -321,8 +331,8 @@ func (bc *Client) BackupRanges(
 		close(errCh)
 	}()
 
-	// Check GC safepoint every 30s.
-	t := time.NewTicker(time.Second * 30)
+	// Check GC safepoint every 5s.
+	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
 	finished := false
@@ -331,6 +341,13 @@ func (bc *Client) BackupRanges(
 		if err != nil {
 			log.Error("check GC safepoint failed", zap.Error(err))
 			return err
+		}
+		if req.StartVersion > 0 {
+			err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.StartVersion)
+			if err != nil {
+				log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
+				return err
+			}
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
@@ -429,7 +446,7 @@ func (bc *Client) BackupRange(
 	})
 
 	// Check if there are duplicated files.
-	rtree.CheckDupFiles(&results)
+	checkDupFiles(&results)
 
 	return nil
 }

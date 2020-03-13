@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -36,6 +38,11 @@ func newIDAllocator(id int64) *idAllocator {
 
 func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
 	return alloc.id, alloc.id, nil
+}
+
+func (alloc *idAllocator) AllocSeqCache(sequenceID int64) (min int64, max int64, round int64, err error) {
+	// TODO fix this function after support backup sequence
+	return 0, 0, 0, nil
 }
 
 func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {

@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package conn
 
 import (
@@ -19,7 +21,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/codec"
@@ -55,6 +57,7 @@ type Mgr struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+	ownsStorage bool
 }
 
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
@@ -159,16 +162,17 @@ func NewMgr(
 		return nil, errors.Errorf("tikv cluster not health %+v", stores)
 	}
 
-	dom, err := g.BootstrapSession(storage)
+	dom, err := g.GetDomain(storage)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	mgr := &Mgr{
-		pdClient: pdClient,
-		storage:  storage,
-		dom:      dom,
-		tlsConf:  tlsConf,
+		pdClient:    pdClient,
+		storage:     storage,
+		dom:         dom,
+		tlsConf:     tlsConf,
+		ownsStorage: g.OwnsStorage(),
 	}
 	mgr.pdHTTP.addrs = processedAddrs
 	mgr.pdHTTP.cli = cli
@@ -386,11 +390,14 @@ func (mgr *Mgr) Close() {
 
 	// Gracefully shutdown domain so it does not affect other TiDB DDL.
 	// Must close domain before closing storage, otherwise it gets stuck forever.
-	if mgr.dom != nil {
-		mgr.dom.Close()
+	if mgr.ownsStorage {
+		if mgr.dom != nil {
+			mgr.dom.Close()
+		}
+
+		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		mgr.storage.Close()
 	}
 
-	atomic.StoreUint32(&tikv.ShuttingDown, 1)
-	mgr.storage.Close()
 	mgr.pdClient.Close()
 }
