@@ -114,13 +114,14 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 			return errors.Trace(err)
 		}
 		rc.databases = databases
+
+		var ddlJobs []*model.Job
+		err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.ddlJobs = ddlJobs
 	}
-	var ddlJobs []*model.Job
-	err := json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
@@ -157,7 +158,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
-			return nil, errors.New("no backup data in the range")
+			return nil, errors.New("the given range to restore is not fully covered by the range that was backed up")
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
@@ -398,7 +399,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 			zap.String("endKey", hex.EncodeToString(endKey)),
 			zap.Duration("take", elapsed))
 	}()
-	errCh := make(chan error, len(rc.databases))
+	errCh := make(chan error, len(files))
 	wg := new(sync.WaitGroup)
 	defer close(errCh)
 

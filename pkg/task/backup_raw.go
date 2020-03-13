@@ -35,11 +35,6 @@ type RawKvConfig struct {
 	CF       string `json:"cf" toml:"cf"`
 }
 
-// BackupRawConfig is the configuration specific for backup tasks.
-type BackupRawConfig struct {
-	RawKvConfig
-}
-
 // DefineRawBackupFlags defines common flags for the backup command.
 func DefineRawBackupFlags(command *cobra.Command) {
 	command.Flags().StringP(flagKeyFormat, "", "hex", "start/end key format, support raw|escaped|hex")
@@ -86,7 +81,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunBackupRaw starts a backup task inside the current goroutine.
-func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRawConfig) error {
+func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 

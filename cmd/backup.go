@@ -22,9 +22,7 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 }
 
 func runBackupRawCommand(command *cobra.Command, cmdName string) error {
-	cfg := task.BackupRawConfig{
-		RawKvConfig: task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}},
-	}
+	cfg := task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		return err
 	}
