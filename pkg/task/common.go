@@ -270,7 +270,7 @@ func ReadBackupMeta(
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
-		log.Error("parse backupmeta failed", zap.Error(err), zap.Binary(metaData))
+		log.Error("parse backupmeta failed", zap.Error(err), zap.Binary("meta", metaData))
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}
 	return u, s, backupMeta, nil
