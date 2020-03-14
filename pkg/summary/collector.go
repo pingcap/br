@@ -40,7 +40,15 @@ type LogCollector interface {
 
 type logFunc func(msg string, fields ...zap.Field)
 
-var collector = newLogCollector(log.Info)
+var collector = func() LogCollector {
+	conf := new(log.Config)
+	// Always output summary to stdout.
+	logger, _, err := log.InitLogger(conf)
+	if err != nil {
+		logger = log.L()
+	}
+	return newLogCollector(logger.Info)
+}()
 
 type logCollector struct {
 	mu             sync.Mutex
