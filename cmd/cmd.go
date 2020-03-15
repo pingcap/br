@@ -4,10 +4,13 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/logutil"
@@ -41,6 +44,10 @@ const (
 	flagVersionShort = "V"
 )
 
+func timestampLogFileName() string {
+	return fmt.Sprintf("%s/br-%s", os.TempDir(), time.Now().Format(time.RFC3339))
+}
+
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
 	cmd.Version = utils.BRInfo()
@@ -49,8 +56,7 @@ func AddFlags(cmd *cobra.Command) {
 
 	cmd.PersistentFlags().StringP(FlagLogLevel, "L", "info",
 		"Set the log level")
-	cmd.PersistentFlags().String(FlagLogFile, "/tmp/br.log",
-		"Set the log file path. If not set, logs will output to /tmp/br.log")
+	cmd.PersistentFlags().String(FlagLogFile, timestampLogFileName(), "Set the log file path. If not set, logs will output to temp file")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	task.DefineCommonFlags(cmd.PersistentFlags())
@@ -75,6 +81,8 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 		if len(conf.File.Filename) != 0 {
 			atomic.StoreUint64(&hasLogFile, 1)
+		} else {
+			fmt.Printf("log file: %s\n", conf.File.Filename)
 		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
