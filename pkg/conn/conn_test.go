@@ -15,9 +15,9 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	pd "github.com/pingcap/pd/client"
-	"github.com/pingcap/pd/server/core"
-	"github.com/pingcap/pd/server/statistics"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/server/core"
+	"github.com/pingcap/pd/v4/server/statistics"
 	"github.com/pingcap/tidb/util/codec"
 )
 

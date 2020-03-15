@@ -21,7 +21,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/codec"
