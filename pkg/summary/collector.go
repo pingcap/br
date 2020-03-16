@@ -132,15 +132,9 @@ func (tc *logCollector) Summary(name string) {
 	case BackupUnit:
 		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
 			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-		if len(tc.failureReasons) != 0 {
-			msg += ", failed ranges"
-		}
 	case RestoreUnit:
 		msg = fmt.Sprintf("total restore files: %d, total success: %d, total failed: %d",
 			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-		if len(tc.failureReasons) != 0 {
-			msg += ", failed files"
-		}
 	}
 
 	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints))
@@ -152,10 +146,10 @@ func (tc *logCollector) Summary(name string) {
 	}
 
 	if len(tc.failureReasons) != 0 {
-		for unitName, reason:= range tc.failureReasons {
+		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}
-		log.Info(name+" summary"+msg, logFields...)
+		log.Info(name+" summary: "+msg, logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
