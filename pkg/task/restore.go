@@ -114,7 +114,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(files) == 0 {
 		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
-	summary.CollectInt("restore files", len(files))
 
 	var newTS uint64
 	if client.IsIncremental() {

@@ -27,7 +27,7 @@ const (
 type LogCollector interface {
 	SetUnit(unit string)
 
-	CollectSuccessUnit(name string, arg interface{})
+	CollectSuccessUnit(name string, unitCount int, arg interface{})
 
 	CollectFailureUnit(name string, reason error)
 
@@ -43,27 +43,29 @@ type logFunc func(msg string, fields ...zap.Field)
 var collector = newLogCollector(log.Info)
 
 type logCollector struct {
-	mu             sync.Mutex
-	unit           string
-	unitCount      int
-	successCosts   map[string]time.Duration
-	successData    map[string]uint64
-	failureReasons map[string]error
-	durations      map[string]time.Duration
-	ints           map[string]int
+	mu               sync.Mutex
+	unit             string
+	successUnitCount int
+	failureUnitCount int
+	successCosts     map[string]time.Duration
+	successData      map[string]uint64
+	failureReasons   map[string]error
+	durations        map[string]time.Duration
+	ints             map[string]int
 
 	log logFunc
 }
 
 func newLogCollector(log logFunc) LogCollector {
 	return &logCollector{
-		unitCount:      0,
-		successCosts:   make(map[string]time.Duration),
-		successData:    make(map[string]uint64),
-		failureReasons: make(map[string]error),
-		durations:      make(map[string]time.Duration),
-		ints:           make(map[string]int),
-		log:            log,
+		successUnitCount: 0,
+		failureUnitCount: 0,
+		successCosts:     make(map[string]time.Duration),
+		successData:      make(map[string]uint64),
+		failureReasons:   make(map[string]error),
+		durations:        make(map[string]time.Duration),
+		ints:             make(map[string]int),
+		log:              log,
 	}
 }
 
@@ -73,7 +75,7 @@ func (tc *logCollector) SetUnit(unit string) {
 	tc.unit = unit
 }
 
-func (tc *logCollector) CollectSuccessUnit(name string, arg interface{}) {
+func (tc *logCollector) CollectSuccessUnit(name string, unitCount int, arg interface{}) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
@@ -81,7 +83,7 @@ func (tc *logCollector) CollectSuccessUnit(name string, arg interface{}) {
 	case time.Duration:
 		if _, ok := tc.successCosts[name]; !ok {
 			tc.successCosts[name] = v
-			tc.unitCount++
+			tc.successUnitCount += unitCount
 		} else {
 			tc.successCosts[name] += v
 		}
@@ -99,7 +101,7 @@ func (tc *logCollector) CollectFailureUnit(name string, reason error) {
 	defer tc.mu.Unlock()
 	if _, ok := tc.failureReasons[name]; !ok {
 		tc.failureReasons[name] = reason
-		tc.unitCount++
+		tc.failureUnitCount++
 	}
 }
 
@@ -129,15 +131,15 @@ func (tc *logCollector) Summary(name string) {
 	switch tc.unit {
 	case BackupUnit:
 		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
-			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
+			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
 		if len(tc.failureReasons) != 0 {
 			msg += ", failed ranges"
 		}
 	case RestoreUnit:
-		msg = fmt.Sprintf("total restore tables: %d, total success: %d, total failed: %d",
-			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
+		msg = fmt.Sprintf("total restore files: %d, total success: %d, total failed: %d",
+			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
 		if len(tc.failureReasons) != 0 {
-			msg += ", failed tables"
+			msg += ", failed files"
 		}
 	}
 

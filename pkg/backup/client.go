@@ -383,7 +383,7 @@ func (bc *Client) BackupRange(
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
 		} else {
-			summary.CollectSuccessUnit(key, elapsed)
+			summary.CollectSuccessUnit(key, 1, elapsed)
 		}
 	}()
 	log.Info("backup started",
@@ -770,8 +770,8 @@ func (bc *Client) FastChecksum() (bool, error) {
 			totalBytes += file.TotalBytes
 		}
 
-		summary.CollectSuccessUnit(summary.TotalKV, totalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, totalBytes)
+		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
 
 		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
 			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
