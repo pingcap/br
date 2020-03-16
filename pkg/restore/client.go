@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -261,7 +262,7 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 
 func (rc *Client) setSpeedLimit() error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := rc.pdClient.GetAllStores(rc.ctx, pd.WithExcludeTombstone())
+		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.ErrorOnTiFlash)
 		if err != nil {
 			return err
 		}
@@ -345,7 +346,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := rc.pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.ErrorOnTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}
