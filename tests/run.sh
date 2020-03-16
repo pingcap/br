@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # Copyright 2019 PingCAP, Inc.
 #
@@ -28,7 +28,7 @@ if [ "${1-}" = '--debug' ]; then
     read line
 fi
 
-for script in tests/*/run.sh; do
+for script in tests/${TEST_NAME-*}/run.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
@@ -39,5 +39,5 @@ for script in tests/*/run.sh; do
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
-    sh "$script"
+    bash "$script"
 done

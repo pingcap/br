@@ -210,7 +210,13 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context, g glue.Glue, pds []string, tlsConfig TLSConfig) (*conn.Mgr, error) {
+func newMgr(
+	ctx context.Context,
+	g glue.Glue,
+	pds []string,
+	tlsConfig TLSConfig,
+	unexpectedStoreBehavior conn.UnexpectedStoreBehavior,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -236,7 +242,7 @@ func newMgr(ctx context.Context, g glue.Glue, pds []string, tlsConfig TLSConfig)
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption)
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, unexpectedStoreBehavior)
 }
 
 // GetStorage gets the storage backend from the config.

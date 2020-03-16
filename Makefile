@@ -49,6 +49,7 @@ integration_test: build build_for_integration_test
 	@which bin/pd-server
 	@which bin/pd-ctl
 	@which bin/go-ycsb
+	@which bin/minio
 	@which bin/br
 	tests/run.sh
 
