@@ -152,12 +152,10 @@ func (tc *logCollector) Summary(name string) {
 	}
 
 	if len(tc.failureReasons) != 0 {
-		names := make([]string, 0, len(tc.failureReasons))
-		for name := range tc.failureReasons {
-			names = append(names, name)
+		for unitName, reason:= range tc.failureReasons {
+			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}
-		logFields = append(logFields, zap.Strings(msg, names))
-		log.Info(name+" summary", logFields...)
+		log.Info(name+" summary"+msg, logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
