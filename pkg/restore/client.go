@@ -8,20 +8,26 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
+	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -44,6 +50,7 @@ type Client struct {
 	cancel context.CancelFunc
 
 	pdClient     pd.Client
+	toolClient   SplitClient
 	fileImporter FileImporter
 	workerPool   *utils.WorkerPool
 	tlsConf      *tls.Config
@@ -55,6 +62,8 @@ type Client struct {
 	rateLimit       uint64
 	isOnline        bool
 	hasSpeedLimited bool
+
+	restoreStores []uint64
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -73,11 +82,12 @@ func NewRestoreClient(
 	}
 
 	return &Client{
-		ctx:      ctx,
-		cancel:   cancel,
-		pdClient: pdClient,
-		db:       db,
-		tlsConf:  tlsConf,
+		ctx:        ctx,
+		cancel:     cancel,
+		pdClient:   pdClient,
+		toolClient: NewSplitClient(pdClient, tlsConf),
+		db:         db,
+		tlsConf:    tlsConf,
 	}, nil
 }
 
@@ -578,6 +588,159 @@ func (rc *Client) ValidateChecksum(
 	}
 	log.Info("validate checksum passed!!")
 	return nil
+}
+
+const (
+	restoreLabelKey   = "exclusive"
+	restoreLabelValue = "restore"
+)
+
+// LoadRestoreStores loads the stores used to restore data.
+func (rc *Client) LoadRestoreStores(ctx context.Context) error {
+	if !rc.isOnline {
+		return nil
+	}
+
+	stores, err := rc.pdClient.GetAllStores(ctx)
+	if err != nil {
+		return err
+	}
+	for _, s := range stores {
+		if s.GetState() != metapb.StoreState_Up {
+			continue
+		}
+		for _, l := range s.GetLabels() {
+			if l.GetKey() == restoreLabelKey && l.GetValue() == restoreLabelValue {
+				rc.restoreStores = append(rc.restoreStores, s.GetId())
+				break
+			}
+		}
+	}
+	log.Info("load restore stores", zap.Uint64s("store-ids", rc.restoreStores))
+	return nil
+}
+
+// ResetRestoreLabels removes the exclusive labels of the restore stores.
+func (rc *Client) ResetRestoreLabels(ctx context.Context) error {
+	if !rc.isOnline {
+		return nil
+	}
+	log.Info("start reseting store labels")
+	return rc.toolClient.SetStoresLabel(ctx, rc.restoreStores, restoreLabelKey, "")
+}
+
+// SetupPlacementRules sets rules for the tables' regions.
+func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	log.Info("start setting placement rules")
+	rule, err := rc.toolClient.GetPlacementRule(ctx, "pd", "default")
+	if err != nil {
+		return err
+	}
+	rule.Index = 100
+	rule.Override = true
+	rule.LabelConstraints = append(rule.LabelConstraints, placement.LabelConstraint{
+		Key:    restoreLabelKey,
+		Op:     "in",
+		Values: []string{restoreLabelValue},
+	})
+	for _, t := range tables {
+		rule.ID = rc.getRuleID(t.ID)
+		rule.StartKeyHex = hex.EncodeToString(codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID)))
+		rule.EndKeyHex = hex.EncodeToString(codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1)))
+		err = rc.toolClient.SetPlacementRule(ctx, rule)
+		if err != nil {
+			return err
+		}
+	}
+	log.Info("finish setting placement rules")
+	return nil
+}
+
+// WaitPlacementSchedule waits PD to move tables to restore stores.
+func (rc *Client) WaitPlacementSchedule(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	log.Info("start waiting placement schedule")
+	ticker := time.NewTicker(time.Second * 10)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			ok, progress, err := rc.checkRegions(ctx, tables)
+			if err != nil {
+				return err
+			}
+			if ok {
+				log.Info("finish waiting placement schedule")
+				return nil
+			}
+			log.Info("placement schedule progress: " + progress)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (bool, string, error) {
+	for i, t := range tables {
+		start := codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID))
+		end := codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1))
+		ok, regionProgress, err := rc.checkRange(ctx, start, end)
+		if err != nil {
+			return false, "", err
+		}
+		if !ok {
+			return false, fmt.Sprintf("table %v/%v, %s", i, len(tables), regionProgress), nil
+		}
+	}
+	return true, "", nil
+}
+
+func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, string, error) {
+	regions, err := rc.toolClient.ScanRegions(ctx, start, end, -1)
+	if err != nil {
+		return false, "", err
+	}
+	for i, r := range regions {
+	NEXT_PEER:
+		for _, p := range r.Region.GetPeers() {
+			for _, storeID := range rc.restoreStores {
+				if p.GetStoreId() == storeID {
+					continue NEXT_PEER
+				}
+			}
+			return false, fmt.Sprintf("region %v/%v", i, len(regions)), nil
+		}
+	}
+	return true, "", nil
+}
+
+// ResetPlacementRules removes placement rules for tables.
+func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.TableInfo) error {
+	if !rc.isOnline || len(rc.restoreStores) == 0 {
+		return nil
+	}
+	log.Info("start reseting placement rules")
+	var failedTables []int64
+	for _, t := range tables {
+		err := rc.toolClient.DeletePlacementRule(ctx, "pd", rc.getRuleID(t.ID))
+		if err != nil {
+			log.Info("failed to delete placement rule for table", zap.Int64("table-id", t.ID))
+			failedTables = append(failedTables, t.ID)
+		}
+	}
+	if len(failedTables) > 0 {
+		return errors.Errorf("failed to delete placement rules for tables %v", failedTables)
+	}
+	return nil
+}
+
+func (rc *Client) getRuleID(tableID int64) string {
+	return "restore-t" + strconv.FormatInt(tableID, 10)
 }
 
 // IsIncremental returns whether this backup is incremental

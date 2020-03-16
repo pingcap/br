@@ -104,19 +104,14 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 }
 
 func defineS3Flags(flags *pflag.FlagSet) {
-	flags.String(s3EndpointOption, "", "Set the S3 endpoint URL, please specify the http or https scheme explicitly")
-	flags.String(s3RegionOption, "", "Set the S3 region, e.g. us-east-1")
-	flags.String(s3StorageClassOption, "", "Set the S3 storage class, e.g. STANDARD")
-	flags.String(s3SSEOption, "", "Set the S3 server-side encryption algorithm, e.g. AES256")
-	flags.String(s3ACLOption, "", "Set the S3 canned ACLs, e.g. authenticated-read")
-	flags.String(s3ProviderOption, "", "Set the S3 provider, e.g. aws, alibaba, ceph")
-
-	_ = flags.MarkHidden(s3EndpointOption)
-	_ = flags.MarkHidden(s3RegionOption)
-	_ = flags.MarkHidden(s3StorageClassOption)
-	_ = flags.MarkHidden(s3SSEOption)
-	_ = flags.MarkHidden(s3ACLOption)
-	_ = flags.MarkHidden(s3ProviderOption)
+	// TODO: remove experimental tag if it's stable
+	flags.String(s3EndpointOption, "",
+		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
+	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1")
+	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
+	flags.String(s3SSEOption, "", "(experimental) Set the S3 server-side encryption algorithm, e.g. AES256")
+	flags.String(s3ACLOption, "", "(experimental) Set the S3 canned ACLs, e.g. authenticated-read")
+	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
 func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {

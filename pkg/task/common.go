@@ -12,7 +12,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
@@ -95,7 +95,7 @@ type Config struct {
 // DefineCommonFlags defines the flags common to all BRIE commands.
 func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCreds, "c", true, "Whether send credentials to tikv")
-	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "local:///path/to/save"`)
+	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3:///path/to/save"`)
 	flags.StringSliceP(flagPD, "u", []string{"127.0.0.1:2379"}, "PD address")
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")
