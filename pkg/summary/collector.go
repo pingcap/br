@@ -149,7 +149,7 @@ func (tc *logCollector) Summary(name string) {
 		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}
-		log.Info(name+" summary: "+msg, logFields...)
+		log.Info(name+" Failed summary : "+msg, logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
@@ -172,7 +172,7 @@ func (tc *logCollector) Summary(name string) {
 		msg += fmt.Sprintf(", %s: %d", name, data)
 	}
 
-	tc.log(name+" summary: "+msg, logFields...)
+	tc.log(name+" Success summary: "+msg, logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside
