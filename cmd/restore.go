@@ -3,13 +3,15 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/restore"
@@ -42,7 +44,7 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command) error {
 		return err
 	}
 
-	_, _, backupMeta, err := task.ReadBackupMeta(context.Background(), &cfg.Config)
+	_, _, backupMeta, err := task.ReadBackupMeta(GetDefaultContext(), &cfg.Config)
 	if err != nil {
 		return err
 	}
@@ -60,7 +62,11 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command) error {
 		securityOption.KeyPath = tlsConfig.Key
 	}
 
-	store, err := tidbGlue.Open(fmt.Sprintf("tikv://%s?disableGC=true", cfg.PD), securityOption)
+	pdAddress := strings.Join(cfg.PD, ",")
+	if len(pdAddress) == 0 {
+		return errors.New("pd address can not be empty")
+	}
+	store, err := tidbGlue.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress), securityOption)
 	if err != nil {
 		return err
 	}
@@ -71,8 +77,9 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command) error {
 
 	for _, d := range dbs {
 		for _, t := range d.Tables {
+			log.Info("get table", zap.Stringer("name", t.Info.Name), zap.Int("replica", t.TiFlashReplicas))
 			if t.TiFlashReplicas > 0 {
-				err := db.AlterTiflashReplica(context.Background(), t, t.TiFlashReplicas)
+				err := db.AlterTiflashReplica(GetDefaultContext(), t, t.TiFlashReplicas)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -107,6 +114,7 @@ func NewRestoreCommand() *cobra.Command {
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
 		newRawRestoreCommand(),
+		newTiflashReplicaRestoreCommand(),
 	)
 	task.DefineRestoreFlags(command.PersistentFlags())
 
@@ -156,7 +164,6 @@ func newTiflashReplicaRestoreCommand() *cobra.Command {
 			return runRestoreTiflashReplicaCommand(cmd)
 		},
 	}
-	task.DefineTableFlags(command)
 	return command
 }
 

@@ -93,12 +93,13 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		table := &Table{
-			Db:         dbInfo,
-			Info:       tableInfo,
-			Crc64Xor:   schema.Crc64Xor,
-			TotalKvs:   schema.TotalKvs,
-			TotalBytes: schema.TotalBytes,
-			Files:      tableFiles,
+			Db:              dbInfo,
+			Info:            tableInfo,
+			Crc64Xor:        schema.Crc64Xor,
+			TotalKvs:        schema.TotalKvs,
+			TotalBytes:      schema.TotalBytes,
+			Files:           tableFiles,
+			TiFlashReplicas: int(schema.TiflashReplicas),
 		}
 		db.Tables = append(db.Tables, table)
 	}

@@ -135,12 +135,21 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 
 // AlterTiflashReplica alters the replica count of tiflash
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
+	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
+	err := db.se.Execute(ctx, switchDbSQL)
+	if err != nil {
+		log.Error("switch db failed",
+			zap.String("SQL", switchDbSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err))
+		return errors.Trace(err)
+	}
 	alterTiFlashSQL := fmt.Sprintf(
 		"alter table %s set tiflash replica %d",
 		utils.EncloseName(table.Info.Name.O),
 		count,
 	)
-	err := db.se.Execute(ctx, alterTiFlashSQL)
+	err = db.se.Execute(ctx, alterTiFlashSQL)
 	if err != nil {
 		log.Error("alter tiflash replica failed",
 			zap.String("query", alterTiFlashSQL),
