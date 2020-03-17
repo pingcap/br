@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -9,18 +11,18 @@ import (
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 var _ = Suite(&testBackupSchemaSuite{})
 
 type testBackupSchemaSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testBackupSchemaSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
@@ -77,7 +79,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	<-updateCh
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 1)
-	// MockCluster returns a dummy checksum (all fields are 1).
+	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0, Commentf("%v", schemas[0]))
@@ -97,7 +99,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	<-updateCh
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 2)
-	// MockCluster returns a dummy checksum (all fields are 1).
+	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0, Commentf("%v", schemas[0]))

@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package task
 
 import (
@@ -6,12 +8,15 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -30,6 +35,11 @@ var schedulers = map[string]struct{}{
 	"shuffle-hot-region-scheduler": {},
 }
 
+const (
+	defaultRestoreConcurrency = 128
+	maxRestoreBatchSizeLimit  = 256
+)
+
 // RestoreConfig is the configuration specific for restore tasks.
 type RestoreConfig struct {
 	Config
@@ -39,9 +49,8 @@ type RestoreConfig struct {
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
-	flags.Bool("online", false, "Whether online when restore")
-	// TODO remove hidden flag if it's stable
-	_ = flags.MarkHidden("online")
+	// TODO remove experimental tag if it's stable
+	flags.Bool("online", false, "(experimental) Whether online when restore")
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -51,21 +60,28 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return cfg.Config.ParseFromFlags(flags)
+	err = cfg.Config.ParseFromFlags(flags)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if cfg.Config.Concurrency == 0 {
+		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	return nil
 }
 
 // RunRestore starts a restore task inside the current goroutine.
-func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
+func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, cfg.PD)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.ErrorOnTiFlash)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, mgr.GetPDClient(), mgr.GetTiKV())
+	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -75,6 +91,10 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
 		client.EnableOnline()
+	}
+	err = client.LoadRestoreStores(ctx)
+	if err != nil {
+		return err
 	}
 
 	defer summary.Summary(cmdName)
@@ -87,6 +107,10 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 		return err
 	}
 
+	if client.IsRawKvMode() {
+		return errors.New("cannot do transactional restore from raw kv data")
+	}
+
 	files, tables, err := filterRestoreFiles(client, cfg)
 	if err != nil {
 		return err
@@ -94,7 +118,6 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	if len(files) == 0 {
 		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
-	summary.CollectInt("restore files", len(files))
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -102,6 +125,14 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 		if err != nil {
 			return err
 		}
+	}
+	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
+	if err != nil {
+		return err
+	}
+	err = client.ExecDDLs(ddlJobs)
+	if err != nil {
+		return errors.Trace(err)
 	}
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
@@ -114,6 +145,12 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 	}
 	summary.CollectInt("restore ranges", len(ranges))
 
+	if err = splitPrepareWork(ctx, client, newTables); err != nil {
+		return err
+	}
+
+	ranges = restore.AttachFilesToRanges(files, ranges)
+
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := utils.StartProgress(
 		ctx,
@@ -122,12 +159,13 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 		int64(len(ranges)+len(files)),
 		!cfg.LogProgress)
 
-	err = restore.SplitRanges(ctx, client, ranges, rewriteRules, updateCh)
+	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
-		log.Error("split regions failed", zap.Error(err))
 		return err
 	}
 
+	// Do not reset timestamp if we are doing incremental restore, because
+	// we are not allowed to decrease timestamp.
 	if !client.IsIncremental() {
 		if err = client.ResetTS(cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
@@ -135,19 +173,50 @@ func RunRestore(c context.Context, cmdName string, cfg *RestoreConfig) error {
 		}
 	}
 
-	removedSchedulers, err := restorePreWork(ctx, client, mgr)
-	if err != nil {
-		return err
+	// Restore sst files in batch.
+	batchSize := int(cfg.Concurrency)
+	if batchSize > maxRestoreBatchSizeLimit {
+		batchSize = maxRestoreBatchSizeLimit // 256
 	}
-	err = client.RestoreFiles(files, rewriteRules, updateCh)
-	// always run the post-work even on error, so we don't stuck in the import mode or emptied schedulers
-	postErr := restorePostWork(ctx, client, mgr, removedSchedulers)
+	for {
+		if len(ranges) == 0 {
+			break
+		}
+		if batchSize > len(ranges) {
+			batchSize = len(ranges)
+		}
+		var rangeBatch []rtree.Range
+		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
 
+		// Split regions by the given rangeBatch.
+		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
+		if err != nil {
+			log.Error("split regions failed", zap.Error(err))
+			return err
+		}
+
+		// Collect related files in the given rangeBatch.
+		fileBatch := make([]*backup.File, 0, 2*len(rangeBatch))
+		for _, rg := range rangeBatch {
+			fileBatch = append(fileBatch, rg.Files...)
+		}
+
+		// After split, we can restore backup files.
+		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
+		if err != nil {
+			break
+		}
+	}
+
+	// Always run the post-work even on error, so we don't stuck in the import
+	// mode or emptied schedulers
+	err = restorePostWork(ctx, client, mgr, clusterCfg)
 	if err != nil {
 		return err
 	}
-	if postErr != nil {
-		return postErr
+
+	if err = splitPostWork(ctx, client, newTables); err != nil {
+		return err
 	}
 
 	// Restore has finished.
@@ -178,12 +247,12 @@ func filterRestoreFiles(
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: db.Schema.Name.O, Name: table.Schema.Name.O}) {
+			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
 				continue
 			}
 
 			if !createdDatabase {
-				if err = client.CreateDatabase(db.Schema); err != nil {
+				if err = client.CreateDatabase(db.Info); err != nil {
 					return nil, nil, err
 				}
 				createdDatabase = true
@@ -249,6 +318,34 @@ func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers 
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func splitPrepareWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.SetupPlacementRules(ctx, tables)
+	if err != nil {
+		log.Error("setup placement rules failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+
+	err = client.WaitPlacementSchedule(ctx, tables)
+	if err != nil {
+		log.Error("wait placement schedule failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
+	err := client.ResetPlacementRules(ctx, tables)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	err = client.ResetRestoreLabels(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
 	return nil
 }

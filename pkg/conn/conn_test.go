@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package conn
 
 import (
@@ -13,8 +15,9 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/pd/server/core"
-	"github.com/pingcap/pd/server/statistics"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/server/core"
+	"github.com/pingcap/pd/v4/server/statistics"
 	"github.com/pingcap/tidb/util/codec"
 )
 
@@ -150,4 +153,91 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 	resp, err = s.mgr.getRegionCountWith(ctx, mock, []byte{1, 2}, []byte{1, 4})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 2)
+}
+
+type fakePDClient struct {
+	pd.Client
+	stores []*metapb.Store
+}
+
+func (fpdc fakePDClient) GetAllStores(context.Context, ...pd.GetStoreOption) ([]*metapb.Store, error) {
+	return append([]*metapb.Store{}, fpdc.stores...), nil
+}
+
+func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
+	testCases := []struct {
+		stores                  []*metapb.Store
+		unexpectedStoreBehavior UnexpectedStoreBehavior
+		expectedStores          map[uint64]int
+		expectedError           string
+	}{
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+			},
+			unexpectedStoreBehavior: SkipTiFlash,
+			expectedStores:          map[uint64]int{1: 1},
+		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+			},
+			unexpectedStoreBehavior: ErrorOnTiFlash,
+			expectedStores:          map[uint64]int{1: 1},
+		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+			},
+			unexpectedStoreBehavior: SkipTiFlash,
+			expectedStores:          map[uint64]int{1: 1},
+		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+			},
+			unexpectedStoreBehavior: ErrorOnTiFlash,
+			expectedError:           "cannot restore to a cluster with active TiFlash stores.*",
+		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+				{Id: 3},
+				{Id: 4, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tikv"}}},
+				{Id: 5, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tikv"}, {Key: "engine", Value: "tiflash"}}},
+				{Id: 6, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tiflash"}, {Key: "engine", Value: "tikv"}}},
+			},
+			unexpectedStoreBehavior: SkipTiFlash,
+			expectedStores:          map[uint64]int{1: 1, 3: 1, 4: 1, 6: 1},
+		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+				{Id: 3},
+				{Id: 4, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tikv"}}},
+				{Id: 5, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tikv"}, {Key: "engine", Value: "tiflash"}}},
+				{Id: 6, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tiflash"}, {Key: "engine", Value: "tikv"}}},
+			},
+			unexpectedStoreBehavior: ErrorOnTiFlash,
+			expectedError:           "cannot restore to a cluster with active TiFlash stores.*",
+		},
+	}
+
+	for _, testCase := range testCases {
+		pdClient := fakePDClient{stores: testCase.stores}
+		stores, err := GetAllTiKVStores(context.Background(), pdClient, testCase.unexpectedStoreBehavior)
+		if len(testCase.expectedError) != 0 {
+			c.Assert(err, ErrorMatches, testCase.expectedError)
+			continue
+		}
+		foundStores := make(map[uint64]int)
+		for _, store := range stores {
+			foundStores[store.Id]++
+		}
+		c.Assert(foundStores, DeepEquals, testCase.expectedStores)
+	}
 }

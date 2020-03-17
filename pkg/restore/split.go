@@ -1,16 +1,22 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
 	"bytes"
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
 
 // Constants for split retry machinery.
@@ -52,7 +58,7 @@ type OnSplitFunc func(key [][]byte)
 // note: all ranges and rewrite rules must have raw key.
 func (rs *RegionSplitter) Split(
 	ctx context.Context,
-	ranges []Range,
+	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
 	onSplit OnSplitFunc,
 ) error {
@@ -87,10 +93,9 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		var regions []*RegionInfo
-		regions, err = rs.client.ScanRegions(ctx, minKey, maxKey, 0)
-		if err != nil {
-			return errors.Trace(err)
+		regions, err1 := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		if err1 != nil {
+			return errors.Trace(err1)
 		}
 		if len(regions) == 0 {
 			log.Warn("cannot scan any region")
@@ -103,8 +108,18 @@ SplitRegions:
 		}
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
-			newRegions, err = rs.splitAndScatterRegions(ctx, regionMap[regionID], keys)
+			region := regionMap[regionID]
+			newRegions, err = rs.splitAndScatterRegions(ctx, region, keys)
 			if err != nil {
+				if strings.Contains(err.Error(), "no valid key") {
+					for _, key := range keys {
+						log.Error("no valid key",
+							zap.Binary("startKey", region.Region.StartKey),
+							zap.Binary("endKey", region.Region.EndKey),
+							zap.Binary("key", codec.EncodeBytes([]byte{}, key)))
+					}
+					return errors.Trace(err)
+				}
 				interval = 2 * interval
 				if interval > SplitMaxRetryInterval {
 					interval = SplitMaxRetryInterval
@@ -115,6 +130,7 @@ SplitRegions:
 				}
 				continue SplitRegions
 			}
+			log.Debug("split regions", zap.Stringer("region", region.Region), zap.ByteStrings("keys", keys))
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
@@ -240,7 +256,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 
 // getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // 	the ranges, groups the split keys by region id
-func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionInfo) map[uint64][][]byte {
+func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
 	for _, rule := range rewriteRules.Table {
@@ -250,7 +266,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionI
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
 	for _, rg := range ranges {
-		checkKeys = append(checkKeys, rg.EndKey)
+		checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
 	}
 	for _, key := range checkKeys {
 		if region := needSplit(key, regions); region != nil {
@@ -259,7 +275,10 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []Range, regions []*RegionI
 				splitKeys = make([][]byte, 0, 1)
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
-			log.Debug("get key for split region", zap.Binary("key", key), zap.Stringer("region", region.Region))
+			log.Debug("get key for split region",
+				zap.Binary("key", key),
+				zap.Binary("startKey", region.Region.StartKey),
+				zap.Binary("endKey", region.Region.EndKey))
 		}
 	}
 	return splitKeyMap
@@ -283,6 +302,21 @@ func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 		}
 	}
 	return nil
+}
+
+var (
+	tablePrefix  = []byte{'t'}
+	idLen        = 8
+	recordPrefix = []byte("_r")
+)
+
+func truncateRowKey(key []byte) []byte {
+	if bytes.HasPrefix(key, tablePrefix) &&
+		len(key) > tablecodec.RecordRowKeyLen &&
+		bytes.HasPrefix(key[len(tablePrefix)+idLen:], recordPrefix) {
+		return key[:tablecodec.RecordRowKeyLen]
+	}
+	return key
 }
 
 func beforeEnd(key []byte, end []byte) bool {
