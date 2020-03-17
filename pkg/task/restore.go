@@ -103,7 +103,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}
