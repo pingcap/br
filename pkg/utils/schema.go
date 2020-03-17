@@ -22,13 +22,12 @@ const (
 
 // Table wraps the schema and files of a table.
 type Table struct {
-	Db             *model.DBInfo
-	Info           *model.TableInfo
-	Crc64Xor       uint64
-	TotalKvs       uint64
-	TotalBytes     uint64
-	Files          []*backup.File
-	TiflashReplica int64
+	Db         *model.DBInfo
+	Info       *model.TableInfo
+	Crc64Xor   uint64
+	TotalKvs   uint64
+	TotalBytes uint64
+	Files      []*backup.File
 }
 
 // Database wraps the schema and tables of a database.
