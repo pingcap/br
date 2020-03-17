@@ -138,6 +138,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	err = client.RemoveTiFlashReplica(tables)
+	if err != nil {
+		return err
+	}
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {

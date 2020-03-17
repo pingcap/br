@@ -130,20 +130,6 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Error(err))
 	}
 
-	// TODO: remove this after tiflash supports restore
-	removeTiFlashSQL := fmt.Sprintf(
-		"alter table %s set tiflash replica 0",
-		utils.EncloseName(tableInfo.Name.O),
-	)
-	err = db.se.Execute(ctx, removeTiFlashSQL)
-	if err != nil {
-		log.Error("remove tiflash replica failed",
-			zap.String("query", removeTiFlashSQL),
-			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", table.Info.Name),
-			zap.Error(err))
-	}
-
 	return errors.Trace(err)
 }
 

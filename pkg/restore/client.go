@@ -305,6 +305,52 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+// RemoveTiFlashReplica removes all the tiflash replica of a table
+func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table) error {
+	stores, err := rc.GetTiFlashStores()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	storeMap := make(map[uint64]bool)
+	for _, storeID := range stores {
+		storeMap[storeID] = true
+	}
+	for _, table := range tables {
+		tableInfo := table.Info
+		prefix := tablecodec.GenTablePrefix(tableInfo.ID)
+		region, _, err := rc.pdClient.GetRegion(rc.ctx, prefix)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		var replicaCount int
+		for _, peer := range region.GetPeers() {
+			if storeMap[peer.GetStoreId()] {
+				replicaCount++
+			}
+		}
+		// TODO: remove this after tiflash supports restore
+		removeTiFlashSQL := fmt.Sprintf(
+			"alter table %s set tiflash replica 0",
+			utils.EncloseName(tableInfo.Name.O),
+		)
+		err = rc.db.se.Execute(rc.ctx, removeTiFlashSQL)
+		if err != nil {
+			log.Error("remove tiflash replica failed",
+				zap.String("query", removeTiFlashSQL),
+				zap.Stringer("db", table.Db.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Error(err))
+			return err
+		} else if replicaCount > 0 {
+			log.Warn("remove tiflash replica done, please recover it manually later",
+				zap.Stringer("db", table.Db.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Int("originalReplicaCount", replicaCount))
+		}
+	}
+	return nil
+}
+
 // GetTiFlashStores returns an id list of tiflash stores.
 func (rc *Client) GetTiFlashStores() ([]uint64, error) {
 	stores, err := rc.pdClient.GetAllStores(rc.ctx)
