@@ -369,3 +369,51 @@ func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.
 	}
 	return nil
 }
+
+// RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
+func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
+	defer summary.Summary(cmdName)
+	ctx, cancel := context.WithCancel(c)
+	defer cancel()
+
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash)
+	if err != nil {
+		return err
+	}
+	defer mgr.Close()
+
+	// Load backupmeta
+	_, _, backupMeta, err := ReadBackupMeta(c, &cfg.Config)
+	if err != nil {
+		return err
+	}
+	dbs, err := utils.LoadBackupTables(backupMeta)
+	if err != nil {
+		return err
+	}
+	se, err := restore.NewDB(g, mgr.GetTiKV())
+	if err != nil {
+		return err
+	}
+
+	tables := make([]*utils.Table, 0)
+	for _, db := range dbs {
+		tables = append(tables, db.Tables...)
+	}
+	updateCh := utils.StartProgress(
+		ctx, "Checksum", int64(len(tables)), !cfg.LogProgress)
+	for _, t := range tables {
+		log.Info("get table", zap.Stringer("name", t.Info.Name),
+			zap.Int("replica", t.TiFlashReplicas))
+		if t.TiFlashReplicas > 0 {
+			err := se.AlterTiflashReplica(ctx, t, t.TiFlashReplicas)
+			if err != nil {
+				return err
+			}
+			updateCh <- struct{}{}
+		}
+	}
+	summary.CollectInt("recover tables", len(tables))
+
+	return nil
+}
