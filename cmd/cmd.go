@@ -85,7 +85,7 @@ func Init(cmd *cobra.Command) (err error) {
 		} else {
 			fmt.Printf("log file: %s\n", conf.File.Filename)
 		}
-		summary.InitCollector(hasLogFile)
+		summary.InitCollector(bool(hasLogFile))
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
 			err = e
