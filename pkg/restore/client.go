@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -37,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -65,6 +67,9 @@ type Client struct {
 	hasSpeedLimited bool
 
 	restoreStores []uint64
+
+	storage storage.ExternalStorage
+	backend *backup.StorageBackend
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -95,6 +100,17 @@ func NewRestoreClient(
 // SetRateLimit to set rateLimit.
 func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
+}
+
+// SetStorage set ExternalStorage for client
+func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+	var err error
+	rc.storage, err = storage.Create(ctx, backend, sendCreds)
+	if err != nil {
+		return err
+	}
+	rc.backend = backend
+	return nil
 }
 
 // GetPDClient returns a pd client.
@@ -233,7 +249,20 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
-	}, newResetTSBackoffer())
+	}, newPDReqBackoffer())
+}
+
+// GetPlacementRules return the current placement rules
+func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
+	var placementRules []placement.Rule
+	i := 0
+	errRetry := utils.WithRetry(rc.ctx, func() error {
+		idx := i % len(pdAddrs)
+		var err error
+		placementRules, err = utils.GetPlacementRules(pdAddrs[idx], rc.tlsConf)
+		return err
+	}, newPDReqBackoffer())
+	return placementRules, errRetry
 }
 
 // GetDatabases returns all databases.
@@ -305,47 +334,59 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
-// RemoveTiFlashReplica removes all the tiflash replica of a table
-func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table) error {
-	stores, err := rc.GetTiFlashStores()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	storeMap := make(map[uint64]bool)
-	for _, storeID := range stores {
-		storeMap[storeID] = true
-	}
+// RemoveTiFlashReplica removes all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+	schemas := make([]*backup.Schema, 0, len(tables))
 	for _, table := range tables {
-		tableInfo := table.Info
-		prefix := tablecodec.GenTablePrefix(tableInfo.ID)
-		region, _, err := rc.pdClient.GetRegion(rc.ctx, prefix)
+		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+			table.TiFlashReplicas = rule.Count
+		}
+		tableData, err := json.Marshal(table.Info)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		var replicaCount int
-		for _, peer := range region.GetPeers() {
-			if storeMap[peer.GetStoreId()] {
-				replicaCount++
-			}
-		}
-		// TODO: remove this after tiflash supports restore
-		removeTiFlashSQL := fmt.Sprintf(
-			"alter table %s set tiflash replica 0",
-			utils.EncloseName(tableInfo.Name.O),
-		)
-		err = rc.db.se.Execute(rc.ctx, removeTiFlashSQL)
+		dbData, err := json.Marshal(table.Db)
 		if err != nil {
-			log.Error("remove tiflash replica failed",
-				zap.String("query", removeTiFlashSQL),
-				zap.Stringer("db", table.Db.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Error(err))
-			return err
-		} else if replicaCount > 0 {
-			log.Warn("remove tiflash replica done, please recover it manually later",
-				zap.Stringer("db", table.Db.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Int("originalReplicaCount", replicaCount))
+			return errors.Trace(err)
+		}
+		schemas = append(schemas, &backup.Schema{
+			Db:              dbData,
+			Table:           tableData,
+			TiflashReplicas: uint32(table.TiFlashReplicas),
+		})
+	}
+
+	rc.backupMeta.Schemas = schemas
+	backupMetaData, err := proto.Marshal(rc.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	backendURL := storage.FormatBackendURL(rc.backend)
+	log.Info("update backup meta", zap.Stringer("path", &backendURL))
+	err = rc.storage.Write(rc.ctx, utils.MetaFile, backupMetaData)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	for _, table := range tables {
+		err = rc.db.AlterTiflashReplica(rc.ctx, table, 0)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// RecoverTiFlashReplica recovers all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
+	for _, table := range tables {
+		if table.TiFlashReplicas > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+			if err != nil {
+				return errors.Trace(err)
+			}
 		}
 	}
 	return nil

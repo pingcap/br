@@ -90,21 +90,21 @@ func (bo *importerBackoffer) Attempt() int {
 	return bo.attempt
 }
 
-type resetTSBackoffer struct {
+type pdReqBackoffer struct {
 	attempt      int
 	delayTime    time.Duration
 	maxDelayTime time.Duration
 }
 
-func newResetTSBackoffer() utils.Backoffer {
-	return &resetTSBackoffer{
+func newPDReqBackoffer() utils.Backoffer {
+	return &pdReqBackoffer{
 		attempt:      resetTsRetryTime,
 		delayTime:    resetTSWaitInterval,
 		maxDelayTime: resetTSMaxWaitInterval,
 	}
 }
 
-func (bo *resetTSBackoffer) NextBackoff(err error) time.Duration {
+func (bo *pdReqBackoffer) NextBackoff(err error) time.Duration {
 	bo.delayTime = 2 * bo.delayTime
 	bo.attempt--
 	if bo.delayTime > bo.maxDelayTime {
@@ -113,6 +113,6 @@ func (bo *resetTSBackoffer) NextBackoff(err error) time.Duration {
 	return bo.delayTime
 }
 
-func (bo *resetTSBackoffer) Attempt() int {
+func (bo *pdReqBackoffer) Attempt() int {
 	return bo.attempt
 }

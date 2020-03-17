@@ -133,6 +133,32 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	return errors.Trace(err)
 }
 
+// AlterTiflashReplica alters the replica count of tiflash
+func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
+	alterTiFlashSQL := fmt.Sprintf(
+		"alter table %s set tiflash replica %d",
+		utils.EncloseName(table.Info.Name.O),
+		count,
+	)
+	err := db.se.Execute(ctx, alterTiFlashSQL)
+	if err != nil {
+		log.Error("alter tiflash replica failed",
+			zap.String("query", alterTiFlashSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Info.Name),
+			zap.Error(err))
+		return err
+	} else if table.TiFlashReplicas > 0 {
+		log.Warn("alter tiflash replica done",
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Info.Name),
+			zap.Int("originalReplicaCount", table.TiFlashReplicas),
+			zap.Int("replicaCount", count))
+
+	}
+	return nil
+}
+
 // Close closes the connection
 func (db *DB) Close() {
 	db.se.Close()

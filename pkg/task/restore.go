@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -87,6 +88,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer client.Close()
 
+	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
+	if err != nil {
+		return err
+	}
+	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+		return err
+	}
 	client.SetRateLimit(cfg.RateLimit)
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
@@ -138,10 +146,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	err = client.RemoveTiFlashReplica(tables)
+	placementRules, err := client.GetPlacementRules(cfg.PD)
 	if err != nil {
 		return err
 	}
+	err = client.RemoveTiFlashReplica(tables, placementRules)
+	if err != nil {
+		return err
+	}
+
+	defer client.RecoverTiFlashReplica(tables)
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {

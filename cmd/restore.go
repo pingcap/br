@@ -3,10 +3,16 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
+
+	"github.com/pingcap/errors"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/gluetikv"
+	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -28,6 +34,52 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 		return err
 	}
 	return task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
+}
+
+func runRestoreTiflashReplicaCommand(command *cobra.Command) error {
+	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		return err
+	}
+
+	_, _, backupMeta, err := task.ReadBackupMeta(context.Background(), &cfg.Config)
+	if err != nil {
+		return err
+	}
+
+	dbs, err := utils.LoadBackupTables(backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	securityOption := pd.SecurityOption{}
+	tlsConfig := cfg.TLS
+	if tlsConfig.IsEnabled() {
+		securityOption.CAPath = tlsConfig.CA
+		securityOption.CertPath = tlsConfig.Cert
+		securityOption.KeyPath = tlsConfig.Key
+	}
+
+	store, err := tidbGlue.Open(fmt.Sprintf("tikv://%s?disableGC=true", cfg.PD), securityOption)
+	if err != nil {
+		return err
+	}
+	db, err := restore.NewDB(tidbGlue, store)
+	if err != nil {
+		return err
+	}
+
+	for _, d := range dbs {
+		for _, t := range d.Tables {
+			if t.TiFlashReplicas > 0 {
+				err := db.AlterTiflashReplica(context.Background(), t, t.TiFlashReplicas)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // NewRestoreCommand returns a restore subcommand
@@ -90,6 +142,18 @@ func newTableRestoreCommand() *cobra.Command {
 		Short: "restore a table",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Table restore")
+		},
+	}
+	task.DefineTableFlags(command)
+	return command
+}
+
+func newTiflashReplicaRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "tiflash-replica",
+		Short: "restore the tiflash replica before the last restore, it must only be used after the last restore failed",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runRestoreTiflashReplicaCommand(cmd)
 		},
 	}
 	task.DefineTableFlags(command)
