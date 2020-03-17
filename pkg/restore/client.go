@@ -353,10 +353,14 @@ func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []p
 		schemas = append(schemas, &backup.Schema{
 			Db:              dbData,
 			Table:           tableData,
+			Crc64Xor:        table.Crc64Xor,
+			TotalKvs:        table.TotalKvs,
+			TotalBytes:      table.TotalBytes,
 			TiflashReplicas: uint32(table.TiFlashReplicas),
 		})
 	}
 
+	// Update backup meta
 	rc.backupMeta.Schemas = schemas
 	backupMetaData, err := proto.Marshal(rc.backupMeta)
 	if err != nil {
