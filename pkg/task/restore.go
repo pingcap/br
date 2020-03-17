@@ -155,7 +155,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 
-	defer client.RecoverTiFlashReplica(tables)
+	defer func() {
+		_ = client.RecoverTiFlashReplica(tables)
+	}()
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
