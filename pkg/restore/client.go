@@ -240,6 +240,25 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+// GetTiFlashStores returns an id list of tiflash stores.
+func (rc *Client) GetTiFlashStores() ([]uint64, error) {
+	stores, err := rc.pdClient.GetAllStores(rc.ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tiflashStores := make([]uint64, 0)
+	for _, store := range stores {
+		for _, label := range store.GetLabels() {
+			if label.GetKey() == "engine" && label.GetValue() == "tiflash" {
+				tiflashStores = append(tiflashStores, store.GetId())
+			}
+		}
+	}
+
+	return tiflashStores, nil
+}
+
 // ExecDDLs executes the queries of the ddl jobs.
 func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	// Sort the ddl jobs by schema version in ascending order.

@@ -80,13 +80,13 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	schema := table.Info
-	createSQL, err := db.se.ShowCreateTable(schema, newIDAllocator(schema.AutoIncID))
+	tableInfo := table.Info
+	createSQL, err := db.se.ShowCreateTable(tableInfo, newIDAllocator(tableInfo.AutoIncID))
 	if err != nil {
 		log.Error(
 			"build create table SQL failed",
 			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", schema.Name),
+			zap.Stringer("table", tableInfo.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -115,8 +115,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	}
 	alterAutoIncIDSQL := fmt.Sprintf(
 		"alter table %s auto_increment = %d",
-		utils.EncloseName(schema.Name.O),
-		schema.AutoIncID)
+		utils.EncloseName(tableInfo.Name.O),
+		tableInfo.AutoIncID)
 	err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
@@ -125,6 +125,21 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 	}
+
+	// TODO: remove this after tiflash supports restore
+	removeTiFlashSQL := fmt.Sprintf(
+		"alter table %s set tiflash replica 0",
+		utils.EncloseName(tableInfo.Name.O),
+	)
+	err = db.se.Execute(ctx, removeTiFlashSQL)
+	if err != nil {
+		log.Error("remove tiflash replica failed",
+			zap.String("query", removeTiFlashSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Info.Name),
+			zap.Error(err))
+	}
+
 	return errors.Trace(err)
 }
 

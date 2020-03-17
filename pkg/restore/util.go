@@ -327,7 +327,12 @@ func SplitRanges(
 		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
+	tiflashStores, err := client.GetTiFlashStores()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return splitter.Split(ctx, ranges, rewriteRules, tiflashStores, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
 		}
