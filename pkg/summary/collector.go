@@ -40,15 +40,24 @@ type LogCollector interface {
 
 type logFunc func(msg string, fields ...zap.Field)
 
-var collector = func() LogCollector {
-	conf := new(log.Config)
-	// Always output summary to stdout.
-	logger, _, err := log.InitLogger(conf)
-	if err != nil {
-		logger = log.L()
+var collector LogCollector = newLogCollector(log.Info)
+
+// InitCollector initilize global collector instance.
+func InitCollector(hasLogFile bool) {
+	logF := log.L().Info
+	if hasLogFile {
+		conf := new(log.Config)
+		// Always duplicate summary to stdout.
+		logger, _, err := log.InitLogger(conf)
+		if err == nil {
+			logF = func(msg string, fields ...zap.Field) {
+				logger.Info(msg, fields...)
+				log.Info(msg, fields...)
+			}
+		}
 	}
-	return newLogCollector(logger.Info)
-}()
+	collector = newLogCollector(logF)
+}
 
 type logCollector struct {
 	mu             sync.Mutex

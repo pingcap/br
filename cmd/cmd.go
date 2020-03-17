@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetidb"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -84,6 +85,7 @@ func Init(cmd *cobra.Command) (err error) {
 		} else {
 			fmt.Printf("log file: %s\n", conf.File.Filename)
 		}
+		summary.InitCollector(hasLogFile)
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
 			err = e
