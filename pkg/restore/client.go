@@ -3,6 +3,7 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/hex"
@@ -108,31 +109,95 @@ func (rc *Client) IsOnline() bool {
 
 // Close a client
 func (rc *Client) Close() {
-	rc.db.Close()
+	// rc.db can be nil in raw kv mode.
+	if rc.db != nil {
+		rc.db.Close()
+	}
 	rc.cancel()
 	log.Info("Restore client closed")
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.StorageBackend) error {
-	databases, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
+	if !backupMeta.IsRawKv {
+		databases, err := utils.LoadBackupTables(backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.databases = databases
+
+		var ddlJobs []*model.Job
+		err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.ddlJobs = ddlJobs
 	}
-	var ddlJobs []*model.Job
-	err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	rc.databases = databases
-	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importClient := NewImportClient(metaClient, rc.tlsConf)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
+}
+
+// IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
+func (rc *Client) IsRawKvMode() bool {
+	return rc.backupMeta.IsRawKv
+}
+
+// GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
+	if !rc.IsRawKvMode() {
+		return nil, errors.New("the backup data is not in raw kv mode")
+	}
+
+	for _, rawRange := range rc.backupMeta.RawRanges {
+		// First check whether the given range is backup-ed. If not, we cannot perform the restore.
+		if rawRange.Cf != cf {
+			continue
+		}
+
+		if (len(rawRange.EndKey) > 0 && bytes.Compare(startKey, rawRange.EndKey) >= 0) ||
+			(len(endKey) > 0 && bytes.Compare(rawRange.StartKey, endKey) >= 0) {
+			// The restoring range is totally out of the current range. Skip it.
+			continue
+		}
+
+		if bytes.Compare(startKey, rawRange.StartKey) < 0 ||
+			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
+			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
+			// restored.
+			return nil, errors.New("the given range to restore is not fully covered by the range that was backed up")
+		}
+
+		// We have found the range that contains the given range. Find all necessary files.
+		files := make([]*backup.File, 0)
+
+		for _, file := range rc.backupMeta.Files {
+			if file.Cf != cf {
+				continue
+			}
+
+			if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
+				// The file is before the range to be restored.
+				continue
+			}
+			if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) <= 0 {
+				// The file is after the range to be restored.
+				// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
+				continue
+			}
+
+			files = append(files, file)
+		}
+
+		// There should be at most one backed up range that covers the restoring range.
+		return files, nil
+	}
+
+	return nil, errors.New("no backup data in the range")
 }
 
 // SetConcurrency sets the concurrency of dbs tables files
@@ -350,6 +415,63 @@ func (rc *Client) RestoreFiles(
 			return err
 		}
 	}
+	return nil
+}
+
+// RestoreRaw tries to restore raw keys in the specified range.
+func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh chan<- struct{}) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Raw",
+			zap.String("startKey", hex.EncodeToString(startKey)),
+			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Duration("take", elapsed))
+	}()
+	errCh := make(chan error, len(files))
+	wg := new(sync.WaitGroup)
+	defer close(errCh)
+
+	err := rc.fileImporter.SetRawRange(startKey, endKey)
+	if err != nil {
+
+		return errors.Trace(err)
+	}
+
+	emptyRules := &RewriteRules{}
+	for _, file := range files {
+		wg.Add(1)
+		fileReplica := file
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+					updateCh <- struct{}{}
+				}
+			})
+	}
+	for range files {
+		err := <-errCh
+		if err != nil {
+			rc.cancel()
+			wg.Wait()
+			log.Error(
+				"restore raw range failed",
+				zap.String("startKey", hex.EncodeToString(startKey)),
+				zap.String("endKey", hex.EncodeToString(endKey)),
+				zap.Error(err),
+			)
+			return err
+		}
+	}
+	log.Info(
+		"finish to restore raw range",
+		zap.String("startKey", hex.EncodeToString(startKey)),
+		zap.String("endKey", hex.EncodeToString(endKey)),
+	)
 	return nil
 }
 

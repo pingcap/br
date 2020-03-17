@@ -107,6 +107,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 
+	if client.IsRawKvMode() {
+		return errors.New("cannot do transactional restore from raw kv data")
+	}
+
 	files, tables, err := filterRestoreFiles(client, cfg)
 	if err != nil {
 		return err

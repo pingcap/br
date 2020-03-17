@@ -6,6 +6,7 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
+	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -17,6 +18,16 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 		return err
 	}
 	return task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+}
+
+func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.RestoreRawConfig{
+		RawKvConfig: task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}},
+	}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		return err
+	}
+	return task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
 }
 
 // NewRestoreCommand returns a restore subcommand
@@ -43,6 +54,7 @@ func NewRestoreCommand() *cobra.Command {
 		newFullRestoreCommand(),
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
+		newRawRestoreCommand(),
 	)
 	task.DefineRestoreFlags(command.PersistentFlags())
 
@@ -81,5 +93,18 @@ func newTableRestoreCommand() *cobra.Command {
 		},
 	}
 	task.DefineTableFlags(command)
+	return command
+}
+
+func newRawRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "raw",
+		Short: "(experimental) restore a raw kv range to TiKV cluster",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runRestoreRawCommand(cmd, "Raw restore")
+		},
+	}
+
+	task.DefineRawRestoreFlags(command)
 	return command
 }
