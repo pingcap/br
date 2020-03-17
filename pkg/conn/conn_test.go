@@ -221,6 +221,18 @@ func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
 			unexpectedStoreBehavior: ErrorOnTiFlash,
 			expectedError:           "cannot restore to a cluster with active TiFlash stores.*",
 		},
+		{
+			stores: []*metapb.Store{
+				{Id: 1},
+				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+				{Id: 3},
+				{Id: 4, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tikv"}}},
+				{Id: 5, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tikv"}, {Key: "engine", Value: "tiflash"}}},
+				{Id: 6, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tiflash"}, {Key: "engine", Value: "tikv"}}},
+			},
+			unexpectedStoreBehavior: TiFlashOnly,
+			expectedStores:          map[uint64]int{2: 1, 5: 1},
+		},
 	}
 
 	for _, testCase := range testCases {

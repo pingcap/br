@@ -103,6 +103,9 @@ const (
 	// SkipTiFlash causes GetAllTiKVStores to skip the store when it is found to
 	// be a TiFlash node.
 	SkipTiFlash UnexpectedStoreBehavior = 1
+	// TiFlashOnly caused GetAllTiKVStores to skip the store which is not a
+	// TiFlash node.
+	TiFlashOnly UnexpectedStoreBehavior = 2
 )
 
 // GetAllTiKVStores returns all TiKV stores registered to the PD client. The
@@ -122,14 +125,20 @@ func GetAllTiKVStores(
 	j := 0
 skipStore:
 	for _, store := range stores {
+		var isTiFlash bool
 		for _, label := range store.Labels {
 			if label.Key == "engine" && label.Value == "tiflash" {
 				if unexpectedStoreBehavior == SkipTiFlash {
 					continue skipStore
+				} else if unexpectedStoreBehavior == ErrorOnTiFlash {
+					return nil, errors.Errorf(
+						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 				}
-				return nil, errors.Errorf(
-					"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
+				isTiFlash = true
 			}
+		}
+		if !isTiFlash && unexpectedStoreBehavior == TiFlashOnly {
+			continue skipStore
 		}
 		stores[j] = store
 		j++

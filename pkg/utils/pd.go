@@ -74,8 +74,11 @@ func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, er
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	if resp.StatusCode == 412 {
+		return []placement.Rule{}, nil
+	}
 	if resp.StatusCode != 200 {
-		return nil, errors.Errorf("get placement rules failed: resp=%v, err=%v", buf.String(), err)
+		return nil, errors.Errorf("get placement rules failed: resp=%v, err=%v, code=%d", buf.String(), err, resp.StatusCode)
 	}
 	var rules []placement.Rule
 	err = json.Unmarshal(buf.Bytes(), &rules)

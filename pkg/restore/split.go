@@ -63,7 +63,7 @@ func (rs *RegionSplitter) Split(
 	ctx context.Context,
 	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
-	rejectStores []uint64,
+	rejectStores map[uint64]bool,
 	onSplit OnSplitFunc,
 ) error {
 	if len(ranges) == 0 {
@@ -147,13 +147,9 @@ SplitRegions:
 	}
 	if len(rejectStores) > 0 {
 		startTime = time.Now()
-		log.Info("start to wait for removing rejected stores", zap.Uint64s("rejectStores", rejectStores))
-		storeMap := make(map[uint64]bool)
-		for _, storeID := range rejectStores {
-			storeMap[storeID] = true
-		}
+		log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStores))
 		for _, region := range allRegions {
-			if !rs.waitForRemoveRejectStores(ctx, region, storeMap) {
+			if !rs.waitForRemoveRejectStores(ctx, region, rejectStores) {
 				log.Error("waiting for removing rejected stores failed",
 					zap.Stringer("region", region.Region))
 				return errors.New("waiting for removing rejected stores failed")

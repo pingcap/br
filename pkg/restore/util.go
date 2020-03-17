@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
@@ -327,12 +328,16 @@ func SplitRanges(
 		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-	tiflashStores, err := client.GetTiFlashStores()
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	storeMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		storeMap[store.GetId()] = true
+	}
 
-	return splitter.Split(ctx, ranges, rewriteRules, tiflashStores, func(keys [][]byte) {
+	return splitter.Split(ctx, ranges, rewriteRules, storeMap, func(keys [][]byte) {
 		for range keys {
 			updateCh <- struct{}{}
 		}
