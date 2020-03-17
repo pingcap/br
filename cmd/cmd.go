@@ -45,7 +45,7 @@ const (
 )
 
 func timestampLogFileName() string {
-	return fmt.Sprintf("%s/br-%s", os.TempDir(), time.Now().Format(time.RFC3339))
+	return filepath.Join(os.TempDir(), "br-" + time.Now().Format(time.RFC3339))
 }
 
 // AddFlags adds flags to the given cmd.
