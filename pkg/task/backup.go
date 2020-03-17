@@ -214,7 +214,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
-		log.Error("save backup meta failed", zap.Reflect("meta", ddlJobs))
 		return err
 	}
 	return nil

@@ -104,12 +104,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 
-	defer func() {
-		if err != nil {
-			log.Error("restore failed", zap.Error(err), zap.Reflect("meta", backupMeta))
-		}
-	}()
-
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}

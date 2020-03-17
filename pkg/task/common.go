@@ -12,14 +12,12 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.etcd.io/etcd/pkg/transport"
-	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -276,7 +274,6 @@ func ReadBackupMeta(
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
-		log.Error("parse backupmeta failed", zap.Error(err), zap.Binary("meta", metaData))
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}
 	return u, s, backupMeta, nil

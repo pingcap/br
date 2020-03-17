@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,7 +47,7 @@ const (
 )
 
 func timestampLogFileName() string {
-	return filepath.Join(os.TempDir(), "br-" + time.Now().Format(time.RFC3339))
+	return filepath.Join(os.TempDir(), "br-"+time.Now().Format(time.RFC3339))
 }
 
 // AddFlags adds flags to the given cmd.
@@ -82,10 +83,10 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 		if len(conf.File.Filename) != 0 {
 			atomic.StoreUint64(&hasLogFile, 1)
+			summary.InitCollector(true)
 		} else {
 			fmt.Printf("log file: %s\n", conf.File.Filename)
 		}
-		summary.InitCollector(bool(hasLogFile))
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
 			err = e
