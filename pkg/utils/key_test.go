@@ -32,3 +32,23 @@ func (r *testKeySuite) TestParseKey(c *C) {
 	c.Assert(err, ErrorMatches, "*unknown format*")
 
 }
+
+func (r *testKeySuite) TestCompareEndKey(c *C) {
+	res := CompareEndKey([]byte("1"), []byte("2"))
+	c.Assert(res, Less, 0)
+
+	res = CompareEndKey([]byte("1"), []byte("1"))
+	c.Assert(res, Equals, 0)
+
+	res = CompareEndKey([]byte("2"), []byte("1"))
+	c.Assert(res, Greater, 0)
+
+	res = CompareEndKey([]byte("1"), []byte(""))
+	c.Assert(res, Less, 0)
+
+	res = CompareEndKey([]byte(""), []byte(""))
+	c.Assert(res, Equals, 0)
+
+	res = CompareEndKey([]byte(""), []byte("1"))
+	c.Assert(res, Greater, 0)
+}

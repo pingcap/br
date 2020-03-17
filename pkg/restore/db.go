@@ -29,6 +29,10 @@ func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	// The session may be nil in raw kv mode
+	if se == nil {
+		return nil, nil
+	}
 	// Set SQL mode to None for avoiding SQL compatibility problem
 	err = se.Execute(context.Background(), "set @@sql_mode=''")
 	if err != nil {
