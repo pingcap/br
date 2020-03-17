@@ -71,9 +71,9 @@ func (rs *RegionSplitter) Split(
 	}
 	startTime := time.Now()
 	// Sort the range for getting the min and max key of the ranges
-	sortedRanges, errSortRange := sortRanges(ranges, rewriteRules)
-	if errSortRange != nil {
-		return errors.Trace(errSortRange)
+	sortedRanges, errSplit := sortRanges(ranges, rewriteRules)
+	if errSplit != nil {
+		return errors.Trace(errSplit)
 	}
 	minKey := codec.EncodeBytes([]byte{}, sortedRanges[0].StartKey)
 	maxKey := codec.EncodeBytes([]byte{}, sortedRanges[len(sortedRanges)-1].EndKey)
@@ -115,16 +115,16 @@ SplitRegions:
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
 			region := regionMap[regionID]
-			newRegions, errSortRange = rs.splitAndScatterRegions(ctx, region, keys)
-			if errSortRange != nil {
-				if strings.Contains(errSortRange.Error(), "no valid key") {
+			newRegions, errSplit = rs.splitAndScatterRegions(ctx, region, keys)
+			if errSplit != nil {
+				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
 						log.Error("no valid key",
 							zap.Binary("startKey", region.Region.StartKey),
 							zap.Binary("endKey", region.Region.EndKey),
 							zap.Binary("key", codec.EncodeBytes([]byte{}, key)))
 					}
-					return errors.Trace(errSortRange)
+					return errors.Trace(errSplit)
 				}
 				interval = 2 * interval
 				if interval > SplitMaxRetryInterval {
@@ -132,7 +132,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSortRange), zap.ByteStrings("keys", keys))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.ByteStrings("keys", keys))
 				}
 				continue SplitRegions
 			}
@@ -142,8 +142,8 @@ SplitRegions:
 		}
 		break
 	}
-	if errSortRange != nil {
-		return errors.Trace(errSortRange)
+	if errSplit != nil {
+		return errors.Trace(errSplit)
 	}
 	if len(rejectStores) > 0 {
 		startTime = time.Now()
