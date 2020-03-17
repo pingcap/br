@@ -354,9 +354,7 @@ func (rc *Client) RestoreFiles(
 		if err == nil {
 			log.Info("Restore Files",
 				zap.Int("files", len(files)), zap.Duration("take", elapsed))
-			summary.CollectSuccessUnit("files", elapsed)
-		} else {
-			summary.CollectFailureUnit("files", err)
+			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
 
@@ -385,9 +383,10 @@ func (rc *Client) RestoreFiles(
 				}
 			})
 	}
-	for range files {
+	for i := range files {
 		err := <-errCh
 		if err != nil {
+			summary.CollectFailureUnit(fmt.Sprintf("file:%d", i), err)
 			rc.cancel()
 			wg.Wait()
 			log.Error(

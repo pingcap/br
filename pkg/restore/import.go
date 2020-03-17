@@ -292,8 +292,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 					zap.Error(errIngest))
 				return errIngest
 			}
-			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
-			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
+			summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		}
 		return nil
 	}, newImportSSTBackoffer())
