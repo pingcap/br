@@ -127,9 +127,9 @@ skipStore:
 				if unexpectedStoreBehavior == SkipTiFlash {
 					continue skipStore
 				}
-				return nil, errors.Errorf(
-					"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 			}
+			return nil, errors.Errorf(
+				"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 		}
 		stores[j] = store
 		j++
