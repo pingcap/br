@@ -248,6 +248,7 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	i := 0
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
+		i++
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
 	}, newPDReqBackoffer())
 }
@@ -257,8 +258,9 @@ func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) 
 	var placementRules []placement.Rule
 	i := 0
 	errRetry := utils.WithRetry(rc.ctx, func() error {
-		idx := i % len(pdAddrs)
 		var err error
+		idx := i % len(pdAddrs)
+		i++
 		placementRules, err = utils.GetPlacementRules(pdAddrs[idx], rc.tlsConf)
 		return err
 	}, newPDReqBackoffer())
