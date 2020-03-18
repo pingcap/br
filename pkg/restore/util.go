@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
@@ -320,7 +321,7 @@ func SplitRanges(
 	client *Client,
 	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -339,7 +340,7 @@ func SplitRanges(
 
 	return splitter.Split(ctx, ranges, rewriteRules, storeMap, func(keys [][]byte) {
 		for range keys {
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	})
 }

@@ -98,7 +98,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	// TODO: How to show progress?
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx,
 		"Raw Restore",
 		// Split/Scatter + Download/Ingest
@@ -125,7 +125,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Trace(err)
 	}
 	// Restore has finished.
-	close(updateCh)
+	updateCh.Close()
 
 	return nil
 }

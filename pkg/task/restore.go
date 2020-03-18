@@ -172,7 +172,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ranges = restore.AttachFilesToRanges(files, ranges)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx,
 		cmdName,
 		// Split/Scatter + Download/Ingest
@@ -240,17 +240,17 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore has finished.
-	close(updateCh)
+	updateCh.Close()
 
 	// Checksum
-	updateCh = utils.StartProgress(
+	updateCh = g.StartProgress(
 		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
 	err = client.ValidateChecksum(
 		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
 	if err != nil {
 		return err
 	}
-	close(updateCh)
+	updateCh.Close()
 
 	return nil
 }
@@ -400,8 +400,9 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	for _, db := range dbs {
 		tables = append(tables, db.Tables...)
 	}
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
+	defer updateCh.Close()
 	for _, t := range tables {
 		log.Info("get table", zap.Stringer("name", t.Info.Name),
 			zap.Int("replica", t.TiFlashReplicas))
@@ -410,7 +411,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 			if err != nil {
 				return err
 			}
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	}
 	summary.CollectInt("recover tables", len(tables))
