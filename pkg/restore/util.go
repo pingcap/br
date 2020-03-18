@@ -310,6 +310,9 @@ func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 }
 
 func truncateTS(key []byte) []byte {
+	if len(key) == 0 {
+		return nil
+	}
 	return key[:len(key)-8]
 }
 
