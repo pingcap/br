@@ -84,13 +84,13 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	schema := table.Info
-	createSQL, err := db.se.ShowCreateTable(schema, newIDAllocator(schema.AutoIncID))
+	tableInfo := table.Info
+	createSQL, err := db.se.ShowCreateTable(tableInfo, newIDAllocator(tableInfo.AutoIncID))
 	if err != nil {
 		log.Error(
 			"build create table SQL failed",
 			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", schema.Name),
+			zap.Stringer("table", tableInfo.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -119,8 +119,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	}
 	alterAutoIncIDSQL := fmt.Sprintf(
 		"alter table %s auto_increment = %d",
-		utils.EncloseName(schema.Name.O),
-		schema.AutoIncID)
+		utils.EncloseName(tableInfo.Name.O),
+		tableInfo.AutoIncID)
 	err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
@@ -129,7 +129,43 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 	}
+
 	return errors.Trace(err)
+}
+
+// AlterTiflashReplica alters the replica count of tiflash
+func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
+	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
+	err := db.se.Execute(ctx, switchDbSQL)
+	if err != nil {
+		log.Error("switch db failed",
+			zap.String("SQL", switchDbSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Error(err))
+		return errors.Trace(err)
+	}
+	alterTiFlashSQL := fmt.Sprintf(
+		"alter table %s set tiflash replica %d",
+		utils.EncloseName(table.Info.Name.O),
+		count,
+	)
+	err = db.se.Execute(ctx, alterTiFlashSQL)
+	if err != nil {
+		log.Error("alter tiflash replica failed",
+			zap.String("query", alterTiFlashSQL),
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Info.Name),
+			zap.Error(err))
+		return err
+	} else if table.TiFlashReplicas > 0 {
+		log.Warn("alter tiflash replica done",
+			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("table", table.Info.Name),
+			zap.Int("originalReplicaCount", table.TiFlashReplicas),
+			zap.Int("replicaCount", count))
+
+	}
+	return nil
 }
 
 // Close closes the connection
