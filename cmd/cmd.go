@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -85,7 +84,7 @@ func Init(cmd *cobra.Command) (err error) {
 			atomic.StoreUint64(&hasLogFile, 1)
 			summary.InitCollector(true)
 		} else {
-			fmt.Printf("log file: %s\n", conf.File.Filename)
+			cmd.Printf("log file: %s\n", conf.File.Filename)
 		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
