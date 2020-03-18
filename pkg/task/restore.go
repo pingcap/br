@@ -401,7 +401,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 		tables = append(tables, db.Tables...)
 	}
 	updateCh := utils.StartProgress(
-		ctx, "Checksum", int64(len(tables)), !cfg.LogProgress)
+		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
 	for _, t := range tables {
 		log.Info("get table", zap.Stringer("name", t.Info.Name),
 			zap.Int("replica", t.TiFlashReplicas))
