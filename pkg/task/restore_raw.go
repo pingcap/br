@@ -69,7 +69,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 
 	defer summary.Summary(cmdName)
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
 		return err
 	}

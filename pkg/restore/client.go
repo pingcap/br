@@ -340,9 +340,11 @@ func (rc *Client) CreateTables(
 // TODO: remove this after tiflash supports restore
 func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
+	var updateReplica bool
 	for _, table := range tables {
 		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
 			table.TiFlashReplicas = rule.Count
+			updateReplica = true
 		}
 		tableData, err := json.Marshal(table.Info)
 		if err != nil {
@@ -362,22 +364,24 @@ func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []p
 		})
 	}
 
-	// Update backup meta
-	rc.backupMeta.Schemas = schemas
-	backupMetaData, err := proto.Marshal(rc.backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	backendURL := storage.FormatBackendURL(rc.backend)
-	log.Info("update backup meta", zap.Stringer("path", &backendURL))
-	err = rc.storage.Write(rc.ctx, utils.MetaFile, backupMetaData)
-	if err != nil {
-		return errors.Trace(err)
+	if updateReplica {
+		// Update backup meta
+		rc.backupMeta.Schemas = schemas
+		backupMetaData, err := proto.Marshal(rc.backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		backendURL := storage.FormatBackendURL(rc.backend)
+		log.Info("update backup meta", zap.Stringer("path", &backendURL))
+		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 
 	for _, table := range tables {
 		if table.TiFlashReplicas > 0 {
-			err = rc.db.AlterTiflashReplica(rc.ctx, table, 0)
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, 0)
 			if err != nil {
 				return errors.Trace(err)
 			}

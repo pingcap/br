@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/pd/v4/pkg/codec"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/tikv/client-go/codec"
 )
 
 const (
@@ -45,7 +45,7 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 		return errors.Trace(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 && resp.StatusCode != 403 {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusForbidden {
 		buf := new(bytes.Buffer)
 		_, _ = buf.ReadFrom(resp.Body)
 		return errors.Errorf("pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
@@ -74,10 +74,10 @@ func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, er
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	if resp.StatusCode == 412 {
+	if resp.StatusCode == http.StatusPreconditionFailed {
 		return []placement.Rule{}, nil
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, errors.Errorf("get placement rules failed: resp=%v, err=%v, code=%d", buf.String(), err, resp.StatusCode)
 	}
 	var rules []placement.Rule

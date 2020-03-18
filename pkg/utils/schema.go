@@ -18,6 +18,8 @@ const (
 	MetaFile = "backupmeta"
 	// MetaJSONFile represents backup meta json file name
 	MetaJSONFile = "backupmeta.json"
+	// SavedMetaFile represents saved meta file name for recovering later
+	SavedMetaFile = "backupmeta.bak"
 )
 
 // Table wraps the schema and files of a table.

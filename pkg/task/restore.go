@@ -107,7 +107,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	defer summary.Summary(cmdName)
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
 		return err
 	}
@@ -382,8 +382,8 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	}
 	defer mgr.Close()
 
-	// Load backupmeta
-	_, _, backupMeta, err := ReadBackupMeta(c, &cfg.Config)
+	// Load saved backupmeta
+	_, _, backupMeta, err := ReadBackupMeta(ctx, utils.SavedMetaFile, &cfg.Config)
 	if err != nil {
 		return err
 	}

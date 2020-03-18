@@ -92,20 +92,20 @@ func pdRequest(
 	return r, nil
 }
 
-// UnexpectedStoreBehavior is the action to do in GetAllTiKVStores when a
-// non-TiKV store (e.g. TiFlash store) is found.
-type UnexpectedStoreBehavior uint8
+// StoreBehavior is the action to do in GetAllTiKVStores when a non-TiKV
+// store (e.g. TiFlash store) is found.
+type StoreBehavior uint8
 
 const (
 	// ErrorOnTiFlash causes GetAllTiKVStores to return error when the store is
 	// found to be a TiFlash node.
-	ErrorOnTiFlash UnexpectedStoreBehavior = 0
+	ErrorOnTiFlash StoreBehavior = 0
 	// SkipTiFlash causes GetAllTiKVStores to skip the store when it is found to
 	// be a TiFlash node.
-	SkipTiFlash UnexpectedStoreBehavior = 1
+	SkipTiFlash StoreBehavior = 1
 	// TiFlashOnly caused GetAllTiKVStores to skip the store which is not a
 	// TiFlash node.
-	TiFlashOnly UnexpectedStoreBehavior = 2
+	TiFlashOnly StoreBehavior = 2
 )
 
 // GetAllTiKVStores returns all TiKV stores registered to the PD client. The
@@ -113,7 +113,7 @@ const (
 func GetAllTiKVStores(
 	ctx context.Context,
 	pdClient pd.Client,
-	unexpectedStoreBehavior UnexpectedStoreBehavior,
+	storeBehavior StoreBehavior,
 ) ([]*metapb.Store, error) {
 	// get all live stores.
 	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
@@ -128,16 +128,16 @@ skipStore:
 		var isTiFlash bool
 		for _, label := range store.Labels {
 			if label.Key == "engine" && label.Value == "tiflash" {
-				if unexpectedStoreBehavior == SkipTiFlash {
+				if storeBehavior == SkipTiFlash {
 					continue skipStore
-				} else if unexpectedStoreBehavior == ErrorOnTiFlash {
+				} else if storeBehavior == ErrorOnTiFlash {
 					return nil, errors.Errorf(
 						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 				}
 				isTiFlash = true
 			}
 		}
-		if !isTiFlash && unexpectedStoreBehavior == TiFlashOnly {
+		if !isTiFlash && storeBehavior == TiFlashOnly {
 			continue skipStore
 		}
 		stores[j] = store
@@ -154,7 +154,7 @@ func NewMgr(
 	storage tikv.Storage,
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
-	unexpectedStoreBehavior UnexpectedStoreBehavior,
+	storeBehavior StoreBehavior,
 ) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
@@ -199,7 +199,7 @@ func NewMgr(
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := GetAllTiKVStores(ctx, pdClient, unexpectedStoreBehavior)
+	stores, err := GetAllTiKVStores(ctx, pdClient, storeBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err
