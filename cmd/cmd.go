@@ -57,7 +57,8 @@ func AddFlags(cmd *cobra.Command) {
 
 	cmd.PersistentFlags().StringP(FlagLogLevel, "L", "info",
 		"Set the log level")
-	cmd.PersistentFlags().String(FlagLogFile, timestampLogFileName(), "Set the log file path. If not set, logs will output to temp file")
+	cmd.PersistentFlags().String(FlagLogFile, timestampLogFileName(),
+		"Set the log file path. If not set, logs will output to temp file")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	task.DefineCommonFlags(cmd.PersistentFlags())
