@@ -32,8 +32,11 @@ const (
 	ScatterWaitMaxRetryTimes = 64
 	ScatterWaitInterval      = 50 * time.Millisecond
 	ScatterMaxWaitInterval   = time.Second
-
 	ScatterWaitUpperInterval = 180 * time.Second
+
+	RejectStoreCheckRetryTimes  = 64
+	RejectStoreCheckInterval    = 100 * time.Millisecond
+	RejectStoreMaxCheckInterval = 2 * time.Second
 )
 
 // RegionSplitter is a executor of region split by rules.
@@ -60,6 +63,7 @@ func (rs *RegionSplitter) Split(
 	ctx context.Context,
 	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
+	rejectStores map[uint64]bool,
 	onSplit OnSplitFunc,
 ) error {
 	if len(ranges) == 0 {
@@ -67,9 +71,9 @@ func (rs *RegionSplitter) Split(
 	}
 	startTime := time.Now()
 	// Sort the range for getting the min and max key of the ranges
-	sortedRanges, err := sortRanges(ranges, rewriteRules)
-	if err != nil {
-		return errors.Trace(err)
+	sortedRanges, errSplit := sortRanges(ranges, rewriteRules)
+	if errSplit != nil {
+		return errors.Trace(errSplit)
 	}
 	minKey := codec.EncodeBytes([]byte{}, sortedRanges[0].StartKey)
 	maxKey := codec.EncodeBytes([]byte{}, sortedRanges[len(sortedRanges)-1].EndKey)
@@ -91,12 +95,14 @@ func (rs *RegionSplitter) Split(
 	}
 	interval := SplitRetryInterval
 	scatterRegions := make([]*RegionInfo, 0)
+	allRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		regions, err1 := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
-		if err1 != nil {
-			return errors.Trace(err1)
+		regions, errScan := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		if errScan != nil {
+			return errors.Trace(errScan)
 		}
+		allRegions = append(allRegions, regions...)
 		if len(regions) == 0 {
 			log.Warn("cannot scan any region")
 			return nil
@@ -109,16 +115,16 @@ SplitRegions:
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
 			region := regionMap[regionID]
-			newRegions, err = rs.splitAndScatterRegions(ctx, region, keys)
-			if err != nil {
-				if strings.Contains(err.Error(), "no valid key") {
+			newRegions, errSplit = rs.splitAndScatterRegions(ctx, region, keys)
+			if errSplit != nil {
+				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
 						log.Error("no valid key",
 							zap.Binary("startKey", region.Region.StartKey),
 							zap.Binary("endKey", region.Region.EndKey),
 							zap.Binary("key", codec.EncodeBytes([]byte{}, key)))
 					}
-					return errors.Trace(err)
+					return errors.Trace(errSplit)
 				}
 				interval = 2 * interval
 				if interval > SplitMaxRetryInterval {
@@ -126,7 +132,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(err), zap.ByteStrings("keys", keys))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.ByteStrings("keys", keys))
 				}
 				continue SplitRegions
 			}
@@ -136,10 +142,23 @@ SplitRegions:
 		}
 		break
 	}
-	if err != nil {
-		return errors.Trace(err)
+	if errSplit != nil {
+		return errors.Trace(errSplit)
 	}
-	log.Info("splitting regions done, wait for scattering regions",
+	if len(rejectStores) > 0 {
+		startTime = time.Now()
+		log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStores))
+		for _, region := range allRegions {
+			if !rs.waitForRemoveRejectStores(ctx, region, rejectStores) {
+				log.Error("waiting for removing rejected stores failed",
+					zap.Stringer("region", region.Region))
+				return errors.New("waiting for removing rejected stores failed")
+			}
+		}
+		log.Info("waiting for removing rejected stores done",
+			zap.Int("regions", len(allRegions)), zap.Duration("take", time.Since(startTime)))
+	}
+	log.Info("start to wait for scattering regions",
 		zap.Int("regions", len(scatterRegions)), zap.Duration("take", time.Since(startTime)))
 	startTime = time.Now()
 	scatterCount := 0
@@ -192,6 +211,30 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 	return ok, nil
 }
 
+func (rs *RegionSplitter) hasRejectStorePeer(
+	ctx context.Context,
+	regionID uint64,
+	rejectStores map[uint64]bool,
+) (bool, error) {
+	regionInfo, err := rs.client.GetRegionByID(ctx, regionID)
+	if err != nil {
+		return false, err
+	}
+	if regionInfo == nil {
+		return false, nil
+	}
+	for _, peer := range regionInfo.Region.GetPeers() {
+		if rejectStores[peer.GetStoreId()] {
+			return true, nil
+		}
+	}
+	retryTimes := ctx.Value(retryTimes).(int)
+	if retryTimes > 10 {
+		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+	}
+	return false, nil
+}
+
 func (rs *RegionSplitter) waitForSplit(ctx context.Context, regionID uint64) {
 	interval := SplitCheckInterval
 	for i := 0; i < SplitCheckMaxRetryTimes; i++ {
@@ -235,6 +278,36 @@ func (rs *RegionSplitter) waitForScatterRegion(ctx context.Context, regionInfo *
 		}
 		time.Sleep(interval)
 	}
+}
+
+func (rs *RegionSplitter) waitForRemoveRejectStores(
+	ctx context.Context,
+	regionInfo *RegionInfo,
+	rejectStores map[uint64]bool,
+) bool {
+	interval := RejectStoreCheckInterval
+	regionID := regionInfo.Region.GetId()
+	for i := 0; i < RejectStoreCheckRetryTimes; i++ {
+		ctx1 := context.WithValue(ctx, retryTimes, i)
+		ok, err := rs.hasRejectStorePeer(ctx1, regionID, rejectStores)
+		if err != nil {
+			log.Warn("wait for rejecting store failed",
+				zap.Stringer("region", regionInfo.Region),
+				zap.Error(err))
+			return false
+		}
+		// Do not have any peer in the rejected store, return true
+		if !ok {
+			return true
+		}
+		interval = 2 * interval
+		if interval > RejectStoreMaxCheckInterval {
+			interval = RejectStoreMaxCheckInterval
+		}
+		time.Sleep(interval)
+	}
+
+	return false
 }
 
 func (rs *RegionSplitter) splitAndScatterRegions(

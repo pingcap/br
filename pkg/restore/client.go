@@ -3,6 +3,7 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -36,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -64,6 +67,9 @@ type Client struct {
 	hasSpeedLimited bool
 
 	restoreStores []uint64
+
+	storage storage.ExternalStorage
+	backend *backup.StorageBackend
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -96,6 +102,17 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
 }
 
+// SetStorage set ExternalStorage for client
+func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+	var err error
+	rc.storage, err = storage.Create(ctx, backend, sendCreds)
+	if err != nil {
+		return err
+	}
+	rc.backend = backend
+	return nil
+}
+
 // GetPDClient returns a pd client.
 func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
@@ -108,31 +125,95 @@ func (rc *Client) IsOnline() bool {
 
 // Close a client
 func (rc *Client) Close() {
-	rc.db.Close()
+	// rc.db can be nil in raw kv mode.
+	if rc.db != nil {
+		rc.db.Close()
+	}
 	rc.cancel()
 	log.Info("Restore client closed")
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.StorageBackend) error {
-	databases, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
+	if !backupMeta.IsRawKv {
+		databases, err := utils.LoadBackupTables(backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.databases = databases
+
+		var ddlJobs []*model.Job
+		err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		rc.ddlJobs = ddlJobs
 	}
-	var ddlJobs []*model.Job
-	err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	rc.databases = databases
-	rc.ddlJobs = ddlJobs
 	rc.backupMeta = backupMeta
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importClient := NewImportClient(metaClient, rc.tlsConf)
-	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, rc.rateLimit)
+	rc.fileImporter = NewFileImporter(rc.ctx, metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
+}
+
+// IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
+func (rc *Client) IsRawKvMode() bool {
+	return rc.backupMeta.IsRawKv
+}
+
+// GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
+	if !rc.IsRawKvMode() {
+		return nil, errors.New("the backup data is not in raw kv mode")
+	}
+
+	for _, rawRange := range rc.backupMeta.RawRanges {
+		// First check whether the given range is backup-ed. If not, we cannot perform the restore.
+		if rawRange.Cf != cf {
+			continue
+		}
+
+		if (len(rawRange.EndKey) > 0 && bytes.Compare(startKey, rawRange.EndKey) >= 0) ||
+			(len(endKey) > 0 && bytes.Compare(rawRange.StartKey, endKey) >= 0) {
+			// The restoring range is totally out of the current range. Skip it.
+			continue
+		}
+
+		if bytes.Compare(startKey, rawRange.StartKey) < 0 ||
+			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
+			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
+			// restored.
+			return nil, errors.New("the given range to restore is not fully covered by the range that was backed up")
+		}
+
+		// We have found the range that contains the given range. Find all necessary files.
+		files := make([]*backup.File, 0)
+
+		for _, file := range rc.backupMeta.Files {
+			if file.Cf != cf {
+				continue
+			}
+
+			if len(file.EndKey) > 0 && bytes.Compare(file.EndKey, startKey) < 0 {
+				// The file is before the range to be restored.
+				continue
+			}
+			if len(endKey) > 0 && bytes.Compare(endKey, file.StartKey) <= 0 {
+				// The file is after the range to be restored.
+				// The specified endKey is exclusive, so when it equals to a file's startKey, the file is still skipped.
+				continue
+			}
+
+			files = append(files, file)
+		}
+
+		// There should be at most one backed up range that covers the restoring range.
+		return files, nil
+	}
+
+	return nil, errors.New("no backup data in the range")
 }
 
 // SetConcurrency sets the concurrency of dbs tables files
@@ -167,8 +248,23 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	i := 0
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
+		i++
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
-	}, newResetTSBackoffer())
+	}, newPDReqBackoffer())
+}
+
+// GetPlacementRules return the current placement rules
+func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
+	var placementRules []placement.Rule
+	i := 0
+	errRetry := utils.WithRetry(rc.ctx, func() error {
+		var err error
+		idx := i % len(pdAddrs)
+		i++
+		placementRules, err = utils.GetPlacementRules(pdAddrs[idx], rc.tlsConf)
+		return err
+	}, newPDReqBackoffer())
+	return placementRules, errRetry
 }
 
 // GetDatabases returns all databases.
@@ -240,6 +336,74 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+// RemoveTiFlashReplica removes all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+	schemas := make([]*backup.Schema, 0, len(tables))
+	var updateReplica bool
+	for _, table := range tables {
+		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+			table.TiFlashReplicas = rule.Count
+			updateReplica = true
+		}
+		tableData, err := json.Marshal(table.Info)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		dbData, err := json.Marshal(table.Db)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		schemas = append(schemas, &backup.Schema{
+			Db:              dbData,
+			Table:           tableData,
+			Crc64Xor:        table.Crc64Xor,
+			TotalKvs:        table.TotalKvs,
+			TotalBytes:      table.TotalBytes,
+			TiflashReplicas: uint32(table.TiFlashReplicas),
+		})
+	}
+
+	if updateReplica {
+		// Update backup meta
+		rc.backupMeta.Schemas = schemas
+		backupMetaData, err := proto.Marshal(rc.backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		backendURL := storage.FormatBackendURL(rc.backend)
+		log.Info("update backup meta", zap.Stringer("path", &backendURL))
+		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	for _, table := range tables {
+		if table.TiFlashReplicas > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, 0)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return nil
+}
+
+// RecoverTiFlashReplica recovers all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
+	for _, table := range tables {
+		if table.TiFlashReplicas > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return nil
+}
+
 // ExecDDLs executes the queries of the ddl jobs.
 func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	// Sort the ddl jobs by schema version in ascending order.
@@ -262,7 +426,7 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 
 func (rc *Client) setSpeedLimit() error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.ErrorOnTiFlash)
+		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.SkipTiFlash)
 		if err != nil {
 			return err
 		}
@@ -289,9 +453,7 @@ func (rc *Client) RestoreFiles(
 		if err == nil {
 			log.Info("Restore Files",
 				zap.Int("files", len(files)), zap.Duration("take", elapsed))
-			summary.CollectSuccessUnit("files", elapsed)
-		} else {
-			summary.CollectFailureUnit("files", err)
+			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
 
@@ -320,9 +482,10 @@ func (rc *Client) RestoreFiles(
 				}
 			})
 	}
-	for range files {
+	for i := range files {
 		err := <-errCh
 		if err != nil {
+			summary.CollectFailureUnit(fmt.Sprintf("file:%d", i), err)
 			rc.cancel()
 			wg.Wait()
 			log.Error(
@@ -332,6 +495,63 @@ func (rc *Client) RestoreFiles(
 			return err
 		}
 	}
+	return nil
+}
+
+// RestoreRaw tries to restore raw keys in the specified range.
+func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh chan<- struct{}) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		log.Info("Restore Raw",
+			zap.String("startKey", hex.EncodeToString(startKey)),
+			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Duration("take", elapsed))
+	}()
+	errCh := make(chan error, len(files))
+	wg := new(sync.WaitGroup)
+	defer close(errCh)
+
+	err := rc.fileImporter.SetRawRange(startKey, endKey)
+	if err != nil {
+
+		return errors.Trace(err)
+	}
+
+	emptyRules := &RewriteRules{}
+	for _, file := range files {
+		wg.Add(1)
+		fileReplica := file
+		rc.workerPool.Apply(
+			func() {
+				defer wg.Done()
+				select {
+				case <-rc.ctx.Done():
+					errCh <- nil
+				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+					updateCh <- struct{}{}
+				}
+			})
+	}
+	for range files {
+		err := <-errCh
+		if err != nil {
+			rc.cancel()
+			wg.Wait()
+			log.Error(
+				"restore raw range failed",
+				zap.String("startKey", hex.EncodeToString(startKey)),
+				zap.String("endKey", hex.EncodeToString(endKey)),
+				zap.Error(err),
+			)
+			return err
+		}
+	}
+	log.Info(
+		"finish to restore raw range",
+		zap.String("startKey", hex.EncodeToString(startKey)),
+		zap.String("endKey", hex.EncodeToString(endKey)),
+	)
 	return nil
 }
 
@@ -346,7 +566,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.ErrorOnTiFlash)
+	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}

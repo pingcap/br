@@ -18,16 +18,19 @@ const (
 	MetaFile = "backupmeta"
 	// MetaJSONFile represents backup meta json file name
 	MetaJSONFile = "backupmeta.json"
+	// SavedMetaFile represents saved meta file name for recovering later
+	SavedMetaFile = "backupmeta.bak"
 )
 
 // Table wraps the schema and files of a table.
 type Table struct {
-	Db         *model.DBInfo
-	Info       *model.TableInfo
-	Crc64Xor   uint64
-	TotalKvs   uint64
-	TotalBytes uint64
-	Files      []*backup.File
+	Db              *model.DBInfo
+	Info            *model.TableInfo
+	Crc64Xor        uint64
+	TotalKvs        uint64
+	TotalBytes      uint64
+	Files           []*backup.File
+	TiFlashReplicas int
 }
 
 // Database wraps the schema and tables of a database.
@@ -92,12 +95,13 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		table := &Table{
-			Db:         dbInfo,
-			Info:       tableInfo,
-			Crc64Xor:   schema.Crc64Xor,
-			TotalKvs:   schema.TotalKvs,
-			TotalBytes: schema.TotalBytes,
-			Files:      tableFiles,
+			Db:              dbInfo,
+			Info:            tableInfo,
+			Crc64Xor:        schema.Crc64Xor,
+			TotalKvs:        schema.TotalKvs,
+			TotalBytes:      schema.TotalBytes,
+			Files:           tableFiles,
+			TiFlashReplicas: int(schema.TiflashReplicas),
 		}
 		db.Tables = append(db.Tables, table)
 	}

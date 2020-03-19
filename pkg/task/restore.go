@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -75,7 +76,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.ErrorOnTiFlash)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash)
 	if err != nil {
 		return err
 	}
@@ -87,6 +88,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer client.Close()
 
+	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
+	if err != nil {
+		return err
+	}
+	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+		return err
+	}
 	client.SetRateLimit(cfg.RateLimit)
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
@@ -99,12 +107,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	defer summary.Summary(cmdName)
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
 		return err
 	}
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
+	}
+
+	if client.IsRawKvMode() {
+		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
 	files, tables, err := filterRestoreFiles(client, cfg)
@@ -114,7 +126,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(files) == 0 {
 		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
-	summary.CollectInt("restore files", len(files))
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -135,6 +146,18 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	placementRules, err := client.GetPlacementRules(cfg.PD)
+	if err != nil {
+		return err
+	}
+	err = client.RemoveTiFlashReplica(tables, placementRules)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = client.RecoverTiFlashReplica(tables)
+	}()
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
@@ -344,5 +367,53 @@ func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.
 	if err != nil {
 		return errors.Trace(err)
 	}
+	return nil
+}
+
+// RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
+func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
+	defer summary.Summary(cmdName)
+	ctx, cancel := context.WithCancel(c)
+	defer cancel()
+
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash)
+	if err != nil {
+		return err
+	}
+	defer mgr.Close()
+
+	// Load saved backupmeta
+	_, _, backupMeta, err := ReadBackupMeta(ctx, utils.SavedMetaFile, &cfg.Config)
+	if err != nil {
+		return err
+	}
+	dbs, err := utils.LoadBackupTables(backupMeta)
+	if err != nil {
+		return err
+	}
+	se, err := restore.NewDB(g, mgr.GetTiKV())
+	if err != nil {
+		return err
+	}
+
+	tables := make([]*utils.Table, 0)
+	for _, db := range dbs {
+		tables = append(tables, db.Tables...)
+	}
+	updateCh := utils.StartProgress(
+		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
+	for _, t := range tables {
+		log.Info("get table", zap.Stringer("name", t.Info.Name),
+			zap.Int("replica", t.TiFlashReplicas))
+		if t.TiFlashReplicas > 0 {
+			err := se.AlterTiflashReplica(ctx, t, t.TiFlashReplicas)
+			if err != nil {
+				return err
+			}
+			updateCh <- struct{}{}
+		}
+	}
+	summary.CollectInt("recover tables", len(tables))
+
 	return nil
 }

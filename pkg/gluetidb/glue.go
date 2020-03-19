@@ -8,19 +8,20 @@ import (
 
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/store/tikv"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/gluetikv"
 )
 
 // Glue is an implementation of glue.Glue using a new TiDB session.
-type Glue struct{}
+type Glue struct {
+	tikvGlue gluetikv.Glue
+}
 
 type tidbSession struct {
 	se session.Session
@@ -41,15 +42,8 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 }
 
 // Open implements glue.Glue
-func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
-	if option.CAPath != "" {
-		conf := config.GetGlobalConfig()
-		conf.Security.ClusterSSLCA = option.CAPath
-		conf.Security.ClusterSSLCert = option.CertPath
-		conf.Security.ClusterSSLKey = option.KeyPath
-		config.StoreGlobalConfig(conf)
-	}
-	return tikv.Driver{}.Open(path)
+func (g Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
+	return g.tikvGlue.Open(path, option)
 }
 
 // OwnsStorage implements glue.Glue

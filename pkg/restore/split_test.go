@@ -193,7 +193,7 @@ func (s *testRestoreUtilSuite) TestSplit(c *C) {
 	regionSplitter := NewRegionSplitter(client)
 
 	ctx := context.Background()
-	err := regionSplitter.Split(ctx, ranges, rewriteRules, func(key [][]byte) {})
+	err := regionSplitter.Split(ctx, ranges, rewriteRules, map[uint64]bool{}, func(key [][]byte) {})
 	if err != nil {
 		c.Assert(err, IsNil, Commentf("split regions failed: %v", err))
 	}
