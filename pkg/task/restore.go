@@ -402,7 +402,6 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	}
 	updateCh := g.StartProgress(
 		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
-	defer updateCh.Close()
 	for _, t := range tables {
 		log.Info("get table", zap.Stringer("name", t.Info.Name),
 			zap.Int("replica", t.TiFlashReplicas))
@@ -414,6 +413,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 			updateCh.Inc()
 		}
 	}
+	updateCh.Close()
 	summary.CollectInt("recover tables", len(tables))
 
 	return nil
