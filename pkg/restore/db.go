@@ -210,12 +210,13 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 		tableNames[table.Info.Name.String()] = true
 		for _, job := range allDDLJobs {
 			if job.BinlogInfo.TableInfo != nil {
-				if tableIDs[job.TableID] || tableNames[job.BinlogInfo.TableInfo.Name.String()] {
+				name := job.SchemaName + job.BinlogInfo.TableInfo.Name.String()
+				if tableIDs[job.TableID] || tableNames[name] {
 					ddlJobs = append(ddlJobs, job)
 					tableIDs[job.TableID] = true
 					// For truncate table, the id may be changed
 					tableIDs[job.BinlogInfo.TableInfo.ID] = true
-					tableNames[job.BinlogInfo.TableInfo.Name.String()] = true
+					tableNames[name] = true
 				}
 			}
 		}
