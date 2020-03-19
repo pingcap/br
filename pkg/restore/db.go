@@ -47,7 +47,7 @@ func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	var err error
 	if ddlJob.BinlogInfo.TableInfo != nil {
-		switchDbSQL := fmt.Sprintf("use %s;", ddlJob.SchemaName)
+		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
 		err = db.se.Execute(ctx, switchDbSQL)
 		if err != nil {
 			log.Error("switch db failed",
