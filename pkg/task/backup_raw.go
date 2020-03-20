@@ -27,8 +27,8 @@ const (
 	flagEndKey           = "end"
 )
 
-// BackupRawConfig is the configuration specific for backup tasks.
-type BackupRawConfig struct {
+// RawKvConfig is the common config for rawkv backup and restore.
+type RawKvConfig struct {
 	Config
 
 	StartKey []byte `json:"start-key" toml:"start-key"`
@@ -45,7 +45,7 @@ func DefineRawBackupFlags(command *cobra.Command) {
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
-func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
+func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
 		return err
@@ -82,7 +82,8 @@ func (cfg *BackupRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunBackupRaw starts a backup task inside the current goroutine.
-func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRawConfig) error {
+func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConfig) error {
+	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -104,8 +105,6 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRaw
 		return err
 	}
 
-	defer summary.Summary(cmdName)
-
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
 
 	// The number of regions need to backup
@@ -118,7 +117,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRaw
 
 	// Backup
 	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
@@ -135,7 +134,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *BackupRaw
 		return err
 	}
 	// Backup has finished
-	close(updateCh)
+	updateCh.Close()
 
 	// Checksum
 	err = client.SaveBackupMeta(ctx, nil)

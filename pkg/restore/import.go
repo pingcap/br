@@ -3,6 +3,7 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"sync"
@@ -133,6 +134,10 @@ type FileImporter struct {
 	backend      *backup.StorageBackend
 	rateLimit    uint64
 
+	isRawKvMode bool
+	rawStartKey []byte
+	rawEndKey   []byte
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -143,6 +148,7 @@ func NewFileImporter(
 	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
@@ -152,8 +158,19 @@ func NewFileImporter(
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		isRawKvMode:  isRawKvMode,
 		rateLimit:    rateLimit,
 	}
+}
+
+// SetRawRange sets the range to be restored in raw kv mode.
+func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
+	if !importer.isRawKvMode {
+		return errors.New("file importer is not in raw kv mode")
+	}
+	importer.rawStartKey = startKey
+	importer.rawEndKey = endKey
+	return nil
 }
 
 // Import tries to import a file.
@@ -161,7 +178,14 @@ func NewFileImporter(
 func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRules) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
-	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
+	var startKey, endKey []byte
+	var err error
+	if importer.isRawKvMode {
+		startKey = file.StartKey
+		endKey = file.EndKey
+	} else {
+		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+	}
 	if err != nil {
 		return err
 	}
@@ -186,7 +210,11 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 			var downloadMeta *import_sstpb.SSTMeta
 			errDownload := utils.WithRetry(importer.ctx, func() error {
 				var e error
-				downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
+				if importer.isRawKvMode {
+					downloadMeta, e = importer.downloadRawKVSST(info, file)
+				} else {
+					downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
+				}
 				return e
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
@@ -261,8 +289,8 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 					zap.Error(errIngest))
 				return errIngest
 			}
-			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
-			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
+			summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		}
 		return nil
 	}, newImportSSTBackoffer())
@@ -300,6 +328,7 @@ func (importer *FileImporter) downloadSST(
 		NewKeyPrefix: encodeKeyPrefix(regionRule.GetNewKeyPrefix()),
 	}
 	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
+
 	req := &import_sstpb.DownloadRequest{
 		Sst:            sstMeta,
 		StorageBackend: importer.backend,
@@ -325,6 +354,58 @@ func (importer *FileImporter) downloadSST(
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
 	sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
+	return &sstMeta, nil
+}
+
+func (importer *FileImporter) downloadRawKVSST(
+	regionInfo *RegionInfo,
+	file *backup.File,
+) (*import_sstpb.SSTMeta, error) {
+	id, err := uuid.New().MarshalBinary()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	// Empty rule
+	var rule import_sstpb.RewriteRule
+	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
+
+	// Cut the SST file's range to fit in the restoring range.
+	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
+		sstMeta.Range.Start = importer.rawStartKey
+	}
+	// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
+	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+		sstMeta.Range.End = importer.rawEndKey
+	}
+	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
+		return nil, errors.Trace(errRangeIsEmpty)
+	}
+
+	req := &import_sstpb.DownloadRequest{
+		Sst:            sstMeta,
+		StorageBackend: importer.backend,
+		Name:           file.GetName(),
+		RewriteRule:    rule,
+	}
+	log.Debug("download SST",
+		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("region", regionInfo.Region),
+	)
+	var resp *import_sstpb.DownloadResponse
+	for _, peer := range regionInfo.Region.GetPeers() {
+		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		if err != nil {
+			return nil, errors.Annotatef(errGrpc, "%s", err)
+		}
+		if resp.GetError() != nil {
+			return nil, errors.Annotate(errDownloadFailed, resp.GetError().GetMessage())
+		}
+		if resp.GetIsEmpty() {
+			return nil, errors.Trace(errRangeIsEmpty)
+		}
+	}
+	sstMeta.Range.Start = resp.Range.GetStart()
+	sstMeta.Range.End = resp.Range.GetEnd()
 	return &sstMeta, nil
 }
 

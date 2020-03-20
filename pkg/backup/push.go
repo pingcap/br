@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 )
 
@@ -38,7 +39,7 @@ func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
 func (push *pushDown) pushBackup(
 	req backup.BackupRequest,
 	stores []*metapb.Store,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) (rtree.RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
 	res := rtree.NewRangeTree()
@@ -90,7 +91,7 @@ func (push *pushDown) pushBackup(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				updateCh <- struct{}{}
+				updateCh.Inc()
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {

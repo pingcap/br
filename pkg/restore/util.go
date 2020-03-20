@@ -21,6 +21,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
@@ -308,6 +310,9 @@ func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 }
 
 func truncateTS(key []byte) []byte {
+	if len(key) == 0 {
+		return nil
+	}
 	return key[:len(key)-8]
 }
 
@@ -319,7 +324,7 @@ func SplitRanges(
 	client *Client,
 	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -327,9 +332,18 @@ func SplitRanges(
 		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	storeMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		storeMap[store.GetId()] = true
+	}
+
+	return splitter.Split(ctx, ranges, rewriteRules, storeMap, func(keys [][]byte) {
 		for range keys {
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	})
 }
