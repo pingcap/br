@@ -42,5 +42,3 @@ require (
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
 )
-
-replace github.com/pingcap/kvproto v0.0.0-20200228095611-2cf9a243b8d5 => github.com/5kbpers/kvproto v0.0.0-20200316081444-1e3bcbdb1075
