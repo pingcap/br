@@ -91,6 +91,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 // RunBackup starts a backup task inside the current goroutine.
 func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig) error {
+	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -120,8 +121,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-
-	defer summary.Summary(cmdName)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)

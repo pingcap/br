@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -37,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -65,6 +67,9 @@ type Client struct {
 	hasSpeedLimited bool
 
 	restoreStores []uint64
+
+	storage storage.ExternalStorage
+	backend *backup.StorageBackend
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -95,6 +100,17 @@ func NewRestoreClient(
 // SetRateLimit to set rateLimit.
 func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
+}
+
+// SetStorage set ExternalStorage for client
+func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+	var err error
+	rc.storage, err = storage.Create(ctx, backend, sendCreds)
+	if err != nil {
+		return err
+	}
+	rc.backend = backend
+	return nil
 }
 
 // GetPDClient returns a pd client.
@@ -232,8 +248,23 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	i := 0
 	return utils.WithRetry(rc.ctx, func() error {
 		idx := i % len(pdAddrs)
+		i++
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
-	}, newResetTSBackoffer())
+	}, newPDReqBackoffer())
+}
+
+// GetPlacementRules return the current placement rules
+func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
+	var placementRules []placement.Rule
+	i := 0
+	errRetry := utils.WithRetry(rc.ctx, func() error {
+		var err error
+		idx := i % len(pdAddrs)
+		i++
+		placementRules, err = utils.GetPlacementRules(pdAddrs[idx], rc.tlsConf)
+		return err
+	}, newPDReqBackoffer())
+	return placementRules, errRetry
 }
 
 // GetDatabases returns all databases.
@@ -305,6 +336,74 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
+// RemoveTiFlashReplica removes all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+	schemas := make([]*backup.Schema, 0, len(tables))
+	var updateReplica bool
+	for _, table := range tables {
+		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+			table.TiFlashReplicas = rule.Count
+			updateReplica = true
+		}
+		tableData, err := json.Marshal(table.Info)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		dbData, err := json.Marshal(table.Db)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		schemas = append(schemas, &backup.Schema{
+			Db:              dbData,
+			Table:           tableData,
+			Crc64Xor:        table.Crc64Xor,
+			TotalKvs:        table.TotalKvs,
+			TotalBytes:      table.TotalBytes,
+			TiflashReplicas: uint32(table.TiFlashReplicas),
+		})
+	}
+
+	if updateReplica {
+		// Update backup meta
+		rc.backupMeta.Schemas = schemas
+		backupMetaData, err := proto.Marshal(rc.backupMeta)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		backendURL := storage.FormatBackendURL(rc.backend)
+		log.Info("update backup meta", zap.Stringer("path", &backendURL))
+		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	for _, table := range tables {
+		if table.TiFlashReplicas > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, 0)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return nil
+}
+
+// RecoverTiFlashReplica recovers all the tiflash replicas of a table
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
+	for _, table := range tables {
+		if table.TiFlashReplicas > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	return nil
+}
+
 // ExecDDLs executes the queries of the ddl jobs.
 func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	// Sort the ddl jobs by schema version in ascending order.
@@ -327,7 +426,7 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 
 func (rc *Client) setSpeedLimit() error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.ErrorOnTiFlash)
+		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.SkipTiFlash)
 		if err != nil {
 			return err
 		}
@@ -467,7 +566,7 @@ func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 }
 
 func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMode) error {
-	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.ErrorOnTiFlash)
+	stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}

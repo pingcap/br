@@ -30,6 +30,15 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	return task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
 }
 
+func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		return err
+	}
+
+	return task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+}
+
 // NewRestoreCommand returns a restore subcommand
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -55,6 +64,7 @@ func NewRestoreCommand() *cobra.Command {
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
 		newRawRestoreCommand(),
+		newTiflashReplicaRestoreCommand(),
 	)
 	task.DefineRestoreFlags(command.PersistentFlags())
 
@@ -93,6 +103,17 @@ func newTableRestoreCommand() *cobra.Command {
 		},
 	}
 	task.DefineTableFlags(command)
+	return command
+}
+
+func newTiflashReplicaRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "tiflash-replica",
+		Short: "restore the tiflash replica before the last restore, it must only be used after the last restore failed",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runRestoreTiflashReplicaCommand(cmd, "Restore TiFlash Replica")
+		},
+	}
 	return command
 }
 

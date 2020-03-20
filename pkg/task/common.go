@@ -213,7 +213,7 @@ func newMgr(
 	g glue.Glue,
 	pds []string,
 	tlsConfig TLSConfig,
-	unexpectedStoreBehavior conn.UnexpectedStoreBehavior,
+	storeBehavior conn.StoreBehavior,
 ) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
@@ -240,7 +240,7 @@ func newMgr(
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, unexpectedStoreBehavior)
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior)
 }
 
 // GetStorage gets the storage backend from the config.
@@ -262,13 +262,14 @@ func GetStorage(
 // ReadBackupMeta reads the backupmeta file from the storage.
 func ReadBackupMeta(
 	ctx context.Context,
+	fileName string,
 	cfg *Config,
 ) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	metaData, err := s.Read(ctx, utils.MetaFile)
+	metaData, err := s.Read(ctx, fileName)
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}

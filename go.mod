@@ -23,14 +23,12 @@ require (
 	github.com/jeremywohl/flatten v0.0.0-20190921043622-d936035e55cf // indirect
 	github.com/klauspost/cpuid v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.7 // indirect
+	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/onsi/ginkgo v1.11.0 // indirect
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/failpoint v0.0.0-20200210140405-f8f9fb234798 // indirect
-	github.com/pingcap/fn v0.0.0-20191016082858-07623b84a47d // indirect
-	github.com/pingcap/goleveldb v0.0.0-20191226122134-f82aafb29989 // indirect
-	github.com/pingcap/kvproto v0.0.0-20200317043902-2838e21ca222
+	github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v3.1.0-beta.1.0.20200317043536-9ebea32e03a6+incompatible
 	github.com/pingcap/pd v1.1.0-beta.0.20200214184056-c0bcd8c0f89a // indirect

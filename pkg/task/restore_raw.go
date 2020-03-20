@@ -47,6 +47,7 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 // RunRestoreRaw starts a raw kv restore task inside the current goroutine.
 func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) error {
+	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -67,9 +68,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		client.EnableOnline()
 	}
 
-	defer summary.Summary(cmdName)
-
-	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
 		return err
 	}
