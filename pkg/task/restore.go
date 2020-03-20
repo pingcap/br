@@ -73,6 +73,7 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
+	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -104,8 +105,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-
-	defer summary.Summary(cmdName)
 
 	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {

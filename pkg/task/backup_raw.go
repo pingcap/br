@@ -83,6 +83,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 // RunBackupRaw starts a backup task inside the current goroutine.
 func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConfig) error {
+	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
@@ -103,8 +104,6 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
 		return err
 	}
-
-	defer summary.Summary(cmdName)
 
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
 
