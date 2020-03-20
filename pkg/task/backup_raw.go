@@ -117,7 +117,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 
 	// Backup
 	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
@@ -134,7 +134,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		return err
 	}
 	// Backup has finished
-	close(updateCh)
+	updateCh.Close()
 
 	// Checksum
 	err = client.SaveBackupMeta(ctx, nil)
