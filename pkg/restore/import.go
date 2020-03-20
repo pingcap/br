@@ -1,7 +1,12 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,31 +16,17 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
-	"github.com/pingcap/pd/pkg/codec"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/pd/v4/pkg/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/utils"
 )
 
-var (
-	errNotLeader           = errors.New("not leader")
-	errEpochNotMatch       = errors.New("epoch not match")
-	errRewriteRuleNotFound = errors.New("rewrite rule not found")
-	errRangeIsEmpty        = errors.New("range is empty")
-)
-
-const (
-	importScanResgionTime     = 10 * time.Second
-	importFileRetryTimes      = 16
-	importFileWaitInterval    = 10 * time.Millisecond
-	importFileMaxWaitInterval = 1 * time.Second
-
-	downloadSSTRetryTimes      = 8
-	downloadSSTWaitInterval    = 10 * time.Millisecond
-	downloadSSTMaxWaitInterval = 1 * time.Second
-)
+const importScanRegionTime = 10 * time.Second
+const scanRegionPaginationLimit = int(128)
 
 // ImporterClient is used to import a file to TiKV
 type ImporterClient interface {
@@ -60,15 +51,17 @@ type ImporterClient interface {
 
 type importClient struct {
 	mu         sync.Mutex
-	metaClient restore_util.Client
+	metaClient SplitClient
 	clients    map[uint64]import_sstpb.ImportSSTClient
+	tlsConf    *tls.Config
 }
 
 // NewImportClient returns a new ImporterClient
-func NewImportClient(metaClient restore_util.Client) ImporterClient {
+func NewImportClient(metaClient SplitClient, tlsConf *tls.Config) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
 		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
+		tlsConf:    tlsConf,
 	}
 }
 
@@ -122,7 +115,11 @@ func (ic *importClient) getImportClient(
 	if err != nil {
 		return nil, err
 	}
-	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
+	opt := grpc.WithInsecure()
+	if ic.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(ic.tlsConf))
+	}
+	conn, err := grpc.Dial(store.GetAddress(), opt)
 	if err != nil {
 		return nil, err
 	}
@@ -133,10 +130,14 @@ func (ic *importClient) getImportClient(
 
 // FileImporter used to import a file to TiKV.
 type FileImporter struct {
-	metaClient   restore_util.Client
+	metaClient   SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
 	rateLimit    uint64
+
+	isRawKvMode bool
+	rawStartKey []byte
+	rawEndKey   []byte
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -145,9 +146,10 @@ type FileImporter struct {
 // NewFileImporter returns a new file importClient.
 func NewFileImporter(
 	ctx context.Context,
-	metaClient restore_util.Client,
+	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
 	ctx, cancel := context.WithCancel(ctx)
@@ -157,92 +159,144 @@ func NewFileImporter(
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
+		isRawKvMode:  isRawKvMode,
 		rateLimit:    rateLimit,
 	}
 }
 
+// SetRawRange sets the range to be restored in raw kv mode.
+func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
+	if !importer.isRawKvMode {
+		return errors.New("file importer is not in raw kv mode")
+	}
+	importer.rawStartKey = startKey
+	importer.rawEndKey = endKey
+	return nil
+}
+
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File, rewriteRules *restore_util.RewriteRules) error {
+func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRules) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
-	startKey, endKey, err := rewriteFileKeys(file, rewriteRules)
+	var startKey, endKey []byte
+	var err error
+	if importer.isRawKvMode {
+		startKey = file.StartKey
+		endKey = file.EndKey
+	} else {
+		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+	}
 	if err != nil {
 		return err
 	}
 	log.Debug("rewrite file keys",
 		zap.Stringer("file", file),
 		zap.Binary("startKey", startKey),
-		zap.Binary("endKey", endKey),
-	)
-	err = withRetry(func() error {
-		ctx, cancel := context.WithTimeout(importer.ctx, importScanResgionTime)
+		zap.Binary("endKey", endKey))
+	err = utils.WithRetry(importer.ctx, func() error {
+		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
-		regionInfos, err := importer.metaClient.ScanRegions(ctx, startKey, endKey, 0)
-		if err != nil {
-			return errors.Trace(err)
+		regionInfos, errScanRegion := paginateScanRegion(
+			ctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+		if errScanRegion != nil {
+			return errors.Trace(errScanRegion)
 		}
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
 		for _, regionInfo := range regionInfos {
-			var downloadMeta *import_sstpb.SSTMeta
 			info := regionInfo
 			// Try to download file.
-			err = withRetry(func() error {
-				var err error
-				var isEmpty bool
-				downloadMeta, isEmpty, err = importer.downloadSST(info, file, rewriteRules)
-				if err != nil {
-					if err != errRewriteRuleNotFound {
-						log.Warn("download file failed",
-							zap.Stringer("file", file),
-							zap.Stringer("region", info.Region),
-							zap.Binary("startKey", startKey),
-							zap.Binary("endKey", endKey),
-							zap.Error(err),
-						)
-					}
-					return err
+			var downloadMeta *import_sstpb.SSTMeta
+			errDownload := utils.WithRetry(importer.ctx, func() error {
+				var e error
+				if importer.isRawKvMode {
+					downloadMeta, e = importer.downloadRawKVSST(info, file)
+				} else {
+					downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
 				}
-				if isEmpty {
-					log.Info(
-						"file don't have any key in this region, skip it",
-						zap.Stringer("file", file),
-						zap.Stringer("region", info.Region),
-					)
-					return errRangeIsEmpty
-				}
-				return nil
-			}, func(e error) bool {
-				// Scan regions may return some regions which cannot match any rewrite rule,
-				// like [t{tableID}, t{tableID}_r), those regions should be skipped
-				return e != errRewriteRuleNotFound && e != errRangeIsEmpty
-			}, downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
-			if err != nil {
-				if err == errRewriteRuleNotFound || err == errRangeIsEmpty {
+				return e
+			}, newDownloadSSTBackoffer())
+			if errDownload != nil {
+				if errDownload == errRewriteRuleNotFound || errDownload == errRangeIsEmpty {
 					// Skip this region
 					continue
 				}
-				return err
+				log.Error("download file failed",
+					zap.Stringer("file", file),
+					zap.Stringer("region", info.Region),
+					zap.Binary("startKey", startKey),
+					zap.Binary("endKey", endKey),
+					zap.Error(errDownload))
+				return errDownload
 			}
-			err = importer.ingestSST(downloadMeta, info)
-			if err != nil {
-				log.Warn("ingest file failed",
+
+			ingestResp, errIngest := importer.ingestSST(downloadMeta, info)
+		ingestRetry:
+			for errIngest == nil {
+				errPb := ingestResp.GetError()
+				if errPb == nil {
+					// Ingest success
+					break ingestRetry
+				}
+				switch {
+				case errPb.NotLeader != nil:
+					// If error is `NotLeader`, update the region info and retry
+					var newInfo *RegionInfo
+					if newLeader := errPb.GetNotLeader().GetLeader(); newLeader != nil {
+						newInfo = &RegionInfo{
+							Leader: newLeader,
+							Region: info.Region,
+						}
+					} else {
+						// Slow path, get region from PD
+						newInfo, errIngest = importer.metaClient.GetRegion(
+							importer.ctx, info.Region.GetStartKey())
+						if errIngest != nil {
+							break ingestRetry
+						}
+					}
+					log.Debug("ingest sst returns not leader error, retry it",
+						zap.Stringer("region", info.Region),
+						zap.Stringer("newLeader", newInfo.Leader))
+
+					if !checkRegionEpoch(newInfo, info) {
+						errIngest = errors.AddStack(errEpochNotMatch)
+						break ingestRetry
+					}
+					ingestResp, errIngest = importer.ingestSST(downloadMeta, newInfo)
+				case errPb.EpochNotMatch != nil:
+					// TODO handle epoch not match error
+					//      1. retry download if needed
+					//      2. retry ingest
+					errIngest = errors.AddStack(errEpochNotMatch)
+					break ingestRetry
+				case errPb.RegionNotFound != nil:
+					errIngest = errors.AddStack(errRegionNotFound)
+					break ingestRetry
+				case errPb.KeyNotInRegion != nil:
+					errIngest = errors.AddStack(errKeyNotInRegion)
+					break ingestRetry
+				default:
+					errIngest = errors.Errorf("ingest error %s", errPb)
+					break ingestRetry
+				}
+			}
+
+			if errIngest != nil {
+				log.Error("ingest file failed",
 					zap.Stringer("file", file),
 					zap.Stringer("range", downloadMeta.GetRange()),
 					zap.Stringer("region", info.Region),
-					zap.Error(err),
-				)
-				return err
+					zap.Error(errIngest))
+				return errIngest
 			}
-			summary.CollectSuccessUnit(summary.TotalKV, file.TotalKvs)
-			summary.CollectSuccessUnit(summary.TotalBytes, file.TotalBytes)
+			summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		}
 		return nil
-	}, func(e error) bool {
-		return true
-	}, importFileRetryTimes, importFileWaitInterval, importFileMaxWaitInterval)
+	}, newImportSSTBackoffer())
 	return err
 }
 
@@ -255,36 +309,29 @@ func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
 }
 
 func (importer *FileImporter) downloadSST(
-	regionInfo *restore_util.RegionInfo,
+	regionInfo *RegionInfo,
 	file *backup.File,
-	rewriteRules *restore_util.RewriteRules,
-) (*import_sstpb.SSTMeta, bool, error) {
+	rewriteRules *RewriteRules,
+) (*import_sstpb.SSTMeta, error) {
 	id, err := uuid.New().MarshalBinary()
 	if err != nil {
-		return nil, true, errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	// Assume one region reflects to one rewrite rule
 	_, key, err := codec.DecodeBytes(regionInfo.Region.GetStartKey())
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
 	regionRule := matchNewPrefix(key, rewriteRules)
 	if regionRule == nil {
-		log.Debug("cannot find rewrite rule, skip region",
-			zap.Stringer("region", regionInfo.Region),
-			zap.Array("tableRule", rules(rewriteRules.Table)),
-			zap.Array("dataRule", rules(rewriteRules.Data)),
-			zap.Binary("key", key),
-		)
-		return nil, true, errRewriteRuleNotFound
+		return nil, errors.Trace(errRewriteRuleNotFound)
 	}
 	rule := import_sstpb.RewriteRule{
 		OldKeyPrefix: encodeKeyPrefix(regionRule.GetOldKeyPrefix()),
 		NewKeyPrefix: encodeKeyPrefix(regionRule.GetNewKeyPrefix()),
 	}
 	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
-	sstMeta.RegionId = regionInfo.Region.GetId()
-	sstMeta.RegionEpoch = regionInfo.Region.GetRegionEpoch()
+
 	req := &import_sstpb.DownloadRequest{
 		Sst:            sstMeta,
 		StorageBackend: importer.backend,
@@ -299,21 +346,70 @@ func (importer *FileImporter) downloadSST(
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
-			return nil, true, err
+			return nil, extractDownloadSSTError(err)
 		}
 		if resp.GetIsEmpty() {
-			return &sstMeta, true, nil
+			return nil, errors.Trace(errRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
 	sstMeta.Range.End = truncateTS(resp.Range.GetEnd())
-	return &sstMeta, false, nil
+	return &sstMeta, nil
+}
+
+func (importer *FileImporter) downloadRawKVSST(
+	regionInfo *RegionInfo,
+	file *backup.File,
+) (*import_sstpb.SSTMeta, error) {
+	id, err := uuid.New().MarshalBinary()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	// Empty rule
+	var rule import_sstpb.RewriteRule
+	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
+
+	// Cut the SST file's range to fit in the restoring range.
+	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
+		sstMeta.Range.Start = importer.rawStartKey
+	}
+	// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
+	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+		sstMeta.Range.End = importer.rawEndKey
+	}
+	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
+		return nil, errors.Trace(errRangeIsEmpty)
+	}
+
+	req := &import_sstpb.DownloadRequest{
+		Sst:            sstMeta,
+		StorageBackend: importer.backend,
+		Name:           file.GetName(),
+		RewriteRule:    rule,
+	}
+	log.Debug("download SST",
+		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("region", regionInfo.Region),
+	)
+	var resp *import_sstpb.DownloadResponse
+	for _, peer := range regionInfo.Region.GetPeers() {
+		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		if err != nil {
+			return nil, extractDownloadSSTError(err)
+		}
+		if resp.GetIsEmpty() {
+			return nil, errors.Trace(errRangeIsEmpty)
+		}
+	}
+	sstMeta.Range.Start = resp.Range.GetStart()
+	sstMeta.Range.End = resp.Range.GetEnd()
+	return &sstMeta, nil
 }
 
 func (importer *FileImporter) ingestSST(
 	sstMeta *import_sstpb.SSTMeta,
-	regionInfo *restore_util.RegionInfo,
-) error {
+	regionInfo *RegionInfo,
+) (*import_sstpb.IngestResponse, error) {
 	leader := regionInfo.Leader
 	if leader == nil {
 		leader = regionInfo.Region.GetPeers()[0]
@@ -327,20 +423,34 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("download SST", zap.Stringer("sstMeta", sstMeta))
+	log.Debug("ingest SST", zap.Stringer("sstMeta", sstMeta), zap.Reflect("leader", leader))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
-		return err
+		return nil, errors.Trace(err)
 	}
-	respErr := resp.GetError()
-	if respErr != nil {
-		if respErr.EpochNotMatch != nil {
-			return errEpochNotMatch
-		}
-		if respErr.NotLeader != nil {
-			return errNotLeader
-		}
-		return errors.Errorf("ingest failed: %v", respErr)
+	return resp, nil
+}
+
+func checkRegionEpoch(new, old *RegionInfo) bool {
+	if new.Region.GetId() == old.Region.GetId() &&
+		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
+		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
+		return true
 	}
-	return nil
+	return false
+}
+
+func extractDownloadSSTError(e error) error {
+	err := errGrpc
+	switch {
+	case strings.Contains(e.Error(), "bad format"):
+		err = errBadFormat
+	case strings.Contains(e.Error(), "wrong prefix"):
+		err = errWrongKeyPrefix
+	case strings.Contains(e.Error(), "corrupted"):
+		err = errFileCorrupted
+	case strings.Contains(e.Error(), "Cannot read"):
+		err = errCannotRead
+	}
+	return errors.Annotatef(err, "%s", e)
 }

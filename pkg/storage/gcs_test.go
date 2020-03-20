@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package storage
 
 import (
@@ -28,7 +30,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 		PredefinedAcl:   "private",
 		CredentialsBlob: "Fake Credentials",
 	}
-	stg, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+	stg, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), false)
 	c.Assert(err, IsNil)
 
 	err = stg.Write(ctx, "key", []byte("data"))
@@ -66,7 +68,6 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	server.CreateBucket(bucketName)
 
 	{
-		sendCredential = true
 		gcs := &backup.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
@@ -74,13 +75,12 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "FakeCredentials",
 		}
-		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), true)
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "FakeCredentials")
 	}
 
 	{
-		sendCredential = false
 		gcs := &backup.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
@@ -88,7 +88,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "FakeCredentials",
 		}
-		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), false)
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
 	}
@@ -106,7 +106,6 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 		c.Assert(err, IsNil)
 
-		sendCredential = true
 		gcs := &backup.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
@@ -114,7 +113,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), true)
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, `{"type": "service_account"}`)
 	}
@@ -132,7 +131,6 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 		c.Assert(err, IsNil)
 
-		sendCredential = false
 		gcs := &backup.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
@@ -140,13 +138,12 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), false)
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
 	}
 
 	{
-		sendCredential = true
 		os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 		gcs := &backup.GCS{
 			Bucket:          bucketName,
@@ -155,7 +152,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient())
+		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), true)
 		c.Assert(err, NotNil)
 	}
 }

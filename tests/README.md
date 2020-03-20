@@ -18,6 +18,7 @@ programs.
 
     * `mysql` (the CLI client)
     * `curl`
+    * `s3cmd`
 
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.

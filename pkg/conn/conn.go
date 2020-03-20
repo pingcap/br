@@ -1,8 +1,11 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package conn
 
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,15 +21,18 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -34,6 +40,7 @@ const (
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
+	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -43,12 +50,14 @@ type Mgr struct {
 		addrs []string
 		cli   *http.Client
 	}
+	tlsConf  *tls.Config
 	dom      *domain.Domain
 	storage  tikv.Storage
 	grpcClis struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+	ownsStorage bool
 }
 
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
@@ -57,9 +66,6 @@ func pdRequest(
 	ctx context.Context,
 	addr string, prefix string,
 	cli *http.Client, method string, body io.Reader) ([]byte, error) {
-	if addr != "" && !strings.HasPrefix("http", addr) {
-		addr = "http://" + addr
-	}
 	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -86,13 +92,90 @@ func pdRequest(
 	return r, nil
 }
 
+// StoreBehavior is the action to do in GetAllTiKVStores when a non-TiKV
+// store (e.g. TiFlash store) is found.
+type StoreBehavior uint8
+
+const (
+	// ErrorOnTiFlash causes GetAllTiKVStores to return error when the store is
+	// found to be a TiFlash node.
+	ErrorOnTiFlash StoreBehavior = 0
+	// SkipTiFlash causes GetAllTiKVStores to skip the store when it is found to
+	// be a TiFlash node.
+	SkipTiFlash StoreBehavior = 1
+	// TiFlashOnly caused GetAllTiKVStores to skip the store which is not a
+	// TiFlash node.
+	TiFlashOnly StoreBehavior = 2
+)
+
+// GetAllTiKVStores returns all TiKV stores registered to the PD client. The
+// stores must not be a tombstone and must never contain a label `engine=tiflash`.
+func GetAllTiKVStores(
+	ctx context.Context,
+	pdClient pd.Client,
+	storeBehavior StoreBehavior,
+) ([]*metapb.Store, error) {
+	// get all live stores.
+	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	if err != nil {
+		return nil, err
+	}
+
+	// filter out all stores which are TiFlash.
+	j := 0
+skipStore:
+	for _, store := range stores {
+		var isTiFlash bool
+		for _, label := range store.Labels {
+			if label.Key == "engine" && label.Value == "tiflash" {
+				if storeBehavior == SkipTiFlash {
+					continue skipStore
+				} else if storeBehavior == ErrorOnTiFlash {
+					return nil, errors.Errorf(
+						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
+				}
+				isTiFlash = true
+			}
+		}
+		if !isTiFlash && storeBehavior == TiFlashOnly {
+			continue skipStore
+		}
+		stores[j] = store
+		j++
+	}
+	return stores[:j], nil
+}
+
 // NewMgr creates a new Mgr.
-func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, error) {
+func NewMgr(
+	ctx context.Context,
+	g glue.Glue,
+	pdAddrs string,
+	storage tikv.Storage,
+	tlsConf *tls.Config,
+	securityOption pd.SecurityOption,
+	storeBehavior StoreBehavior,
+) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
 	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
+	if tlsConf != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConf
+		cli.Transport = transport
+	}
+
+	processedAddrs := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
+		if addr != "" && !strings.HasPrefix("http", addr) {
+			if tlsConf != nil {
+				addr = "https://" + addr
+			} else {
+				addr = "http://" + addr
+			}
+		}
+		processedAddrs = append(processedAddrs, addr)
 		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
 		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
@@ -103,7 +186,12 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
-	pdClient, err := pd.NewClient(addrs, pd.SecurityOption{})
+	maxCallMsgSize := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
+	}
+	pdClient, err := pd.NewClient(
+		addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
@@ -111,7 +199,7 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	stores, err := GetAllTiKVStores(ctx, pdClient, storeBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err
@@ -130,17 +218,19 @@ func NewMgr(ctx context.Context, pdAddrs string, storage tikv.Storage) (*Mgr, er
 		return nil, errors.Errorf("tikv cluster not health %+v", stores)
 	}
 
-	dom, err := session.BootstrapSession(storage)
+	dom, err := g.GetDomain(storage)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	mgr := &Mgr{
-		pdClient: pdClient,
-		storage:  storage,
-		dom:      dom,
+		pdClient:    pdClient,
+		storage:     storage,
+		dom:         dom,
+		tlsConf:     tlsConf,
+		ownsStorage: g.OwnsStorage(),
 	}
-	mgr.pdHTTP.addrs = addrs
+	mgr.pdHTTP.addrs = processedAddrs
 	mgr.pdHTTP.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return mgr, nil
@@ -216,6 +306,9 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		return nil, errors.Trace(err)
 	}
 	opt := grpc.WithInsecure()
+	if mgr.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(mgr.tlsConf))
+	}
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 	keepAlive := 10
 	keepAliveTimeout := 3
@@ -266,6 +359,11 @@ func (mgr *Mgr) GetPDClient() pd.Client {
 // GetTiKV returns a tikv storage.
 func (mgr *Mgr) GetTiKV() tikv.Storage {
 	return mgr.storage
+}
+
+// GetTLSConfig returns the tls config
+func (mgr *Mgr) GetTLSConfig() *tls.Config {
+	return mgr.tlsConf
 }
 
 // GetLockResolver gets the LockResolver.
@@ -348,9 +446,14 @@ func (mgr *Mgr) Close() {
 
 	// Gracefully shutdown domain so it does not affect other TiDB DDL.
 	// Must close domain before closing storage, otherwise it gets stuck forever.
-	mgr.dom.Close()
+	if mgr.ownsStorage {
+		if mgr.dom != nil {
+			mgr.dom.Close()
+		}
 
-	atomic.StoreUint32(&tikv.ShuttingDown, 1)
-	mgr.storage.Close()
+		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		mgr.storage.Close()
+	}
+
 	mgr.pdClient.Close()
 }

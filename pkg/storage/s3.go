@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package storage
 
 import (
@@ -102,59 +104,51 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 }
 
 func defineS3Flags(flags *pflag.FlagSet) {
-	flags.String(s3EndpointOption, "", "Set the S3 endpoint URL, please specify the http or https scheme explicitly")
-	flags.String(s3RegionOption, "", "Set the S3 region, e.g. us-east-1")
-	flags.String(s3StorageClassOption, "", "Set the S3 storage class, e.g. STANDARD")
-	flags.String(s3SSEOption, "", "Set the S3 server-side encryption algorithm, e.g. AES256")
-	flags.String(s3ACLOption, "", "Set the S3 canned ACLs, e.g. authenticated-read")
-	flags.String(s3ProviderOption, "", "Set the S3 provider, e.g. aws, alibaba, ceph")
-
-	_ = flags.MarkHidden(s3EndpointOption)
-	_ = flags.MarkHidden(s3RegionOption)
-	_ = flags.MarkHidden(s3StorageClassOption)
-	_ = flags.MarkHidden(s3SSEOption)
-	_ = flags.MarkHidden(s3ACLOption)
-	_ = flags.MarkHidden(s3ProviderOption)
+	// TODO: remove experimental tag if it's stable
+	flags.String(s3EndpointOption, "",
+		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
+	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1")
+	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
+	flags.String(s3SSEOption, "", "(experimental) Set the S3 server-side encryption algorithm, e.g. AES256")
+	flags.String(s3ACLOption, "", "(experimental) Set the S3 canned ACLs, e.g. authenticated-read")
+	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
-func getBackendOptionsFromS3Flags(flags *pflag.FlagSet) (options S3BackendOptions, err error) {
+func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
+	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 	options.Region, err = flags.GetString(s3RegionOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 	options.SSE, err = flags.GetString(s3SSEOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 	options.ACL, err = flags.GetString(s3ACLOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 	options.StorageClass, err = flags.GetString(s3StorageClassOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
 	options.ForcePathStyle = true
 	options.Provider, err = flags.GetString(s3ProviderOption)
 	if err != nil {
-		err = errors.Trace(err)
-		return
+		return errors.Trace(err)
 	}
-
-	return options, err
+	return nil
 }
 
 // newS3Storage initialize a new s3 storage for metadata
-func newS3Storage(backend *backup.S3) (*S3Storage, error) {
+func newS3Storage( // revive:disable-line:flag-parameter
+	backend *backup.S3,
+	sendCredential bool,
+) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).

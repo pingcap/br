@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package summary
 
 import "time"
@@ -8,8 +10,8 @@ func SetUnit(unit string) {
 }
 
 // CollectSuccessUnit collects success time costs
-func CollectSuccessUnit(name string, arg interface{}) {
-	collector.CollectSuccessUnit(name, arg)
+func CollectSuccessUnit(name string, unitCount int, arg interface{}) {
+	collector.CollectSuccessUnit(name, unitCount, arg)
 }
 
 // CollectFailureUnit collects fail reason

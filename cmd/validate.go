@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -14,21 +16,22 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/pd/pkg/mock/mockid"
-	restore_util "github.com/pingcap/tidb-tools/pkg/restore-util"
+	"github.com/pingcap/pd/v4/pkg/mock/mockid"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 // NewValidateCommand return a debug subcommand.
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:   "validate <subcommand>",
-		Short: "commands to check/debug backup data",
+		Use:          "validate <subcommand>",
+		Short:        "commands to check/debug backup data",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -55,24 +58,14 @@ func newCheckSumCommand() *cobra.Command {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
 
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			s, err := storage.Create(ctx, u)
-			if err != nil {
-				return errors.Trace(err)
-			}
 
-			metaData, err := s.Read(ctx, utils.MetaFile)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				return errors.Trace(err)
-			}
-
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(metaData, backupMeta)
-			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			dbs, err := utils.LoadBackupTables(backupMeta)
@@ -153,24 +146,14 @@ func newBackupMetaCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
+
+			var cfg task.Config
+			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				log.Error("create storage failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			data, err := s.Read(ctx, utils.MetaFile)
-			if err != nil {
-				log.Error("load backupmeta failed", zap.Error(err))
-				return err
-			}
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(data, backupMeta)
-			if err != nil {
-				log.Error("parse backupmeta failed", zap.Error(err))
+				log.Error("read backupmeta failed", zap.Error(err))
 				return err
 			}
 			dbs, err := utils.LoadBackupTables(backupMeta)
@@ -187,15 +170,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore_util.NewRangeTree()
+			rangeTree := rtree.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore_util.Range{
+				if out := rangeTree.InsertRange(rtree.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore_util.Range)),
+						zap.Stringer("out", out),
 						zap.Stringer("file", file),
 					)
 				}
@@ -206,7 +189,7 @@ func newBackupMetaCommand() *cobra.Command {
 			for offset := uint64(0); offset < tableIDOffset; offset++ {
 				_, _ = tableIDAllocator.Alloc() // Ignore error
 			}
-			rewriteRules := &restore_util.RewriteRules{
+			rewriteRules := &restore.RewriteRules{
 				Table: make([]*import_sstpb.RewriteRule, 0),
 				Data:  make([]*import_sstpb.RewriteRule, 0),
 			}
@@ -217,19 +200,19 @@ func newBackupMetaCommand() *cobra.Command {
 				newTable := new(model.TableInfo)
 				tableID, _ := tableIDAllocator.Alloc()
 				newTable.ID = int64(tableID)
-				newTable.Name = table.Schema.Name
-				newTable.Indices = make([]*model.IndexInfo, len(table.Schema.Indices))
-				for i, indexInfo := range table.Schema.Indices {
+				newTable.Name = table.Info.Name
+				newTable.Indices = make([]*model.IndexInfo, len(table.Info.Indices))
+				for i, indexInfo := range table.Info.Indices {
 					indexID, _ := indexIDAllocator.Alloc()
 					newTable.Indices[i] = &model.IndexInfo{
 						ID:   int64(indexID),
 						Name: indexInfo.Name,
 					}
 				}
-				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
+				rules := restore.GetRewriteRules(newTable, table.Info, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
-				tableIDMap[table.Schema.ID] = int64(tableID)
+				tableIDMap[table.Info.ID] = int64(tableID)
 			}
 			// Validate rewrite rules
 			for _, file := range files {
@@ -242,8 +225,7 @@ func newBackupMetaCommand() *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().String("path", "", "the path of backupmeta")
-	command.Flags().Uint64P("offset", "", 0, "the offset of table id alloctor")
+	command.Flags().Uint64("offset", 0, "the offset of table id alloctor")
 	command.Hidden = true
 	return command
 }
@@ -255,24 +237,16 @@ func decodeBackupMetaCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
-				return errors.Trace(err)
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				return errors.Trace(err)
-			}
-			metaData, err := s.Read(ctx, utils.MetaFile)
-			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
-			backupMeta := &backup.BackupMeta{}
-			err = proto.Unmarshal(metaData, backupMeta)
-			if err != nil {
-				return errors.Trace(err)
-			}
 			backupMetaJSON, err := json.Marshal(backupMeta)
 			if err != nil {
 				return errors.Trace(err)
@@ -310,14 +284,16 @@ func encodeBackupMetaCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
-			u, err := storage.ParseBackendFromFlags(cmd.Flags(), FlagStorage)
-			if err != nil {
-				return errors.Trace(err)
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
 			}
-			s, err := storage.Create(ctx, u)
+			_, s, err := task.GetStorage(ctx, &cfg)
 			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
+
 			metaData, err := s.Read(ctx, utils.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)

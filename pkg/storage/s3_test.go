@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package storage
 
 import (
@@ -72,7 +74,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "!http:12345",
 			},
-			errMsg:    "parse !http:12345: first path segment in URL cannot contain colon",
+			errMsg:    "parse (.*)!http:12345(.*): first path segment in URL cannot contain colon",
 			errReturn: true,
 		},
 	}
@@ -236,7 +238,7 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
 		ctx := aws.BackgroundContext()
-		sendCredential = test.sendCredential
+		sendCredential := test.sendCredential
 		if test.hackCheck {
 			checkS3Bucket = func(svc *s3.S3, bucket string) error { return nil }
 		}
@@ -245,7 +247,7 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 				S3: test.s3,
 			},
 		}
-		_, err := Create(ctx, s3)
+		_, err := Create(ctx, s3, sendCredential)
 		if test.errReturn {
 			c.Assert(err, NotNil)
 			return

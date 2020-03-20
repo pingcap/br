@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package backup
 
 import (
@@ -5,21 +7,22 @@ import (
 	"math"
 
 	. "github.com/pingcap/check"
+	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 var _ = Suite(&testBackupSchemaSuite{})
 
 type testBackupSchemaSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testBackupSchemaSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
@@ -34,28 +37,32 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 
 	// Table t1 is not exist.
+	testFilter, err := filter.New(false, &filter.Rules{
+		DoTables: []*filter.Table{{Schema: "test", Name: "t1"}},
+	})
+	c.Assert(err, IsNil)
 	_, backupSchemas, err := BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64, "test", "t1")
+		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, NotNil)
 	c.Assert(backupSchemas, IsNil)
 
 	// Database is not exist.
+	fooFilter, err := filter.New(false, &filter.Rules{
+		DoTables: []*filter.Table{{Schema: "foo", Name: "t1"}},
+	})
+	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64, "foo", "t1")
+		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
 	c.Assert(err, NotNil)
 	c.Assert(backupSchemas, IsNil)
 
 	// Empty databse.
+	noFilter, err := filter.New(false, &filter.Rules{})
+	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64, "", "")
-	c.Assert(err, IsNil)
-	c.Assert(backupSchemas, NotNil)
-	c.Assert(backupSchemas.Len(), Equals, 0)
-	updateCh := make(chan struct{}, 2)
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, updateCh)
-	schemas, err := backupSchemas.finishTableChecksum()
-	c.Assert(err, IsNil)
-	c.Assert(len(schemas), Equals, 0)
+		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
+	c.Assert(err, NotNil)
+	c.Assert(backupSchemas, IsNil)
 
 	tk.MustExec("use test")
 	tk.MustExec("drop table if exists t1;")
@@ -63,15 +70,16 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t1 values (10);")
 
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64, "test", "t1")
+		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
+	updateCh := make(chan struct{}, 2)
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, updateCh)
-	schemas, err = backupSchemas.finishTableChecksum()
+	schemas, err := backupSchemas.finishTableChecksum()
 	<-updateCh
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 1)
-	// MockCluster returns a dummy checksum (all fields are 1).
+	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0, Commentf("%v", schemas[0]))
@@ -82,7 +90,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t2 values (11);")
 
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, math.MaxUint64, "", "")
+		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, updateCh)
@@ -91,7 +99,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	<-updateCh
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 2)
-	// MockCluster returns a dummy checksum (all fields are 1).
+	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0, Commentf("%v", schemas[0]))
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0, Commentf("%v", schemas[0]))

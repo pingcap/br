@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package checksum
 
 import (
@@ -12,6 +14,7 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 	"github.com/pingcap/tipb/go-tipb"
 
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -22,12 +25,12 @@ func TestT(t *testing.T) {
 var _ = Suite(&testChecksumSuite{})
 
 type testChecksumSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testChecksumSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
@@ -61,7 +64,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	c.Assert(len(exe1.reqs), Equals, 1)
 	resp, err := exe1.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
-	// MockCluster returns a dummy checksum (all fields are 1).
+	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(resp.Checksum, Equals, uint64(1), Commentf("%v", resp))
 	c.Assert(resp.TotalKvs, Equals, uint64(1), Commentf("%v", resp))
 	c.Assert(resp.TotalBytes, Equals, uint64(1), Commentf("%v", resp))
@@ -83,7 +86,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	// Test rewrite rules
 	tk.MustExec("alter table t1 add index i2(a);")
 	tableInfo1 = s.getTableInfo(c, "test", "t1")
-	oldTable := utils.Table{Schema: tableInfo1}
+	oldTable := utils.Table{Info: tableInfo1}
 	exe2, err = NewExecutorBuilder(tableInfo2, math.MaxUint64).
 		SetOldTable(&oldTable).Build()
 	c.Assert(err, IsNil)
