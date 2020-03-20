@@ -373,9 +373,9 @@ func (importer *FileImporter) downloadRawKVSST(
 	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
 		sstMeta.Range.Start = importer.rawStartKey
 	}
-	// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
-	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) <= 0 {
 		sstMeta.Range.End = importer.rawEndKey
+		sstMeta.EndKeyExclusive = true
 	}
 	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
 		return nil, errors.Trace(errRangeIsEmpty)
@@ -386,6 +386,7 @@ func (importer *FileImporter) downloadRawKVSST(
 		StorageBackend: importer.backend,
 		Name:           file.GetName(),
 		RewriteRule:    rule,
+		IsRawKv:        true,
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),
