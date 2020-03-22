@@ -56,7 +56,7 @@ go-ycsb load mysql -p workload=core \
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
 
 # Build BR and backup!
-make release && \
+make build && \
 bin/br backup full --pd pd0:2379 --storage "local:///data/backup/full" \
     --log-file "/logs/br_backup.log"
 
@@ -69,6 +69,20 @@ bin/br restore full --pd pd0:2379 --storage "local:///data/backup/full" \
 
 # How many rows do we get again? Expected to be 100000 rows.
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+
+# Test S3 compatible storage.
+# Create a bucket to save backup.
+mc config host add minio $S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY && \
+mc mb minio/mybucket
+
+# Backup to S3 compatible storage.
+bin/br backup full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
+
+# Drop database and restore!
+mysql -uroot -htidb -P4000 -E -e "DROP DATABASE test; SHOW DATABASES;" && \
+bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
 ```
 
 ## Contributing
