@@ -39,5 +39,6 @@ for script in tests/${TEST_NAME-*}/run.sh; do
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
+    BR_LOG_TO_TERM=1 \
     bash "$script"
 done
