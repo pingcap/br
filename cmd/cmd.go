@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -48,7 +47,7 @@ const (
 )
 
 func timestampLogFileName() string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("br.log.%s", time.Now().Format(time.RFC3339)))
+	return filepath.Join(os.TempDir(), "br.log."+time.Now().Format(time.RFC3339))
 }
 
 // AddFlags adds flags to the given cmd.
