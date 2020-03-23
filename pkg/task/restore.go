@@ -292,10 +292,8 @@ func filterRestoreFiles(
 type clusterConfig struct {
 	// Enable PD schedulers before restore
 	scheduler []string
-	// Region merge configuration before restore
-	mergeCfg map[string]int
-	// Scheudle limits configuration before restore
-	scheduleLimitCfg map[string]int
+	// Original scheudle configuration
+	scheduleCfg map[string]interface{}
 }
 
 // restorePreWork executes some prepare work before restore
@@ -330,52 +328,48 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 		return clusterConfig{}, err
 	}
 
-	mergeCfg := make(map[string]int)
-	for _, cfgKey := range pdRegionMergeCfg {
-		value, err := mgr.GetPDScheduleConfig(ctx, cfgKey)
-		if err != nil {
-			return clusterConfig{}, err
-		}
-		if value == nil {
-			// Ignore non-exist config.
-			continue
-		}
-		mergeCfg[cfgKey] = int(value.(float64))
-
-		// Disable region merge by setting config to 0.
-		err = mgr.UpdatePDScheduleConfig(ctx, cfgKey, 0)
-		if err != nil {
-			return clusterConfig{}, err
-		}
+	scheduleCfg, err := mgr.GetPDScheduleConfig(ctx)
+	if err != nil {
+		return clusterConfig{}, err
 	}
 
-	scheduleLimitCfg := make(map[string]int)
-	for _, cfgKey := range pdScheduleLimitCfg {
-		value, err := mgr.GetPDScheduleConfig(ctx, cfgKey)
-		if err != nil {
-			return clusterConfig{}, err
-		}
+	disableMergeCfg := make(map[string]interface{})
+	for _, cfgKey := range pdRegionMergeCfg {
+		value := scheduleCfg[cfgKey]
 		if value == nil {
 			// Ignore non-exist config.
 			continue
 		}
-		limit := int(value.(float64))
-		scheduleLimitCfg[cfgKey] = limit
+		// Disable region merge by setting config to 0.
+		disableMergeCfg[cfgKey] = 0
+	}
+	err = mgr.UpdatePDScheduleConfig(ctx, disableMergeCfg)
+	if err != nil {
+		return clusterConfig{}, err
+	}
+
+	scheduleLimitCfg := make(map[string]interface{})
+	for _, cfgKey := range pdScheduleLimitCfg {
+		value := scheduleCfg[cfgKey]
+		if value == nil {
+			// Ignore non-exist config.
+			continue
+		}
 
 		// Speed update PD scheduler by enlarging scheduling limits.
 		// Multiply limits by store count but no more than 40.
-		// TODO: why 40?
-		newLimits := math.Max(40, float64(limit*len(stores)))
-		err = mgr.UpdatePDScheduleConfig(ctx, cfgKey, int(newLimits))
-		if err != nil {
-			return clusterConfig{}, err
-		}
+		// Larger limit may make cluster unstable.
+		limit := int(value.(float64))
+		scheduleLimitCfg[cfgKey] = math.Max(40, float64(limit*len(stores)))
+	}
+	err = mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
+	if err != nil {
+		return clusterConfig{}, err
 	}
 
 	cluster := clusterConfig{
-		scheduler:        scheduler,
-		mergeCfg:         mergeCfg,
-		scheduleLimitCfg: scheduleLimitCfg,
+		scheduler:   scheduler,
+		scheduleCfg: scheduleCfg,
 	}
 	return cluster, nil
 }
@@ -405,15 +399,30 @@ func restorePostWork(
 	if err := addPDLeaderScheduler(ctx, mgr, clusterCfg.scheduler); err != nil {
 		log.Warn("fail to add PD schedulers")
 	}
-	for cfgKey, cfgValue := range clusterCfg.mergeCfg {
-		if err := mgr.UpdatePDScheduleConfig(ctx, cfgKey, cfgValue); err != nil {
-			log.Warn("fail to update PD region merge config")
+	mergeCfg := make(map[string]interface{})
+	for _, cfgKey := range pdRegionMergeCfg {
+		value := clusterCfg.scheduleCfg[cfgKey]
+		if value == nil {
+			// Ignore non-exist config.
+			continue
 		}
+		mergeCfg[cfgKey] = value
 	}
-	for cfgKey, cfgValue := range clusterCfg.scheduleLimitCfg {
-		if err := mgr.UpdatePDScheduleConfig(ctx, cfgKey, cfgValue); err != nil {
-			log.Warn("fail to update PD scheule limit config")
+	if err := mgr.UpdatePDScheduleConfig(ctx, mergeCfg); err != nil {
+		log.Warn("fail to update PD region merge config")
+	}
+
+	scheduleLimitCfg := make(map[string]interface{})
+	for _, cfgKey := range pdScheduleLimitCfg {
+		value := clusterCfg.scheduleCfg[cfgKey]
+		if value == nil {
+			// Ignore non-exist config.
+			continue
 		}
+		scheduleLimitCfg[cfgKey] = value
+	}
+	if err := mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
+		log.Warn("fail to update PD schedule config")
 	}
 }
 

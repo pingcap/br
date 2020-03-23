@@ -437,8 +437,8 @@ func (mgr *Mgr) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]st
 // GetPDScheduleConfig returns PD schedule config value associated with the key.
 // It returns nil if there is no such config item.
 func (mgr *Mgr) GetPDScheduleConfig(
-	ctx context.Context, configKey string,
-) (interface{}, error) {
+	ctx context.Context,
+) (map[string]interface{}, error) {
 	var err error
 	for _, addr := range mgr.pdHTTP.addrs {
 		v, e := pdRequest(
@@ -452,22 +452,16 @@ func (mgr *Mgr) GetPDScheduleConfig(
 		if err != nil {
 			return nil, err
 		}
-		value, ok := cfg[configKey]
-		if !ok {
-			return nil, nil
-		}
-		return value, nil
+		return cfg, nil
 	}
 	return nil, err
 }
 
 // UpdatePDScheduleConfig updates PD schedule config value associated with the key.
 func (mgr *Mgr) UpdatePDScheduleConfig(
-	ctx context.Context, configKey string, configValue interface{},
+	ctx context.Context, cfg map[string]interface{},
 ) error {
 	for _, addr := range mgr.pdHTTP.addrs {
-		cfg := make(map[string]interface{})
-		cfg[configKey] = configValue
 		reqData, err := json.Marshal(cfg)
 		if err != nil {
 			return err
