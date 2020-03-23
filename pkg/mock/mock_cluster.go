@@ -16,8 +16,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/pd/v4/pkg/tempurl"
+	pd "github.com/pingcap/pd/v3/client"
+	"github.com/pingcap/pd/v3/pkg/tempurl"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"

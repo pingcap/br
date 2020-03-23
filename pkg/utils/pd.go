@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/pd/v4/pkg/codec"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
+	"github.com/pingcap/pd/v3/pkg/codec"
+	"github.com/pingcap/pd/v3/server/schedule/placement"
 	"github.com/pingcap/tidb/tablecodec"
 )
 

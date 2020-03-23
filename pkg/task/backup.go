@@ -235,7 +235,7 @@ func parseTSString(ts string) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	t1, err := t.GoTime(loc)
+	t1, err := t.Time.GoTime(loc)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}

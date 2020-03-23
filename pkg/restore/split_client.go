@@ -20,8 +20,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
-	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
+	pd "github.com/pingcap/pd/v3/client"
+	"github.com/pingcap/pd/v3/server/schedule/placement"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )

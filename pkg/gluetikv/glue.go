@@ -3,7 +3,7 @@
 package gluetikv
 
 import (
-	pd "github.com/pingcap/pd/v4/client"
+	pd "github.com/pingcap/pd/v3/client"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"

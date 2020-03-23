@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	. "github.com/pingcap/check"
-	pd "github.com/pingcap/pd/v4/client"
+	pd "github.com/pingcap/pd/v3/client"
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/mock"
