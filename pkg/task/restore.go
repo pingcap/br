@@ -122,9 +122,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	if len(files) == 0 {
-		return errors.New("all files are filtered out from the backup archive, nothing to restore")
-	}
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -141,6 +138,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// nothing to restore, maybe only ddl changes in incremental restore
+	if len(files) == 0 {
+		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		return nil
+	}
+
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return err

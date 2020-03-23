@@ -207,10 +207,11 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 		tableIDs := make(map[int64]bool)
 		tableIDs[table.Info.ID] = true
 		tableNames := make(map[string]bool)
-		tableNames[table.Info.Name.String()] = true
+		name := fmt.Sprintf("%s:%s", table.Db.Name.String(), table.Info.Name.String())
+		tableNames[name] = true
 		for _, job := range allDDLJobs {
 			if job.BinlogInfo.TableInfo != nil {
-				name := job.SchemaName + job.BinlogInfo.TableInfo.Name.String()
+				name := fmt.Sprintf("%s:%s", job.SchemaName, job.BinlogInfo.TableInfo.Name.String())
 				if tableIDs[job.TableID] || tableNames[name] {
 					ddlJobs = append(ddlJobs, job)
 					tableIDs[job.TableID] = true
