@@ -70,8 +70,8 @@ bin/br restore full --pd pd0:2379 --storage "local:///data/backup/full" \
 # How many rows do we get again? Expected to be 100000 rows.
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
 
-# Test S3 compatible storage.
-# Create a bucket to save backup.
+# Test S3 compatible storage (MinIO).
+# Create a bucket to save backup by mc (a MinIO Client).
 mc config host add minio $S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY && \
 mc mb minio/mybucket
 
