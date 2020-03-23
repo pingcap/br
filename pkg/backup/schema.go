@@ -18,6 +18,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/checksum"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -67,7 +68,7 @@ func (pending *Schemas) Start(
 	store kv.Storage,
 	backupTS uint64,
 	concurrency uint,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) {
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	go func() {
@@ -82,7 +83,7 @@ func (pending *Schemas) Start(
 
 				if pending.skipChecksum {
 					pending.backupSchemaCh <- schema
-					updateCh <- struct{}{}
+					updateCh.Inc()
 					return
 				}
 
@@ -110,7 +111,7 @@ func (pending *Schemas) Start(
 					zap.Duration("take", time.Since(start)))
 				pending.backupSchemaCh <- schema
 
-				updateCh <- struct{}{}
+				updateCh.Inc()
 			})
 		}
 		pending.wg.Wait()
