@@ -37,7 +37,7 @@ func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 		case 0:
 			return errGrpc
 		case 1:
-			return errResp
+			return errEpochNotMatch
 		case 2:
 			return errRangeIsEmpty
 		}
@@ -54,8 +54,8 @@ func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 	}
 	err = utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
-		return errResp
+		return errEpochNotMatch
 	}, &backoffer)
 	c.Assert(counter, Equals, 10)
-	c.Assert(err, Equals, errResp)
+	c.Assert(err, Equals, errEpochNotMatch)
 }
