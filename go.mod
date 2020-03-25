@@ -23,9 +23,9 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
 	github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
-	github.com/pingcap/parser v0.0.0-20200305120128-bde9faa0df84
+	github.com/pingcap/parser v0.0.0-20200317021010-cd90cc2a7d87
 	github.com/pingcap/pd/v4 v4.0.0-beta.1.0.20200305072537-61d9f9cc35d3
-	github.com/pingcap/tidb v1.1.0-beta.0.20200310133602-7c39e5e5e0bc
+	github.com/pingcap/tidb v1.1.0-beta.0.20200325094938-30e1edae0897
 	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible
 	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
 	github.com/prometheus/client_golang v1.0.0

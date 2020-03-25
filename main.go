@@ -41,7 +41,7 @@ func main() {
 		Use:              "br",
 		Short:            "br is a TiDB/TiKV cluster backup restore tool.",
 		TraverseChildren: true,
-		SilenceUsage:     false,
+		SilenceUsage:     true,
 	}
 	cmd.AddFlags(rootCmd)
 	cmd.SetDefaultContext(ctx)
