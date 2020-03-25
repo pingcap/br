@@ -29,6 +29,11 @@ func CollectInt(name string, t int) {
 	collector.CollectInt(name, t)
 }
 
+// SetSuccessStatus sets final success status
+func SetSuccessStatus(success bool) {
+	collector.SetSuccessStatus(success)
+}
+
 // Summary outputs summary log
 func Summary(name string) {
 	collector.Summary(name)
