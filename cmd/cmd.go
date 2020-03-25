@@ -25,10 +25,11 @@ import (
 )
 
 var (
-	initOnce       = sync.Once{}
-	defaultContext context.Context
-	hasLogFile     uint64
-	tidbGlue       = gluetidb.Glue{}
+	initOnce        = sync.Once{}
+	defaultContext  context.Context
+	hasLogFile      uint64
+	tidbGlue        = gluetidb.Glue{}
+	envLogToTermKey = "BR_LOG_TO_TERM"
 )
 
 const (
@@ -46,7 +47,7 @@ const (
 )
 
 func timestampLogFileName() string {
-	return filepath.Join(os.TempDir(), "br-"+time.Now().Format(time.RFC3339))
+	return filepath.Join(os.TempDir(), "br.log."+time.Now().Format(time.RFC3339))
 }
 
 // AddFlags adds flags to the given cmd.
@@ -81,11 +82,15 @@ func Init(cmd *cobra.Command) (err error) {
 		if err != nil {
 			return
 		}
+		_, outputLogToTerm := os.LookupEnv(envLogToTermKey)
+		if outputLogToTerm {
+			// Log to term if env `BR_LOG_TO_TERM` is set.
+			conf.File.Filename = ""
+		}
 		if len(conf.File.Filename) != 0 {
 			atomic.StoreUint64(&hasLogFile, 1)
 			summary.InitCollector(true)
-		} else {
-			cmd.Printf("log file: %s\n", conf.File.Filename)
+			cmd.Printf("Detial BR log in %s\n", conf.File.Filename)
 		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {

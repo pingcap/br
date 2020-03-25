@@ -35,6 +35,8 @@ type LogCollector interface {
 
 	CollectInt(name string, t int)
 
+	SetSuccessStatus(success bool)
+
 	Summary(name string)
 }
 
@@ -43,7 +45,9 @@ type logFunc func(msg string, fields ...zap.Field)
 var collector LogCollector = newLogCollector(log.Info)
 
 // InitCollector initilize global collector instance.
-func InitCollector(hasLogFile bool) {
+func InitCollector( // revive:disable-line:flag-parameter
+	hasLogFile bool,
+) {
 	logF := log.L().Info
 	if hasLogFile {
 		conf := new(log.Config)
@@ -69,6 +73,7 @@ type logCollector struct {
 	failureReasons   map[string]error
 	durations        map[string]time.Duration
 	ints             map[string]int
+	successStatus    bool
 
 	log logFunc
 }
@@ -134,6 +139,12 @@ func (tc *logCollector) CollectInt(name string, t int) {
 	tc.ints[name] += t
 }
 
+func (tc *logCollector) SetSuccessStatus(success bool) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.successStatus = success
+}
+
 func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
@@ -162,7 +173,7 @@ func (tc *logCollector) Summary(name string) {
 		logFields = append(logFields, zap.Int(key, val))
 	}
 
-	if len(tc.failureReasons) != 0 {
+	if len(tc.failureReasons) != 0 || !tc.successStatus {
 		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}

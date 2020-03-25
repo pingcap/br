@@ -123,5 +123,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	// Restore has finished.
 	updateCh.Close()
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
