@@ -95,7 +95,7 @@ type Config struct {
 // DefineCommonFlags defines the flags common to all BRIE commands.
 func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCreds, "c", true, "Whether send credentials to tikv")
-	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3:///path/to/save"`)
+	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3://bucket/path/prefix"`)
 	flags.StringSliceP(flagPD, "u", []string{"127.0.0.1:2379"}, "PD address")
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")

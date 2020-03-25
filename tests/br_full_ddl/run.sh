@@ -36,7 +36,10 @@ done
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG
+# Do not log to terminal
+unset BR_LOG_TO_TERM
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
+BR_LOG_TO_TERM=1
 
 checksum_count=$(cat $LOG | grep "fast checksum success" | wc -l | xargs)
 
