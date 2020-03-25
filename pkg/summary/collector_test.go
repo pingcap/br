@@ -30,6 +30,7 @@ func (suit *testCollectorSuite) TestSumDurationInt(c *C) {
 	col.CollectDuration("b", time.Second)
 	col.CollectInt("c", 2)
 	col.CollectInt("c", 2)
+	col.SetSuccessStatus(true)
 	col.Summary("foo")
 
 	c.Assert(len(fields), Equals, 3)

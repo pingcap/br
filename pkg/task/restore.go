@@ -251,6 +251,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	updateCh.Close()
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
 
@@ -415,5 +417,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	updateCh.Close()
 	summary.CollectInt("recover tables", len(tables))
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
