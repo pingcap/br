@@ -221,6 +221,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
 		if err != nil {
 			log.Error("split regions failed", zap.Error(err))
+			// If any error happened, return now, don't execute checksum.
 			return err
 		}
 
@@ -233,24 +234,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		// After split, we can restore backup files.
 		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
 		if err != nil {
+			// If any error happened, return now, don't execute checksum.
 			return err
 		}
 	}
+	// Restore files success.
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	if errRestorePostWork := restorePostWork(ctx, client, mgr, clusterCfg); err == nil {
-		err = errRestorePostWork
-	}
-
-	if errSplitPostWork := splitPostWork(ctx, client, newTables); err == nil {
-		err = errSplitPostWork
-	}
-
-	// If any error happened, return now, don't execute checksum.
-	if err != nil {
-		return err
-	}
+	restorePostWork(ctx, client, mgr, clusterCfg)
+	splitPostWork(ctx, client, newTables)
 
 	// Restore has finished.
 	updateCh.Close()
