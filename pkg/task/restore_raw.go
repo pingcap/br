@@ -46,7 +46,7 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // RunRestoreRaw starts a raw kv restore task inside the current goroutine.
-func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) error {
+func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) (err error) {
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
@@ -113,15 +113,17 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
+	defer restorePostWork(ctx, client, mgr, removedSchedulers)
 
 	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	restorePostWork(ctx, client, mgr, removedSchedulers)
 	// Restore has finished.
 	updateCh.Close()
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }

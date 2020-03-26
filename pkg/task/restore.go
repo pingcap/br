@@ -239,8 +239,18 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	restorePostWork(ctx, client, mgr, clusterCfg)
-	splitPostWork(ctx, client, newTables)
+	if errRestorePostWork := restorePostWork(ctx, client, mgr, clusterCfg); err == nil {
+		err = errRestorePostWork
+	}
+
+	if errSplitPostWork := splitPostWork(ctx, client, newTables); err == nil {
+		err = errSplitPostWork
+	}
+
+	// If any error happened, return now, don't execute checksum.
+	if err != nil {
+		return err
+	}
 
 	// Restore has finished.
 	updateCh.Close()
@@ -255,6 +265,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	updateCh.Close()
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
 
@@ -510,5 +522,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	updateCh.Close()
 	summary.CollectInt("recover tables", len(tables))
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }

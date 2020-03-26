@@ -31,7 +31,8 @@ fi
 for script in tests/${TEST_NAME-*}/run.sh; do
     TEST_NAME="$(basename "$(dirname "$script")")"
     if [ $TEST_NAME = "br_tls" ]; then
-        echo "FIXME enable br_tls tests\nTiKV master (ed71f20f445e10595553d2bf3d1a1eb645b9a61a) aborts when TLS is enabled"
+        echo "FIXME enable br_tls test"
+        echo "TiKV master (ed71f20f445e10595553d2bf3d1a1eb645b9a61a) aborts when TLS is enabled"
         continue
     fi
 
@@ -45,5 +46,6 @@ for script in tests/${TEST_NAME-*}/run.sh; do
     TIKV_ADDR="$TIKV_ADDR" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
+    BR_LOG_TO_TERM=1 \
     bash "$script"
 done
