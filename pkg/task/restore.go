@@ -241,12 +241,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	err = restorePostWork(ctx, client, mgr, clusterCfg)
-	if err != nil {
-		return err
+	if errRestorePostWork := restorePostWork(ctx, client, mgr, clusterCfg); err == nil {
+		err = errRestorePostWork
 	}
 
-	if err = splitPostWork(ctx, client, newTables); err != nil {
+	if errSplitPostWork := splitPostWork(ctx, client, newTables); err == nil {
+		err = errSplitPostWork
+	}
+
+	// If any error happened, return now, don't execute checksum.
+	if err != nil {
 		return err
 	}
 
