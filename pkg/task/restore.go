@@ -362,7 +362,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 		// Multiply limits by store count but no more than 40.
 		// Larger limit may make cluster unstable.
 		limit := int(value.(float64))
-		scheduleLimitCfg[cfgKey] = math.Max(40, float64(limit*len(stores)))
+		scheduleLimitCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
 	}
 	err = mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
 	if err != nil {
