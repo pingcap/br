@@ -476,7 +476,7 @@ func (rc *Client) RestoreFiles(
 				defer wg.Done()
 				select {
 				case <-rc.ctx.Done():
-					errCh <- nil
+					errCh <- rc.ctx.Err()
 				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
 					updateCh.Inc()
 				}
@@ -527,7 +527,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 				defer wg.Done()
 				select {
 				case <-rc.ctx.Done():
-					errCh <- nil
+					errCh <- rc.ctx.Err()
 				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
 					updateCh.Inc()
 				}

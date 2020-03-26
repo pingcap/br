@@ -16,6 +16,7 @@ import (
 func runBackupCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.BackupConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
 		return err
 	}
 	return task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg)
@@ -24,6 +25,7 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
 		return err
 	}
 	return task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
@@ -34,7 +36,7 @@ func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:          "backup",
 		Short:        "backup a TiDB/TiKV cluster",
-		SilenceUsage: false,
+		SilenceUsage: true,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
