@@ -62,7 +62,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	_, backupSchemas, err := BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	// Database is not exist.
@@ -72,15 +72,15 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
-	// Empty databse.
+	// Empty database.
 	noFilter, err := filter.New(false, &filter.Rules{})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	tk.MustExec("use test")

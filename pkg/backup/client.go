@@ -255,7 +255,8 @@ func BuildBackupRangeAndSchema(
 	}
 
 	if backupSchemas.Len() == 0 {
-		return nil, nil, errors.New("nothing to backup")
+		log.Info("nothing to backup")
+		return nil, nil, nil
 	}
 	return ranges, backupSchemas, nil
 }

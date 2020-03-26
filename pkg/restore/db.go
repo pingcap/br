@@ -203,19 +203,26 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 		}
 	}
 
+	type namePair struct {
+		db    string
+		table string
+	}
+
 	for _, table := range tables {
 		tableIDs := make(map[int64]bool)
 		tableIDs[table.Info.ID] = true
-		tableNames := make(map[string]bool)
-		tableNames[table.Info.Name.String()] = true
+		tableNames := make(map[namePair]bool)
+		name := namePair{table.Db.Name.String(), table.Info.Name.String()}
+		tableNames[name] = true
 		for _, job := range allDDLJobs {
 			if job.BinlogInfo.TableInfo != nil {
-				if tableIDs[job.TableID] || tableNames[job.BinlogInfo.TableInfo.Name.String()] {
+				name := namePair{job.SchemaName, job.BinlogInfo.TableInfo.Name.String()}
+				if tableIDs[job.TableID] || tableNames[name] {
 					ddlJobs = append(ddlJobs, job)
 					tableIDs[job.TableID] = true
 					// For truncate table, the id may be changed
 					tableIDs[job.BinlogInfo.TableInfo.ID] = true
-					tableNames[job.BinlogInfo.TableInfo.Name.String()] = true
+					tableNames[name] = true
 				}
 			}
 		}
