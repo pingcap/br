@@ -82,5 +82,5 @@ fi
 # cleanup env
 run_sql "DROP DATABASE $DB;"
 for i in $(seq $DB_COUNT); do
-  run_sql "DROP DATABASE $DB$i;"
+  run_sql "DROP DATABASE IF EXISTS $DB$i;"
 done
