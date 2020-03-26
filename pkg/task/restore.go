@@ -118,7 +118,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
-	files, tables, err := filterRestoreFiles(client, cfg)
+	files, tables, dbs, err := filterRestoreFiles(client, cfg)
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	// execute DDL first
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
@@ -143,6 +144,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")
 		return nil
+	}
+
+	for _, db := range dbs {
+		err = client.CreateDatabase(db.Info)
+		if err != nil {
+			return err
+		}
 	}
 
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
@@ -263,10 +271,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, err error) {
+) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database, err error) {
 	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	for _, db := range client.GetDatabases() {
@@ -277,17 +285,13 @@ func filterRestoreFiles(
 			}
 
 			if !createdDatabase {
-				if err = client.CreateDatabase(db.Info); err != nil {
-					return nil, nil, err
-				}
+				dbs = append(dbs, db)
 				createdDatabase = true
 			}
-
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
 	}
-
 	return
 }
 
