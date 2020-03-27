@@ -23,8 +23,8 @@ import (
 )
 
 const (
-	flagOnline        = "online"
-	flagSkipCreateSQL = "skip-create-sql"
+	flagOnline   = "online"
+	flagNoSchema = "no-schema"
 )
 
 var schedulers = map[string]struct{}{
@@ -46,18 +46,18 @@ const (
 type RestoreConfig struct {
 	Config
 
-	Online        bool `json:"online" toml:"online"`
-	SkipCreateSQL bool `json:"skip-create-sql" toml:"skip-create-sql"`
+	Online   bool `json:"online" toml:"online"`
+	NoSchema bool `json:"no-schema" toml:"no-schema"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
-	flags.Bool(flagSkipCreateSQL, false, "skip creating schemas and tables, reuse existing empty ones")
+	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
 
 	// Do not expose this flag
-	flags.MarkHidden(flagSkipCreateSQL)
+	_ = flags.MarkHidden(flagNoSchema)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -67,7 +67,7 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.SkipCreateSQL, err = flags.GetBool(flagSkipCreateSQL)
+	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -111,7 +111,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if cfg.Online {
 		client.EnableOnline()
 	}
-	if cfg.SkipCreateSQL {
+	if cfg.NoSchema {
 		client.EnableSkipCreateSQL()
 	}
 	err = client.LoadRestoreStores(ctx)

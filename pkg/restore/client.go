@@ -64,7 +64,7 @@ type Client struct {
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
-	isSkipCreateSQL bool
+	noSchema        bool
 	hasSpeedLimited bool
 
 	restoreStores []uint64
@@ -859,10 +859,10 @@ func (rc *Client) IsIncremental() bool {
 
 // EnableSkipCreateSQL sets switch of skip create schema and tables
 func (rc *Client) EnableSkipCreateSQL() {
-	rc.isSkipCreateSQL = true
+	rc.noSchema = true
 }
 
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore
 func (rc *Client) IsSkipCreateSQL() bool {
-	return rc.isSkipCreateSQL
+	return rc.noSchema
 }
