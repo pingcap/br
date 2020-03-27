@@ -23,7 +23,8 @@ import (
 )
 
 const (
-	flagOnline = "online"
+	flagOnline        = "online"
+	flagSkipCreateSQL = "skip-create-sql"
 )
 
 var schedulers = map[string]struct{}{
@@ -45,19 +46,28 @@ const (
 type RestoreConfig struct {
 	Config
 
-	Online bool `json:"online" toml:"online"`
+	Online        bool `json:"online" toml:"online"`
+	SkipCreateSQL bool `json:"skip-create-sql" toml:"skip-create-sql"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
-	flags.Bool("online", false, "(experimental) Whether online when restore")
+	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
+	flags.Bool(flagSkipCreateSQL, false, "Only allow when restore cluster has already use br create all schema and tables before")
+
+	// Do not expose this flag
+	flags.MarkHidden(flagSkipCreateSQL)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
 func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	cfg.Online, err = flags.GetBool(flagOnline)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.SkipCreateSQL, err = flags.GetBool(flagSkipCreateSQL)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -100,6 +110,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	client.SetConcurrency(uint(cfg.Concurrency))
 	if cfg.Online {
 		client.EnableOnline()
+	}
+	if cfg.SkipCreateSQL {
+		client.EnableSkipCreateSQL()
 	}
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
