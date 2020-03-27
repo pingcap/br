@@ -33,18 +33,19 @@ run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit
 
 run_sql "DROP DATABASE $DB;"
 
+run_sql "CREATE DATABASE $DB;"
 # restore db with skip-create-sql must failed
 echo "restore start but must failed"
 fail=false
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --no-schema=true || fail=true
 if $fail; then
+    # Error: [schema:1146]Table 'br_db_skip.usertable1' doesn't exist
     echo "TEST: [$TEST_NAME] restore $DB with no-schema must failed"
 else
     echo "TEST: [$TEST_NAME] restore $DB with no-schema not failed"
     exit 1
 fi
 
-run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
   YCSB_KEY varchar(64) NOT NULL, \
@@ -63,7 +64,7 @@ else
 fi
 
 table_count=$(run_sql "use $DB; show tables;" | grep "Tables_in" | wc -l)
-if [ "$table_count" -ne "2" ];then
+if [ "$table_count" -ne "1" ];then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
 fi
