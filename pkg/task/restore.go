@@ -54,7 +54,7 @@ type RestoreConfig struct {
 func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
-	flags.Bool(flagSkipCreateSQL, false, "Only allow when restore cluster has already use br create all schema and tables before")
+	flags.Bool(flagSkipCreateSQL, false, "skip creating schemas and tables, reuse existing empty ones")
 
 	// Do not expose this flag
 	flags.MarkHidden(flagSkipCreateSQL)
