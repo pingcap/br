@@ -3,15 +3,13 @@
 package gluetidb
 
 import (
-	"bytes"
 	"context"
 
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 
 	"github.com/pingcap/br/pkg/glue"
@@ -62,22 +60,16 @@ func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	return err
 }
 
-// ShowCreateDatabase implements glue.Session
-func (gs *tidbSession) ShowCreateDatabase(schema *model.DBInfo) (string, error) {
-	var buf bytes.Buffer
-	if err := executor.ConstructResultOfShowCreateDatabase(gs.se, schema, true, &buf); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+// CreateDatabase implements glue.Session
+func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
+	d := domain.GetDomain(gs.se).DDL()
+	return d.CreateSchemaWithInfo(gs.se, schema.Clone(), ddl.OnExistIgnore, true)
 }
 
-// ShowCreateTable implements glue.Session
-func (gs *tidbSession) ShowCreateTable(table *model.TableInfo, allocator autoid.Allocator) (string, error) {
-	var buf bytes.Buffer
-	if err := executor.ConstructResultOfShowCreateTable(gs.se, table, allocator, &buf); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+// CreateTable implements glue.Session
+func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
+	d := domain.GetDomain(gs.se).DDL()
+	return d.CreateTableWithInfo(gs.se, dbName, table.Clone(), ddl.OnExistIgnore, true)
 }
 
 // Close implements glue.Session
