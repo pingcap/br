@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"strings"
 	"sync"
 	"time"
 
@@ -272,14 +271,12 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 					//      2. retry ingest
 					errIngest = errors.AddStack(errEpochNotMatch)
 					break ingestRetry
-				case errPb.RegionNotFound != nil:
-					errIngest = errors.AddStack(errRegionNotFound)
-					break ingestRetry
 				case errPb.KeyNotInRegion != nil:
 					errIngest = errors.AddStack(errKeyNotInRegion)
 					break ingestRetry
 				default:
-					errIngest = errors.Errorf("ingest error %s", errPb)
+					// Other errors like `ServerIsBusy`, `RegionNotFound`, etc. should be retryable
+					errIngest = errors.Annotatef(errIngestFailed, "ingest error %s", errPb)
 					break ingestRetry
 				}
 			}
@@ -346,7 +343,10 @@ func (importer *FileImporter) downloadSST(
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
-			return nil, extractDownloadSSTError(err)
+			return nil, errors.Annotatef(errGrpc, "%s", err)
+		}
+		if resp.GetError() != nil {
+			return nil, errors.Annotate(errDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
 			return nil, errors.Trace(errRangeIsEmpty)
@@ -395,7 +395,10 @@ func (importer *FileImporter) downloadRawKVSST(
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
-			return nil, extractDownloadSSTError(err)
+			return nil, errors.Annotatef(errGrpc, "%s", err)
+		}
+		if resp.GetError() != nil {
+			return nil, errors.Annotate(errDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
 			return nil, errors.Trace(errRangeIsEmpty)
@@ -438,19 +441,4 @@ func checkRegionEpoch(new, old *RegionInfo) bool {
 		return true
 	}
 	return false
-}
-
-func extractDownloadSSTError(e error) error {
-	err := errGrpc
-	switch {
-	case strings.Contains(e.Error(), "bad format"):
-		err = errBadFormat
-	case strings.Contains(e.Error(), "wrong prefix"):
-		err = errWrongKeyPrefix
-	case strings.Contains(e.Error(), "corrupted"):
-		err = errFileCorrupted
-	case strings.Contains(e.Error(), "Cannot read"):
-		err = errCannotRead
-	}
-	return errors.Annotatef(err, "%s", e)
 }

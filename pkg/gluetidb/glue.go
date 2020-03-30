@@ -51,6 +51,11 @@ func (Glue) OwnsStorage() bool {
 	return true
 }
 
+// StartProgress implements glue.Glue
+func (g Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
+	return g.tikvGlue.StartProgress(ctx, cmdName, total, redirectLog)
+}
+
 // Execute implements glue.Session
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)

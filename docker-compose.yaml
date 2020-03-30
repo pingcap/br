@@ -1,6 +1,6 @@
 ---
 # Source: tidb-docker-compose/templates/docker-compose.yml
-version: '2.1'
+version: '3.2'
 
 services:
   control:
@@ -10,11 +10,13 @@ services:
       dockerfile: ./docker/Dockerfile
     volumes:
       - ./docker/data:/data
-      - ./docker/logs:/logs
+      - ./docker/logs:/tmp
     command: -c "/usr/bin/tail -f /dev/null"
     depends_on:
       - "tidb"
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   pd0:
     image: pingcap/pd:latest
@@ -64,6 +66,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   tikv1:
     image: pingcap/tikv:latest
@@ -87,6 +91,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   tikv2:
     image: pingcap/tikv:latest
@@ -110,6 +116,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   tikv3:
     image: pingcap/tikv:latest
@@ -133,6 +141,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   tikv4:
     image: pingcap/tikv:latest
@@ -156,6 +166,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ./docker/minio.env
 
   tidb:
     image: pingcap/tidb:latest
@@ -184,6 +196,16 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+
+  minio:
+    image: minio/minio
+    ports:
+      - 24927:24927
+    volumes:
+      - ./docker/data/s3:/data/s3
+    command: server --address=:24927 /data/s3
+    env_file:
+      - ./docker/minio.env
 
   tidb-vision:
     image: pingcap/tidb-vision:latest

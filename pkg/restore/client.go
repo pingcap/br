@@ -445,7 +445,7 @@ func (rc *Client) setSpeedLimit() error {
 func (rc *Client) RestoreFiles(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
 	defer func() {
@@ -476,9 +476,9 @@ func (rc *Client) RestoreFiles(
 				defer wg.Done()
 				select {
 				case <-rc.ctx.Done():
-					errCh <- nil
+					errCh <- rc.ctx.Err()
 				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
-					updateCh <- struct{}{}
+					updateCh.Inc()
 				}
 			})
 	}
@@ -499,7 +499,7 @@ func (rc *Client) RestoreFiles(
 }
 
 // RestoreRaw tries to restore raw keys in the specified range.
-func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh chan<- struct{}) error {
+func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -527,9 +527,9 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 				defer wg.Done()
 				select {
 				case <-rc.ctx.Done():
-					errCh <- nil
+					errCh <- rc.ctx.Err()
 				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
-					updateCh <- struct{}{}
+					updateCh.Inc()
 				}
 			})
 	}
@@ -617,7 +617,7 @@ func (rc *Client) ValidateChecksum(
 	kvClient kv.Client,
 	tables []*utils.Table,
 	newTables []*model.TableInfo,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -674,7 +674,7 @@ func (rc *Client) ValidateChecksum(
 					return
 				}
 
-				updateCh <- struct{}{}
+				updateCh.Inc()
 			})
 		}
 		wg.Wait()

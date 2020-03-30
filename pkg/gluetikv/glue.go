@@ -3,6 +3,8 @@
 package gluetikv
 
 import (
+	"context"
+
 	pd "github.com/pingcap/pd/v3/client"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
@@ -10,6 +12,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Glue is an implementation of glue.Glue that accesses only TiKV without TiDB.
@@ -40,4 +43,23 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 // OwnsStorage implements glue.Glue
 func (Glue) OwnsStorage() bool {
 	return true
+}
+
+// StartProgress implements glue.Glue
+func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
+	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog)}
+}
+
+type progress struct {
+	ch chan<- struct{}
+}
+
+// Inc implements glue.Progress
+func (p progress) Inc() {
+	p.ch <- struct{}{}
+}
+
+// Close implements glue.Progress
+func (p progress) Close() {
+	close(p.ch)
 }

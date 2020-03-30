@@ -118,12 +118,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
-	files, tables, err := filterRestoreFiles(client, cfg)
+	files, tables, dbs, err := filterRestoreFiles(client, cfg)
 	if err != nil {
 		return err
-	}
-	if len(files) == 0 {
-		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
 
 	var newTS uint64
@@ -137,10 +134,25 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	// execute DDL first
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// nothing to restore, maybe only ddl changes in incremental restore
+	if len(files) == 0 {
+		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		return nil
+	}
+
+	for _, db := range dbs {
+		err = client.CreateDatabase(db.Info)
+		if err != nil {
+			return err
+		}
+	}
+
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return err
@@ -171,7 +183,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ranges = restore.AttachFilesToRanges(files, ranges)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx,
 		cmdName,
 		// Split/Scatter + Download/Ingest
@@ -229,38 +241,44 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	err = restorePostWork(ctx, client, mgr, clusterCfg)
+	if errRestorePostWork := restorePostWork(ctx, client, mgr, clusterCfg); err == nil {
+		err = errRestorePostWork
+	}
+
+	if errSplitPostWork := splitPostWork(ctx, client, newTables); err == nil {
+		err = errSplitPostWork
+	}
+
+	// If any error happened, return now, don't execute checksum.
 	if err != nil {
 		return err
 	}
 
-	if err = splitPostWork(ctx, client, newTables); err != nil {
-		return err
-	}
-
 	// Restore has finished.
-	close(updateCh)
+	updateCh.Close()
 
 	// Checksum
-	updateCh = utils.StartProgress(
+	updateCh = g.StartProgress(
 		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
 	err = client.ValidateChecksum(
 		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
 	if err != nil {
 		return err
 	}
-	close(updateCh)
+	updateCh.Close()
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
 
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, err error) {
+) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database, err error) {
 	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	for _, db := range client.GetDatabases() {
@@ -271,17 +289,13 @@ func filterRestoreFiles(
 			}
 
 			if !createdDatabase {
-				if err = client.CreateDatabase(db.Info); err != nil {
-					return nil, nil, err
-				}
+				dbs = append(dbs, db)
 				createdDatabase = true
 			}
-
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
 	}
-
 	return
 }
 
@@ -399,7 +413,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	for _, db := range dbs {
 		tables = append(tables, db.Tables...)
 	}
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
 	for _, t := range tables {
 		log.Info("get table", zap.Stringer("name", t.Info.Name),
@@ -409,10 +423,13 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 			if err != nil {
 				return err
 			}
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	}
+	updateCh.Close()
 	summary.CollectInt("recover tables", len(tables))
 
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }

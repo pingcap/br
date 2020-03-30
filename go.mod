@@ -9,7 +9,6 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/dgryski/go-farm v0.0.0-20190423205320-6a90982ecee2 // indirect
-	github.com/fatih/color v1.9.0 // indirect
 	github.com/fsouza/fake-gcs-server v1.15.0
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gogo/protobuf v1.3.1
@@ -17,7 +16,6 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/klauspost/cpuid v1.2.0 // indirect
-	github.com/mattn/go-runewidth v0.0.7 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/onsi/ginkgo v1.11.0 // indirect
 	github.com/onsi/gomega v1.8.1 // indirect
@@ -27,8 +25,8 @@ require (
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v3.1.0-beta.1.0.20200318061433-f0b8f6cdca0d+incompatible
 	github.com/pingcap/pd/v3 v3.1.0-beta.2.0.20200312100832-1206736bd050
-	github.com/pingcap/pd/v4 v4.0.0-beta.1.0.20200305072537-61d9f9cc35d3
-	github.com/pingcap/tidb v1.1.0-beta.0.20200319063417-875036363e1e
+	github.com/pingcap/pd/v4 v4.0.0-beta.2
+	github.com/pingcap/tidb v1.1.0-beta.0.20200326114008-979f75643554
 	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200317092225-ed6b2a87af54+incompatible
 	github.com/pingcap/tipb v0.0.0-20200309024614-39c2c1b53584
 	github.com/prometheus/client_golang v1.0.0

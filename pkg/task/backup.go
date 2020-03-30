@@ -24,7 +24,6 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -127,6 +126,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
+	// nothing to backup
+	if ranges == nil {
+		return nil
+	}
 
 	ddlJobs := make([]*model.Job, 0)
 	if cfg.LastBackupTS > 0 {
@@ -160,7 +163,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	// Backup
 	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := utils.StartProgress(
+	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
@@ -175,14 +178,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return err
 	}
 	// Backup has finished
-	close(updateCh)
+	updateCh.Close()
 
 	// Checksum
 	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
 	if backupSchemas.Len() < backupSchemasConcurrency {
 		backupSchemasConcurrency = backupSchemas.Len()
 	}
-	updateCh = utils.StartProgress(
+	updateCh = g.StartProgress(
 		ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
 	backupSchemas.SetSkipChecksum(!cfg.Checksum)
 	backupSchemas.Start(
@@ -209,12 +212,15 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		log.Info("Skip fast checksum in incremental backup")
 	}
 	// Checksum has finished
-	close(updateCh)
+	updateCh.Close()
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
 		return err
 	}
+
+	// Set task summary to success status.
+	summary.SetSuccessStatus(true)
 	return nil
 }
 
