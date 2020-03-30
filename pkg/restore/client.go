@@ -64,6 +64,7 @@ type Client struct {
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
+	noSchema        bool
 	hasSpeedLimited bool
 
 	restoreStores []uint64
@@ -305,6 +306,10 @@ func (rc *Client) GetTableSchema(
 
 // CreateDatabase creates a database.
 func (rc *Client) CreateDatabase(db *model.DBInfo) error {
+	if rc.IsSkipCreateSQL() {
+		log.Info("skip create database", zap.Stringer("database", db.Name))
+		return nil
+	}
 	return rc.db.CreateDatabase(rc.ctx, db)
 }
 
@@ -320,9 +325,13 @@ func (rc *Client) CreateTables(
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	for _, table := range tables {
-		err := rc.db.CreateTable(rc.ctx, table)
-		if err != nil {
-			return nil, nil, err
+		if rc.IsSkipCreateSQL() {
+			log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
+		} else {
+			err := rc.db.CreateTable(rc.ctx, table)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
 		if err != nil {
@@ -846,4 +855,14 @@ func (rc *Client) getRuleID(tableID int64) string {
 func (rc *Client) IsIncremental() bool {
 	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
 		rc.backupMeta.StartVersion == 0)
+}
+
+// EnableSkipCreateSQL sets switch of skip create schema and tables
+func (rc *Client) EnableSkipCreateSQL() {
+	rc.noSchema = true
+}
+
+// IsSkipCreateSQL returns whether we need skip create schema and tables in restore
+func (rc *Client) IsSkipCreateSQL() bool {
+	return rc.noSchema
 }
