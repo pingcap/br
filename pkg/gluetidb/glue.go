@@ -8,6 +8,7 @@ import (
 
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
@@ -38,6 +39,10 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	// set max index length to DefaultMaxIndexLength
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	config.StoreGlobalConfig(conf)
 	return &tidbSession{se: se}, nil
 }
 
