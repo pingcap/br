@@ -24,9 +24,8 @@ import (
 )
 
 const (
-	flagOnline         = "online"
-	flagNoSchema       = "no-schema"
-	flagMaxIndexLength = "max-index-length"
+	flagOnline   = "online"
+	flagNoSchema = "no-schema"
 )
 
 var schedulers = map[string]struct{}{
@@ -48,9 +47,8 @@ const (
 type RestoreConfig struct {
 	Config
 
-	Online         bool `json:"online" toml:"online"`
-	NoSchema       bool `json:"no-schema" toml:"no-schema"`
-	MaxIndexLength int  `json:"max-index-length" toml:"max-index-length"`
+	Online   bool `json:"online" toml:"online"`
+	NoSchema bool `json:"no-schema" toml:"no-schema"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
@@ -58,11 +56,9 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
 	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
-	flags.Int(flagMaxIndexLength, 3072, "need keep this as same as tidb max-index-length")
 
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
-	_ = flags.MarkHidden(flagMaxIndexLength)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -73,10 +69,6 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	cfg.MaxIndexLength, err = flags.GetInt(flagMaxIndexLength)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -158,9 +150,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// execute DDL first
 
-	// set max index length before execute DDLs and create tables
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
 	conf := config.GetGlobalConfig()
-	conf.MaxIndexLength = cfg.MaxIndexLength
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 	config.StoreGlobalConfig(conf)
 
 	err = client.ExecDDLs(ddlJobs)
