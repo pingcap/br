@@ -454,6 +454,7 @@ func (rc *Client) setSpeedLimit() error {
 func (rc *Client) RestoreFiles(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
+	rejectStoreMap map[uint64]bool,
 	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
@@ -486,7 +487,7 @@ func (rc *Client) RestoreFiles(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rejectStoreMap, rewriteRules):
 					updateCh.Inc()
 				}
 			})
@@ -537,7 +538,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, nil, emptyRules):
 					updateCh.Inc()
 				}
 			})

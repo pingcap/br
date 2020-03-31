@@ -175,7 +175,10 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRules) error {
+func (importer *FileImporter) Import(file *backup.File,
+	rejectStoreMap map[uint64]bool,
+	rewriteRules *RewriteRules,
+) error {
 	log.Debug("import file", zap.Stringer("file", file))
 	// Rewrite the start key and end key of file to scan regions
 	var startKey, endKey []byte
@@ -193,6 +196,12 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		zap.Stringer("file", file),
 		zap.Binary("startKey", startKey),
 		zap.Binary("endKey", endKey))
+
+	needReject := false
+	if len(rejectStoreMap) > 0 {
+		needReject = true
+	}
+
 	err = utils.WithRetry(importer.ctx, func() error {
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
 		defer cancel()
@@ -202,6 +211,23 @@ func (importer *FileImporter) Import(file *backup.File, rewriteRules *RewriteRul
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
+
+		if needReject {
+			// TODO remove when TiFlash support restore
+			startTime := time.Now()
+			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
+			for _, region := range regionInfos {
+				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
+					log.Error("waiting for removing rejected stores failed",
+						zap.Stringer("region", region.Region))
+					return errors.New("waiting for removing rejected stores failed")
+				}
+			}
+			log.Info("waiting for removing rejected stores done",
+				zap.Int("regions", len(regionInfos)), zap.Duration("take", time.Since(startTime)))
+			needReject = false
+		}
+
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
 		for _, regionInfo := range regionInfos {

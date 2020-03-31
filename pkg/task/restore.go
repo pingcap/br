@@ -222,6 +222,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if batchSize > maxRestoreBatchSizeLimit {
 		batchSize = maxRestoreBatchSizeLimit // 256
 	}
+
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rejectStoreMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		rejectStoreMap[store.GetId()] = true
+	}
+
 	for {
 		if len(ranges) == 0 {
 			break
@@ -246,7 +256,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 
 		// After split, we can restore backup files.
-		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
+		err = client.RestoreFiles(fileBatch, rewriteRules, rejectStoreMap, updateCh)
 		if err != nil {
 			break
 		}
