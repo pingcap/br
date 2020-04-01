@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
@@ -63,7 +64,11 @@ func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 // CreateDatabase implements glue.Session
 func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
-	return d.CreateSchemaWithInfo(gs.se, schema.Clone(), ddl.OnExistIgnore, true)
+	schema = schema.Clone()
+	if len(schema.Charset) == 0 {
+		schema.Charset = mysql.DefaultCharset
+	}
+	return d.CreateSchemaWithInfo(gs.se, schema, ddl.OnExistIgnore, true)
 }
 
 // CreateTable implements glue.Session
