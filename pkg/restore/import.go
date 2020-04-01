@@ -198,10 +198,7 @@ func (importer *FileImporter) Import(
 		zap.Binary("startKey", startKey),
 		zap.Binary("endKey", endKey))
 
-	needReject := false
-	if len(rejectStoreMap) > 0 {
-		needReject = true
-	}
+	needReject := len(rejectStoreMap) > 0
 
 	err = utils.WithRetry(importer.ctx, func() error {
 		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
