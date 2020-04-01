@@ -74,7 +74,16 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 // CreateTable implements glue.Session
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
-	return d.CreateTableWithInfo(gs.se, dbName, table.Clone(), ddl.OnExistIgnore, true)
+
+	// Clone() does not clone partitions yet :(
+	table = table.Clone()
+	if table.Partition != nil {
+		newPartition := *table.Partition
+		newPartition.Definitions = append([]model.PartitionDefinition{}, table.Partition.Definitions...)
+		table.Partition = &newPartition
+	}
+
+	return d.CreateTableWithInfo(gs.se, dbName, table, ddl.OnExistIgnore, true)
 }
 
 // Close implements glue.Session
