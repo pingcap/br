@@ -175,7 +175,8 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 
 // Import tries to import a file.
 // All rules must contain encoded keys.
-func (importer *FileImporter) Import(file *backup.File,
+func (importer *FileImporter) Import(
+	file *backup.File,
 	rejectStoreMap map[uint64]bool,
 	rewriteRules *RewriteRules,
 ) error {
