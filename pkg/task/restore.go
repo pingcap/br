@@ -156,6 +156,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	conf := config.GetGlobalConfig()
 	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 	config.StoreGlobalConfig(conf)
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
 
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
