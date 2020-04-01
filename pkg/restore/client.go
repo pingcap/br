@@ -347,15 +347,17 @@ func (rc *Client) CreateTables(
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table
 // TODO: remove this after tiflash supports restore
-func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
 	var updateReplica bool
-	for _, table := range tables {
-		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+	// must use new table id to search placement rules
+	// here newTables and tables must have same order
+	for i, table := range tables {
+		if rule := utils.SearchPlacementRule(newTables[i].ID, placementRules, placement.Learner); rule != nil {
 			table.TiFlashReplicas = rule.Count
 			updateReplica = true
 		}
-		tableData, err := json.Marshal(table.Info)
+		tableData, err := json.Marshal(newTables[i])
 		if err != nil {
 			return errors.Trace(err)
 		}

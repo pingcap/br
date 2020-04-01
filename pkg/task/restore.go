@@ -174,7 +174,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	err = client.RemoveTiFlashReplica(tables, placementRules)
+
+	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
 	if err != nil {
 		return err
 	}
