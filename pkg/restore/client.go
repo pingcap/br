@@ -347,7 +347,8 @@ func (rc *Client) CreateTables(
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table
 // TODO: remove this after tiflash supports restore
-func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
+func (rc *Client) RemoveTiFlashReplica(
+	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
 	var updateReplica bool
 	// must use new table id to search placement rules
