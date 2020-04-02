@@ -21,13 +21,13 @@ require (
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200330093347-98f910b71904
+	github.com/pingcap/kvproto v0.0.0-20200331072206-c211b473fe43
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
-	github.com/pingcap/parser v0.0.0-20200326020624-68d423641be5
-	github.com/pingcap/pd/v4 v4.0.0-beta.1.0.20200305072537-61d9f9cc35d3
-	github.com/pingcap/tidb v0.0.0-20200401141416-959eca8f3a39
-	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible
-	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
+	github.com/pingcap/parser v3.1.0-beta.2.0.20200318061433-f0b8f6cdca0d+incompatible
+	github.com/pingcap/pd/v3 v3.1.0-beta.2.0.20200312100832-1206736bd050
+	github.com/pingcap/tidb v1.1.0-beta.0.20200401121410-5854181fbbe0
+	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200317092225-ed6b2a87af54+incompatible
+	github.com/pingcap/tipb v0.0.0-20200401093201-cc8b75c53383
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.4.1
 	github.com/sirupsen/logrus v1.4.2

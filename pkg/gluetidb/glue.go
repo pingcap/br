@@ -7,7 +7,7 @@ import (
 
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	pd "github.com/pingcap/pd/v4/client"
+	pd "github.com/pingcap/pd/v3/client"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
