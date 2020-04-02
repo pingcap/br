@@ -72,6 +72,10 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	}
 	rules, newTables, err := client.CreateTables(s.mock.Domain, tables, 0)
 	c.Assert(err, IsNil)
+	// make sure tables and newTables have same order
+	for i, t := range tables {
+		c.Assert(newTables[i].Name, Equals, t.Info.Name)
+	}
 	for _, nt := range newTables {
 		c.Assert(nt.Name.String(), Matches, "test[0-3]")
 	}
