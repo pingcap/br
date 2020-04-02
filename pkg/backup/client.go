@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -223,6 +224,16 @@ func BuildBackupRangeAndSchema(
 				zap.Stringer("table", tableInfo.Name),
 				zap.Int64("AutoIncID", globalAutoID))
 
+			// remove all non-public indices
+			n := 0
+			for _, index := range tableInfo.Indices {
+				if index.State == model.StatePublic {
+					tableInfo.Indices[n] = index
+					n++
+				}
+			}
+			tableInfo.Indices = tableInfo.Indices[:n]
+
 			if dbData == nil {
 				dbData, err = json.Marshal(dbInfo)
 				if err != nil {
@@ -254,7 +265,8 @@ func BuildBackupRangeAndSchema(
 	}
 
 	if backupSchemas.Len() == 0 {
-		return nil, nil, errors.New("nothing to backup")
+		log.Info("nothing to backup")
+		return nil, nil, nil
 	}
 	return ranges, backupSchemas, nil
 }
@@ -309,7 +321,7 @@ func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []rtree.Range,
 	req kvproto.BackupRequest,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -374,7 +386,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req kvproto.BackupRequest,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
 	defer func() {
@@ -486,7 +498,7 @@ func (bc *Client) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
@@ -561,7 +573,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				updateCh <- struct{}{}
+				updateCh.Inc()
 			}
 		}
 

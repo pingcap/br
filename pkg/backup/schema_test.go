@@ -5,6 +5,7 @@ package backup
 import (
 	"context"
 	"math"
+	"sync/atomic"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb-tools/pkg/filter"
@@ -30,6 +31,24 @@ func (s *testBackupSchemaSuite) TearDownSuite(c *C) {
 	testleak.AfterTest(c)()
 }
 
+type simpleProgress struct {
+	counter int64
+}
+
+func (sp *simpleProgress) Inc() {
+	atomic.AddInt64(&sp.counter, 1)
+}
+
+func (sp *simpleProgress) Close() {}
+
+func (sp *simpleProgress) reset() {
+	atomic.StoreInt64(&sp.counter, 0)
+}
+
+func (sp *simpleProgress) get() int64 {
+	return atomic.LoadInt64(&sp.counter)
+}
+
 func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
@@ -43,7 +62,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	_, backupSchemas, err := BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	// Database is not exist.
@@ -53,15 +72,15 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
-	// Empty databse.
+	// Empty database.
 	noFilter, err := filter.New(false, &filter.Rules{})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	tk.MustExec("use test")
@@ -73,10 +92,10 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
-	updateCh := make(chan struct{}, 2)
+	updateCh := new(simpleProgress)
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, updateCh)
 	schemas, err := backupSchemas.finishTableChecksum()
-	<-updateCh
+	c.Assert(updateCh.get(), Equals, int64(1))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 1)
 	// Cluster returns a dummy checksum (all fields are 1).
@@ -93,10 +112,10 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
+	updateCh.reset()
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, updateCh)
 	schemas, err = backupSchemas.finishTableChecksum()
-	<-updateCh
-	<-updateCh
+	c.Assert(updateCh.get(), Equals, int64(2))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 2)
 	// Cluster returns a dummy checksum (all fields are 1).

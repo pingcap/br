@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -70,57 +69,28 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 // CreateDatabase executes a CREATE DATABASE SQL.
 func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
-	createSQL, err := db.se.ShowCreateDatabase(schema)
+	err := db.se.CreateDatabase(ctx, schema)
 	if err != nil {
-		log.Error("build create database SQL failed", zap.Stringer("db", schema.Name), zap.Error(err))
-		return errors.Trace(err)
-	}
-	err = db.se.Execute(ctx, createSQL)
-	if err != nil {
-		log.Error("create database failed", zap.String("query", createSQL), zap.Error(err))
+		log.Error("create database failed", zap.Stringer("db", schema.Name), zap.Error(err))
 	}
 	return errors.Trace(err)
 }
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	tableInfo := table.Info
-	createSQL, err := db.se.ShowCreateTable(tableInfo, newIDAllocator(tableInfo.AutoIncID))
-	if err != nil {
-		log.Error(
-			"build create table SQL failed",
-			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", tableInfo.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
-	err = db.se.Execute(ctx, switchDbSQL)
-	if err != nil {
-		log.Error("switch db failed",
-			zap.String("SQL", switchDbSQL),
-			zap.Stringer("db", table.Db.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	// Insert `IF NOT EXISTS` statement to skip the created tables
-	words := strings.SplitN(createSQL, " ", 3)
-	if len(words) > 2 && strings.ToUpper(words[0]) == "CREATE" && strings.ToUpper(words[1]) == "TABLE" {
-		createSQL = "CREATE TABLE IF NOT EXISTS " + words[2]
-	}
-	err = db.se.Execute(ctx, createSQL)
+	err := db.se.CreateTable(ctx, table.Db.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
-			zap.String("SQL", createSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
 	alterAutoIncIDSQL := fmt.Sprintf(
-		"alter table %s auto_increment = %d",
-		utils.EncloseName(tableInfo.Name.O),
-		tableInfo.AutoIncID)
+		"alter table %s.%s auto_increment = %d",
+		utils.EncloseName(table.Db.Name.O),
+		utils.EncloseName(table.Info.Name.O),
+		table.Info.AutoIncID)
 	err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
@@ -203,19 +173,26 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 		}
 	}
 
+	type namePair struct {
+		db    string
+		table string
+	}
+
 	for _, table := range tables {
 		tableIDs := make(map[int64]bool)
 		tableIDs[table.Info.ID] = true
-		tableNames := make(map[string]bool)
-		tableNames[table.Info.Name.String()] = true
+		tableNames := make(map[namePair]bool)
+		name := namePair{table.Db.Name.String(), table.Info.Name.String()}
+		tableNames[name] = true
 		for _, job := range allDDLJobs {
 			if job.BinlogInfo.TableInfo != nil {
-				if tableIDs[job.TableID] || tableNames[job.BinlogInfo.TableInfo.Name.String()] {
+				name := namePair{job.SchemaName, job.BinlogInfo.TableInfo.Name.String()}
+				if tableIDs[job.TableID] || tableNames[name] {
 					ddlJobs = append(ddlJobs, job)
 					tableIDs[job.TableID] = true
 					// For truncate table, the id may be changed
 					tableIDs[job.BinlogInfo.TableInfo.ID] = true
-					tableNames[job.BinlogInfo.TableInfo.Name.String()] = true
+					tableNames[name] = true
 				}
 			}
 		}

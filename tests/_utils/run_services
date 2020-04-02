@@ -38,6 +38,9 @@ stop_services() {
 start_services() {
     stop_services
 
+    TIDB_CONFIG="${1-tests}/config/tidb.toml"
+    TIKV_CONFIG="${1-tests}/config/tikv.toml"
+
     echo "Starting PD..."
     mkdir -p "$TEST_DIR/pd"
     bin/pd-server \
@@ -63,7 +66,7 @@ start_services() {
             -A "$TIKV_ADDR$i" \
             --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
-            -C "tests/config/tikv.toml" \
+            -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
     done
 
@@ -83,7 +86,7 @@ start_services() {
         --status 10080 \
         --store tikv \
         --path "$PD_ADDR" \
-        --config "tests/config/tidb.toml" \
+        --config "$TIDB_CONFIG" \
         --log-file "$TEST_DIR/tidb.log" &
 
     echo "Verifying TiDB is started..."

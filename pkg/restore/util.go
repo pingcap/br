@@ -16,55 +16,16 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-// idAllocator always returns a specified ID
-type idAllocator struct {
-	id int64
-}
-
-func newIDAllocator(id int64) *idAllocator {
-	return &idAllocator{id: id}
-}
-
-func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
-	return alloc.id, alloc.id, nil
-}
-
-func (alloc *idAllocator) AllocSeqCache(sequenceID int64) (min int64, max int64, round int64, err error) {
-	// TODO fix this function after support backup sequence
-	return 0, 0, 0, nil
-}
-
-func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {
-	return nil
-}
-
-func (alloc *idAllocator) Base() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) End() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
-	return alloc.id, nil
-}
-
-func (alloc *idAllocator) GetType() autoid.AllocatorType {
-	return autoid.RowIDAllocType
-}
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -309,6 +270,9 @@ func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 }
 
 func truncateTS(key []byte) []byte {
+	if len(key) == 0 {
+		return nil
+	}
 	return key[:len(key)-8]
 }
 
@@ -320,7 +284,7 @@ func SplitRanges(
 	client *Client,
 	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -328,18 +292,10 @@ func SplitRanges(
 		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	storeMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		storeMap[store.GetId()] = true
-	}
 
-	return splitter.Split(ctx, ranges, rewriteRules, storeMap, func(keys [][]byte) {
+	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	})
 }
@@ -411,4 +367,60 @@ func paginateScanRegion(
 		}
 	}
 	return regions, nil
+}
+
+func hasRejectStorePeer(
+	ctx context.Context,
+	client SplitClient,
+	regionID uint64,
+	rejectStores map[uint64]bool,
+) (bool, error) {
+	regionInfo, err := client.GetRegionByID(ctx, regionID)
+	if err != nil {
+		return false, err
+	}
+	if regionInfo == nil {
+		return false, nil
+	}
+	for _, peer := range regionInfo.Region.GetPeers() {
+		if rejectStores[peer.GetStoreId()] {
+			return true, nil
+		}
+	}
+	retryTimes := ctx.Value(retryTimes).(int)
+	if retryTimes > 10 {
+		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+	}
+	return false, nil
+}
+
+func waitForRemoveRejectStores(
+	ctx context.Context,
+	client SplitClient,
+	regionInfo *RegionInfo,
+	rejectStores map[uint64]bool,
+) bool {
+	interval := RejectStoreCheckInterval
+	regionID := regionInfo.Region.GetId()
+	for i := 0; i < RejectStoreCheckRetryTimes; i++ {
+		ctx1 := context.WithValue(ctx, retryTimes, i)
+		ok, err := hasRejectStorePeer(ctx1, client, regionID, rejectStores)
+		if err != nil {
+			log.Warn("wait for rejecting store failed",
+				zap.Stringer("region", regionInfo.Region),
+				zap.Error(err))
+			return false
+		}
+		// Do not have any peer in the rejected store, return true
+		if !ok {
+			return true
+		}
+		interval = 2 * interval
+		if interval > RejectStoreMaxCheckInterval {
+			interval = RejectStoreMaxCheckInterval
+		}
+		time.Sleep(interval)
+	}
+
+	return false
 }

@@ -21,11 +21,11 @@ require (
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75
+	github.com/pingcap/kvproto v0.0.0-20200330093347-98f910b71904
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
-	github.com/pingcap/parser v0.0.0-20200305120128-bde9faa0df84
+	github.com/pingcap/parser v0.0.0-20200326020624-68d423641be5
 	github.com/pingcap/pd/v4 v4.0.0-beta.1.0.20200305072537-61d9f9cc35d3
-	github.com/pingcap/tidb v1.1.0-beta.0.20200310133602-7c39e5e5e0bc
+	github.com/pingcap/tidb v0.0.0-20200401141416-959eca8f3a39
 	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible
 	github.com/pingcap/tipb v0.0.0-20200212061130-c4d518eb1d60
 	github.com/prometheus/client_golang v1.0.0
@@ -37,7 +37,7 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.opencensus.io v0.22.2 // indirect
-	go.uber.org/zap v1.14.0
+	go.uber.org/zap v1.14.1
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
