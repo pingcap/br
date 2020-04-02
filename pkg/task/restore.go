@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
+	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
@@ -148,6 +149,15 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	// execute DDL first
+
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	config.StoreGlobalConfig(conf)
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
