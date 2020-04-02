@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	flagOnline = "online"
+	flagOnline   = "online"
+	flagNoSchema = "no-schema"
 
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256
@@ -55,19 +56,28 @@ var (
 type RestoreConfig struct {
 	Config
 
-	Online bool `json:"online" toml:"online"`
+	Online   bool `json:"online" toml:"online"`
+	NoSchema bool `json:"no-schema" toml:"no-schema"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
-	flags.Bool("online", false, "(experimental) Whether online when restore")
+	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
+	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
+
+	// Do not expose this flag
+	_ = flags.MarkHidden(flagNoSchema)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
 func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	cfg.Online, err = flags.GetBool(flagOnline)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -111,6 +121,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if cfg.Online {
 		client.EnableOnline()
 	}
+	if cfg.NoSchema {
+		client.EnableSkipCreateSQL()
+	}
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
 		return err
@@ -128,12 +141,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
-	files, tables, err := filterRestoreFiles(client, cfg)
+	files, tables, dbs, err := filterRestoreFiles(client, cfg)
 	if err != nil {
 		return err
-	}
-	if len(files) == 0 {
-		return errors.New("all files are filtered out from the backup archive, nothing to restore")
 	}
 
 	var newTS uint64
@@ -147,10 +157,25 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	// execute DDL first
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// nothing to restore, maybe only ddl changes in incremental restore
+	if len(files) == 0 {
+		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		return nil
+	}
+
+	for _, db := range dbs {
+		err = client.CreateDatabase(db.Info)
+		if err != nil {
+			return err
+		}
+	}
+
 	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
 	if err != nil {
 		return err
@@ -177,6 +202,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err = splitPrepareWork(ctx, client, newTables); err != nil {
 		return err
 	}
+	splitPostWork(ctx, client, newTables)
 
 	ranges = restore.AttachFilesToRanges(files, ranges)
 
@@ -192,6 +218,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	// Always run the post-work even on error, so we don't stuck in the import
+	// mode or emptied schedulers
+	defer restorePostWork(ctx, client, mgr, clusterCfg)
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -238,12 +267,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 			return err
 		}
 	}
-	// Restore files success.
-
-	// Always run the post-work even on error, so we don't stuck in the import
-	// mode or emptied schedulers
-	restorePostWork(ctx, client, mgr, clusterCfg)
-	splitPostWork(ctx, client, newTables)
 
 	// Restore has finished.
 	updateCh.Close()
@@ -266,10 +289,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, err error) {
+) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database, err error) {
 	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	for _, db := range client.GetDatabases() {
@@ -280,17 +303,13 @@ func filterRestoreFiles(
 			}
 
 			if !createdDatabase {
-				if err = client.CreateDatabase(db.Info); err != nil {
-					return nil, nil, err
-				}
+				dbs = append(dbs, db)
 				createdDatabase = true
 			}
-
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
 	}
-
 	return
 }
 

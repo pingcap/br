@@ -126,6 +126,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
+	// nothing to backup
+	if ranges == nil {
+		return nil
+	}
 
 	ddlJobs := make([]*model.Job, 0)
 	if cfg.LastBackupTS > 0 {
