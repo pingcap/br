@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -5,6 +7,7 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 
+	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -13,16 +16,27 @@ import (
 func runBackupCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.BackupConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
 		return err
 	}
-	return task.RunBackup(GetDefaultContext(), cmdName, &cfg)
+	return task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+}
+
+func runBackupRawCommand(command *cobra.Command, cmdName string) error {
+	cfg := task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
+		return err
+	}
+	return task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
 }
 
 // NewBackupCommand return a full backup subcommand.
 func NewBackupCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "backup",
-		Short: "backup a TiDB cluster",
+		Use:          "backup",
+		Short:        "backup a TiDB/TiKV cluster",
+		SilenceUsage: true,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -43,6 +57,7 @@ func NewBackupCommand() *cobra.Command {
 		newFullBackupCommand(),
 		newDbBackupCommand(),
 		newTableBackupCommand(),
+		newRawBackupCommand(),
 	)
 
 	task.DefineBackupFlags(command.PersistentFlags())
@@ -85,5 +100,20 @@ func newTableBackupCommand() *cobra.Command {
 		},
 	}
 	task.DefineTableFlags(command)
+	return command
+}
+
+// newRawBackupCommand return a raw kv range backup subcommand.
+func newRawBackupCommand() *cobra.Command {
+	// TODO: remove experimental tag if it's stable
+	command := &cobra.Command{
+		Use:   "raw",
+		Short: "(experimental) backup a raw kv range from TiKV cluster",
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runBackupRawCommand(command, "Raw backup")
+		},
+	}
+
+	task.DefineRawBackupFlags(command)
 	return command
 }

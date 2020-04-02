@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package summary
 
 import (
@@ -25,7 +27,7 @@ const (
 type LogCollector interface {
 	SetUnit(unit string)
 
-	CollectSuccessUnit(name string, arg interface{})
+	CollectSuccessUnit(name string, unitCount int, arg interface{})
 
 	CollectFailureUnit(name string, reason error)
 
@@ -33,28 +35,59 @@ type LogCollector interface {
 
 	CollectInt(name string, t int)
 
+	SetSuccessStatus(success bool)
+
 	Summary(name string)
 }
 
-var collector = newLogCollector()
+type logFunc func(msg string, fields ...zap.Field)
 
-type logCollector struct {
-	mu             sync.Mutex
-	unit           string
-	unitCount      int
-	successCosts   map[string]time.Duration
-	successData    map[string]uint64
-	failureReasons map[string]error
-	fields         []zap.Field
+var collector LogCollector = newLogCollector(log.Info)
+
+// InitCollector initilize global collector instance.
+func InitCollector( // revive:disable-line:flag-parameter
+	hasLogFile bool,
+) {
+	logF := log.L().Info
+	if hasLogFile {
+		conf := new(log.Config)
+		// Always duplicate summary to stdout.
+		logger, _, err := log.InitLogger(conf)
+		if err == nil {
+			logF = func(msg string, fields ...zap.Field) {
+				logger.Info(msg, fields...)
+				log.Info(msg, fields...)
+			}
+		}
+	}
+	collector = newLogCollector(logF)
 }
 
-func newLogCollector() LogCollector {
+type logCollector struct {
+	mu               sync.Mutex
+	unit             string
+	successUnitCount int
+	failureUnitCount int
+	successCosts     map[string]time.Duration
+	successData      map[string]uint64
+	failureReasons   map[string]error
+	durations        map[string]time.Duration
+	ints             map[string]int
+	successStatus    bool
+
+	log logFunc
+}
+
+func newLogCollector(log logFunc) LogCollector {
 	return &logCollector{
-		unitCount:      0,
-		fields:         make([]zap.Field, 0),
-		successCosts:   make(map[string]time.Duration),
-		successData:    make(map[string]uint64),
-		failureReasons: make(map[string]error),
+		successUnitCount: 0,
+		failureUnitCount: 0,
+		successCosts:     make(map[string]time.Duration),
+		successData:      make(map[string]uint64),
+		failureReasons:   make(map[string]error),
+		durations:        make(map[string]time.Duration),
+		ints:             make(map[string]int),
+		log:              log,
 	}
 }
 
@@ -64,7 +97,7 @@ func (tc *logCollector) SetUnit(unit string) {
 	tc.unit = unit
 }
 
-func (tc *logCollector) CollectSuccessUnit(name string, arg interface{}) {
+func (tc *logCollector) CollectSuccessUnit(name string, unitCount int, arg interface{}) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 
@@ -72,7 +105,7 @@ func (tc *logCollector) CollectSuccessUnit(name string, arg interface{}) {
 	case time.Duration:
 		if _, ok := tc.successCosts[name]; !ok {
 			tc.successCosts[name] = v
-			tc.unitCount++
+			tc.successUnitCount += unitCount
 		} else {
 			tc.successCosts[name] += v
 		}
@@ -90,26 +123,33 @@ func (tc *logCollector) CollectFailureUnit(name string, reason error) {
 	defer tc.mu.Unlock()
 	if _, ok := tc.failureReasons[name]; !ok {
 		tc.failureReasons[name] = reason
-		tc.unitCount++
+		tc.failureUnitCount++
 	}
 }
 
 func (tc *logCollector) CollectDuration(name string, t time.Duration) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	tc.fields = append(tc.fields, zap.Duration(name, t))
+	tc.durations[name] += t
 }
 
 func (tc *logCollector) CollectInt(name string, t int) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	tc.fields = append(tc.fields, zap.Int(name, t))
+	tc.ints[name] += t
+}
+
+func (tc *logCollector) SetSuccessStatus(success bool) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.successStatus = success
 }
 
 func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
-		tc.fields = tc.fields[:0]
+		tc.durations = make(map[string]time.Duration)
+		tc.ints = make(map[string]int)
 		tc.successCosts = make(map[string]time.Duration)
 		tc.failureReasons = make(map[string]error)
 		tc.mu.Unlock()
@@ -119,27 +159,25 @@ func (tc *logCollector) Summary(name string) {
 	switch tc.unit {
 	case BackupUnit:
 		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
-			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
-		if len(tc.failureReasons) != 0 {
-			msg += ", failed ranges"
-		}
+			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
 	case RestoreUnit:
-		msg = fmt.Sprintf("total restore tables: %d, total success: %d, total failed: %d",
-			tc.unitCount, len(tc.successCosts), len(tc.failureReasons))
-		if len(tc.failureReasons) != 0 {
-			msg += ", failed tables"
-		}
+		msg = fmt.Sprintf("total restore files: %d, total success: %d, total failed: %d",
+			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
 	}
 
-	logFields := tc.fields
-	if len(tc.failureReasons) != 0 {
-		names := make([]string, 0, len(tc.failureReasons))
-		for name := range tc.failureReasons {
-			// logFields = append(logFields, zap.NamedError(name, reason))
-			names = append(names, name)
+	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints))
+	for key, val := range tc.durations {
+		logFields = append(logFields, zap.Duration(key, val))
+	}
+	for key, val := range tc.ints {
+		logFields = append(logFields, zap.Int(key, val))
+	}
+
+	if len(tc.failureReasons) != 0 || !tc.successStatus {
+		for unitName, reason := range tc.failureReasons {
+			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}
-		logFields = append(logFields, zap.Strings(msg, names))
-		log.Info(name+" summary", logFields...)
+		log.Info(name+" Failed summary : "+msg, logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
@@ -162,7 +200,7 @@ func (tc *logCollector) Summary(name string) {
 		msg += fmt.Sprintf(", %s: %d", name, data)
 	}
 
-	log.Info(name+" summary: "+msg, logFields...)
+	tc.log(name+" Success summary: "+msg, logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside

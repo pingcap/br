@@ -36,6 +36,55 @@ Notice BR supports building with Go version `Go >= 1.13`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
+## Quick start
+
+```sh
+# Start TiDB cluster
+docker-compose -f docker-compose.yaml rm -s -v && \
+docker-compose -f docker-compose.yaml build && \
+docker-compose -f docker-compose.yaml up --remove-orphans
+
+# Attach to control container to run BR
+docker exec -it br_control_1 bash
+
+# Load testing data to TiDB
+go-ycsb load mysql -p workload=core \
+    -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root \
+    -p recordcount=100000 -p threadcount=100
+
+# How many rows do we get? 100000 rows.
+mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+
+# Build BR and backup!
+make build && \
+bin/br backup full --pd pd0:2379 --storage "local:///data/backup/full" \
+    --log-file "/logs/br_backup.log"
+
+# Let's drop database.
+mysql -uroot -htidb -P4000 -E -e "DROP DATABASE test; SHOW DATABASES;"
+
+# Restore!
+bin/br restore full --pd pd0:2379 --storage "local:///data/backup/full" \
+    --log-file "/logs/br_restore.log"
+
+# How many rows do we get again? Expected to be 100000 rows.
+mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+
+# Test S3 compatible storage (MinIO).
+# Create a bucket to save backup by mc (a MinIO Client).
+mc config host add minio $S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY && \
+mc mb minio/mybucket
+
+# Backup to S3 compatible storage.
+bin/br backup full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
+
+# Drop database and restore!
+mysql -uroot -htidb -P4000 -E -e "DROP DATABASE test; SHOW DATABASES;" && \
+bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
+```
+
 ## Contributing
 
 Contributions are welcomed and greatly appreciated. See [CONTRIBUTING](./CONTRIBUTING.md)

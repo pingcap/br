@@ -11,6 +11,7 @@ programs.
 	* `bin/pd-server`
     * `bin/pd-ctl`
 	* `bin/go-ycsb`
+	* `bin/minio`
 
     The versions must be ≥2.1.0 as usual.
 
@@ -18,6 +19,7 @@ programs.
 
     * `mysql` (the CLI client)
     * `curl`
+    * `s3cmd`
 
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
@@ -32,7 +34,7 @@ Run `make integration_test` to execute the integration tests. This command will
 2. Check that all 6 required executables and `br` executable exist
 3. Execute `tests/run.sh`
 
-If the first tow steps are done before, you could also run `tests/run.sh` directly.
+If the first two steps are done before, you could also run `tests/run.sh` directly.
 This script will
 
 1. Start PD, TiKV and TiDB in background with local storage

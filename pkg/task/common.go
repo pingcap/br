@@ -1,7 +1,10 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package task
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"regexp"
 	"strings"
@@ -9,12 +12,15 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	pd "github.com/pingcap/pd/v3/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.etcd.io/etcd/pkg/transport"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -49,6 +55,25 @@ type TLSConfig struct {
 	Key  string `json:"key" toml:"key"`
 }
 
+// IsEnabled checks if TLS open or not
+func (tls *TLSConfig) IsEnabled() bool {
+	return tls.CA != ""
+}
+
+// ToTLSConfig generate tls.Config
+func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
+	tlsInfo := transport.TLSInfo{
+		CertFile:      tls.Cert,
+		KeyFile:       tls.Key,
+		TrustedCAFile: tls.CA,
+	}
+	tlsConfig, err := tlsInfo.ClientConfig()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return tlsConfig, nil
+}
+
 // Config is the common configuration for all BRIE tasks.
 type Config struct {
 	storage.BackendOptions
@@ -70,15 +95,20 @@ type Config struct {
 // DefineCommonFlags defines the flags common to all BRIE commands.
 func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCreds, "c", true, "Whether send credentials to tikv")
-	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "local:///path/to/save"`)
+	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3://bucket/path/prefix"`)
 	flags.StringSliceP(flagPD, "u", []string{"127.0.0.1:2379"}, "PD address")
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")
 	flags.String(flagKey, "", "Private key path for TLS connection")
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
-	flags.Uint32(flagConcurrency, 4, "The size of thread pool on each node that executes the task")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+
+	// Default concurrency is different for backup and restore.
+	// Leave it 0 and let them adjust the value.
+	flags.Uint32(flagConcurrency, 0, "The size of thread pool on each node that executes the task")
+	// It may confuse users , so just hide it.
+	_ = flags.MarkHidden(flagConcurrency)
 
 	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
@@ -178,18 +208,39 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context, pds []string) (*conn.Mgr, error) {
+func newMgr(
+	ctx context.Context,
+	g glue.Glue,
+	pds []string,
+	tlsConfig TLSConfig,
+	storeBehavior conn.StoreBehavior,
+) (*conn.Mgr, error) {
+	var (
+		tlsConf *tls.Config
+		err     error
+	)
 	pdAddress := strings.Join(pds, ",")
 	if len(pdAddress) == 0 {
 		return nil, errors.New("pd address can not be empty")
 	}
 
+	securityOption := pd.SecurityOption{}
+	if tlsConfig.IsEnabled() {
+		securityOption.CAPath = tlsConfig.CA
+		securityOption.CertPath = tlsConfig.Cert
+		securityOption.KeyPath = tlsConfig.Key
+		tlsConf, err = tlsConfig.ToTLSConfig()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Disable GC because TiDB enables GC already.
-	store, err := tikv.Driver{}.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress))
+	store, err := g.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress), securityOption)
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, pdAddress, store.(tikv.Storage))
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior)
 }
 
 // GetStorage gets the storage backend from the config.
@@ -211,13 +262,14 @@ func GetStorage(
 // ReadBackupMeta reads the backupmeta file from the storage.
 func ReadBackupMeta(
 	ctx context.Context,
+	fileName string,
 	cfg *Config,
 ) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	metaData, err := s.Read(ctx, utils.MetaFile)
+	metaData, err := s.Read(ctx, fileName)
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}

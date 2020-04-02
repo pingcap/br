@@ -1,8 +1,11 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -13,48 +16,16 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-// idAllocator always returns a specified ID
-type idAllocator struct {
-	id int64
-}
-
-func newIDAllocator(id int64) *idAllocator {
-	return &idAllocator{id: id}
-}
-
-func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
-	return alloc.id, alloc.id, nil
-}
-
-func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {
-	return nil
-}
-
-func (alloc *idAllocator) Base() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) End() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
-	return alloc.id, nil
-}
-
-func (alloc *idAllocator) GetType() autoid.AllocatorType {
-	return autoid.RowIDAllocType
-}
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -153,8 +124,8 @@ func getSSTMetaFromFile(
 func ValidateFileRanges(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
-) ([]Range, error) {
-	ranges := make([]Range, 0, len(files))
+) ([]rtree.Range, error) {
+	ranges := make([]rtree.Range, 0, len(files))
 	fileAppended := make(map[string]bool)
 
 	for _, file := range files {
@@ -173,7 +144,7 @@ func ValidateFileRanges(
 					zap.Stringer("file", file))
 				return nil, errors.New("table ids dont match")
 			}
-			ranges = append(ranges, Range{
+			ranges = append(ranges, rtree.Range{
 				StartKey: file.GetStartKey(),
 				EndKey:   file.GetEndKey(),
 			})
@@ -181,6 +152,39 @@ func ValidateFileRanges(
 		}
 	}
 	return ranges, nil
+}
+
+// AttachFilesToRanges attach files to ranges.
+// Panic if range is overlapped or no range for files.
+func AttachFilesToRanges(
+	files []*backup.File,
+	ranges []rtree.Range,
+) []rtree.Range {
+	rangeTree := rtree.NewRangeTree()
+	for _, rg := range ranges {
+		rangeTree.Update(rg)
+	}
+	for _, f := range files {
+
+		rg := rangeTree.Find(&rtree.Range{
+			StartKey: f.GetStartKey(),
+			EndKey:   f.GetEndKey(),
+		})
+		if rg == nil {
+			log.Fatal("range not found",
+				zap.Binary("startKey", f.GetStartKey()),
+				zap.Binary("endKey", f.GetEndKey()))
+		}
+		file := *f
+		rg.Files = append(rg.Files, &file)
+	}
+	if rangeTree.Len() != len(ranges) {
+		log.Fatal("ranges overlapped",
+			zap.Int("ranges length", len(ranges)),
+			zap.Int("tree length", rangeTree.Len()))
+	}
+	sortedRanges := rangeTree.GetSortedRanges()
+	return sortedRanges
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
@@ -266,6 +270,9 @@ func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 }
 
 func truncateTS(key []byte) []byte {
+	if len(key) == 0 {
+		return nil
+	}
 	return key[:len(key)-8]
 }
 
@@ -275,19 +282,20 @@ func truncateTS(key []byte) []byte {
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
-	ranges []Range,
+	ranges []rtree.Range,
 	rewriteRules *RewriteRules,
-	updateCh chan<- struct{},
+	updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		summary.CollectDuration("split region", elapsed)
 	}()
-	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient()))
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
+
 	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
-			updateCh <- struct{}{}
+			updateCh.Inc()
 		}
 	})
 }
@@ -299,6 +307,10 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 	if startID == endID {
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
+			log.Error("cannot find rewrite rule",
+				zap.Binary("startKey", file.GetStartKey()),
+				zap.Reflect("rewrite table", rewriteRules.Table),
+				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.New("cannot find rewrite rule for start key")
 			return
 		}
@@ -325,11 +337,90 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// escape the identifier for pretty-printing.
-// For instance, the identifier "foo `bar`" will become "`foo ``bar```".
-// The sqlMode controls whether to escape with backquotes (`) or double quotes
-// (`"`) depending on whether mysql.ModeANSIQuotes is enabled.
-func escapeTableName(cis model.CIStr) string {
-	quote := "`"
-	return quote + strings.Replace(cis.O, quote, quote+quote, -1) + quote
+// paginateScanRegion scan regions with a limit pagination and
+// return all regions at once.
+// It reduces max gRPC message size.
+func paginateScanRegion(
+	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
+) ([]*RegionInfo, error) {
+	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
+		return nil, errors.Errorf("startKey >= endKey, startKey %s, endkey %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
+
+	regions := []*RegionInfo{}
+	for {
+		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		regions = append(regions, batch...)
+		if len(batch) < limit {
+			// No more region
+			break
+		}
+		startKey = batch[len(batch)-1].Region.GetEndKey()
+		if len(startKey) == 0 ||
+			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
+			// All key space have scanned
+			break
+		}
+	}
+	return regions, nil
+}
+
+func hasRejectStorePeer(
+	ctx context.Context,
+	client SplitClient,
+	regionID uint64,
+	rejectStores map[uint64]bool,
+) (bool, error) {
+	regionInfo, err := client.GetRegionByID(ctx, regionID)
+	if err != nil {
+		return false, err
+	}
+	if regionInfo == nil {
+		return false, nil
+	}
+	for _, peer := range regionInfo.Region.GetPeers() {
+		if rejectStores[peer.GetStoreId()] {
+			return true, nil
+		}
+	}
+	retryTimes := ctx.Value(retryTimes).(int)
+	if retryTimes > 10 {
+		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+	}
+	return false, nil
+}
+
+func waitForRemoveRejectStores(
+	ctx context.Context,
+	client SplitClient,
+	regionInfo *RegionInfo,
+	rejectStores map[uint64]bool,
+) bool {
+	interval := RejectStoreCheckInterval
+	regionID := regionInfo.Region.GetId()
+	for i := 0; i < RejectStoreCheckRetryTimes; i++ {
+		ctx1 := context.WithValue(ctx, retryTimes, i)
+		ok, err := hasRejectStorePeer(ctx1, client, regionID, rejectStores)
+		if err != nil {
+			log.Warn("wait for rejecting store failed",
+				zap.Stringer("region", regionInfo.Region),
+				zap.Error(err))
+			return false
+		}
+		// Do not have any peer in the rejected store, return true
+		if !ok {
+			return true
+		}
+		interval = 2 * interval
+		if interval > RejectStoreMaxCheckInterval {
+			interval = RejectStoreMaxCheckInterval
+		}
+		time.Sleep(interval)
+	}
+
+	return false
 }

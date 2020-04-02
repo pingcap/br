@@ -1,0 +1,203 @@
+#!/bin/sh
+#
+# Copyright 2019 PingCAP, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -eu
+
+TEST_DIR=/tmp/backup_restore_test
+
+PD_ADDR="127.0.0.1:2379"
+TIDB_IP="127.0.0.1"
+TIDB_PORT="4000"
+TIDB_ADDR="127.0.0.1:4000"
+TIDB_STATUS_ADDR="127.0.0.1:10080"
+# actaul tikv_addr are TIKV_ADDR${i}
+TIKV_ADDR="127.0.0.1:2016"
+TIKV_STATUS_ADDR="127.0.0.1:2018"
+TIKV_COUNT=4
+
+stop_services() {
+    killall -9 tikv-server || true
+    killall -9 pd-server || true
+    killall -9 tidb-server || true
+
+    find "$TEST_DIR" -maxdepth 1 -not -path "$TEST_DIR" -not -name "*.log" | xargs rm -r || true
+}
+
+start_services() {
+    stop_services
+
+    TIDB_CONFIG="${1-tests}/config/tidb.toml"
+    TIKV_CONFIG="${1-tests}/config/tikv.toml"
+
+    echo "Starting PD..."
+    mkdir -p "$TEST_DIR/pd"
+    bin/pd-server \
+        --client-urls "http://$PD_ADDR" \
+        --log-file "$TEST_DIR/pd.log" \
+        --data-dir "$TEST_DIR/pd" &
+    # wait until PD is online...
+    i=0
+    while ! curl -o /dev/null -sf "http://$PD_ADDR/pd/api/v1/version"; do
+       i=$((i+1))
+       if [ "$i" -gt 20 ]; then
+          echo 'Failed to start PD'
+          exit 1
+       fi
+       sleep 3
+    done
+
+    echo "Starting TiKV..."
+    for i in $(seq $TIKV_COUNT); do
+        mkdir -p "$TEST_DIR/tikv${i}"
+        bin/tikv-server \
+            --pd "$PD_ADDR" \
+            -A "$TIKV_ADDR$i" \
+            --status-addr "$TIKV_STATUS_ADDR$i" \
+            --log-file "$TEST_DIR/tikv${i}.log" \
+            -C "$TIKV_CONFIG" \
+            -s "$TEST_DIR/tikv${i}" &
+    done
+
+    echo "Waiting initializing TiKV..."
+    while ! curl -sf "http://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
+       i=$((i+1))
+       if [ "$i" -gt 20 ]; then
+          echo 'Failed to initialize TiKV cluster'
+          exit 1
+       fi
+       sleep 3
+    done
+
+    echo "Starting TiDB..."
+    bin/tidb-server \
+        -P 4000 \
+        --status 10080 \
+        --store tikv \
+        --path "$PD_ADDR" \
+        --config "$TIDB_CONFIG" \
+        --log-file "$TEST_DIR/tidb.log" &
+
+    echo "Verifying TiDB is started..."
+    i=0
+    while ! curl -o /dev/null -sf "http://$TIDB_IP:10080/status"; do
+        i=$((i+1))
+        if [ "$i" -gt 50 ]; then
+            echo 'Failed to start TiDB'
+            exit 1
+        fi
+        sleep 3
+    done
+
+    i=0
+    while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
+        i=$((i+1))
+        if [ "$i" -gt 20 ]; then
+            echo 'Failed to bootstrap cluster'
+            exit 1
+        fi
+        sleep 3
+    done
+}
+
+start_services_withTLS() {
+    stop_services
+
+    PD_CONFIG="$1/config/pd.toml"
+    TIDB_CONFIG="$1/config/tidb.toml"
+    TIKV_CONFIG="$1/config/tikv.toml"
+
+    echo $PD_CONFIG
+    echo $TIDB_CONFIG
+    echo $TIKV_CONFIG
+
+    echo "Starting PD..."
+    bin/pd-server \
+        --client-urls "https://$PD_ADDR" \
+        --log-file "$TEST_DIR/pd.log" \
+        --config "$PD_CONFIG" \
+        --data-dir "$TEST_DIR/pd" &
+    # wait until PD is online...
+    i=0
+    while ! curl --cacert $1/certificates/ca.pem \
+        --cert $1/certificates/client.pem \
+        --key $1/certificates/client-key.pem \
+        -o /dev/null -sf "https://$PD_ADDR/pd/api/v1/version"; do
+        i=$((i+1))
+        if [ "$i" -gt 20 ]; then
+            echo 'Failed to start PD'
+            exit 1
+        fi
+        sleep 3
+    done
+
+    echo "Starting TiKV..."
+    for i in $(seq $TIKV_COUNT); do
+        bin/tikv-server \
+            --pd "$PD_ADDR" \
+            -A "$TIKV_ADDR$i" \
+            --log-file "$TEST_DIR/tikv${i}.log" \
+            -C "$TIKV_CONFIG" \
+            -s "$TEST_DIR/tikv${i}" &
+    done
+
+    echo "Waiting initializing TiKV..."
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
+            --key $1/certificates/client-key.pem \
+            -sf "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
+       i=$((i+1))
+       if [ "$i" -gt 20 ]; then
+          echo 'Failed to initialize TiKV cluster'
+          exit 1
+       fi
+       sleep 3
+    done
+
+    echo "Starting TiDB..."
+    bin/tidb-server \
+        -P 4000 \
+        --status 10080 \
+        --store tikv \
+        --config "$TIDB_CONFIG" \
+        --path "$PD_ADDR" \
+        --log-file "$TEST_DIR/tidb.log" &
+
+    echo "Verifying TiDB is started..."
+    i=0
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
+            --key $1/certificates/client-key.pem \
+            -o /dev/null -sf "https://$TIDB_IP:10080/status"; do
+        i=$((i+1))
+        if [ "$i" -gt 50 ]; then
+            echo 'Failed to start TiDB'
+            exit 1
+        fi
+        sleep 3
+    done
+
+    i=0
+    while ! curl --cacert $1/certificates/ca.pem \
+            --cert $1/certificates/client.pem \
+            --key $1/certificates/client-key.pem \
+            "https://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
+        i=$((i+1))
+        if [ "$i" -gt 20 ]; then
+            echo 'Failed to bootstrap cluster'
+            exit 1
+        fi
+        sleep 3
+    done
+}

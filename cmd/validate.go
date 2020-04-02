@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package cmd
 
 import (
@@ -14,11 +16,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/pd/pkg/mock/mockid"
+	"github.com/pingcap/pd/v3/pkg/mock/mockid"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -26,8 +29,9 @@ import (
 // NewValidateCommand return a debug subcommand.
 func NewValidateCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:   "validate <subcommand>",
-		Short: "commands to check/debug backup data",
+		Use:          "validate <subcommand>",
+		Short:        "commands to check/debug backup data",
+		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
 				return err
@@ -59,7 +63,7 @@ func newCheckSumCommand() *cobra.Command {
 				return err
 			}
 
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				return err
 			}
@@ -147,7 +151,7 @@ func newBackupMetaCommand() *cobra.Command {
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			_, _, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
+			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				log.Error("read backupmeta failed", zap.Error(err))
 				return err
@@ -166,15 +170,15 @@ func newBackupMetaCommand() *cobra.Command {
 				tables = append(tables, db.Tables...)
 			}
 			// Check if the ranges of files overlapped
-			rangeTree := restore.NewRangeTree()
+			rangeTree := rtree.NewRangeTree()
 			for _, file := range files {
-				if out := rangeTree.InsertRange(restore.Range{
+				if out := rangeTree.InsertRange(rtree.Range{
 					StartKey: file.GetStartKey(),
 					EndKey:   file.GetEndKey(),
 				}); out != nil {
 					log.Error(
 						"file ranges overlapped",
-						zap.Stringer("out", out.(*restore.Range)),
+						zap.Stringer("out", out),
 						zap.Stringer("file", file),
 					)
 				}
@@ -196,19 +200,19 @@ func newBackupMetaCommand() *cobra.Command {
 				newTable := new(model.TableInfo)
 				tableID, _ := tableIDAllocator.Alloc()
 				newTable.ID = int64(tableID)
-				newTable.Name = table.Schema.Name
-				newTable.Indices = make([]*model.IndexInfo, len(table.Schema.Indices))
-				for i, indexInfo := range table.Schema.Indices {
+				newTable.Name = table.Info.Name
+				newTable.Indices = make([]*model.IndexInfo, len(table.Info.Indices))
+				for i, indexInfo := range table.Info.Indices {
 					indexID, _ := indexIDAllocator.Alloc()
 					newTable.Indices[i] = &model.IndexInfo{
 						ID:   int64(indexID),
 						Name: indexInfo.Name,
 					}
 				}
-				rules := restore.GetRewriteRules(newTable, table.Schema, 0)
+				rules := restore.GetRewriteRules(newTable, table.Info, 0)
 				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
-				tableIDMap[table.Schema.ID] = int64(tableID)
+				tableIDMap[table.Info.ID] = int64(tableID)
 			}
 			// Validate rewrite rules
 			for _, file := range files {
@@ -238,7 +242,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				return err
 			}

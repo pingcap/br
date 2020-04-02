@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -7,18 +9,19 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testBackofferSuite{})
 
 type testBackofferSuite struct {
-	mock *utils.MockCluster
+	mock *mock.Cluster
 }
 
 func (s *testBackofferSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = utils.NewMockCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
@@ -34,7 +37,7 @@ func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 		case 0:
 			return errGrpc
 		case 1:
-			return errResp
+			return errEpochNotMatch
 		case 2:
 			return errRangeIsEmpty
 		}
@@ -51,8 +54,8 @@ func (s *testBackofferSuite) TestImporterBackoffer(c *C) {
 	}
 	err = utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
-		return errResp
+		return errEpochNotMatch
 	}, &backoffer)
 	c.Assert(counter, Equals, 10)
-	c.Assert(err, Equals, errResp)
+	c.Assert(err, Equals, errEpochNotMatch)
 }

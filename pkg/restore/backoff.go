@@ -1,3 +1,5 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
@@ -11,21 +13,13 @@ import (
 )
 
 var (
-	errNotLeader           = errors.NewNoStackError("not leader")
 	errEpochNotMatch       = errors.NewNoStackError("epoch not match")
 	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
-	errRegionNotFound      = errors.NewNoStackError("region not found")
-	errResp                = errors.NewNoStackError("response error")
 	errRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
 	errRangeIsEmpty        = errors.NewNoStackError("range is empty")
 	errGrpc                = errors.NewNoStackError("gRPC error")
-
-	// TODO: add `error` field to `DownloadResponse` for distinguish the errors of gRPC
-	// and the errors of request
-	errBadFormat      = errors.NewNoStackError("bad format")
-	errWrongKeyPrefix = errors.NewNoStackError("wrong key prefix")
-	errFileCorrupted  = errors.NewNoStackError("file corrupted")
-	errCannotRead     = errors.NewNoStackError("cannot read externel storage")
+	errDownloadFailed      = errors.NewNoStackError("download sst failed")
+	errIngestFailed        = errors.NewNoStackError("ingest sst failed")
 )
 
 const (
@@ -66,7 +60,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case errResp, errGrpc, errEpochNotMatch, errNotLeader:
+	case errGrpc, errEpochNotMatch, errIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	case errRangeIsEmpty, errRewriteRuleNotFound:
@@ -89,21 +83,21 @@ func (bo *importerBackoffer) Attempt() int {
 	return bo.attempt
 }
 
-type resetTSBackoffer struct {
+type pdReqBackoffer struct {
 	attempt      int
 	delayTime    time.Duration
 	maxDelayTime time.Duration
 }
 
-func newResetTSBackoffer() utils.Backoffer {
-	return &resetTSBackoffer{
+func newPDReqBackoffer() utils.Backoffer {
+	return &pdReqBackoffer{
 		attempt:      resetTsRetryTime,
 		delayTime:    resetTSWaitInterval,
 		maxDelayTime: resetTSMaxWaitInterval,
 	}
 }
 
-func (bo *resetTSBackoffer) NextBackoff(err error) time.Duration {
+func (bo *pdReqBackoffer) NextBackoff(err error) time.Duration {
 	bo.delayTime = 2 * bo.delayTime
 	bo.attempt--
 	if bo.delayTime > bo.maxDelayTime {
@@ -112,6 +106,6 @@ func (bo *resetTSBackoffer) NextBackoff(err error) time.Duration {
 	return bo.delayTime
 }
 
-func (bo *resetTSBackoffer) Attempt() int {
+func (bo *pdReqBackoffer) Attempt() int {
 	return bo.attempt
 }
