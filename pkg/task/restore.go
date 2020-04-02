@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
+	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
@@ -23,7 +24,8 @@ import (
 )
 
 const (
-	flagOnline = "online"
+	flagOnline   = "online"
+	flagNoSchema = "no-schema"
 )
 
 var schedulers = map[string]struct{}{
@@ -45,19 +47,28 @@ const (
 type RestoreConfig struct {
 	Config
 
-	Online bool `json:"online" toml:"online"`
+	Online   bool `json:"online" toml:"online"`
+	NoSchema bool `json:"no-schema" toml:"no-schema"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
-	flags.Bool("online", false, "(experimental) Whether online when restore")
+	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
+	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
+
+	// Do not expose this flag
+	_ = flags.MarkHidden(flagNoSchema)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
 func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	cfg.Online, err = flags.GetBool(flagOnline)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -101,6 +112,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if cfg.Online {
 		client.EnableOnline()
 	}
+	if cfg.NoSchema {
+		client.EnableSkipCreateSQL()
+	}
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
 		return err
@@ -135,6 +149,15 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	// execute DDL first
+
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	config.StoreGlobalConfig(conf)
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
@@ -161,7 +184,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	err = client.RemoveTiFlashReplica(tables, placementRules)
+
+	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
 	if err != nil {
 		return err
 	}
@@ -209,6 +233,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if batchSize > maxRestoreBatchSizeLimit {
 		batchSize = maxRestoreBatchSizeLimit // 256
 	}
+
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rejectStoreMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		rejectStoreMap[store.GetId()] = true
+	}
+
 	for {
 		if len(ranges) == 0 {
 			break
@@ -233,7 +267,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 
 		// After split, we can restore backup files.
-		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
+		err = client.RestoreFiles(fileBatch, rewriteRules, rejectStoreMap, updateCh)
 		if err != nil {
 			break
 		}
