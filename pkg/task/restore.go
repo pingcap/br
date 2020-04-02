@@ -11,6 +11,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
+	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 
@@ -158,6 +159,15 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	// execute DDL first
+
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	config.StoreGlobalConfig(conf)
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
@@ -184,7 +194,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	err = client.RemoveTiFlashReplica(tables, placementRules)
+
+	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
 	if err != nil {
 		return err
 	}
@@ -236,6 +247,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if batchSize > maxRestoreBatchSizeLimit {
 		batchSize = maxRestoreBatchSizeLimit // 256
 	}
+
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	rejectStoreMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		rejectStoreMap[store.GetId()] = true
+	}
+
 	for {
 		if len(ranges) == 0 {
 			break
@@ -261,7 +282,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 
 		// After split, we can restore backup files.
-		err = client.RestoreFiles(fileBatch, rewriteRules, updateCh)
+		err = client.RestoreFiles(fileBatch, rewriteRules, rejectStoreMap, updateCh)
 		if err != nil {
 			// If any error happened, return now, don't execute checksum.
 			return err
