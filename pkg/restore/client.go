@@ -64,6 +64,7 @@ type Client struct {
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
+	noSchema        bool
 	hasSpeedLimited bool
 
 	restoreStores []uint64
@@ -305,6 +306,10 @@ func (rc *Client) GetTableSchema(
 
 // CreateDatabase creates a database.
 func (rc *Client) CreateDatabase(db *model.DBInfo) error {
+	if rc.IsSkipCreateSQL() {
+		log.Info("skip create database", zap.Stringer("database", db.Name))
+		return nil
+	}
 	return rc.db.CreateDatabase(rc.ctx, db)
 }
 
@@ -320,9 +325,13 @@ func (rc *Client) CreateTables(
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	for _, table := range tables {
-		err := rc.db.CreateTable(rc.ctx, table)
-		if err != nil {
-			return nil, nil, err
+		if rc.IsSkipCreateSQL() {
+			log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
+		} else {
+			err := rc.db.CreateTable(rc.ctx, table)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
 		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
 		if err != nil {
@@ -338,15 +347,18 @@ func (rc *Client) CreateTables(
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table
 // TODO: remove this after tiflash supports restore
-func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+func (rc *Client) RemoveTiFlashReplica(
+	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
 	var updateReplica bool
-	for _, table := range tables {
-		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+	// must use new table id to search placement rules
+	// here newTables and tables must have same order
+	for i, table := range tables {
+		if rule := utils.SearchPlacementRule(newTables[i].ID, placementRules, placement.Learner); rule != nil {
 			table.TiFlashReplicas = rule.Count
 			updateReplica = true
 		}
-		tableData, err := json.Marshal(table.Info)
+		tableData, err := json.Marshal(newTables[i])
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -445,6 +457,7 @@ func (rc *Client) setSpeedLimit() error {
 func (rc *Client) RestoreFiles(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
+	rejectStoreMap map[uint64]bool,
 	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
@@ -477,7 +490,7 @@ func (rc *Client) RestoreFiles(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rejectStoreMap, rewriteRules):
 					updateCh.Inc()
 				}
 			})
@@ -528,7 +541,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, nil, emptyRules):
 					updateCh.Inc()
 				}
 			})
@@ -846,4 +859,14 @@ func (rc *Client) getRuleID(tableID int64) string {
 func (rc *Client) IsIncremental() bool {
 	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
 		rc.backupMeta.StartVersion == 0)
+}
+
+// EnableSkipCreateSQL sets switch of skip create schema and tables
+func (rc *Client) EnableSkipCreateSQL() {
+	rc.noSchema = true
+}
+
+// IsSkipCreateSQL returns whether we need skip create schema and tables in restore
+func (rc *Client) IsSkipCreateSQL() bool {
+	return rc.noSchema
 }
