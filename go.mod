@@ -21,7 +21,7 @@ require (
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75
+	github.com/pingcap/kvproto v0.0.0-20200330093347-98f910b71904
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v0.0.0-20200326020624-68d423641be5
 	github.com/pingcap/pd/v4 v4.0.0-beta.1.0.20200305072537-61d9f9cc35d3
@@ -42,5 +42,3 @@ require (
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
 )
-
-replace github.com/pingcap/tidb => github.com/kennytm/tidb v0.0.0-20200328193758-f9d04bda076b

@@ -249,8 +249,6 @@ github.com/jstemmer/go-junit-report v0.0.0-20190106144839-af01ea7f8024/go.mod h1
 github.com/juju/ratelimit v1.0.1 h1:+7AIFJVQ0EQgq/K9+0Krm7m530Du7tIz0METWzN0RgY=
 github.com/juju/ratelimit v1.0.1/go.mod h1:qapgC/Gy+xNh9UxzV13HGGl/6UXNN+ct+vwSgWNm/qk=
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
-github.com/kennytm/tidb v0.0.0-20200328193758-f9d04bda076b h1:VSeoD3A0M2/ZJ1I5Ew1/AlHcV+tDd0xkpy5nNekfBVI=
-github.com/kennytm/tidb v0.0.0-20200328193758-f9d04bda076b/go.mod h1:WEpSvruX5Me+t+r4RaMSx079ClHKEkh/lCIaYa1b5cU=
 github.com/kisielk/errcheck v1.1.0/go.mod h1:EZBBE59ingxPouuu3KfxchcWSUPOHkagtvWXihfKN4Q=
 github.com/kisielk/errcheck v1.2.0/go.mod h1:/BMXB+zMLi60iA8Vv6Ksmxu/1UDYcXs4uQLJ+jE2L00=
 github.com/kisielk/gotool v1.0.0 h1:AV2c/EiW3KqPNT9ZKl07ehoAGi4C5/01Cfbblndcapg=
@@ -365,9 +363,8 @@ github.com/pingcap/goleveldb v0.0.0-20191226122134-f82aafb29989/go.mod h1:O17Xtb
 github.com/pingcap/kvproto v0.0.0-20191211054548-3c6b38ea5107/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
 github.com/pingcap/kvproto v0.0.0-20200214064158-62d31900d88e/go.mod h1:IOdRDPLyda8GX2hE/jO7gqaCV/PNFh8BZQCQZXfIOqI=
 github.com/pingcap/kvproto v0.0.0-20200221034943-a2aa1d1e20a8/go.mod h1:IOdRDPLyda8GX2hE/jO7gqaCV/PNFh8BZQCQZXfIOqI=
-github.com/pingcap/kvproto v0.0.0-20200228095611-2cf9a243b8d5/go.mod h1:IOdRDPLyda8GX2hE/jO7gqaCV/PNFh8BZQCQZXfIOqI=
-github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75 h1:DB3NTM0ilba/6sW+vccdEnP10bVvrVunDwWvRa0hSKc=
-github.com/pingcap/kvproto v0.0.0-20200317112120-78042b285b75/go.mod h1:IOdRDPLyda8GX2hE/jO7gqaCV/PNFh8BZQCQZXfIOqI=
+github.com/pingcap/kvproto v0.0.0-20200330093347-98f910b71904 h1:pMFUXvhJ62hX8m0Q4RsL7L+hSW1mAMG26So5eFMoAtI=
+github.com/pingcap/kvproto v0.0.0-20200330093347-98f910b71904/go.mod h1:IOdRDPLyda8GX2hE/jO7gqaCV/PNFh8BZQCQZXfIOqI=
 github.com/pingcap/log v0.0.0-20191012051959-b742a5d432e9 h1:AJD9pZYm72vMgPcQDww9rkZ1DnWfl0pXV3BOWlkYIjA=
 github.com/pingcap/log v0.0.0-20191012051959-b742a5d432e9/go.mod h1:4rbK1p9ILyIfb6hU7OG2CiWSqMXnp3JMbiaVJ6mvoY8=
 github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd h1:CV3VsP3Z02MVtdpTMfEgRJ4T9NGgGTxdHpJerent7rM=
@@ -381,6 +378,8 @@ github.com/pingcap/sysutil v0.0.0-20200302022240-21c8c70d0ab1 h1:YUnUZ914SHFMsOS
 github.com/pingcap/sysutil v0.0.0-20200302022240-21c8c70d0ab1/go.mod h1:EB/852NMQ+aRKioCpToQ94Wl7fktV+FNnxf3CX/TTXI=
 github.com/pingcap/sysutil v0.0.0-20200309085538-962fd285f3bb h1:bDbgLaNTRNK6Qw7KjvEqqfCQstY8WMEcXyXTU7yzYKg=
 github.com/pingcap/sysutil v0.0.0-20200309085538-962fd285f3bb/go.mod h1:EB/852NMQ+aRKioCpToQ94Wl7fktV+FNnxf3CX/TTXI=
+github.com/pingcap/tidb v0.0.0-20200401141416-959eca8f3a39 h1:nYRL69Qc4kuvp+tlDNB5wXjvDetX0J7g0DsW4RQxfXM=
+github.com/pingcap/tidb v0.0.0-20200401141416-959eca8f3a39/go.mod h1:btnHsqUQvJnY18+OP2Z6MCRq1tX4B8JUCrmqctSKxOg=
 github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible h1:84F7MFMfdAYObrznvRslmVu43aoihrlL+7mMyMlOi0o=
 github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200306084441-875bd09aa3d5+incompatible/go.mod h1:XGdcy9+yqlDSEMTpOXnwf3hiTeqrV6MN/u1se9N8yIM=
 github.com/pingcap/tipb v0.0.0-20190428032612-535e1abaa330/go.mod h1:RtkHW8WbcNxj8lsbzjaILci01CtYnYbIkQhjyZWrWVI=
