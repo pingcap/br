@@ -33,6 +33,7 @@ type Table struct {
 	TiFlashReplicas int
 }
 
+// NoChecksum checks whether the table has a calculated checksum.
 func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
