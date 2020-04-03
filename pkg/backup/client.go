@@ -858,7 +858,9 @@ func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 // CopyMetaFrom copies schema metadata directly from pending backupSchemas, without calculating checksum.
 // use this when user skip the checksum generating.
 func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
+	schemas := make([]*kvproto.Schema, 0, len(backupSchemas.schemas))
 	for _, v := range backupSchemas.schemas {
-		bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, &v)
+		schemas = append(schemas, &v)
 	}
+	bc.backupMeta.Schemas = schemas
 }
