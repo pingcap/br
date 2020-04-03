@@ -48,6 +48,13 @@ type ClientMgr interface {
 	Close()
 }
 
+// Checksum is the checksum of some backup files calculated by FastChecksum.
+type Checksum struct {
+	Crc64Xor   uint64
+	TotalKvs   uint64
+	TotalBytes uint64
+}
+
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
@@ -749,13 +756,38 @@ func SendBackup(
 }
 
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func (bc *Client) ChecksumMatches(local []uint64) bool {
+func (bc *Client) ChecksumMatches(local []Checksum) bool {
 	if len(local) != len(bc.backupMeta.Schemas) {
 		return false
 	}
 
 	for i, schema := range bc.backupMeta.Schemas {
-		if local[i] != schema.Crc64Xor {
+		localChecksum := local[i]
+		if localChecksum.Crc64Xor != schema.Crc64Xor ||
+			localChecksum.TotalBytes != schema.TotalBytes ||
+			localChecksum.TotalKvs != schema.TotalKvs {
+			dbInfo := &model.DBInfo{}
+			err := json.Unmarshal(schema.Db, dbInfo)
+			if err != nil {
+				log.Error("failed in fast checksum, and cannot parse db info.")
+				return false
+			}
+			tblInfo := &model.TableInfo{}
+			err = json.Unmarshal(schema.Table, tblInfo)
+			if err != nil {
+				log.Error("failed in fast checksum, and cannot parse table info.")
+				return false
+			}
+			log.Error("failed in fast checksum",
+				zap.String("database", dbInfo.Name.String()),
+				zap.String("table", tblInfo.Name.String()),
+				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
+				zap.Uint64("calculated crc64", localChecksum.Crc64Xor),
+				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
+				zap.Uint64("calculated total kvs", localChecksum.TotalKvs),
+				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
+				zap.Uint64("calculated total bytes", localChecksum.TotalBytes),
+			)
 			return false
 		}
 	}
@@ -764,7 +796,7 @@ func (bc *Client) ChecksumMatches(local []uint64) bool {
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table
 // it returns the checksum of all local files.
-func (bc *Client) FastChecksum() ([]uint64, error) {
+func (bc *Client) FastChecksum() ([]Checksum, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -776,7 +808,7 @@ func (bc *Client) FastChecksum() ([]uint64, error) {
 		return nil, err
 	}
 
-	checksums := make([]uint64, 0, len(bc.backupMeta.Schemas))
+	checksums := make([]Checksum, 0, len(bc.backupMeta.Schemas))
 	for _, schema := range bc.backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
@@ -801,7 +833,13 @@ func (bc *Client) FastChecksum() ([]uint64, error) {
 
 		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
-		checksums = append(checksums, checksum)
+		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
+		localChecksum := Checksum{
+			Crc64Xor:   checksum,
+			TotalKvs:   totalKvs,
+			TotalBytes: totalBytes,
+		}
+		checksums = append(checksums, localChecksum)
 	}
 
 	return checksums, nil
