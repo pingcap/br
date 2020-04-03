@@ -291,15 +291,18 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Restore has finished.
 	updateCh.Close()
 
-	// Checksum
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
-	err = client.ValidateChecksum(
-		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
-	if err != nil {
-		return err
+	// Don't do checksum if user specified.
+	if cfg.Checksum {
+		// Checksum
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
+		err = client.ValidateChecksum(
+			ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
+		if err != nil {
+			return err
+		}
+		updateCh.Close()
 	}
-	updateCh.Close()
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)

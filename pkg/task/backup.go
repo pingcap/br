@@ -196,7 +196,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return err
 	}
 
-	if cfg.LastBackupTS == 0 {
+	if cfg.LastBackupTS == 0 && cfg.Checksum {
 		var valid bool
 		valid, err = client.FastChecksum()
 		if err != nil {
@@ -206,10 +206,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("backup FastChecksum mismatch!")
 			return errors.Errorf("mismatched checksum")
 		}
-
-	} else {
+	} else if cfg.Checksum {
 		// Since we don't support checksum for incremental data, fast checksum should be skipped.
 		log.Info("Skip fast checksum in incremental backup")
+	} else {
+		log.Info("Skip fast checksum because user requirement.")
 	}
 	// Checksum has finished
 	updateCh.Close()
