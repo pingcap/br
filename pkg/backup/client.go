@@ -750,6 +750,10 @@ func SendBackup(
 
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
 func (bc *Client) ChecksumMatches(local []uint64) bool {
+	if len(local) != len(bc.backupMeta.Schemas) {
+		return false
+	}
+
 	for i, schema := range bc.backupMeta.Schemas {
 		if local[i] != schema.Crc64Xor {
 			return false
