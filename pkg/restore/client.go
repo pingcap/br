@@ -650,6 +650,14 @@ func (rc *Client) ValidateChecksum(
 			workers.Apply(func() {
 				defer wg.Done()
 
+				if table.NoChecksum() {
+					log.Info("table doesn't has checksum, skipping checksum.",
+						zap.String("database", table.Db.Name.L),
+						zap.String("table name", table.Info.Name.L))
+					updateCh.Inc()
+					return
+				}
+
 				startTS, err := rc.GetTS(ctx)
 				if err != nil {
 					errCh <- errors.Trace(err)

@@ -756,9 +756,9 @@ func SendBackup(
 }
 
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func (bc *Client) ChecksumMatches(local []Checksum) bool {
+func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	if len(local) != len(bc.backupMeta.Schemas) {
-		return false
+		return false, nil
 	}
 
 	for i, schema := range bc.backupMeta.Schemas {
@@ -770,13 +770,13 @@ func (bc *Client) ChecksumMatches(local []Checksum) bool {
 			err := json.Unmarshal(schema.Db, dbInfo)
 			if err != nil {
 				log.Error("failed in fast checksum, and cannot parse db info.")
-				return false
+				return false, err
 			}
 			tblInfo := &model.TableInfo{}
 			err = json.Unmarshal(schema.Table, tblInfo)
 			if err != nil {
 				log.Error("failed in fast checksum, and cannot parse table info.")
-				return false
+				return false, err
 			}
 			log.Error("failed in fast checksum",
 				zap.String("database", dbInfo.Name.String()),
@@ -788,10 +788,10 @@ func (bc *Client) ChecksumMatches(local []Checksum) bool {
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
 				zap.Uint64("calculated total bytes", localChecksum.TotalBytes),
 			)
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 // FastChecksum check data integrity by xor all(sst_checksum) per table
