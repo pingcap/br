@@ -854,3 +854,11 @@ func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 	bc.backupMeta.Schemas = schemas
 	return nil
 }
+
+// CopyMetaFrom copies schema metadata directly from pending backupSchemas, without calculating checksum.
+// use this when user skip the checksum generating.
+func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
+	for _, v := range backupSchemas.schemas {
+		bc.backupMeta.Schemas = append(bc.backupMeta.Schemas, &v)
+	}
+}

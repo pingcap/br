@@ -181,20 +181,25 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh.Close()
 
 	// Checksum
-	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-	if backupSchemas.Len() < backupSchemasConcurrency {
-		backupSchemasConcurrency = backupSchemas.Len()
+	if cfg.Checksum {
+		backupSchemasConcurrency := backup.DefaultSchemaConcurrency
+		if backupSchemas.Len() < backupSchemasConcurrency {
+			backupSchemasConcurrency = backupSchemas.Len()
+		}
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
+		backupSchemas.Start(
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+		err = client.CompleteMeta(backupSchemas)
+		if err != nil {
+			return err
+		}
+	} else {
+		// When user specified not to calculate checksum, don't calculate checksum.
+		// Just... copy schemas from origin.
+		client.CopyMetaFrom(backupSchemas)
 	}
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-	backupSchemas.SetSkipChecksum(!cfg.Checksum)
-	backupSchemas.Start(
-		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
 
-	err = client.CompleteMeta(backupSchemas)
-	if err != nil {
-		return err
-	}
 	checksums, err := client.FastChecksum()
 	if err != nil {
 		return err
@@ -214,8 +219,12 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	} else {
 		log.Info("Skip fast checksum because user requirement.")
 	}
-	// Checksum has finished
-	updateCh.Close()
+
+	// Don't close the channel if we have never open it.
+	if cfg.Checksum {
+		// Checksum has finished
+		updateCh.Close()
+	}
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
