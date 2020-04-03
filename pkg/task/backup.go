@@ -195,14 +195,12 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-
+	checksums, err := client.FastChecksum()
+	if err != nil {
+		return err
+	}
 	if cfg.LastBackupTS == 0 && cfg.Checksum {
-		var valid bool
-		valid, err = client.FastChecksum()
-		if err != nil {
-			return err
-		}
-		if !valid {
+		if client.ChecksumMatches(checksums) {
 			log.Error("backup FastChecksum mismatch!")
 			return errors.Errorf("mismatched checksum")
 		}

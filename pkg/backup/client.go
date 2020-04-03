@@ -748,8 +748,19 @@ func SendBackup(
 	return nil
 }
 
+// ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
+func (bc *Client) ChecksumMatches(local []uint64) bool {
+	for i, schema := range bc.backupMeta.Schemas {
+		if local[i] != schema.Crc64Xor {
+			return false
+		}
+	}
+	return true
+}
+
 // FastChecksum check data integrity by xor all(sst_checksum) per table
-func (bc *Client) FastChecksum() (bool, error) {
+// it returns the checksum of all local files.
+func (bc *Client) FastChecksum() ([]uint64, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -758,19 +769,20 @@ func (bc *Client) FastChecksum() (bool, error) {
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
+	checksums := make([]uint64, 0, len(bc.backupMeta.Schemas))
 	for _, schema := range bc.backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
 
@@ -785,25 +797,10 @@ func (bc *Client) FastChecksum() (bool, error) {
 
 		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
-
-		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
-			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
-		} else {
-			log.Error("failed in fast checksum",
-				zap.String("database", dbInfo.Name.String()),
-				zap.String("table", tblInfo.Name.String()),
-				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
-				zap.Uint64("calculated crc64", checksum),
-				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
-				zap.Uint64("calculated total kvs", totalKvs),
-				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
-				zap.Uint64("calculated total bytes", totalBytes),
-			)
-			return false, nil
-		}
+		checksums = append(checksums, checksum)
 	}
 
-	return true, nil
+	return checksums, nil
 }
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta
