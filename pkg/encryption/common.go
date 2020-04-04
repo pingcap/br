@@ -22,10 +22,12 @@ const (
 type EncryptionMethod = encryptionpb.EncryptionMethod
 type EncryptionConfig = encryptionpb.EncryptionConfig
 
+// EncryptionOptions contain common encryption configurations.
 type EncryptionOptions struct {
 	EncryptionConfig
 }
 
+// GetCipher gets cipher with respect to the encryption method.
 func GetCipher(method EncryptionMethod) (*openssl.Cipher, error) {
 	var cipherName string
 	switch method {
@@ -49,6 +51,7 @@ func GetCipher(method EncryptionMethod) (*openssl.Cipher, error) {
 	return cipher, err
 }
 
+// KeySize gets key size in bytes for an encryption method.
 func KeySize(method EncryptionMethod) (size int, err error) {
 	cipher, err := GetCipher(method)
 	if err == nil {
@@ -57,9 +60,12 @@ func KeySize(method EncryptionMethod) (size int, err error) {
 	return
 }
 
-// If config.method = plaintext, return content as-is. Otherwise encrypt the content, store the
-// result in EncryptedContent struct, and marshal it. Despite config.method specifies CTR mode,
-// we use GCM mode with the same key size so to authenticate the key and content.
+// MaybeEncrypt returns content as-is if encryption method is set to plaintext
+// (i.e. when encryption is not enabled). Otherwise it encrypt the content, store the
+// result in EncryptedContent struct, and marshal it.
+// 
+// Despite config.method specifies CTR mode, MaybeDecrypt use GCM mode with the same key size
+// to authenticate the key and content.
 func MaybeEncrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 	if config.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
 		return content, nil
@@ -107,9 +113,12 @@ func MaybeEncrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 	return proto.Marshal(&encryptedContent)
 }
 
-// If config.method = plaintext, return content as-is. Otherwise unmarshal content as
-// EncryptedContent, decrypt the result and return. See comments for MaybeEncrypt for the use
-// of GCM mode instead of CTR mode.
+// MaybeDecrypt returns content as-is if encryption method is set to plaintext
+// (i.e. when encryption is not enabled). Otherwise it unmarshal the content into
+// EncryptedContent struct, decrypt the content and return the result.
+// 
+// Despite config.method specifies CTR mode, MaybeDecrypt use GCM mode with the same key size
+// to authenticate the key and content.
 func MaybeDecrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 	if config.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
 		return content, nil
