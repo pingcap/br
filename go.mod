@@ -4,6 +4,7 @@ go 1.13
 
 require (
 	cloud.google.com/go/storage v1.4.0
+	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/aws/aws-sdk-go v1.26.1
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -31,10 +32,12 @@ require (
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.4.1
 	github.com/sirupsen/logrus v1.4.2
+	github.com/spacemonkeygo/openssl v0.0.0-20181017203307-c2dcc5cca94a
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
 	github.com/syndtr/goleveldb v1.0.1-0.20190625010220-02440ea7a285 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
+	github.com/twitchtv/retool v1.3.7 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.opencensus.io v0.22.2 // indirect
 	go.uber.org/zap v1.14.1
@@ -42,3 +45,5 @@ require (
 	google.golang.org/api v0.14.0
 	google.golang.org/grpc v1.25.1
 )
+
+replace github.com/pingcap/kvproto => github.com/yiwu-arbug/kvproto v0.0.0-20200331222645-f72d7b6bf777

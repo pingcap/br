@@ -20,6 +20,7 @@ import (
 	"go.etcd.io/etcd/pkg/transport"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/encryption"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -77,6 +78,7 @@ func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 // Config is the common configuration for all BRIE tasks.
 type Config struct {
 	storage.BackendOptions
+	encryption.EncryptionOptions
 
 	Storage     string    `json:"storage" toml:"storage"`
 	PD          []string  `json:"pd" toml:"pd"`
@@ -114,6 +116,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	_ = flags.MarkHidden(flagRateLimitUnit)
 
 	storage.DefineFlags(flags)
+	encryption.DefineFlags(flags)
 }
 
 // DefineDatabaseFlags defines the required --db flag.
@@ -204,6 +207,9 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
+	if err := cfg.EncryptionOptions.ParseFromFlags(flags); err != nil {
+		return err
+	}
 	return cfg.TLS.ParseFromFlags(flags)
 }
 
@@ -272,6 +278,10 @@ func ReadBackupMeta(
 	metaData, err := s.Read(ctx, fileName)
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
+	}
+	metaData, err = encryption.MaybeDecrypt(metaData, &cfg.EncryptionOptions.EncryptionConfig)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {

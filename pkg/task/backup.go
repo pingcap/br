@@ -108,7 +108,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	defer mgr.Close()
 
-	client, err := backup.NewBackupClient(ctx, mgr)
+	client, err := backup.NewBackupClient(ctx, mgr, &cfg.EncryptionOptions)
 	if err != nil {
 		return err
 	}

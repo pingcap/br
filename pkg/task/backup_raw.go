@@ -97,7 +97,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	}
 	defer mgr.Close()
 
-	client, err := backup.NewBackupClient(ctx, mgr)
+	client, err := backup.NewBackupClient(ctx, mgr, &cfg.EncryptionOptions)
 	if err != nil {
 		return err
 	}

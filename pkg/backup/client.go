@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/encryption"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
@@ -61,16 +62,19 @@ type Client struct {
 	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
 	backend    *kvproto.StorageBackend
+	encryption encryption.EncryptionConfig
 }
 
 // NewBackupClient returns a new backup client
-func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
+func NewBackupClient(
+	ctx context.Context, mgr ClientMgr, encryption *encryption.EncryptionOptions) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
 	clusterID := pdClient.GetClusterID(ctx)
 	return &Client{
-		clusterID: clusterID,
-		mgr:       mgr,
+		clusterID:  clusterID,
+		mgr:        mgr,
+		encryption: encryption.EncryptionConfig,
 	}, nil
 }
 
@@ -145,6 +149,10 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	}
 	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
+	backupMetaData, err = encryption.MaybeEncrypt(backupMetaData, &bc.encryption)
+	if err != nil {
+		return err
+	}
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("jobs", len(ddlJobs)))
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
@@ -417,6 +425,7 @@ func (bc *Client) BackupRange(
 	req.StartKey = startKey
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
+	req.EncryptionConfig = &bc.encryption
 
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
@@ -671,14 +680,15 @@ func (bc *Client) handleFineGrained(
 	max := 0
 
 	req := kvproto.BackupRequest{
-		ClusterId:      bc.clusterID,
-		StartKey:       rg.StartKey, // TODO: the range may cross region.
-		EndKey:         rg.EndKey,
-		StartVersion:   lastBackupTS,
-		EndVersion:     backupTS,
-		StorageBackend: bc.backend,
-		RateLimit:      rateLimit,
-		Concurrency:    concurrency,
+		ClusterId:        bc.clusterID,
+		StartKey:         rg.StartKey, // TODO: the range may cross region.
+		EndKey:           rg.EndKey,
+		StartVersion:     lastBackupTS,
+		EndVersion:       backupTS,
+		StorageBackend:   bc.backend,
+		EncryptionConfig: &bc.encryption,
+		RateLimit:        rateLimit,
+		Concurrency:      concurrency,
 	}
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
