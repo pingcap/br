@@ -44,7 +44,7 @@ func GetCipher(method EncryptionMethod) (*openssl.Cipher, error) {
 	}
 	cipher, err := openssl.GetCipherByName(cipherName)
 	if err != nil {
-		err = errors.Wrap(err, "failed to get cipher")
+		err = errors.Annotate(err, "failed to get cipher")
 	}
 	return cipher, err
 }
@@ -157,7 +157,7 @@ func MaybeDecrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 	}
 	finalOutput, err := ctx.DecryptFinal()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotate(err, "possibly wrong encryption key, or content being altered")
 	}
 	return append(output, finalOutput...), nil
 }

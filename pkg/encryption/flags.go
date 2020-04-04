@@ -60,7 +60,7 @@ func (options *EncryptionOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 		}
 		key, err := hex.DecodeString(keyTypeValue[1])
 		if err != nil {
-			return errors.Wrap(err, "failed to decode encryption key")
+			return errors.Annotate(err, "failed to decode encryption key")
 		}
 		keySize, err := KeySize(options.Method)
 		if err != nil {
