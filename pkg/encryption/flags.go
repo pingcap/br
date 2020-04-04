@@ -17,6 +17,7 @@ const (
 	flagEncryptionKey = "encryption-key"
 )
 
+// DefineFlags adds encryption related flags.
 func DefineFlags(flags *pflag.FlagSet) {
 	flags.String(flagEncryption, "", "Enable encryption and use the specific"+
 		" method if non-empty. Can be one of aes128-ctr, aes192-ctr oraes256-ctr.")
@@ -27,6 +28,7 @@ func DefineFlags(flags *pflag.FlagSet) {
 		" e.g. 'hex:107fad4360d527e818856f0281219c5d'")
 }
 
+// ParseFromFlags obtains the encryption options from the flag set.
 func (options *EncryptionOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	// Parse encryption method.
 	methodName, err := flags.GetString(flagEncryption)
