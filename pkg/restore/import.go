@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/pingcap/br/pkg/encryption"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -132,6 +133,7 @@ type FileImporter struct {
 	metaClient   SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
+  encryption   *encryption.EncryptionConfig
 	rateLimit    uint64
 
 	isRawKvMode bool
@@ -148,6 +150,7 @@ func NewFileImporter(
 	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
+	encryption *encryption.EncryptionConfig,
 	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
@@ -155,6 +158,7 @@ func NewFileImporter(
 	return FileImporter{
 		metaClient:   metaClient,
 		backend:      backend,
+		encryption:   encryption,
 		ctx:          ctx,
 		cancel:       cancel,
 		importClient: importClient,
@@ -354,10 +358,11 @@ func (importer *FileImporter) downloadSST(
 	sstMeta := getSSTMetaFromFile(id, file, regionInfo.Region, &rule)
 
 	req := &import_sstpb.DownloadRequest{
-		Sst:            sstMeta,
-		StorageBackend: importer.backend,
-		Name:           file.GetName(),
-		RewriteRule:    rule,
+		Sst:              sstMeta,
+		StorageBackend:   importer.backend,
+		EncryptionConfig: importer.encryption,
+		Name:             file.GetName(),
+		RewriteRule:      rule,
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),
@@ -406,10 +411,11 @@ func (importer *FileImporter) downloadRawKVSST(
 	}
 
 	req := &import_sstpb.DownloadRequest{
-		Sst:            sstMeta,
-		StorageBackend: importer.backend,
-		Name:           file.GetName(),
-		RewriteRule:    rule,
+		Sst:              sstMeta,
+		StorageBackend:   importer.backend,
+		EncryptionConfig: importer.encryption,
+		Name:             file.GetName(),
+		RewriteRule:      rule,
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),

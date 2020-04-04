@@ -64,7 +64,7 @@ func MaybeEncrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 	if config.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
 		return content, nil
 	}
-  keySize, err := KeySize(config.Method)
+	keySize, err := KeySize(config.Method)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func MaybeDecrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 		return nil, errors.Errorf("mismatched encryption method, given %d vs actual %d",
 			int32(config.Method), int32(method))
 	}
-  keySize, err := KeySize(config.Method)
+	keySize, err := KeySize(config.Method)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func MaybeDecrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 		return nil, errors.New("missing tag in encrypted content metadata")
 	}
 	// See comment around use of NewGCMEncryptionCipherCtx for the keySize(blockSize) param.
-  ctx, err := openssl.NewGCMDecryptionCipherCtx(keySize*8, nil, config.Key, iv)
+	ctx, err := openssl.NewGCMDecryptionCipherCtx(keySize*8, nil, config.Key, iv)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
