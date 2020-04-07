@@ -10,7 +10,7 @@ type testMathSuite struct{}
 
 var _ = Suite(&testMathSuite{})
 
-func (_ *testMathSuite) TestMinInt(c *C) {
+func (*testMathSuite) TestMinInt(c *C) {
 	c.Assert(MinInt(1, 2), Equals, 1)
 	c.Assert(MinInt(2, 1), Equals, 1)
 	c.Assert(MinInt(1, 1), Equals, 1)
