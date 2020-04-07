@@ -29,7 +29,7 @@ run_sql "create schema $DB;"
 
 # test alter pk issue https://github.com/pingcap/br/issues/215
 TABLE="t1"
-INCREMENTAL_TABLE="t1-inc"
+INCREMENTAL_TABLE="t1inc"
 
 run_sql "create table $DB.$TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
@@ -79,7 +79,7 @@ start_services "$cur"
 
 # test auto random issue issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
-INCREMENTAL_TABLE="t3-inc"
+INCREMENTAL_TABLE="t3inc"
 run_sql "create table $DB.$TABLE (a int(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
 run_sql "insert into $DB.$TABLE values ('42');"
 
