@@ -197,12 +197,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		// Checksum has finished
 		updateCh.Close()
 		// collect file information.
-		checksums, err := client.CollectChecksums()
+		var checksums []backup.Checksum
+		checksums, err = client.CollectChecksums()
 		if err != nil {
 			return err
 		}
 		if cfg.LastBackupTS == 0 {
-			matches, err := client.ChecksumMatches(checksums)
+			var matches bool
+			matches, err = client.ChecksumMatches(checksums)
 			if err != nil {
 				return err
 			}
