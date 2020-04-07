@@ -6,3 +6,9 @@
 lease = "360s"
 
 alter-primary-key = true
+
+max-index-length = 12288
+
+[experimental]
+# enable column attribute `auto_random` to be defined on the primary key column.
+allow-auto-random = true
