@@ -53,6 +53,17 @@ run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB_$TABLE"
 run_sql "drop schema $DB;"
 run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB_$TABLE"
 
+# we need set auto_random to true and remove alter-primary-key otherwise we will get error
+# invalid config allow-auto-random is unavailable when alter-primary-key is enabled
+cat > $cur/config/tidb.toml <<EOF
+[experimental]
+# enable column attribute `auto_random` to be defined on the primary key column.
+allow-auto-random = true
+EOF
+
+echo "Restart cluster with allow-auto-random=true"
+start_services "$cur"
+
 # test auto random issue issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
 INCREMENTAL_TABLE="t3-inc"
