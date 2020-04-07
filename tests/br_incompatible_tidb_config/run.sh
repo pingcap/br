@@ -24,7 +24,6 @@ DB="$TEST_NAME"
 echo "Restart cluster with alter-primary-key = true, max-index-length=12288"
 start_services "$cur"
 
-sleep 1000
 run_sql "drop schema if exists $DB;"
 run_sql "create schema $DB;"
 
