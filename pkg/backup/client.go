@@ -763,21 +763,21 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 
 	for i, schema := range bc.backupMeta.Schemas {
 		localChecksum := local[i]
+		dbInfo := &model.DBInfo{}
+		err := json.Unmarshal(schema.Db, dbInfo)
+		if err != nil {
+			log.Error("failed in fast checksum, and cannot parse db info.")
+			return false, err
+		}
+		tblInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tblInfo)
+		if err != nil {
+			log.Error("failed in fast checksum, and cannot parse table info.")
+			return false, err
+		}
 		if localChecksum.Crc64Xor != schema.Crc64Xor ||
 			localChecksum.TotalBytes != schema.TotalBytes ||
 			localChecksum.TotalKvs != schema.TotalKvs {
-			dbInfo := &model.DBInfo{}
-			err := json.Unmarshal(schema.Db, dbInfo)
-			if err != nil {
-				log.Error("failed in fast checksum, and cannot parse db info.")
-				return false, err
-			}
-			tblInfo := &model.TableInfo{}
-			err = json.Unmarshal(schema.Table, tblInfo)
-			if err != nil {
-				log.Error("failed in fast checksum, and cannot parse table info.")
-				return false, err
-			}
 			log.Error("failed in fast checksum",
 				zap.String("database", dbInfo.Name.String()),
 				zap.String("table", tblInfo.Name.String()),
@@ -790,6 +790,9 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 			)
 			return false, nil
 		}
+		log.Info("fast checksum success",
+			zap.String("database", dbInfo.Name.L),
+			zap.String("table", tblInfo.Name.L))
 	}
 	return true, nil
 }

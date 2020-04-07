@@ -223,7 +223,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 // checkChecksums checks the checksum of the client, once failed,
 // returning a error with message: "mismatched checksum".
 func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
-	var checksums []backup.Checksum
 	checksums, err := client.CollectChecksums()
 	if err != nil {
 		return err
@@ -238,11 +237,10 @@ func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
 			log.Error("backup FastChecksum mismatch!")
 			return errors.Errorf("mismatched checksum")
 		}
-		log.Info("fast checksum success")
-	} else {
-		// Since we don't support checksum for incremental data, fast checksum should be skipped.
-		log.Info("Skip fast checksum in incremental backup")
+		return nil
 	}
+	// Since we don't support checksum for incremental data, fast checksum should be skipped.
+	log.Info("Skip fast checksum in incremental backup")
 	return nil
 }
 
