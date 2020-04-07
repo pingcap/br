@@ -69,9 +69,10 @@ run_sql "drop schema $DB;"
 
 # we need set auto_random to true and remove alter-primary-key otherwise we will get error
 # invalid config allow-auto-random is unavailable when alter-primary-key is enabled
-cat > $cur/config/tidb.toml <<EOF
-[experimental]
+
 # enable column attribute `auto_random` to be defined on the primary key column.
+cat > $cur/config/tidb.toml << EOF
+[experimental]
 allow-auto-random = true
 EOF
 
