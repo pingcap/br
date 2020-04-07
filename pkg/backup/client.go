@@ -48,7 +48,7 @@ type ClientMgr interface {
 	Close()
 }
 
-// Checksum is the checksum of some backup files calculated by FastChecksum.
+// Checksum is the checksum of some backup files calculated by CollectChecksums.
 type Checksum struct {
 	Crc64Xor   uint64
 	TotalKvs   uint64
@@ -794,9 +794,17 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	return true, nil
 }
 
-// FastChecksum check data integrity by xor all(sst_checksum) per table
+// CollectFileInfo collects ungrouped file summary information, like kv count and size.
+func (bc *Client) CollectFileInfo() {
+	for _, file := range bc.backupMeta.Files {
+		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
+	}
+}
+
+// CollectChecksums check data integrity by xor all(sst_checksum) per table
 // it returns the checksum of all local files.
-func (bc *Client) FastChecksum() ([]Checksum, error) {
+func (bc *Client) CollectChecksums() ([]Checksum, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -860,7 +868,8 @@ func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
 	schemas := make([]*kvproto.Schema, 0, len(backupSchemas.schemas))
 	for _, v := range backupSchemas.schemas {
-		schemas = append(schemas, &v)
+		schema := v
+		schemas = append(schemas, &schema)
 	}
 	bc.backupMeta.Schemas = schemas
 }

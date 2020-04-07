@@ -180,7 +180,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	// Checksum
+	// Checksum from server, and then fulfill the backup metadata.
 	if cfg.Checksum {
 		backupSchemasConcurrency := backup.DefaultSchemaConcurrency
 		if backupSchemas.Len() < backupSchemasConcurrency {
@@ -194,36 +194,34 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		if err != nil {
 			return err
 		}
-	} else {
-		// When user specified not to calculate checksum, don't calculate checksum.
-		// Just... copy schemas from origin.
-		client.CopyMetaFrom(backupSchemas)
-	}
-
-	checksums, err := client.FastChecksum()
-	if err != nil {
-		return err
-	}
-	if cfg.LastBackupTS == 0 && cfg.Checksum {
-		matches, err := client.ChecksumMatches(checksums)
+		// Checksum has finished
+		updateCh.Close()
+		// collect file information.
+		checksums, err := client.CollectChecksums()
 		if err != nil {
 			return err
 		}
-		if !matches {
-			log.Error("backup FastChecksum mismatch!")
-			return errors.Errorf("mismatched checksum")
+		if cfg.LastBackupTS == 0 {
+			matches, err := client.ChecksumMatches(checksums)
+			if err != nil {
+				return err
+			}
+			if !matches {
+				log.Error("backup FastChecksum mismatch!")
+				return errors.Errorf("mismatched checksum")
+			}
+			log.Info("fast checksum success")
+		} else {
+			// Since we don't support checksum for incremental data, fast checksum should be skipped.
+			log.Info("Skip fast checksum in incremental backup")
 		}
-	} else if cfg.Checksum {
-		// Since we don't support checksum for incremental data, fast checksum should be skipped.
-		log.Info("Skip fast checksum in incremental backup")
 	} else {
+		// When user specified not to calculate checksum, don't calculate checksum.
+		// Just... copy schemas from origin.
 		log.Info("Skip fast checksum because user requirement.")
-	}
-
-	// Don't close the channel if we have never open it.
-	if cfg.Checksum {
-		// Checksum has finished
-		updateCh.Close()
+		client.CopyMetaFrom(backupSchemas)
+		// Anyway, let's collect file info for summary.
+		client.CollectFileInfo()
 	}
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
