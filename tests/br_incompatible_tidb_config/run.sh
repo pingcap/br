@@ -51,6 +51,7 @@ run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
 
 run_sql "drop schema $DB;"
+run_sql "create schema $DB;"
 
 # test max-index-length issue https://github.com/pingcap/br/issues/217
 TABLE="t2"
@@ -80,6 +81,7 @@ start_services "$cur"
 # test auto random issue issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
+run_sql "create schema $DB;"
 run_sql "create table $DB.$TABLE (a int(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
 run_sql "insert into $DB.$TABLE values ('42');"
 
