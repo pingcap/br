@@ -471,6 +471,10 @@ func enableTiDBConfig() {
 	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
 
+	// we need set this to true, since all create table DDLs will create with tableInfo
+	// and we can handle alter drop pk/add pk DDLs with no impact
+	conf.AlterPrimaryKey = true
+
 	// set this to true for some auto random DDL execute normally during incremental restore
 	conf.Experimental.AllowAutoRandom = true
 	conf.Experimental.AllowsExpressionIndex = true

@@ -45,7 +45,24 @@ func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 // ExecDDL executes the query of a ddl job.
 func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	var err error
-	if ddlJob.BinlogInfo.TableInfo != nil {
+	tableInfo := ddlJob.BinlogInfo.TableInfo
+	dbInfo := ddlJob.BinlogInfo.DBInfo
+	switch ddlJob.Type {
+	case model.ActionCreateSchema:
+		err = db.se.CreateDatabase(ctx, dbInfo)
+		if err != nil {
+			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
+		}
+		return errors.Trace(err)
+	case model.ActionCreateTable:
+		err = db.se.CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
+		if err != nil {
+			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
+		}
+		return errors.Trace(err)
+	}
+
+	if tableInfo != nil {
 		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
 		err = db.se.Execute(ctx, switchDbSQL)
 		if err != nil {
