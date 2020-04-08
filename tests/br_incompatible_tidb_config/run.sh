@@ -42,6 +42,9 @@ run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
 
 # drop pk
 run_sql "alter table $DB.$INCREMENTAL_TABLE drop primary key"
+run_sql "drop table $DB.$INCREMENTAL_TABLE"
+run_sql "create table $DB.$INCREMENTAL_TABLE like $DB.$TABLE"
+run_sql "insert into $DB.$INCREMENTAL_TABLEvalues (42, 42);"
 
 # incremental backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
