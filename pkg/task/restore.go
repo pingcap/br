@@ -170,6 +170,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		newTS = restoreTS
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
+<<<<<<< HEAD
 
 	// pre-set TiDB config for restore
 	restoreDBConfig := enableTiDBConfig()
@@ -177,6 +178,17 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// execute DDL first
 	err = client.ExecDDLs(ctx, ddlJobs)
+=======
+	if err != nil {
+		return err
+	}
+
+	// pre-set TiDB config for restore
+	enableTiDBConfig()
+
+	// execute DDL first
+	err = client.ExecDDLs(ddlJobs)
+>>>>>>> a838be7... enable tidb config by default (#230)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -436,4 +448,19 @@ func restoreTableStream(
 			batcher.Add(t)
 		}
 	}
+}
+
+func enableTiDBConfig() {
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+
+	// set this to true for some auto random DDL execute normally during incremental restore
+	conf.Experimental.AllowAutoRandom = true
+	conf.Experimental.AllowsExpressionIndex = true
+
+	config.StoreGlobalConfig(conf)
 }

@@ -29,7 +29,10 @@ run_sql "create schema $DB;"
 
 # test alter pk issue https://github.com/pingcap/br/issues/215
 TABLE="t1"
+<<<<<<< HEAD
 INCREMENTAL_TABLE="t1inc"
+=======
+>>>>>>> a838be7... enable tidb config by default (#230)
 
 run_sql "create table $DB.$TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
@@ -37,6 +40,7 @@ run_sql "insert into $DB.$TABLE values (42, 42);"
 # backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
+<<<<<<< HEAD
 run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
 
@@ -56,6 +60,12 @@ run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
 run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
 
+=======
+# restore
+run_sql "drop schema $DB;"
+run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
+
+>>>>>>> a838be7... enable tidb config by default (#230)
 run_sql "drop schema $DB;"
 run_sql "create schema $DB;"
 
@@ -85,22 +95,38 @@ EOF
 echo "Restart cluster with allow-auto-random=true"
 start_services "$cur"
 
+<<<<<<< HEAD
 # test auto random issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
 run_sql "create schema $DB;"
 run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
+=======
+# test auto random issue issue https://github.com/pingcap/br/issues/228
+TABLE="t3"
+INCREMENTAL_TABLE="t3inc"
+run_sql "create schema $DB;"
+run_sql "create table $DB.$TABLE (a int(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
+>>>>>>> a838be7... enable tidb config by default (#230)
 run_sql "insert into $DB.$TABLE values ('42');"
 
 # Full backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
+<<<<<<< HEAD
 run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL
 last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB$TABLE" | tail -n1)
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE" --lastbackupts $last_backup_ts
+=======
+run_sql "create table $DB.$INCREMENTAL_TABLE (a int(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
+run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
+
+# incremental backup test for execute DDL
+run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
+>>>>>>> a838be7... enable tidb config by default (#230)
 
 run_sql "drop schema $DB;"
 
@@ -111,6 +137,7 @@ run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL
 
 run_sql "drop schema $DB;"
 
+<<<<<<< HEAD
 # test auto random issue https://github.com/pingcap/br/issues/241
 TABLE="t4"
 run_sql "create schema $DB;"
@@ -133,5 +160,7 @@ if [ "$row_count" -ne "10" ];then
     exit 1
 fi
 
+=======
+>>>>>>> a838be7... enable tidb config by default (#230)
 echo "Restart service with normal"
 start_services
