@@ -57,7 +57,10 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	case model.ActionCreateTable:
 		err = db.se.CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
 		if err != nil {
-			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
+			log.Error("create table failed",
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tableInfo.Name),
+				zap.Error(err))
 		}
 		return errors.Trace(err)
 	}
