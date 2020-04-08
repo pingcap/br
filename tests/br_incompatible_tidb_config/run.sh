@@ -29,6 +29,7 @@ run_sql "create schema $DB;"
 
 # test alter pk issue https://github.com/pingcap/br/issues/215
 TABLE="t1"
+INCREMENTAL_TABLE="t1inc"
 
 run_sql "create table $DB.$TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
@@ -36,9 +37,21 @@ run_sql "insert into $DB.$TABLE values (42, 42);"
 # backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
+run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key, b int unique);"
+run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
+
+# drop pk
+run_sql "alter table $DB.$INCREMENTAL_TABLE drop primary key"
+
+# incremental backup
+run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
+
 # restore
 run_sql "drop schema $DB;"
+
 run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
+
+run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
 
 run_sql "drop schema $DB;"
 run_sql "create schema $DB;"
