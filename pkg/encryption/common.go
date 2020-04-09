@@ -63,7 +63,7 @@ func KeySize(method EncryptionMethod) (size int, err error) {
 // MaybeEncrypt returns content as-is if encryption method is set to plaintext
 // (i.e. when encryption is not enabled). Otherwise it encrypt the content, store the
 // result in EncryptedContent struct, and marshal it.
-// 
+//
 // Despite config.method specifies CTR mode, MaybeDecrypt use GCM mode with the same key size
 // to authenticate the key and content.
 func MaybeEncrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
@@ -116,7 +116,7 @@ func MaybeEncrypt(content []byte, config *EncryptionConfig) ([]byte, error) {
 // MaybeDecrypt returns content as-is if encryption method is set to plaintext
 // (i.e. when encryption is not enabled). Otherwise it unmarshal the content into
 // EncryptedContent struct, decrypt the content and return the result.
-// 
+//
 // Despite config.method specifies CTR mode, MaybeDecrypt use GCM mode with the same key size
 // to authenticate the key and content.
 func MaybeDecrypt(content []byte, config *EncryptionConfig) ([]byte, error) {

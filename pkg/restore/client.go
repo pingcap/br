@@ -70,9 +70,9 @@ type Client struct {
 
 	restoreStores []uint64
 
-	storage storage.ExternalStorage
-	backend *backup.StorageBackend
-  encryption encryption.EncryptionConfig
+	storage    storage.ExternalStorage
+	backend    *backup.StorageBackend
+	encryption encryption.EncryptionConfig
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -82,7 +82,7 @@ func NewRestoreClient(
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
-  encryption *encryption.EncryptionOptions,
+	encryption *encryption.EncryptionOptions,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	db, err := NewDB(g, store)
@@ -98,7 +98,7 @@ func NewRestoreClient(
 		toolClient: NewSplitClient(pdClient, tlsConf),
 		db:         db,
 		tlsConf:    tlsConf,
-    encryption: encryption.EncryptionConfig,
+		encryption: encryption.EncryptionConfig,
 	}, nil
 }
 
@@ -160,7 +160,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importClient := NewImportClient(metaClient, rc.tlsConf)
 	rc.fileImporter = NewFileImporter(
-    rc.ctx, metaClient, importClient, backend, &rc.encryption, backupMeta.IsRawKv, rc.rateLimit)
+		rc.ctx, metaClient, importClient, backend, &rc.encryption, backupMeta.IsRawKv, rc.rateLimit)
 	return nil
 }
 

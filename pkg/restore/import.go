@@ -133,7 +133,7 @@ type FileImporter struct {
 	metaClient   SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
-  encryption   *encryption.EncryptionConfig
+	encryption   *encryption.EncryptionConfig
 	rateLimit    uint64
 
 	isRawKvMode bool
