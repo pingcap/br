@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/br/pkg/utils"
+
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -182,10 +184,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	// Checksum from server, and then fulfill the backup metadata.
 	if cfg.Checksum {
-		backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-		if backupSchemas.Len() < backupSchemasConcurrency {
-			backupSchemasConcurrency = backupSchemas.Len()
-		}
+		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
 		updateCh = g.StartProgress(
 			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
 		backupSchemas.Start(
