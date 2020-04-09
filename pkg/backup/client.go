@@ -779,8 +779,8 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 			localChecksum.TotalBytes != schema.TotalBytes ||
 			localChecksum.TotalKvs != schema.TotalKvs {
 			log.Error("failed in fast checksum",
-				zap.String("database", dbInfo.Name.String()),
-				zap.String("table", tblInfo.Name.String()),
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tblInfo.Name),
 				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
 				zap.Uint64("calculated crc64", localChecksum.Crc64Xor),
 				zap.Uint64("origin tidb total kvs", schema.TotalKvs),

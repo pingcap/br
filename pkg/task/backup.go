@@ -234,7 +234,7 @@ func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
 		}
 		if !matches {
 			log.Error("backup FastChecksum mismatch!")
-			return errors.Errorf("mismatched checksum")
+			return errors.New("mismatched checksum")
 		}
 		return nil
 	}

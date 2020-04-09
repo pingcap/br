@@ -651,9 +651,9 @@ func (rc *Client) ValidateChecksum(
 				defer wg.Done()
 
 				if table.NoChecksum() {
-					log.Info("table doesn't has checksum, skipping checksum.",
-						zap.String("database", table.Db.Name.L),
-						zap.String("table name", table.Info.Name.L))
+					log.Info("table doesn't have checksum, skipping checksum",
+						zap.Stringer("db", table.Db.Name),
+						zap.Stringer("table", table.Info.Name))
 					updateCh.Inc()
 					return
 				}
