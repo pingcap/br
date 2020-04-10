@@ -23,13 +23,11 @@ const (
 	ivSize  = 12
 )
 
-type Config = encryptionpb.EncryptionConfig
-
-// EncryptionOptions contain common encryption configurations.
+// Options contain common encryption configurations.
 type Options struct {
-	Config
 	fileBackendOptions
 
+	Config         encryptionpb.EncryptionConfig
 	keyBackendType string
 }
 

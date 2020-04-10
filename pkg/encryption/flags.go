@@ -41,12 +41,12 @@ func (options *Options) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	if methodName == "" {
-		options.Method = encryptionpb.EncryptionMethod_PLAINTEXT
+		options.Config.Method = encryptionpb.EncryptionMethod_PLAINTEXT
 	} else {
 		methodName = strings.ToUpper(strings.ReplaceAll(methodName, "-", "_"))
 		method, ok := encryptionpb.EncryptionMethod_value[methodName]
-		options.Method = encryptionpb.EncryptionMethod(method)
-		if !ok || options.Method == encryptionpb.EncryptionMethod_UNKNOWN {
+		options.Config.Method = encryptionpb.EncryptionMethod(method)
+		if !ok || options.Config.Method == encryptionpb.EncryptionMethod_UNKNOWN {
 			return errors.Errorf("unrecognized encryption %s", methodName)
 		}
 	}
