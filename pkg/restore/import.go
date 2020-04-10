@@ -133,7 +133,7 @@ type FileImporter struct {
 	metaClient   SplitClient
 	importClient ImporterClient
 	backend      *backup.StorageBackend
-	encryption   *encryption.EncryptionConfig
+	encryption   *encryption.Options
 	rateLimit    uint64
 
 	isRawKvMode bool
@@ -150,7 +150,7 @@ func NewFileImporter(
 	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
-	encryption *encryption.EncryptionConfig,
+	encryption *encryption.Options,
 	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
@@ -360,7 +360,7 @@ func (importer *FileImporter) downloadSST(
 	req := &import_sstpb.DownloadRequest{
 		Sst:              sstMeta,
 		StorageBackend:   importer.backend,
-		EncryptionConfig: importer.encryption,
+		EncryptionConfig: &importer.encryption.Config,
 		Name:             file.GetName(),
 		RewriteRule:      rule,
 	}
@@ -413,7 +413,7 @@ func (importer *FileImporter) downloadRawKVSST(
 	req := &import_sstpb.DownloadRequest{
 		Sst:              sstMeta,
 		StorageBackend:   importer.backend,
-		EncryptionConfig: importer.encryption,
+		EncryptionConfig: &importer.encryption.Config,
 		Name:             file.GetName(),
 		RewriteRule:      rule,
 	}

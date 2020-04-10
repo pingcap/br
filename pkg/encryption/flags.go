@@ -3,7 +3,6 @@
 package encryption
 
 import (
-	"encoding/hex"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -13,23 +12,29 @@ import (
 )
 
 const (
-	flagEncryption    = "encryption"
-	flagEncryptionKey = "encryption-key"
+	flagEncryption        = "encryption"
+	flagEncryptionKeyType = "encryption-key-type"
+	flagEncryptionKeyPath = "encryption-key-path"
 )
 
 // DefineFlags adds encryption related flags.
 func DefineFlags(flags *pflag.FlagSet) {
-	flags.String(flagEncryption, "", "Enable encryption and use the specific"+
-		" method if non-empty. Can be one of aes128-ctr, aes192-ctr oraes256-ctr.")
+	flags.String(flagEncryption, "", "Encrypt backup with specific encryption"+
+		" method if non-empty. Can be one of aes128-ctr, aes192-ctr oraes256-ctr."+
+		" The flag is only used for backup and ignored for restore.")
 	// The prefix of the key is to support key management service later.
 	// For example to specify a KMS CMK, we can allow 'kms:<cmk-key-id>' in the future.
-	flags.String(flagEncryptionKey, "", "Encryption key to be use, if encryption"+
-		" is enabled. Must be encoded in hex and starts with 'hex:' prefix,"+
-		" e.g. 'hex:107fad4360d527e818856f0281219c5d'")
+	flags.String(flagEncryptionKeyType, "", "Type of encryption key to be used."+
+		" Can only be \"file\" currently. On backup, if encryption is specified,"+
+		" encryption key must be specified. On restore, the same key used for"+
+		" backup must be passed back.")
+	flags.String(flagEncryptionKeyPath, "", "Path to encryption key file."+
+		" The file must contain a 32 bytes key encoded in readable hex form,"+
+		" and end with newline.")
 }
 
 // ParseFromFlags obtains the encryption options from the flag set.
-func (options *EncryptionOptions) ParseFromFlags(flags *pflag.FlagSet) error {
+func (options *Options) ParseFromFlags(flags *pflag.FlagSet) error {
 	// Parse encryption method.
 	methodName, err := flags.GetString(flagEncryption)
 	if err != nil {
@@ -40,39 +45,28 @@ func (options *EncryptionOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	} else {
 		methodName = strings.ToUpper(strings.ReplaceAll(methodName, "-", "_"))
 		method, ok := encryptionpb.EncryptionMethod_value[methodName]
-		options.Method = EncryptionMethod(method)
+		options.Method = encryptionpb.EncryptionMethod(method)
 		if !ok || options.Method == encryptionpb.EncryptionMethod_UNKNOWN {
 			return errors.Errorf("unrecognized encryption %s", methodName)
 		}
 	}
 
 	// Parse encryption key.
-	keyString, err := flags.GetString(flagEncryptionKey)
+	options.keyBackendType, err = flags.GetString(flagEncryptionKeyType)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if options.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
-		if keyString != "" {
-			return errors.New("specified encryption key but encryption is not enabled")
-		}
-	} else {
-		keyTypeValue := strings.SplitN(keyString, ":", 2)
-		if len(keyTypeValue) != 2 || keyTypeValue[0] != "hex" {
-			return errors.New("malformed encryption key")
-		}
-		key, err := hex.DecodeString(keyTypeValue[1])
+	switch options.keyBackendType {
+	case keyBackendTypeFile:
+		options.path, err = flags.GetString(flagEncryptionKeyPath)
 		if err != nil {
-			return errors.Annotate(err, "failed to decode encryption key")
+			return errors.Trace(err)
 		}
-		keySize, err := KeySize(options.Method)
-		if err != nil {
-			return err
-		}
-		if len(key) != keySize {
-			return errors.Errorf("mismatch encryption key size, expected %d vs actual %d",
-				keySize, len(options.Key))
-		}
-		options.Key = key
+	case "":
+		// no encryption key provided, do nothing
+	default:
+		return errors.Errorf("unrecognized encryption key type %s", options.keyBackendType)
 	}
-	return nil
+
+	return options.fillDataKey()
 }

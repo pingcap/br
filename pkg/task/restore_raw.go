@@ -58,7 +58,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	defer mgr.Close()
 
 	client, err := restore.NewRestoreClient(
-		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), &cfg.EncryptionOptions)
+		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), &cfg.Encryption)
 	if err != nil {
 		return err
 	}

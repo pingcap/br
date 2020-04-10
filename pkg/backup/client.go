@@ -62,19 +62,19 @@ type Client struct {
 	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
 	backend    *kvproto.StorageBackend
-	encryption encryption.EncryptionConfig
+	encryption *encryption.Options
 }
 
 // NewBackupClient returns a new backup client
 func NewBackupClient(
-	ctx context.Context, mgr ClientMgr, encryption *encryption.EncryptionOptions) (*Client, error) {
+	ctx context.Context, mgr ClientMgr, encryption *encryption.Options) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
 	clusterID := pdClient.GetClusterID(ctx)
 	return &Client{
 		clusterID:  clusterID,
 		mgr:        mgr,
-		encryption: encryption.EncryptionConfig,
+		encryption: encryption,
 	}, nil
 }
 
@@ -149,7 +149,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	}
 	log.Debug("backup meta",
 		zap.Reflect("meta", bc.backupMeta))
-	backupMetaData, err = encryption.MaybeEncrypt(backupMetaData, &bc.encryption)
+	backupMetaData, err = encryption.MaybeEncrypt(backupMetaData, bc.encryption)
 	if err != nil {
 		return err
 	}
@@ -425,7 +425,7 @@ func (bc *Client) BackupRange(
 	req.StartKey = startKey
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
-	req.EncryptionConfig = &bc.encryption
+	req.EncryptionConfig = &bc.encryption.Config
 
 	push := newPushDown(ctx, bc.mgr, len(allStores))
 
@@ -686,7 +686,7 @@ func (bc *Client) handleFineGrained(
 		StartVersion:     lastBackupTS,
 		EndVersion:       backupTS,
 		StorageBackend:   bc.backend,
-		EncryptionConfig: &bc.encryption,
+		EncryptionConfig: &bc.encryption.Config,
 		RateLimit:        rateLimit,
 		Concurrency:      concurrency,
 	}

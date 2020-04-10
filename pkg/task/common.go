@@ -78,7 +78,6 @@ func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 // Config is the common configuration for all BRIE tasks.
 type Config struct {
 	storage.BackendOptions
-	encryption.EncryptionOptions
 
 	Storage     string    `json:"storage" toml:"storage"`
 	PD          []string  `json:"pd" toml:"pd"`
@@ -90,8 +89,9 @@ type Config struct {
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
-	CaseSensitive bool         `json:"case-sensitive" toml:"case-sensitive"`
-	Filter        filter.Rules `json:"black-white-list" toml:"black-white-list"`
+	CaseSensitive bool               `json:"case-sensitive" toml:"case-sensitive"`
+	Filter        filter.Rules       `json:"black-white-list" toml:"black-white-list"`
+	Encryption    encryption.Options `json:"encryption" toml:"encryption"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -207,7 +207,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
-	if err := cfg.EncryptionOptions.ParseFromFlags(flags); err != nil {
+	if err := cfg.Encryption.ParseFromFlags(flags); err != nil {
 		return err
 	}
 	return cfg.TLS.ParseFromFlags(flags)
@@ -279,13 +279,18 @@ func ReadBackupMeta(
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}
-	metaData, err = encryption.MaybeDecrypt(metaData, &cfg.EncryptionOptions.EncryptionConfig)
+	metaData, err = encryption.MaybeDecrypt(metaData, &cfg.Encryption)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
-		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
+		if encryption.MayBeEncrypted(metaData) {
+			err = errors.Annotate(err, "parse backupmeta failed, probably missing encryption key")
+		} else {
+			err = errors.Annotate(err, "parse backupmeta failed")
+		}
+		return nil, nil, nil, err
 	}
 	return u, s, backupMeta, nil
 }
