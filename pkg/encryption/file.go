@@ -18,6 +18,15 @@ type fileBackend struct {
 	path string
 }
 
+func (options *fileBackendOptions) validate() error {
+	backend, err := newFileBackend(options)
+	if err != nil {
+		return err
+	}
+	_, _, err = backend.GetKey()
+	return err
+}
+
 func newFileBackend(options *fileBackendOptions) (*fileBackend, error) {
 	backend := &fileBackend{path: options.path}
 	return backend, nil
@@ -35,19 +44,22 @@ func (backend *fileBackend) DecryptKey(encryptedKey []byte) (key []byte, err err
 }
 
 func (backend *fileBackend) read() (key []byte, err error) {
+	if backend.path == "" {
+		return nil, errors.New("missing encryption key path")
+	}
 	data, err := ioutil.ReadFile(backend.path)
 	if err != nil {
-		return nil, errors.Annotatef(err, "fail to get key from file %s", backend.path)
+		return nil, errors.Annotatef(err, "fail to get encryption key from file %s", backend.path)
 	}
 	if data[len(data)-1] != '\n' {
 		return nil, errors.New("key file must end with newline")
 	}
 	key, err = hex.DecodeString(string(data[:len(data)-1]))
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to decode key from file, the key must be in hex form")
+		return nil, errors.Annotate(err, "failed to decode encryption key from file, the key must be in hex form")
 	}
 	if len(key) != keySize {
-		return nil, errors.Errorf("key size must be %d bytes, got %s bytes", keySize, len(key))
+		return nil, errors.Errorf("key size must be %d bytes, got %d bytes", keySize, len(key))
 	}
 	return key, nil
 }

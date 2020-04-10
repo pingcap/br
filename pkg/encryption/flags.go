@@ -12,25 +12,18 @@ import (
 )
 
 const (
-	flagEncryption        = "encryption"
-	flagEncryptionKeyType = "encryption-key-type"
-	flagEncryptionKeyPath = "encryption-key-path"
+	flagEncryption    = "encryption"
+	flagEncryptionKey = "encryption-key"
 )
 
 // DefineFlags adds encryption related flags.
 func DefineFlags(flags *pflag.FlagSet) {
-	flags.String(flagEncryption, "", "Encrypt backup with specific encryption"+
-		" method if non-empty. Can be one of aes128-ctr, aes192-ctr oraes256-ctr."+
-		" The flag is only used for backup and ignored for restore.")
-	// The prefix of the key is to support key management service later.
-	// For example to specify a KMS CMK, we can allow 'kms:<cmk-key-id>' in the future.
-	flags.String(flagEncryptionKeyType, "", "Type of encryption key to be used."+
-		" Can only be \"file\" currently. On backup, if encryption is specified,"+
-		" encryption key must be specified. On restore, the same key used for"+
-		" backup must be passed back.")
-	flags.String(flagEncryptionKeyPath, "", "Path to encryption key file."+
-		" The file must contain a 32 bytes key encoded in readable hex form,"+
-		" and end with newline.")
+	flags.StringP(flagEncryption, "e", "", "Encrypt backup with specific"+
+		" encryption method if non-empty. Can be one of aes128-ctr, aes192-ctr or"+
+		" aes256-ctr. The flag is only used for backup and ignored for restore.")
+	flags.StringP(flagEncryptionKey, "k", "", "Encryption key to be used,"+
+		" in the form of file:<path-to-file>, where the file contain a 32 bytes"+
+		" key encoded in readable hex form.")
 }
 
 // ParseFromFlags obtains the encryption options from the flag set.
@@ -52,21 +45,40 @@ func (options *Options) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	// Parse encryption key.
-	options.keyBackendType, err = flags.GetString(flagEncryptionKeyType)
+	keyString, err := flags.GetString(flagEncryptionKey)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	switch options.keyBackendType {
-	case keyBackendTypeFile:
-		options.path, err = flags.GetString(flagEncryptionKeyPath)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	case "":
-		// no encryption key provided, do nothing
-	default:
-		return errors.Errorf("unrecognized encryption key type %s", options.keyBackendType)
+	if keyString == "" {
+		options.keyBackendType = ""
+		return nil
 	}
+	keyTypeValue := strings.SplitN(keyString, ":", 2)
+	if len(keyTypeValue) != 2 {
+		return errors.Errorf("malformed encryption key %s", keyString)
+	}
+	if keyTypeValue[0] != keyBackendTypeFile {
+		return errors.Errorf("unrecognized encryption key type %s", keyTypeValue[0])
+	}
+	options.keyBackendType = keyTypeValue[0]
+	options.fileBackendOptions.path = keyTypeValue[1]
+	return nil
+}
 
+// PrepareForBackup validates options and generates data encryption key.
+func (options *Options) PrepareForBackup() error {
+	if options.Config.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
+		return nil
+	}
+	var err error
+	switch options.keyBackendType {
+	case "":
+		return errors.New("missing encryption key")
+	case keyBackendTypeFile:
+		err = options.fileBackendOptions.validate()
+	}
+	if err != nil {
+		return err
+	}
 	return options.fillDataKey()
 }
