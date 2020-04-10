@@ -224,10 +224,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := int(cfg.Concurrency)
-	if batchSize > maxRestoreBatchSizeLimit {
-		batchSize = maxRestoreBatchSizeLimit // 256
-	}
+	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
 
 	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
@@ -242,9 +239,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		if len(ranges) == 0 {
 			break
 		}
-		if batchSize > len(ranges) {
-			batchSize = len(ranges)
-		}
+		batchSize = utils.MinInt(batchSize, len(ranges))
 		var rangeBatch []rtree.Range
 		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
 
@@ -287,14 +282,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	updateCh.Close()
 
 	// Checksum
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
-	err = client.ValidateChecksum(
-		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
-	if err != nil {
-		return err
+	if cfg.Checksum {
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
+		err = client.ValidateChecksum(
+			ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
+		if err != nil {
+			return err
+		}
+		updateCh.Close()
 	}
-	updateCh.Close()
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
