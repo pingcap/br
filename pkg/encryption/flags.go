@@ -72,21 +72,21 @@ func (options *Options) PrepareForBackup() error {
 			return errors.New("encryption not enabled but encryption key provided")
 		}
 		return nil
-	} else {
-		var err error
-		switch options.keyBackendType {
-		case "":
-			return errors.New("missing encryption key")
-		case keyBackendTypeFile:
-			err = options.fileBackendOptions.validate()
-		}
-		if err != nil {
-			return err
-		}
-		return options.fillDataKey()
 	}
+	var err error
+	switch options.keyBackendType {
+	case "":
+		return errors.New("missing encryption key")
+	case keyBackendTypeFile:
+		err = options.fileBackendOptions.validate()
+	}
+	if err != nil {
+		return err
+	}
+	return options.fillDataKey()
 }
 
+// EncryptionEnabled returns if encryption is enabled.
 func (options *Options) EncryptionEnabled() bool {
 	return options.keyBackendType != ""
 }

@@ -203,7 +203,7 @@ func ValidateFile(options *Options, file *backup.File) error {
 	if !options.EncryptionEnabled() {
 		return nil
 	}
-  iv := file.GetIv()
+	iv := file.GetIv()
 	if len(iv) == 0 {
 		return errors.New("IV missing in backup response, tikv server may not support encryption")
 	}
