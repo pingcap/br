@@ -143,6 +143,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 		return errors.Trace(err)
 	}
 	bc.backupMeta.Ddls = ddlJobsData
+	bc.backupMeta.Encryption = &bc.encryption.Config
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
 		return errors.Trace(err)

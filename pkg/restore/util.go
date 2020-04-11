@@ -117,6 +117,7 @@ func getSSTMetaFromFile(
 		},
 		RegionId:    region.GetId(),
 		RegionEpoch: region.GetRegionEpoch(),
+		Iv:          file.GetIv(),
 	}
 }
 
