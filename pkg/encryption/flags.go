@@ -68,17 +68,21 @@ func (options *Options) ParseFromFlags(flags *pflag.FlagSet) error {
 // PrepareForBackup validates options and generates data encryption key.
 func (options *Options) PrepareForBackup() error {
 	if options.Config.Method == encryptionpb.EncryptionMethod_PLAINTEXT {
+		if options.keyBackendType != "" {
+			return errors.New("encryption not enabled but encryption key provided")
+		}
 		return nil
+	} else {
+		var err error
+		switch options.keyBackendType {
+		case "":
+			return errors.New("missing encryption key")
+		case keyBackendTypeFile:
+			err = options.fileBackendOptions.validate()
+		}
+		if err != nil {
+			return err
+		}
+		return options.fillDataKey()
 	}
-	var err error
-	switch options.keyBackendType {
-	case "":
-		return errors.New("missing encryption key")
-	case keyBackendTypeFile:
-		err = options.fileBackendOptions.validate()
-	}
-	if err != nil {
-		return err
-	}
-	return options.fillDataKey()
 }
