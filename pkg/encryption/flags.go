@@ -86,3 +86,7 @@ func (options *Options) PrepareForBackup() error {
 		return options.fillDataKey()
 	}
 }
+
+func (options *Options) EncryptionEnabled() bool {
+	return options.keyBackendType != ""
+}

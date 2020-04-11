@@ -242,6 +242,15 @@ func decodeBackupMetaCommand() *cobra.Command {
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
+			if cfg.Encryption.EncryptionEnabled() {
+				force, err := cmd.Flags().GetBool("force")
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if !force {
+					return errors.New("decode encrypted backup meatadata will leak data encryption key")
+				}
+			}
 			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				return err
@@ -273,6 +282,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 	}
 
 	decodeBackupMetaCmd.Flags().String("field", "", "decode specified field")
+	decodeBackupMetaCmd.Flags().Bool("force", false, "force decode")
 
 	return decodeBackupMetaCmd
 }
