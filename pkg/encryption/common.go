@@ -10,6 +10,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/encryptionpb"
+	"github.com/pingcap/log"
 )
 
 const (
@@ -85,6 +86,7 @@ func MaybeEncrypt(content []byte, options *Options) ([]byte, error) {
 	if backend == nil {
 		return content, nil
 	}
+	log.Info("encrypting backup metadata")
 	key, encryptedKey, err := backend.GetKey()
 	if err != nil {
 		return nil, err
@@ -141,6 +143,7 @@ func MaybeDecrypt(content []byte, options *Options) ([]byte, error) {
 	if backend == nil {
 		return content, nil
 	}
+	log.Info("decrypting backup metadata")
 	// Decode encrypted content.
 	encryptedContent := &encryptionpb.EncryptedContent{}
 	err = proto.Unmarshal(content, encryptedContent)
