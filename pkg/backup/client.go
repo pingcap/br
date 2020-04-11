@@ -477,9 +477,18 @@ func (bc *Client) BackupRange(
 
 	results.Ascend(func(i btree.Item) bool {
 		r := i.(*rtree.Range)
+		for _, file := range r.Files {
+			err = encryption.ValidateFile(bc.encryption, file)
+			if err != nil {
+				return false
+			}
+		}
 		bc.backupMeta.Files = append(bc.backupMeta.Files, r.Files...)
 		return true
 	})
+	if err != nil {
+		return err
+	}
 
 	// Check if there are duplicated files.
 	checkDupFiles(&results)

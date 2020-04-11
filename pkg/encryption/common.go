@@ -9,6 +9,7 @@ import (
 	"github.com/spacemonkeygo/openssl"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/encryptionpb"
 	"github.com/pingcap/log"
 )
@@ -20,8 +21,9 @@ const (
 	metaKeyIV        = "iv"
 	metaKeyTag       = "tag"
 
-	keySize = 32
-	ivSize  = 12
+	keySize        = 32
+	ivSize         = 12
+	dataFileIVSize = 16
 )
 
 // Options contain common encryption configurations.
@@ -194,4 +196,20 @@ func MayBeEncrypted(content []byte) bool {
 	encryptedContent := &encryptionpb.EncryptedContent{}
 	err := proto.Unmarshal(content, encryptedContent)
 	return err == nil
+}
+
+// ValidateFile validates encryption metadata in backup file metadata.
+func ValidateFile(options *Options, file *backup.File) error {
+	if !options.EncryptionEnabled() {
+		return nil
+	}
+  iv := file.GetIv()
+	if len(iv) == 0 {
+		return errors.New("IV missing in backup response, tikv server may not support encryption")
+	}
+	if len(iv) != dataFileIVSize {
+		return errors.Errorf("incorrect IV size in backup response, expected %d vs actual %d",
+			dataFileIVSize, len(iv))
+	}
+	return nil
 }
