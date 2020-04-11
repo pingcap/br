@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/br/pkg/utils"
+
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -183,39 +185,32 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	// Checksum
-	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-	if backupSchemas.Len() < backupSchemasConcurrency {
-		backupSchemasConcurrency = backupSchemas.Len()
-	}
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-	backupSchemas.SetSkipChecksum(!cfg.Checksum)
-	backupSchemas.Start(
-		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
-
-	err = client.CompleteMeta(backupSchemas)
-	if err != nil {
-		return err
-	}
-
-	if cfg.LastBackupTS == 0 {
-		var valid bool
-		valid, err = client.FastChecksum()
+	// Checksum from server, and then fulfill the backup metadata.
+	if cfg.Checksum {
+		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
+		backupSchemas.Start(
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+		err = client.CompleteMeta(backupSchemas)
 		if err != nil {
 			return err
 		}
-		if !valid {
-			log.Error("backup FastChecksum mismatch!")
-			return errors.Errorf("mismatched checksum")
+		// Checksum has finished
+		updateCh.Close()
+		// collect file information.
+		err = checkChecksums(client, cfg)
+		if err != nil {
+			return err
 		}
-
 	} else {
-		// Since we don't support checksum for incremental data, fast checksum should be skipped.
-		log.Info("Skip fast checksum in incremental backup")
+		// When user specified not to calculate checksum, don't calculate checksum.
+		// Just... copy schemas from origin.
+		log.Info("Skip fast checksum because user requirement.")
+		client.CopyMetaFrom(backupSchemas)
+		// Anyway, let's collect file info for summary.
+		client.CollectFileInfo()
 	}
-	// Checksum has finished
-	updateCh.Close()
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
@@ -224,6 +219,30 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
+	return nil
+}
+
+// checkChecksums checks the checksum of the client, once failed,
+// returning a error with message: "mismatched checksum".
+func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
+	checksums, err := client.CollectChecksums()
+	if err != nil {
+		return err
+	}
+	if cfg.LastBackupTS == 0 {
+		var matches bool
+		matches, err = client.ChecksumMatches(checksums)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			log.Error("backup FastChecksum mismatch!")
+			return errors.New("mismatched checksum")
+		}
+		return nil
+	}
+	// Since we don't support checksum for incremental data, fast checksum should be skipped.
+	log.Info("Skip fast checksum in incremental backup")
 	return nil
 }
 
