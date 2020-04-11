@@ -163,13 +163,17 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	tmpBackupMeta.Encryption.Key = make([]byte, 0)
 	log.Debug("backup meta", zap.Reflect("meta", tmpBackupMeta))
 
-	backupMetaData, err = encryption.MaybeEncrypt(backupMetaData, bc.encryption)
-	if err != nil {
-		return err
+	metaFile := utils.MetaFile
+	if bc.encryption.EncryptionEnabled() {
+		backupMetaData, err = encryption.Encrypt(backupMetaData, bc.encryption)
+		if err != nil {
+			return err
+		}
+		metaFile = utils.EncryptedMetaFile
 	}
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("jobs", len(ddlJobs)))
-	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
+	return bc.storage.Write(ctx, metaFile, backupMetaData)
 }
 
 func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {

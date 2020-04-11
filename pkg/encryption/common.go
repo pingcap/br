@@ -67,8 +67,7 @@ func (options *Options) fillDataKey() error {
 func getKeyBackend(options *Options) (keyBackend, error) {
 	switch options.keyBackendType {
 	case "":
-		// No encryption key provided.
-		return nil, nil
+		return nil, errors.New("encryption key missing")
 	case keyBackendTypeFile:
 		return newFileBackend(&options.fileBackendOptions)
 	default:
@@ -76,17 +75,11 @@ func getKeyBackend(options *Options) (keyBackend, error) {
 	}
 }
 
-// MaybeEncrypt returns content as-is if encryption method is set to plaintext
-// (i.e. when encryption is not enabled). Otherwise it encrypt the content with AES256-GCM,
-// store the result in EncryptedContent struct, and marshal it.
-func MaybeEncrypt(content []byte, options *Options) ([]byte, error) {
+// Encrypt content with AES256-GCM and marshal the result in EncryptedContent.
+func Encrypt(content []byte, options *Options) ([]byte, error) {
 	backend, err := getKeyBackend(options)
 	if err != nil {
 		return nil, err
-	}
-	// If no key provided, the content is not encrypted.
-	if backend == nil {
-		return content, nil
 	}
 	log.Info("encrypting backup metadata")
 	key, encryptedKey, err := backend.GetKey()
@@ -133,17 +126,11 @@ func MaybeEncrypt(content []byte, options *Options) ([]byte, error) {
 	return proto.Marshal(&encryptedContent)
 }
 
-// MaybeDecrypt returns content as-is if encryption method is set to plaintext
-// (i.e. when encryption is not enabled). Otherwise it unmarshal the content into
-// EncryptedContent struct, decrypt the content with AES256-GCM and return the result.
-func MaybeDecrypt(content []byte, options *Options) ([]byte, error) {
+// Decrypt unmarshal content into EncryptedContent and decrypt with AES256-GCM.
+func Decrypt(content []byte, options *Options) ([]byte, error) {
 	backend, err := getKeyBackend(options)
 	if err != nil {
 		return nil, err
-	}
-	// If no key provided, the content is not encrypted.
-	if backend == nil {
-		return content, nil
 	}
 	log.Info("decrypting backup metadata")
 	// Decode encrypted content.
@@ -188,14 +175,6 @@ func MaybeDecrypt(content []byte, options *Options) ([]byte, error) {
 		return nil, errors.Annotate(err, "possibly wrong encryption key, or content being altered")
 	}
 	return append(output, finalOutput...), nil
-}
-
-// MayBeEncrypted checks if the content is encrypted, by trying to deserialize it
-// as EncryptedContent.
-func MayBeEncrypted(content []byte) bool {
-	encryptedContent := &encryptionpb.EncryptedContent{}
-	err := proto.Unmarshal(content, encryptedContent)
-	return err == nil
 }
 
 // ValidateFile validates encryption metadata in backup file metadata.

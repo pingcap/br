@@ -37,6 +37,7 @@ import (
 
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/encryption"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -69,8 +70,9 @@ type Client struct {
 
 	restoreStores []uint64
 
-	storage storage.ExternalStorage
-	backend *backup.StorageBackend
+	storage    storage.ExternalStorage
+	backend    *backup.StorageBackend
+	encryption *encryption.Options
 }
 
 // NewRestoreClient returns a new RestoreClient
@@ -80,6 +82,7 @@ func NewRestoreClient(
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
+	encryption *encryption.Options,
 ) (*Client, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	db, err := NewDB(g, store)
@@ -95,6 +98,7 @@ func NewRestoreClient(
 		toolClient: NewSplitClient(pdClient, tlsConf),
 		db:         db,
 		tlsConf:    tlsConf,
+		encryption: encryption,
 	}, nil
 }
 
@@ -384,9 +388,19 @@ func (rc *Client) RemoveTiFlashReplica(
 		if err != nil {
 			return errors.Trace(err)
 		}
+		metaFile := utils.MetaFile
+		if rc.encryption.EncryptionEnabled() {
+			backupMetaData, err = encryption.Encrypt(backupMetaData, rc.encryption)
+			if err != nil {
+				return err
+			}
+			metaFile = utils.EncryptedMetaFile
+		}
+
 		backendURL := storage.FormatBackendURL(rc.backend)
 		log.Info("update backup meta", zap.Stringer("path", &backendURL))
-		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+		metaFile += utils.SavedMetaFileExtension
+		err = rc.storage.Write(rc.ctx, metaFile, backupMetaData)
 		if err != nil {
 			return errors.Trace(err)
 		}

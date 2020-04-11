@@ -95,7 +95,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	defer mgr.Close()
 
 	client, err := restore.NewRestoreClient(
-		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), &cfg.Encryption)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config, false)
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	defer mgr.Close()
 
 	// Load saved backupmeta
-	_, _, backupMeta, err := ReadBackupMeta(ctx, utils.SavedMetaFile, &cfg.Config)
+	_, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config, true)
 	if err != nil {
 		return err
 	}

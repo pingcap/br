@@ -63,7 +63,7 @@ func newCheckSumCommand() *cobra.Command {
 				return err
 			}
 
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg, false)
 			if err != nil {
 				return err
 			}
@@ -151,7 +151,7 @@ func newBackupMetaCommand() *cobra.Command {
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return err
 			}
-			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, _, backupMeta, err := task.ReadBackupMeta(ctx, &cfg, false)
 			if err != nil {
 				log.Error("read backupmeta failed", zap.Error(err))
 				return err
@@ -251,7 +251,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 					return errors.New("decode encrypted backup meatadata will leak data encryption key")
 				}
 			}
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, &cfg, false)
 			if err != nil {
 				return err
 			}

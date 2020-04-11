@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // RestoreRawConfig is the configuration specific for raw kv restore tasks.
@@ -58,7 +57,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	defer mgr.Close()
 
 	client, err := restore.NewRestoreClient(
-		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+		ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), &cfg.Encryption)
 	if err != nil {
 		return err
 	}
@@ -69,7 +68,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		client.EnableOnline()
 	}
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
+	u, _, backupMeta, err := ReadBackupMeta(ctx, &cfg.Config, false)
 	if err != nil {
 		return err
 	}

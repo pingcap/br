@@ -12,6 +12,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
@@ -265,32 +266,71 @@ func GetStorage(
 	return u, s, nil
 }
 
+func checkBackupMetaExists(
+	ctx context.Context,
+	cfg *Config,
+	storage storage.ExternalStorage,
+	saved bool,
+) (string, bool, error) {
+	metaFile, encryptedMetaFile := utils.MetaFile, utils.EncryptedMetaFile
+	if saved {
+		metaFile += utils.SavedMetaFileExtension
+		encryptedMetaFile += utils.SavedMetaFileExtension
+	}
+	metaFileExists, err := storage.FileExists(ctx, utils.MetaFile)
+	if err != nil {
+		return "", false, err
+	}
+	encryptedMetaFileExists, err := storage.FileExists(ctx, utils.EncryptedMetaFile)
+	if err != nil {
+		return "", false, err
+	}
+	if cfg.Encryption.EncryptionEnabled() {
+		if encryptedMetaFileExists {
+			log.Info("Found encrypted backupmeta")
+			return encryptedMetaFile, true, nil
+		} else if metaFileExists {
+			// Fallback to non-encrypted flow.
+			log.Warn("Encrypted backupmeta not found, fallback to plaintext backupmeta")
+			return metaFile, false, nil
+		}
+	} else {
+		if metaFileExists {
+			return metaFile, false, nil
+		} else if encryptedMetaFileExists {
+			return "", false, errors.New("backup is encrypted but encryption key is missing")
+		}
+	}
+	return "", false, errors.New("backupmeta file not exists")
+}
+
 // ReadBackupMeta reads the backupmeta file from the storage.
 func ReadBackupMeta(
 	ctx context.Context,
-	fileName string,
 	cfg *Config,
+	saved bool,
 ) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	metaData, err := s.Read(ctx, fileName)
+	metaFile, useEncryption, err := checkBackupMetaExists(ctx, cfg, s, saved)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	metaData, err := s.Read(ctx, metaFile)
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}
-	metaData, err = encryption.MaybeDecrypt(metaData, &cfg.Encryption)
-	if err != nil {
-		return nil, nil, nil, err
+	if useEncryption {
+		metaData, err = encryption.Decrypt(metaData, &cfg.Encryption)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
-		if encryption.MayBeEncrypted(metaData) {
-			err = errors.Annotate(err, "parse backupmeta failed, probably missing encryption key")
-		} else {
-			err = errors.Annotate(err, "parse backupmeta failed")
-		}
-		return nil, nil, nil, err
+		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}
 	return u, s, backupMeta, nil
 }
