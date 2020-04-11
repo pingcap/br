@@ -155,8 +155,14 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Debug("backup meta",
-		zap.Reflect("meta", bc.backupMeta))
+
+	// Clear encryption key to avoid printing it out to info log.
+	// TODO(yiwu): make zap logger not to print the encryption key out, otherwise
+	// there's still risk we may do that by mistake.
+	tmpBackupMeta := bc.backupMeta
+	tmpBackupMeta.Encryption.Key = make([]byte, 0)
+	log.Debug("backup meta", zap.Reflect("meta", tmpBackupMeta))
+
 	backupMetaData, err = encryption.MaybeEncrypt(backupMetaData, bc.encryption)
 	if err != nil {
 		return err
