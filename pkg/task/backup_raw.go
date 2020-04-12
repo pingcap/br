@@ -78,10 +78,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-	if err = cfg.Config.Encryption.PrepareForBackup(); err != nil {
-		return err
-	}
-	return nil
+	return cfg.Config.Encryption.PrepareForBackup()
 }
 
 // RunBackupRaw starts a backup task inside the current goroutine.

@@ -87,7 +87,7 @@ func Encrypt(content []byte, options *Options) ([]byte, error) {
 		return nil, err
 	}
 	if len(key) != keySize {
-		return nil, errors.Errorf("key size must be %d bytes, got %s bytes", keySize, len(key))
+		return nil, errors.Errorf("key size must be %d bytes, got %d bytes", keySize, len(key))
 	}
 	// Recommanded IV size for GCM is 12 bytes.
 	// https://www.openssl.org/docs/man1.1.0/man3/EVP_rc2_40_cbc.html#GCM-and-OCB-Modes
@@ -148,7 +148,7 @@ func Decrypt(content []byte, options *Options) ([]byte, error) {
 		return nil, err
 	}
 	if len(key) != keySize {
-		return nil, errors.Errorf("key size must be %d bytes, got %s bytes", keySize, len(key))
+		return nil, errors.Errorf("key size must be %d bytes, got %d bytes", keySize, len(key))
 	}
 	iv, ok := encryptedContent.Metadata[metaKeyIV]
 	if !ok {
