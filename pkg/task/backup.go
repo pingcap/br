@@ -130,7 +130,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	// nothing to backup
 	if ranges == nil {
-		return nil
+		return client.SaveBackupMeta(ctx, nil)
 	}
 
 	ddlJobs := make([]*model.Job, 0)
