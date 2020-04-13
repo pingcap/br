@@ -48,6 +48,13 @@ type ClientMgr interface {
 	Close()
 }
 
+// Checksum is the checksum of some backup files calculated by CollectChecksums.
+type Checksum struct {
+	Crc64Xor   uint64
+	TotalKvs   uint64
+	TotalBytes uint64
+}
+
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
@@ -747,8 +754,59 @@ func SendBackup(
 	return nil
 }
 
-// FastChecksum check data integrity by xor all(sst_checksum) per table
-func (bc *Client) FastChecksum() (bool, error) {
+// ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
+func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
+	if len(local) != len(bc.backupMeta.Schemas) {
+		return false, nil
+	}
+
+	for i, schema := range bc.backupMeta.Schemas {
+		localChecksum := local[i]
+		dbInfo := &model.DBInfo{}
+		err := json.Unmarshal(schema.Db, dbInfo)
+		if err != nil {
+			log.Error("failed in fast checksum, and cannot parse db info.")
+			return false, err
+		}
+		tblInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tblInfo)
+		if err != nil {
+			log.Error("failed in fast checksum, and cannot parse table info.")
+			return false, err
+		}
+		if localChecksum.Crc64Xor != schema.Crc64Xor ||
+			localChecksum.TotalBytes != schema.TotalBytes ||
+			localChecksum.TotalKvs != schema.TotalKvs {
+			log.Error("failed in fast checksum",
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tblInfo.Name),
+				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
+				zap.Uint64("calculated crc64", localChecksum.Crc64Xor),
+				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
+				zap.Uint64("calculated total kvs", localChecksum.TotalKvs),
+				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
+				zap.Uint64("calculated total bytes", localChecksum.TotalBytes),
+			)
+			return false, nil
+		}
+		log.Info("fast checksum success",
+			zap.String("database", dbInfo.Name.L),
+			zap.String("table", tblInfo.Name.L))
+	}
+	return true, nil
+}
+
+// CollectFileInfo collects ungrouped file summary information, like kv count and size.
+func (bc *Client) CollectFileInfo() {
+	for _, file := range bc.backupMeta.Files {
+		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
+	}
+}
+
+// CollectChecksums check data integrity by xor all(sst_checksum) per table
+// it returns the checksum of all local files.
+func (bc *Client) CollectChecksums() ([]Checksum, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -757,19 +815,20 @@ func (bc *Client) FastChecksum() (bool, error) {
 
 	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
+	checksums := make([]Checksum, 0, len(bc.backupMeta.Schemas))
 	for _, schema := range bc.backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
 
@@ -784,25 +843,16 @@ func (bc *Client) FastChecksum() (bool, error) {
 
 		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
-
-		if schema.Crc64Xor == checksum && schema.TotalKvs == totalKvs && schema.TotalBytes == totalBytes {
-			log.Info("fast checksum success", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
-		} else {
-			log.Error("failed in fast checksum",
-				zap.String("database", dbInfo.Name.String()),
-				zap.String("table", tblInfo.Name.String()),
-				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
-				zap.Uint64("calculated crc64", checksum),
-				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
-				zap.Uint64("calculated total kvs", totalKvs),
-				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
-				zap.Uint64("calculated total bytes", totalBytes),
-			)
-			return false, nil
+		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
+		localChecksum := Checksum{
+			Crc64Xor:   checksum,
+			TotalKvs:   totalKvs,
+			TotalBytes: totalBytes,
 		}
+		checksums = append(checksums, localChecksum)
 	}
 
-	return true, nil
+	return checksums, nil
 }
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta
@@ -813,4 +863,15 @@ func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 	}
 	bc.backupMeta.Schemas = schemas
 	return nil
+}
+
+// CopyMetaFrom copies schema metadata directly from pending backupSchemas, without calculating checksum.
+// use this when user skip the checksum generating.
+func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
+	schemas := make([]*kvproto.Schema, 0, len(backupSchemas.schemas))
+	for _, v := range backupSchemas.schemas {
+		schema := v
+		schemas = append(schemas, &schema)
+	}
+	bc.backupMeta.Schemas = schemas
 }
