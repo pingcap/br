@@ -17,15 +17,13 @@ require (
 	github.com/klauspost/cpuid v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.7 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
-	github.com/onsi/ginkgo v1.11.0 // indirect
-	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
 	github.com/pingcap/kvproto v0.0.0-20200331072206-c211b473fe43
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v3.1.0-beta.2.0.20200318061433-f0b8f6cdca0d+incompatible
-	github.com/pingcap/pd/v3 v3.1.0-beta.2.0.20200312100832-1206736bd050
-	github.com/pingcap/tidb v1.1.0-beta.0.20200401121410-5854181fbbe0
+	github.com/pingcap/pd/v3 v3.1.0-rc.0.20200410125843-8b7475c6bfd6
+	github.com/pingcap/tidb v1.1.0-beta.0.20200410101606-1347df814de0
 	github.com/pingcap/tidb-tools v4.0.0-beta.1.0.20200317092225-ed6b2a87af54+incompatible
 	github.com/pingcap/tipb v0.0.0-20200401093201-cc8b75c53383
 	github.com/prometheus/client_golang v1.0.0
