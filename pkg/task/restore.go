@@ -161,6 +161,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// nothing to restore, maybe only ddl changes in incremental restore
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		// even nothing to restore, we show a success message since there is no failure.
+		summary.SetSuccessStatus(true)
 		return nil
 	}
 
