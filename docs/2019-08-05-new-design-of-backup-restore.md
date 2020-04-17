@@ -213,7 +213,7 @@ pub trait Storage: Sync + Send + 'static {
 
 #### Backup gRPC 服务
 
-这一部分的内容见 [kvproto](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto)！
+备份 RPC 的相关内容已经可以在 [kvproto](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto) 找到。
 
 > 作为参考，新的恢复 RPC 见[这里](https://github.com/pingcap/kvproto/blob/master/proto/import_sstpb.proto)。
 

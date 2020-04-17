@@ -2,7 +2,7 @@
 
 > 这篇文档记录了关于 Key rewrite 在 `tikv-importer` 中的时机的讨论。
 >
-> 需要注意的是，BR 现在使用的 API 并不是 `tikv-importer`；但是关于 Key rewrite 的问题却一直存在，这篇记录可以当作参考。
+> 需要注意的是，BR 现在使用的 API 并不是 `tikv-importer`，后者在讨论之后决定将其集成入 TiKV（见[讨论](./2019-09-24-BR-and-lightning-reorganization.md)）；但是关于 Key rewrite 的问题却一直存在，这篇记录可以当作参考。
 >
 > 现在的设计是：由 BR 端进行 Region 的 Split & Scatter 工作(prepare)，而新的 `download` 和 `ingest` API 使用类似于方案三的方法来进行导入（各个节点下载时重写键）。
 >

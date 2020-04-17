@@ -18,7 +18,9 @@ tikv-importer 的部分功能指 key rewrite，在恢复时将备份出来的 ss
 
 目前的想法是尽量复用现有的代码，将 key rewrite 放到 TiKV 的 sst-importer 工作线程中执行。此外我们还会将 tikv-importer 上传 sst 的功能变为 TiKV 主动下载 sst。流程如下：
 
-![img](./resources/download-sst-digram.jpg)上图，红色部分为 TiKV，蓝色部分为外部客户端，整个恢复流程由客户端驱动。
+![img](./resources/download-sst-digram.jpg)
+
+上图，红色部分为 TiKV，蓝色部分为外部客户端，整个恢复流程由客户端驱动。
 
 大体过程如下：
 
@@ -59,9 +61,9 @@ Rewrite SST 目的有二：
 
 ```protobuf
 message RewriteRule {
-	bytes old_prefix = 1;  // this can be empty for universal prefix insertion!
-	bytes new_prefix = 2;  // these are _not_ just an integer!
-  uint64 version = 3;
+    bytes old_prefix = 1;  // this can be empty for universal prefix insertion!
+    bytes new_prefix = 2;  // these are _not_ just an integer!
+    uint64 version = 3;
 }
 ```
 
@@ -93,8 +95,9 @@ TiKV 下载的 SST 来自 ExternalStorage，针对不同的使用场景，会使
 
 对于 backup restore， ExternalStorage 就是 backup 期间使用的那个。对于 tidb-lightning/tikv-importer，ExternalStorage 会变成 tikv-importer，这意味着我们还需补充一个 external storage，用于读取 tikv-importer 上数据，建议用 HTTP，比较通用。
 
-###部署
+### 部署
+
 该方案对于 backup restore 来说，组件上省去了 tikv-importer。对于 tidb-lightning 来说没有更改，tikv-importer 很难去除，主要写 engine file 很难移植到 go，不过或许也可以把这部分功能挪到 TiKV 中。 
 
-###兼容性
+### 兼容性
 考虑到现在的 lightning + importer 只用在离线导入中，所以风险可控，兼容性问题不大。

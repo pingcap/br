@@ -9,7 +9,7 @@ fast-br 和 lightning 两个工具在实现上面有一定的功能重合。现�
 
 ### 分析
 
-* 导入流程，以及相关的整合技术设计细节见文档 TiKV 整合 import SST 的设计。 
+* 导入流程，以及相关的整合技术设计细节见文档 [TiKV 整合 import SST 的设计](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)。 
 * 经过多次讨论后我们决定在 4.0 移除 tikv-importer 组件，只保留 lightning 作为第三方格式数据源的处理前端。
    * 将 tikv-importer 的 ingest SST files 功能放置在 TiKV 中
    * 将对 kv pairs 数据进行排序，以及 split into SST files & scatter 功能放置在 TiDB lightning
