@@ -89,7 +89,7 @@ Key Rewrite 对现在导入流程的影响
 
 即是在第 1 步写入 KV pairs 到 Engine files 时已经先把 Keys rewrite 掉。好处是之后 2、3 步再没有 Rewrite 前后之分，所以修改起来十分方便。坏处是 BR 的 SST files 不能无修改重用了。
 
-<img src="../resources/solution1-of-key-rewrite.jpg" alt="img" style="zoom:50%;" />
+<img src="../resources/solution1-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
 
 
 假设数据源 SST 的大小是 **N**、副本数是 R。
@@ -104,7 +104,7 @@ Key Rewrite 对现在导入流程的影响
 
 另一方面我们可以把 Key Rewrite 视为 Ingest 的一部分，这样 TiKV 和 Importer 就能共享源数据。不过 Prepare 和找 Region Leader 这些步骤需要进行多次 Rewrite 和 Undo rewrite。
 
-<img src="../resources/solution2-of-key-rewrite.jpg" alt="img" style="zoom:50%;" />
+<img src="../resources/solution2-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
 
 
 使用此方案的风险是 Range Rewrite 会打乱顺序，例如我们执行 Key Rewrite Rules:
@@ -124,7 +124,7 @@ Key Rewrite 对现在导入流程的影响
 
 ### 方案 3: Key rewrite before ingest in every replica
 
-<img src="../resources/solution3-of-key-rewrite.jpg" alt="img" style="zoom:50%;" />
+<img src="../resources/solution3-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
 
 方案 2 仍需要 Leader 把 Rewrite 后的 SST 传送给 Followers。如果每个 Peer 独自 Key Rewrite 就连网络传输都不需要了。当然这样也会增加 CPU 消耗。
 * 源数据读盘：(R+1)**N** (Split 前 in Importer、Key rewrite 前 in TiKV)
