@@ -178,56 +178,8 @@ TiKV 对 Region 的大小是有限制的，默认为 96MB，超出该阈值则�
 > 更新：已通过 [Key rewrite](./2019-09-09-BR-key-rewrite-disscussion.md) 在理论上支持原集群恢复
 
 ### 附录
-
-#### 新旧方案对比
-老方案：在 raft 层备份，使用 learner 把 tikv 集群中的数据备份到 learner 实例（集群）上。
-
-新方案：在事务层备份，使用 kvscan 备份 tikv 集群的一个快照。
-
-
-老方案优点：
-* 备份实时性高，使用 raft learner 同步数据能接近实时地备份。
-* 备份对集群性能的影响小，特别是在增量备份期间。
-* 支持 raw kv 备份。
-* 技术方案新颖。
-
-老方案缺点：
-
-* 实现复杂，由于 multi-raft 动态变化的特性，在备份和恢复时需要记录下 region 元信息变动的时序。
-* 备份时存在单点，由于实现复杂，在老方案中，9 月底能提供的是：一个 tikv learner 备份节点，所有 region 的都会安放一个 learner 副本在 tikv 上。
-* 备份效率低，由于单点原因，磁盘和网络容易出现瓶颈，最后备份的性能估计和 mydumper 差不多。
-* 恢复事务复杂，learner 备份实质上是 rawkv 备份，在恢复事务是需要额外的工作，实现比较复杂。
-* 需要一个高性能的备份节点运行 tikv learner 节点
-* 很难实现原集群恢复数据。
-* 难以和现有的工具生态整合，比如恢复不能使用 importer，只能从头重写。
-
-#### 外部存储接口
-```rust
-/// An abstraction of an external storage.
-pub trait Storage: Sync + Send + 'static {
-   /// Write all contents of the read to the given path.
-   // TODO: should it return a writer?
-   fn write(&self, name: &str, reader: &mut dyn Read) -> io::Result<()>;
-   /// Read all contents of the given path.
-   fn read(&self, name: &str) -> io::Result<Box<dyn Read>>;
-}
-```
-
 #### Backup gRPC 服务
 
 备份 RPC 的相关内容已经可以在 [kvproto](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto) 找到。
 
 > 作为参考，新的恢复 RPC 见[这里](https://github.com/pingcap/kvproto/blob/master/proto/import_sstpb.proto)。
-
-#### 未知问题
-
-* DDL 是否走标准的数据流程？
-   * DDL 元信息操作走事务接口
-* table 的具体元信息有哪些？
-   * github.com/pingcap/parser
-      * model.DBInfo
-      * model.TableInfo
-      * AutoID?
-      * ...
-* GC 可能需要暂停
-   * 需要暂定，十分钟还是太短了
