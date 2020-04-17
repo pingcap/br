@@ -139,7 +139,20 @@ TiKV 对 Region 的大小是有限制的，默认为 96MB，超出该阈值则�
 
 这个方案的优点是实现简单，不需要修改任何的现有代码，缺点是速度较慢，当 importer 在恢复过程中挂掉并且无法再启动时要从头开始恢复。
 
-> 现在使用的方案已经不再使用 tikv-importer，转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)和[这里](./2019-09-24-BR-and-lightning-reorganization.md)找到。
+### 初步对接计划
+
+恢复对接大体两部分：
+1. github.com/tikv/impoter 
+   * 支持读取备份 SST
+   * key 重写，然后写入 importer 内部 engine
+      1. 初期是否需要支持 key 重写？能不能在全新集群上导入？
+   * 添加恢复 RPC，方便外部工具指导 importer 如何进行恢复，包括：
+      1. 恢复的 key value 范围
+      2. 备份数据的地址
+2. github.com/overvenus/br
+   * 添加恢复 RPC，指导 importer 恢复
+
+> 现在使用的方案已经不再使用 tikv-importer（它也预计会在 4.0 被移除），转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)和[这里](./2019-09-24-BR-and-lightning-reorganization.md)找到。
 >
 > 现在的步骤大概是这样：
 >
@@ -148,3 +161,71 @@ TiKV 对 Region 的大小是有限制的，默认为 96MB，超出该阈值则�
 > 3. 依照 rewrite rules 和 key 范围分割并打散 regions。（这一步由 BR 而非 tikv 完成了）
 > 4. 调用 download 和 ingest API 完成导入。
 
+### 问题
+
+1. 不支持在线恢复
+
+  现阶段 importer 只能离线在全新集群上恢复，做不到在线恢复，这是不符合用户的预期的。这里的困境是 ingest SST 失败会导致各个副本之间的数据不一致。
+
+
+更新：已通过 [placement rule](https://pingcap.com/docs-cn/stable/how-to/configure/placement-rules/#placement-rules-使用文档) 实现资源隔离
+2. 不支持原集群恢复
+
+  原集群恢复涉及到各种 ID 的问题，最简单办法就是 rewrite key，把 key 中老 ID 替换成新 ID。这是 crdb 的方案，我们同样可以借鉴。
+
+更新：已通过 [Key rewrite](./2019-09-09-BR-key-rewrite-disscussion.md) 在理论上支持原集群恢复
+
+### 附录
+
+#### 新旧方案对比
+老方案：在 raft 层备份，使用 learner 把 tikv 集群中的数据备份到 learner 实例（集群）上。
+
+新方案：在事务层备份，使用 kvscan 备份 tikv 集群的一个快照。
+
+
+老方案优点：
+* 备份实时性高，使用 raft learner 同步数据能接近实时地备份。
+* 备份对集群性能的影响小，特别是在增量备份期间。
+* 支持 raw kv 备份。
+* 技术方案新颖。
+
+老方案缺点：
+
+* 实现复杂，由于 multi-raft 动态变化的特性，在备份和恢复时需要记录下 region 元信息变动的时序。
+* 备份时存在单点，由于实现复杂，在老方案中，9 月底能提供的是：一个 tikv learner 备份节点，所有 region 的都会安放一个 learner 副本在 tikv 上。
+* 备份效率低，由于单点原因，磁盘和网络容易出现瓶颈，最后备份的性能估计和 mydumper 差不多。
+* 恢复事务复杂，learner 备份实质上是 rawkv 备份，在恢复事务是需要额外的工作，实现比较复杂。
+* 需要一个高性能的备份节点运行 tikv learner 节点
+* 很难实现原集群恢复数据。
+* 难以和现有的工具生态整合，比如恢复不能使用 importer，只能从头重写。
+
+#### 外部存储接口
+```rust
+/// An abstraction of an external storage.
+pub trait Storage: Sync + Send + 'static {
+   /// Write all contents of the read to the given path.
+   // TODO: should it return a writer?
+   fn write(&self, name: &str, reader: &mut dyn Read) -> io::Result<()>;
+   /// Read all contents of the given path.
+   fn read(&self, name: &str) -> io::Result<Box<dyn Read>>;
+}
+```
+
+#### Backup gRPC 服务
+
+这一部分的内容见 [kvproto](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto)！
+
+> 作为参考，新的恢复 RPC 见[这里](https://github.com/pingcap/kvproto/blob/master/proto/import_sstpb.proto)。
+
+#### 未知问题
+
+* DDL 是否走标准的数据流程？
+   * DDL 元信息操作走事务接口
+* table 的具体元信息有哪些？
+   * github.com/pingcap/parser
+      * model.DBInfo
+      * model.TableInfo
+      * AutoID?
+      * ...
+* GC 可能需要暂停
+   * 需要暂定，十分钟还是太短了
