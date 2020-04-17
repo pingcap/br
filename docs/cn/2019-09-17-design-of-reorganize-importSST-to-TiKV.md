@@ -50,26 +50,29 @@ tikv-importer 的部分功能指 key rewrite，在恢复时将备份出来的 ss
 
 > 以下的部分摘自于一次[讨论](./2019-09-09-BR-key-rewrite-disscussion.md)，因此其中的信息仅仅用做理解设计上的参考。
 
-Rewrite SST 目的有二：
+Key Rewrite 的目的有二：
 
-1. 為 BR 提供修改 Table ID 的功能，以支持恢復到 Schema Version 不同的集群
-2. 為 Lightning 提供添加前綴的功能，省略 Lightning ↔ Importer 之間重複的數據傳輸
+1. 为 BR 提供修改 Table ID 的功能，以支持恢复到 Schema Version 不同的集群
+2. 为 Lightning 提供添加前缀的功能，省略 Lightning ↔ Importer 之间重复的数据传输
 
-一個 BR 的 SST 可能包含多個 Tables，所以要支持多條 Rewrite Rules 同時生效。SST 可能來自非 TiDB 系統，所以 Importer 不應該有 Key 編碼格式的假設（不一定是 t«tid»_ 開頭）。
+一个 BR 的 SST 可能包含多个 Tables，所以要支持多条 Rewrite Rules 同时生效。SST 可能来自非 TiDB 系统，所以 Importer 不应该有 Key 编码格式的假设（不一定是 t«tid»_ 开头）。
 
-除了前缀之外，我们还需考虑 timestamp。 Backup 的数据都有写入时候的 TS，restore 的时候需要获取一个新的 TS 来把原来的 TS 替换掉（包括 write cf value 内存储的 TS）。
-
-給 Importer / TiKV 參考的 Key Rewrite 數據結構建議如下：
+给 Importer / TiKV 参考的 Key Rewrite 数据结构建议如下：
 
 ```protobuf
 message RewriteRule {
-    bytes old_prefix = 1;  // this can be empty for universal prefix insertion!
-    bytes new_prefix = 2;  // these are _not_ just an integer!
-    uint64 version = 3;
+	bytes old_prefix = 1;  // this can be empty for universal prefix insertion!
+	bytes new_prefix = 2;  // these are _not_ just an integer!
+}
+
+message RestoreRequest {
+	...
+	repeated RewriteRule rewrite_rules = N;
+	...
 }
 ```
 
-正向替代一個 Key：
+正向替代一个 Key：
 ```rust
 fn rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
     for rule in rules {
@@ -80,7 +83,8 @@ fn rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
     Cow::Borrowed(key)
 }
 ```
-反向還原一個 Key：
+
+反向还原一个 Key：
 ```rust
 fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
     for rule in rules {
