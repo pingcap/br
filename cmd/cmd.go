@@ -47,7 +47,7 @@ const (
 )
 
 func timestampLogFileName() string {
-	return filepath.Join(os.TempDir(), "br.log."+time.Now().Format(time.RFC3339))
+	return filepath.Join(os.TempDir(), time.Now().Format("br.log.2006-01-02T15.04.05Z0700"))
 }
 
 // AddFlags adds flags to the given cmd.
