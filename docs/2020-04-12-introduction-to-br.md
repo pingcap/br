@@ -1,3 +1,5 @@
+Last updated: 2020-04-17
+
 ## BR 简介
 
 BR(backup & restore) 恰如其名，是用来备份/恢复 TiDB 数据的工具，这个工具后期会加入 SQL 中。

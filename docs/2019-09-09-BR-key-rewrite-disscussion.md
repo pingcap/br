@@ -1,3 +1,5 @@
+Last updated: 2019-09-12
+
 ## BR 关于 Key rewrite 的讨论
 
 > 这篇文档记录了关于 Key rewrite 在 `tikv-importer` 中的时机的讨论。

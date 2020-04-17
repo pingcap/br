@@ -1,3 +1,5 @@
+Last updated: 2020-02-28
+
 ## BR & Lightning 整合
 
 fast-br（快速备份和恢复）、mydumper、lightning 之后都会归入 backup and restore tools set (简称 BR tools set)。
@@ -34,7 +36,6 @@ fast-br 和 lightning 两个工具在实现上面有一定的功能重合。现�
 * split & scatter 完成后，发起 restore 处理流程
    * 对指定 tikv 发起 restore cmd(download & ingest SST files)
    * 对指定 tikv 提供 download SST files 服务
-
 
 #### TiKV
 * download SST files from storage/tidb-lightning

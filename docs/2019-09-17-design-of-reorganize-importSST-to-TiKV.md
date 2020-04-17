@@ -1,3 +1,5 @@
+Last updated: 2019-11-05
+
 ## TiKV 整合 import SST 的设计
 
 ### 目标
