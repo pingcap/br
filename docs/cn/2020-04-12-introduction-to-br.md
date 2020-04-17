@@ -123,19 +123,19 @@ message RewriteRule {
 
 不妨让我们先想象比较简单的场景：集群伊始，天地之间仅有一 region 而已，在接下来的图例中，您可以把横轴想象为某种“数轴”，不过这里的“数”是 []byte ，并且是按照字典序来比较大小的：
 
-![img](../resources/region-split-1.jpg)
+![img](../resources/region-split-1.svg)
 
 然后，我们看了看我们的 backupmeta，发现了我们需要恢复的键的区间，注意我们保证键范围不会有相交处：
 
-![img](../resources/region-split-2.jpg)
+![img](../resources/region-split-2.svg)
 
 不要忘记，我们还有可能会需要 Key rewrite：
 
-![img](../resources/region-split-3.jpg)
+![img](../resources/region-split-3.svg)
 
 一个 Split 可能会是这样，我们把原本的 Region 1 拆散成了更小的四个部分：
 
-![img](../resources/region-split-4.jpg)
+![img](../resources/region-split-4.svg)
 
 事实上，TiKV 提供了一个 `SplitRegion` RPC，如下是简化过的版本：
 ```protobuf

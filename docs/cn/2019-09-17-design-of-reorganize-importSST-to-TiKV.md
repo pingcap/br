@@ -20,7 +20,7 @@ tikv-importer 的部分功能指 key rewrite，在恢复时将备份出来的 ss
 
 目前的想法是尽量复用现有的代码，将 key rewrite 放到 TiKV 的 sst-importer 工作线程中执行。此外我们还会将 tikv-importer 上传 sst 的功能变为 TiKV 主动下载 sst。流程如下：
 
-![img](../resources/download-sst-digram.jpg)
+![img](../resources/download-sst-diagram.svg)
 
 上图，红色部分为 TiKV，蓝色部分为外部客户端，整个恢复流程由客户端驱动。
 
