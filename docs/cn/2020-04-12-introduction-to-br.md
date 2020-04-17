@@ -6,7 +6,7 @@ BR(backup & restore) 恰如其名，是用来备份/恢复 TiDB 数据的工具�
 
 它本质上是一个“客户端”：使用 TiKV 提供的接口，来将备份和恢复的任务“下推”到 TiKV 集群中，后者则会直接将键值对写入指定的 SST 文件中。相似的接口也被 tidb-lightning 使用；详细的架构见下图，相关的设计文档在[这里](./2019-09-24-BR-and-lightning-reorganization.md)：
 
-![img](./resources/arch-of-reorganized-importer.svg)
+![img](../resources/arch-of-reorganized-importer.svg)
 
 这篇文章会讲述这个“客户端”的基本行为，同时也会提到一些相关接口的数据结构、请求格式，以及我们如何用这个“原始”的 KV 备份/恢复接口实现带 schema 的备份和恢复。
 
@@ -123,19 +123,19 @@ message RewriteRule {
 
 不妨让我们先想象比较简单的场景：集群伊始，天地之间仅有一 region 而已，在接下来的图例中，您可以把横轴想象为某种“数轴”，不过这里的“数”是 []byte ，并且是按照字典序来比较大小的：
 
-![img](./resources/region-split-1.jpg)
+![img](../resources/region-split-1.jpg)
 
 然后，我们看了看我们的 backupmeta，发现了我们需要恢复的键的区间，注意我们保证键范围不会有相交处：
 
-![img](./resources/region-split-2.jpg)
+![img](../resources/region-split-2.jpg)
 
 不要忘记，我们还有可能会需要 Key rewrite：
 
-![img](./resources/region-split-3.jpg)
+![img](../resources/region-split-3.jpg)
 
 一个 Split 可能会是这样，我们把原本的 Region 1 拆散成了更小的四个部分：
 
-![img](./resources/region-split-4.jpg)
+![img](../resources/region-split-4.jpg)
 
 事实上，TiKV 提供了一个 `SplitRegion` RPC，如下是简化过的版本：
 ```protobuf

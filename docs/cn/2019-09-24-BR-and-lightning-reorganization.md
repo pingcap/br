@@ -18,7 +18,7 @@ fast-br 和 lightning 两个工具在实现上面有一定的功能重合。现�
 
 ### 架构
 
-![img](./resources/arch-of-reorganized-importer.svg)
+![img](../resources/arch-of-reorganized-importer.svg)
 
 下面介绍了 BR tools set 包含的组件的功能：
 #### tidb-lightning
