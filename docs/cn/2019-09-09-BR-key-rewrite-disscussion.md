@@ -2,14 +2,6 @@ Last updated: 2019-09-12
 
 ## BR 关于 Key rewrite 的讨论
 
-> 这篇文档记录了关于 Key rewrite 在 `tikv-importer` 中的时机的讨论。
->
-> 需要注意的是，BR 现在使用的 API 并不是 `tikv-importer`，后者在讨论之后决定将其集成入 TiKV（见[讨论](./2019-09-24-BR-and-lightning-reorganization.md)）；但是关于 Key rewrite 的问题却一直存在，这篇记录可以当作参考。
->
-> 现在的设计是：由 BR 端进行 Region 的 Split & Scatter 工作(prepare)，而新的 `download` 和 `ingest` API 使用类似于方案三的方法来进行导入（各个节点下载时重写键）。
->
-> 目前 `tikv-importer` 是按照方案三来工作的。
-
 ### Key rewirte 结构
 
 Key Rewrite 的目的有二：
@@ -85,66 +77,14 @@ Key Rewrite 对现在导入流程的影响
 
 我们看到 Rewrite 前后的 Keys 在各步骤交叉被使用。这里的问题是怎么选一个合适的位置去 Rewrite Keys 来为 BR 提取最大性能。
 
-### 方案 1: Key rewrite in “Importer” before split and scatter
-
-即是在第 1 步写入 KV pairs 到 Engine files 时已经先把 Keys rewrite 掉。好处是之后 2、3 步再没有 Rewrite 前后之分，所以修改起来十分方便。坏处是 BR 的 SST files 不能无修改重用了。
-
-<img src="../resources/solution1-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
-
-
-假设数据源 SST 的大小是 **N**、副本数是 R。
-* 源数据读盘：**N** (Importer Key Rewrite 前)
-* Importer 写盘：**N** (Key rewrite 后写到 Engine file)
-* Importer 读盘：2**N** (Split + Encode SST)
-* TiKV 写盘：R**N** (Upload)
-* 网络传输：R**N** (从 Importer 上传到所有 TiKV)
-* Key Rewrite 次数：1
-
-### 方案 2: Key rewrite before ingest in leader
-
-另一方面我们可以把 Key Rewrite 视为 Ingest 的一部分，这样 TiKV 和 Importer 就能共享源数据。不过 Prepare 和找 Region Leader 这些步骤需要进行多次 Rewrite 和 Undo rewrite。
-
-<img src="../resources/solution2-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
-
-
-使用此方案的风险是 Range Rewrite 会打乱顺序，例如我们执行 Key Rewrite Rules:
-* t0 → t6 / t1 → t7 / t2 → t8
-* t3 → t1 / t4 → t2 / t5 → t3
-
-<img src="../resources/glitch-of-solution2.jpg" style="zoom:50%;" />
-
-结果 [t0, t6) 的 range 就被切成两半 [t6, t9) + [t1, t4) 了。为简化 Split 的步骤、使 Range Rewrite 简单写成 [rewritten start, rewritten end) 就好，在 Pre-split 的时候必须先检查正在使用 rewrite rule 有没有变，有变的话不等到 512 MB 也要立即 Pre-split。
-
-* 源数据读盘：3**N** (Split 前 + Transmit Range Info from Importer、Key rewrite 前 in TiKV Leader)
-* Importer 写盘：0
-* Importer 读盘：0
-* TiKV 写盘：R**N**(Key rewrite 后 + Followers 暂存记录新数据到 SST 文件 (?))
-* 网络传输：(R-1)**N** (Raft 协议)
-* Key Rewrite 次数：2 (Pre-split + Raft-Ingest 前)
-
-### 方案 3: Key rewrite before ingest in every replica
+### 解决方案：Key rewrite before ingest in every replica
 
 <img src="../resources/solution3-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
 
-方案 2 仍需要 Leader 把 Rewrite 后的 SST 传送给 Followers。如果每个 Peer 独自 Key Rewrite 就连网络传输都不需要了。当然这样也会增加 CPU 消耗。
+每个 Peer 独自在 ingest 之前进行 Key Rewrite。
 * 源数据读盘：(R+1)**N** (Split 前 in Importer、Key rewrite 前 in TiKV)
 * Importer 写盘：0
 * Importer 读盘：0
 * TiKV 写盘：R**N** (Key rewrite 后暂存记录新数据到 SST 文件 (?))
 * 网络传输：0
 * Key Rewrite 次数：R+1 (Pre-split + Raft-Ingest 前)
-
-### 方案 4: (其他方案) + Do not split
-
-如果 SST 文件本身已切分成适当大小，那就不需要作 512 MB 的切分，而只需用 SST 整体的 Range [start, end)，用 Key rewrite rule 的 old_key 及 old_key + 1 为 Split key 去切分。这样做可以省略掉方案 2、3 的 1 次 Importer 内的 Key rewrite 及所有方案的 1 次读盘。另外 Region size 变成由 Backup 侧主导而非 Restore 侧主导。
-
-### 总结
-
-| 方案             | 1 (before split) | 2 (before ingest) | 3 (every replica) |
-| ---------------- | ---------------- | ----------------- | ----------------- |
-| 源数据读盘       | N                | 3N                | (R+1)N            |
-| Importer 写盘    | N                | 0                 | 0                 |
-| Importer 读盘    | 2N               | 0                 | 0                 |
-| TiKV 写盘        | RN               | RN                | RN                |
-| 网络传输         | RN               | (R-1)N            | 0                 |
-| Key Rewrite 次数 | 1                | 2                 | R+1               |

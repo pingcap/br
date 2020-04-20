@@ -14,7 +14,7 @@ Last updated: 2020-03-07
 
 1. 分布式导出数据，数据由各个 region 的 leader 生成，理论上备份的吞吐能达到集群极限。
 2. 数据是形式是 SST，SST 格式有优点在于能快速恢复，同时可以直接用 rocksdb 自带一些功能比如，数据压缩/加密。
-3. 数据直接保存第三方存储，比如 S3，HTTP，WebDav 等。
+3. 数据直接保存第三方存储，比如 S3, GCS 等。
 4. 备份的一致性保证：SI，需要保证能恢复到 point-in-time 的状态。
 
 ### 备份流程
@@ -24,15 +24,10 @@ Last updated: 2020-03-07
 1. 外部程序根据用户指定备份范围下发备份命令到 TiKV，这个外部程序最终会整合到 TiDB 中，入口是 SQL。
 2. TiKV 接受备份请求后交由 region leader 处理，并使用一个特殊的 iterator 读取数据
 3. TiKV 读取的数据会被组织成 SST 文件。这里需要控制 IO 和内存使用。
-4. TiKV 会把 SST 文件写到外部存储，比如 http，s3 等，这里需要流控。
-> 事实上，现在没有做对 HTTP 的支持，除此之外，这里的“外部存储”还可以是本地的文件系统。
+4. TiKV 会把 SST 文件写到外部存储，比如自身的本地存储，s3 等，这里需要流控。
 5. TIKV 把执行信息汇报给外部程序。
 
 外部程序执行备份的基本流程：
-
-> 这一部分流程便是现在 BR 客户端中，也是未来的 TiDB 中所执行的流程。
->
-> 不过现在我们会优先获得 schema，然后根据表的 Key Range 下推执行备份。
 
 1. 下推备份到所有 tikv
 2. 接受 TiKV Streaming 发过来的备份结果
@@ -132,54 +127,30 @@ TiKV 对 Region 的大小是有限制的，默认为 96MB，超出该阈值则�
 
 ### 恢复流程
 
-目前的 restore 可以先不考虑支持 sql，只提供一个恢复工具，且仅支持在一个没有数据的全新集群上恢复数据
+现在使用的方案已经不再使用 tikv-importer（它也预计会在 4.0 被移除），转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)和[这里](./2019-09-24-BR-and-lightning-reorganization.md)找到。
 
-1. 使用备份的 schema 信息创建一个新表
-2. 拿到新表的 table id，使用 table id 重写数据的 key，上传重写后 key-value 到 tikv-importer 上
-3. tikv-importer 接收到数据之后，重新切分、打散数据
-4. tikv-importer 将文件传到对应 tikv-server 上，随后调用 ingest 导入 SST 文件
-
-这个方案的优点是实现简单，不需要修改任何的现有代码，缺点是速度较慢，当 importer 在恢复过程中挂掉并且无法再启动时要从头开始恢复。
-
-### 初步对接计划
-
-恢复对接大体两部分：
-1. <https://github.com/tikv/importer>
-   * 支持读取备份 SST
-   * key 重写，然后写入 importer 内部 engine
-      1. 初期是否需要支持 key 重写？能不能在全新集群上导入？
-   * 添加恢复 RPC，方便外部工具指导 importer 如何进行恢复，包括：
-      1. 恢复的 key value 范围
-      2. 备份数据的地址
-2. github.com/overvenus/br
-   * 添加恢复 RPC，指导 importer 恢复
-
-> 现在使用的方案已经不再使用 tikv-importer（它也预计会在 4.0 被移除），转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)和[这里](./2019-09-24-BR-and-lightning-reorganization.md)找到。
->
-> 现在的步骤大概是这样：
->
-> 1. 不变
-> 2. 通过备份的元数据构建 key-value 的范围，同时依照新表 ID 构建 rewirte rules。
-> 3. 依照 rewrite rules 和 key 范围分割并打散 regions。（这一步由 BR 而非 tikv 完成了）
-> 4. 调用 download 和 ingest API 完成导入。
+1. 使用备份的 schema 信息创建新表。
+2. 通过备份的元数据构建 key-value 的范围，同时依照新表 ID 构建 rewirte rules。
+4. 依照 rewrite rules 和 key 范围分割并打散 regions。
+5. 调用 download 和 ingest API 完成导入。
 
 ### 问题
 
-1. 不支持在线恢复
+1. 在线恢复
 
-  现阶段 importer 只能离线在全新集群上恢复，做不到在线恢复，这是不符合用户的预期的。这里的困境是 ingest SST 失败会导致各个副本之间的数据不一致。
+这里的困境是 ingest SST 失败会导致各个副本之间的数据不一致。
 
+我们通过 [placement rule](https://pingcap.com/docs-cn/stable/how-to/configure/placement-rules/#placement-rules-使用文档) 实现资源隔离。
 
-> 更新：已通过 [placement rule](https://pingcap.com/docs-cn/stable/how-to/configure/placement-rules/#placement-rules-使用文档) 实现资源隔离
-2. 不支持原集群恢复
+2. 原集群恢复
 
-  原集群恢复涉及到各种 ID 的问题，最简单办法就是 rewrite key，把 key 中老 ID 替换成新 ID。这是 crdb 的方案，我们同样可以借鉴。
+原集群恢复涉及到各种 ID 的问题，最简单办法就是 rewrite key，把 key 中老 ID 替换成新 ID。这是 crdb 的方案，我们同样可以借鉴。
 
-> 更新：已通过 [Key rewrite](./2019-09-09-BR-key-rewrite-disscussion.md) 在理论上支持原集群恢复
+我们通过 [Key rewrite](./2019-09-09-BR-key-rewrite-disscussion.md) 在理论上支持原集群恢复。
 
 ### 附录
 #### Backup gRPC 服务
 
-备份 RPC 的相关内容已经可以在 [kvproto](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto) 找到。
+备份 RPC 的相关内容已经可以在 [kvproto 仓库](https://github.com/pingcap/kvproto/blob/master/proto/backup.proto) 找到。
 
-> 作为参考，新的恢复 RPC 见[这里](https://github.com/pingcap/kvproto/blob/master/proto/import_sstpb.proto)。
+新的恢复 RPC 见[这里](https://github.com/pingcap/kvproto/blob/master/proto/import_sstpb.proto)。
