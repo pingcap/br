@@ -312,7 +312,7 @@ func filterRestoreFiles(
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
+			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.L, Name: table.Info.Name.L}) {
 				continue
 			}
 
