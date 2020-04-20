@@ -26,7 +26,7 @@ BR 和 lightning 两个工具在实现上面有一定的功能重合。现状是
 * 读取不同源端的数据；本地磁盘/S3 等
 * 读取不同格式数据源；非 BR 备份输出格式，如 mydumper dump files、 csv 等
 * 处理数据源数据
-   * 转化为 kv pairs format (in tikv)
+   * 转化为 kv pairs format (in TiKV)
    * 保存到本地 engine file（目前实现为 rocksdb）
    * 完成排序
 * split & scatter
@@ -34,8 +34,8 @@ BR 和 lightning 两个工具在实现上面有一定的功能重合。现状是
    * 对 key ranges 进行 key rewrite 
    * 将 key rewrite 后的 key ranges 调用 pd 接口进行 split & scatter，获取到 region 信息 (key range after rewrite, region ID, leader and peer IP, etc.)
 * split & scatter 完成后，发起 restore 处理流程
-   * 对指定 tikv 发起 restore cmd(download & ingest SST files)
-   * 对指定 tikv 提供 download SST files 服务
+   * 对指定 TiKV 发起 restore cmd(download & ingest SST files)
+   * 对指定 TiKV 提供 download SST files 服务
 
 #### TiKV
 * download SST files from storage/tidb-lightning
@@ -43,8 +43,8 @@ BR 和 lightning 两个工具在实现上面有一定的功能重合。现状是
 * ingest SST files(through raft)
 
 #### BR/tidb
-快速备份和恢复的命令行入口，下发命令到对应的 tikvs
-* backup - 对指定的 tikvs 发起 backup cmd(scan kvs and save as specified format SST files)
-* restore - 对指定的 tikvs 发起 restore cmd
+快速备份和恢复的命令行入口，下发命令到对应的 TiKVs
+* backup - 对指定的 TiKVs 发起 backup cmd(scan kvs and save as specified format SST files)
+* restore - 对指定的 TiKVs 发起 restore cmd
    * split SST files & scatter regions
-   * 发送命令到指定 tikv 让其 download sst + key rewrite + ingest sst (see “TiKV” above)
+   * 发送命令到指定 TiKV 让其 download sst + key rewrite + ingest sst (see “TiKV” above)

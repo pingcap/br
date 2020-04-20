@@ -41,8 +41,8 @@ tikv-importer 的部分功能指 key rewrite，在恢复时将备份出来的 ss
 
 1. 可恢复错误：
    1. NotLeader，重试
-   2.  IngestEpochNotMatch，重试
-   3.  Process
+   2. IngestEpochNotMatch，重试
+   3. Process
 2. 不可恢复错误：
    1. Ingest 执行失败，Panic
 
@@ -53,7 +53,7 @@ tikv-importer 的部分功能指 key rewrite，在恢复时将备份出来的 ss
 Key Rewrite 的目的有二：
 
 1. 为 BR 提供修改 Table ID 的功能，以支持恢复到 Schema Version 不同的集群
-2. 为 Lightning 提供添加前缀的功能，省略 Lightning ↔ Importer 之间重复的数据传输
+2. 为 Lightning 提供添加前缀的功能，省略 Lightning <-> Importer 之间重复的数据传输
 
 一个 BR 的 SST 可能包含多个 Tables，所以要支持多条 Rewrite Rules 同时生效。SST 可能来自非 TiDB 系统，所以 Importer 不应该有 Key 编码格式的假设（不一定是 t«tid»_ 开头）。
 
