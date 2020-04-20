@@ -60,7 +60,7 @@ Key Rewrite 对现在导入流程的影响
 2. (Prepare) 遍历此 Engine file，
    1. (Pre-split) 每当 K+V 的累积长度达 512 MB 时（可设置），对这个 **Range** 执行 PrepareRangeJob，如下。
    2. (GetRegion) 执行 *PD* 的 *get_region_info* 取得这个 *Range.start* 对应的 *Region* 信息。
-   3. (Split) 把这个 *Region* 从 *Range.end* 处使用 *split_region_opt* 分裂成两部分。如果出 EpochNotMatch 或 NotLeader 的错会由 b 步开始重试。
+   3. (Split) 把这个 *Region* 从 *Range.end* 处使用 *split_region_opt* 分裂成两部分。如果出 EpochNotMatch 或 NotLeader 的错会由 GetRegion 开始重试。
    4. (Scatter) 使用 *scatter_region* 将分裂后 *Range* 对应的 *Region* 打散。
 3. (Import) 按 Prepare 步获得的 *Ranges* 并行导入
    1. (GetRegion) 重新取得这个 *Range* 对应的 *Region*。如果现在横跨了多个 Regions，会按 *PD* 返回的信息分割 *Range* 之后重试。
