@@ -212,6 +212,8 @@ message DownloadRequest {
 }
 ```
 
+您可能注意到了，这里的 Rewrite rule 只有而且只需要单一一条；因为前面我们提到过，我们保证我们的每个 SST 文件都只会存在一张表。所以，仅仅一个 Rewrite rule 就够用了，这样做可以减少 RPC 的复杂度。
+
 在确定所有的 TiKV 都已经下载完毕之后，我们会对目标 Region 中的 Leader 发送 `Ingest` 请求，这个请求的定义如下，它的完整定义和上面的 `Download` 在相同的地方，这个请求会让 TiKV 将 SST 文件恢复到 RocksDB 中，这个恢复过程会通过 Raft 算法来保证一致性。
 
 ```protobuf
