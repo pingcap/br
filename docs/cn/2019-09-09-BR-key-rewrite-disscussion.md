@@ -54,7 +54,6 @@ fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
 
 ### Key Rewrite 对现在导入流程的影响
 
-Key Rewrite 对现在导入流程的影响
 现在无论是 BR 还是 Lightning，使用的都是同一套导入流程，如下：
 1. 把 **KV 对**写入到 RocksDB 实例（“**Engine File**”）来排序
 2. (Prepare) 遍历此 Engine file，

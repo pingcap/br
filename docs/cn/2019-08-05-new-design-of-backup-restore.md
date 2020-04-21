@@ -55,7 +55,6 @@ Last updated: 2020-03-07
 由于备份的保证是 SI，所有增量数据可以直接通过扫 write CF 中的记录即可得到。需要吐出的记录有：
 - Put，新增的数据。
 - Delete，删除的数据。
-  
 
 不需要吐出的记录有：
 - Lock，select for update 写的记录，实际上没有任何数据变更。
@@ -123,7 +122,7 @@ TiKV 对 Region 的大小是有限制的，默认为 96MB，超出该阈值则�
 
 ### 恢复流程
 
-现在使用的方案已经不再使用 tikv-importer（它也预计会在 4.0 被移除），转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-11-05-design-of-reorganize-importSST-to-TiKV.md)和[这里](./2019-09-24-BR-and-lightning-reorganization.md)找到。
+现在使用的方案已经不再使用 tikv-importer（它也预计会在 4.0 被移除），转而使用了 TiKV 一组能够下载/导入 SST 文件的新 API。相关的信息可以在[这里](./2019-09-17-design-of-reorganize-importSST-to-TiKV.md)找到。
 
 1. 使用备份的 schema 信息创建新表。
 2. 通过备份的元数据构建 key-value 的范围，同时依照新表 ID 构建 rewirte rules。
