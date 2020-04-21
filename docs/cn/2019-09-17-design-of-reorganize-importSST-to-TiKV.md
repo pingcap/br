@@ -10,7 +10,7 @@ Last updated: 2019-11-05
 
 目前导入/恢复任务都有 tikv-importer 的参与。
 
-针对 backup restore 来说，存在以下问题：存在多余步骤，增加额外的复杂度部署不方便，增加了额外的运维负担。
+针对 BR 来说，存在以下问题：存在多余步骤，增加额外的复杂度部署不方便，增加了额外的运维负担。
 
 我们经过讨论，决定将 tikv-importer 的部分功能放到 TiKV 中。
 
@@ -99,11 +99,12 @@ fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
 ### Download SST
 TiKV 下载的 SST 来自 ExternalStorage，针对不同的使用场景，会使用不同的 ExternalStorage。
 
-对于 backup restore， ExternalStorage 就是 backup 期间使用的那个。对于 tidb-lightning/tikv-importer，ExternalStorage 会变成 tikv-importer，这意味着我们还需补充一个 external storage，用于读取 tikv-importer 上数据，建议用 HTTP，比较通用。
+对于 BR， ExternalStorage 就是 backup 期间使用的那个。
 
 ### 部署
 
-该方案对于 backup restore 来说，组件上省去了 tikv-importer。对于 tidb-lightning 来说没有更改，tikv-importer 很难去除，主要写 engine file 很难移植到 go，不过或许也可以把这部分功能挪到 TiKV 中。 
+该方案对于 BR 来说，组件上省去了 tikv-importer。
 
 ### 兼容性
+
 考虑到现在的 lightning + importer 只用在离线导入中，所以风险可控，兼容性问题不大。
