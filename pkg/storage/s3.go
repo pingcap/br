@@ -25,7 +25,7 @@ const (
 	s3RegionOption       = "s3.region"
 	s3StorageClassOption = "s3.storage-class"
 	s3SseOption          = "s3.sse"
-	s3SseKmsKeyIdOption  = "s3.sse-kms-key-id"
+	s3SseKmsKeyIDOption  = "s3.sse-kms-key-id"
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
@@ -55,7 +55,7 @@ type S3BackendOptions struct {
 	Region                string `json:"region" toml:"region"`
 	StorageClass          string `json:"storage-class" toml:"storage-class"`
 	Sse                   string `json:"sse" toml:"sse"`
-	SseKmsKeyId           string `json:"sse-kms-key-id" toml:"sse-kms-key-id"`
+	SseKmsKeyID           string `json:"sse-kms-key-id" toml:"sse-kms-key-id"`
 	ACL                   string `json:"acl" toml:"acl"`
 	AccessKey             string `json:"access-key" toml:"access-key"`
 	SecretAccessKey       string `json:"secret-access-key" toml:"secret-access-key"`
@@ -98,7 +98,7 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	// StorageClass, SSE and ACL are acceptable to be empty
 	s3.StorageClass = options.StorageClass
 	s3.Sse = options.Sse
-	s3.SseKmsKeyId = options.SseKmsKeyId
+	s3.SseKmsKeyId = options.SseKmsKeyID
 	s3.Acl = options.ACL
 	s3.AccessKey = options.AccessKey
 	s3.SecretAccessKey = options.SecretAccessKey
@@ -113,7 +113,7 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1")
 	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
 	flags.String(s3SseOption, "", "Set S3 server-side encryption, e.g. aws:kms")
-	flags.String(s3SseKmsKeyIdOption, "", "KMS CMK key id to use with S3 server-side encryption."+
+	flags.String(s3SseKmsKeyIDOption, "", "KMS CMK key id to use with S3 server-side encryption."+
 		"Leave empty to use S3 owned key.")
 	flags.String(s3ACLOption, "", "(experimental) Set the S3 canned ACLs, e.g. authenticated-read")
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
@@ -133,7 +133,7 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	options.SseKmsKeyId, err = flags.GetString(s3SseKmsKeyIdOption)
+	options.SseKmsKeyID, err = flags.GetString(s3SseKmsKeyIDOption)
 	if err != nil {
 		return errors.Trace(err)
 	}
