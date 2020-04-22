@@ -36,7 +36,7 @@ test:
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
 
 testcover:
-	GO111MODULE=on retool do overalls \
+	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
 		-ignore='.git,vendor,tests,_tools' \
@@ -55,8 +55,7 @@ integration_test: build build_for_integration_test
 
 tools:
 	@echo "install tools..."
-	@GO111MODULE=off go get github.com/twitchtv/retool
-	@GO111MODULE=off retool sync
+	@cd tools && make
 
 check-all: static lint tidy
 	@echo "checking"
@@ -64,12 +63,12 @@ check-all: static lint tidy
 check: tools check-all
 
 static: export GO111MODULE=on
-static:
+static: tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	retool do goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
-	retool do govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 
-	CGO_ENABLED=0 retool do golangci-lint run --enable-all --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable gochecknoinits \
 		--disable interfacer \
@@ -83,11 +82,13 @@ static:
 		--disable gomnd \
 		$$($(PACKAGE_DIRECTORIES))
 
-lint:
+lint: tools
 	@echo "linting"
-	CGO_ENABLED=0 retool do revive -formatter friendly -config revive.toml $$($(PACKAGES))
+	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
 
 tidy:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet go.mod go.sum
+
+.PHONY: tools
