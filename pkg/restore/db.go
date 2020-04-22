@@ -106,8 +106,18 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Error(err))
 		return errors.Trace(err)
 	}
+
+	var alterAutoIncIDFormat string
+	switch {
+	case table.Info.IsSequence():
+		alterAutoIncIDFormat = "do setval(%s.%s, %d);"
+	case table.Info.IsView():
+		return nil
+	default:
+		alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
+	}
 	alterAutoIncIDSQL := fmt.Sprintf(
-		"alter table %s.%s auto_increment = %d",
+		alterAutoIncIDFormat,
 		utils.EncloseName(table.Db.Name.O),
 		utils.EncloseName(table.Info.Name.O),
 		table.Info.AutoIncID)
