@@ -24,7 +24,8 @@ const (
 	s3EndpointOption     = "s3.endpoint"
 	s3RegionOption       = "s3.region"
 	s3StorageClassOption = "s3.storage-class"
-	s3SSEOption          = "s3.sse"
+	s3SseOption          = "s3.sse"
+	s3SseKmsKeyIdOption  = "s3.sse-kms-key-id"
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
@@ -53,7 +54,8 @@ type S3BackendOptions struct {
 	Endpoint              string `json:"endpoint" toml:"endpoint"`
 	Region                string `json:"region" toml:"region"`
 	StorageClass          string `json:"storage-class" toml:"storage-class"`
-	SSE                   string `json:"sse" toml:"sse"`
+	Sse                   string `json:"sse" toml:"sse"`
+	SseKmsKeyId           string `json:"sse-kms-key-id" toml:"sse-kms-key-id"`
 	ACL                   string `json:"acl" toml:"acl"`
 	AccessKey             string `json:"access-key" toml:"access-key"`
 	SecretAccessKey       string `json:"secret-access-key" toml:"secret-access-key"`
@@ -95,7 +97,8 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	s3.Region = options.Region
 	// StorageClass, SSE and ACL are acceptable to be empty
 	s3.StorageClass = options.StorageClass
-	s3.Sse = options.SSE
+	s3.Sse = options.Sse
+	s3.SseKmsKeyId = options.SseKmsKeyId
 	s3.Acl = options.ACL
 	s3.AccessKey = options.AccessKey
 	s3.SecretAccessKey = options.SecretAccessKey
@@ -109,7 +112,9 @@ func defineS3Flags(flags *pflag.FlagSet) {
 		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
 	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1")
 	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
-	flags.String(s3SSEOption, "", "(experimental) Set the S3 server-side encryption algorithm, e.g. AES256")
+	flags.String(s3SseOption, "", "Set S3 server-side encryption, e.g. aws:kms")
+	flags.String(s3SseKmsKeyIdOption, "", "KMS CMK key id to use with S3 server-side encryption."+
+		"Leave empty to use S3 owned key.")
 	flags.String(s3ACLOption, "", "(experimental) Set the S3 canned ACLs, e.g. authenticated-read")
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
@@ -124,7 +129,11 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	options.SSE, err = flags.GetString(s3SSEOption)
+	options.Sse, err = flags.GetString(s3SseOption)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	options.SseKmsKeyId, err = flags.GetString(s3SseKmsKeyIdOption)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -223,6 +232,9 @@ func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error 
 	}
 	if rs.options.Sse != "" {
 		input = input.SetServerSideEncryption(rs.options.Sse)
+	}
+	if rs.options.SseKmsKeyId != "" {
+		input = input.SetSSEKMSKeyId(rs.options.SseKmsKeyId)
 	}
 	if rs.options.StorageClass != "" {
 		input = input.SetStorageClass(rs.options.StorageClass)
