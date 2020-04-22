@@ -27,19 +27,18 @@ fi
 MISSING_TIDB_COMPONENTS=
 for COMPONENT in tidb-server pd-server tikv-server pd-ctl; do
     if [ ! -e "$BIN/$COMPONENT" ]; then
-        MISSING_TIDB_COMPONENTS="$MISSING_TIDB_COMPONENTS tidb-latest-linux-amd64/bin/$COMPONENT"
+        MISSING_TIDB_COMPONENTS="$MISSING_TIDB_COMPONENTS tidb-nightly-linux-amd64/bin/$COMPONENT"
     fi
 done
 
 if [ -n "$MISSING_TIDB_COMPONENTS" ]; then
     echo "Downloading latest TiDB bundle..."
-    # TODO: the url is going to change from 'latest' to 'nightly' someday.
-    curl -L -f -o "$BIN/tidb.tar.gz" "https://download.pingcap.org/tidb-latest-linux-amd64.tar.gz"
+    curl -L -f -o "$BIN/tidb.tar.gz" "https://download.pingcap.org/tidb-nightly-linux-amd64.tar.gz"
     tar -x -f "$BIN/tidb.tar.gz" -C "$BIN/" $MISSING_TIDB_COMPONENTS
     rm "$BIN/tidb.tar.gz"
-    mv "$BIN"/tidb-latest-linux-amd64/bin/* "$BIN/"
-    rmdir "$BIN/tidb-latest-linux-amd64/bin"
-    rmdir "$BIN/tidb-latest-linux-amd64"
+    mv "$BIN"/tidb-nightly-linux-amd64/bin/* "$BIN/"
+    rmdir "$BIN/tidb-nightly-linux-amd64/bin"
+    rmdir "$BIN/tidb-nightly-linux-amd64"
 fi
 
 if [ ! -e "$BIN/go-ycsb" ]; then
