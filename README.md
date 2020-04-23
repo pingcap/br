@@ -23,9 +23,7 @@
 
 ## Building
 
-1. Install [retool](https://github.com/twitchtv/retool)
-
-2. To build binary and run test:
+To build binary and run test:
 
 ```bash
 $ make
