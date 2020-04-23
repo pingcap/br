@@ -40,8 +40,8 @@ run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 set -x
 
 views_count=$(run_sql "select count(*) c, sum(m) s from $DB.view_3;" | tail -2 | paste -sd ';')
-[ $views_count = 'c: 8;s: 181' ]
+[ "$views_count" = 'c: 8;s: 181' ]
 
 run_sql "insert into $DB.table_2 (c) values (33);"
-seq_val=$(run_sql "select a, b >= 4 as bg from $DB.table_2 where c = 33;" | tail -2 | paste -sd ';')
-[ $seq_val = 'a: 8;bg: 1' ]
+seq_val=$(run_sql "select a >= 8 and b >= 4 as g from $DB.table_2 where c = 33;" | tail -1)
+[ "$seq_val" = 'g: 1' ]
