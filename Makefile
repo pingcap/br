@@ -80,7 +80,7 @@ static: tools
 		--disable gocognit \
 		--disable godox \
 		--disable gomnd \
-		$$($(PACKAGE_DIRECTORIES))
+		$$($(PACKAGE_DIRECTORIES)) || true
 
 lint: tools
 	@echo "linting"
