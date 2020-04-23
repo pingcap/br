@@ -9,3 +9,4 @@ backupmeta
 coverage.txt
 docker/data/
 docker/logs/
+*.swp
