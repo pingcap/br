@@ -111,6 +111,12 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		utils.EncloseName(table.Db.Name.O),
 		utils.EncloseName(table.Info.Name.O),
 		table.Info.AutoIncID)
+
+	if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
+		// this table has auto random id, we need rebase it
+		alterAutoIncIDSQL += fmt.Sprintf("auto_random = %d", table.Info.AutoRandID)
+	}
+
 	err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
