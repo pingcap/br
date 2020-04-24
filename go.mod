@@ -21,7 +21,7 @@ require (
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
 	github.com/pingcap/kvproto v0.0.0-20200423020121-038e31959c2a
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
-	github.com/pingcap/parser v0.0.0-20200423064043-1ea364bf764d
+	github.com/pingcap/parser v0.0.0-20200424075042-8222d8b724a4
 	github.com/pingcap/pd/v4 v4.0.0-rc.1.0.20200422143320-428acd53eba2
 	github.com/pingcap/tidb v0.0.0-20200401141416-959eca8f3a39
 	github.com/pingcap/tidb-tools v4.0.0-rc.1.0.20200421113014-507d2bb3a15e+incompatible
@@ -41,4 +41,4 @@ require (
 	google.golang.org/grpc v1.25.1
 )
 
-replace github.com/pingcap/tidb => github.com/AilinKid/tidb a5055e8ed472b0b777eb6c20ce34664471b63f77
+replace github.com/pingcap/tidb => github.com/AilinKid/tidb v1.1.0-beta.0.20200424122616-a5055e8ed472
