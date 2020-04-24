@@ -8,6 +8,7 @@ require (
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
+	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/fsouza/fake-gcs-server v1.15.0
 	github.com/go-sql-driver/mysql v1.4.1

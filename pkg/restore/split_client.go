@@ -15,15 +15,22 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/coreos/pkg/multierror"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
+	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+)
+
+const (
+	splitRegionMaxRetryTime = 4
 )
 
 // SplitClient is an external client used by RegionSplitter.
@@ -187,47 +194,95 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	}, nil
 }
 
+func (c *pdClient) sendSplitRegionRequest(
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) (*kvrpcpb.SplitRegionResponse, error) {
+	splitErrors := multierror.Error{}
+	for i := 0; i < splitRegionMaxRetryTime; i++ {
+		var peer *metapb.Peer
+		if regionInfo.Leader != nil {
+			peer = regionInfo.Leader
+		} else {
+			if len(regionInfo.Region.Peers) == 0 {
+				return nil, errors.New("region does not have peer")
+			}
+			peer = regionInfo.Region.Peers[0]
+		}
+
+		storeID := peer.GetStoreId()
+		store, err := c.GetStore(ctx, storeID)
+		if err != nil {
+			return nil, err
+		}
+		opt := grpc.WithInsecure()
+		if c.tlsConf != nil {
+			opt = grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConf))
+		}
+		conn, err := grpc.Dial(store.GetAddress(), opt)
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close()
+		client := tikvpb.NewTikvClient(conn)
+		resp, err := client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
+			Context: &kvrpcpb.Context{
+				RegionId:    regionInfo.Region.Id,
+				RegionEpoch: regionInfo.Region.RegionEpoch,
+				Peer:        peer,
+			},
+			SplitKeys: keys,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if resp.RegionError != nil {
+			splitErrors = append(splitErrors,
+				errors.Errorf("split region failed: region=%v, err=%v",
+					regionInfo.Region, resp.RegionError))
+			if nl := resp.RegionError.NotLeader; nl != nil {
+				if leader := nl.GetLeader(); leader != nil {
+					regionInfo.Leader = leader
+				} else {
+					newRegionInfo, findLeaderErr := c.GetRegionByID(ctx, nl.RegionId)
+					if findLeaderErr == nil && checkRegionEpoch(newRegionInfo, regionInfo) {
+						*regionInfo = *newRegionInfo
+					}
+					return nil, splitErrors
+				}
+				log.Info("split region meet not leader error, retrying",
+					zap.Int("retry times", i),
+					zap.Uint64("region id", regionInfo.Region.Id),
+					zap.ByteStrings("on keys", keys),
+					zap.Any("new leader", regionInfo.Leader),
+				)
+				continue
+			}
+			if resp.RegionError.ServerIsBusy != nil ||
+				resp.RegionError.RegionNotFound != nil ||
+				resp.RegionError.StaleCommand != nil ||
+				resp.RegionError.EpochNotMatch != nil {
+				log.Warn("a error occurs on split region",
+					zap.Int("retry times", i),
+					zap.Uint64("region id", regionInfo.Region.Id),
+					zap.ByteStrings("on keys", keys),
+					zap.String("error", resp.RegionError.Message),
+					zap.Any("error verbose", resp.RegionError),
+				)
+				continue
+			}
+			return nil, splitErrors.AsError()
+		}
+		return resp, nil
+	}
+	return nil, splitErrors.AsError()
+}
+
 func (c *pdClient) BatchSplitRegions(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) ([]*RegionInfo, error) {
-	var peer *metapb.Peer
-	if regionInfo.Leader != nil {
-		peer = regionInfo.Leader
-	} else {
-		if len(regionInfo.Region.Peers) == 0 {
-			return nil, errors.New("region does not have peer")
-		}
-		peer = regionInfo.Region.Peers[0]
-	}
-
-	storeID := peer.GetStoreId()
-	store, err := c.GetStore(ctx, storeID)
+	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
 	if err != nil {
 		return nil, err
-	}
-	opt := grpc.WithInsecure()
-	if c.tlsConf != nil {
-		opt = grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConf))
-	}
-	conn, err := grpc.Dial(store.GetAddress(), opt)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	client := tikvpb.NewTikvClient(conn)
-	resp, err := client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
-		Context: &kvrpcpb.Context{
-			RegionId:    regionInfo.Region.Id,
-			RegionEpoch: regionInfo.Region.RegionEpoch,
-			Peer:        peer,
-		},
-		SplitKeys: keys,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if resp.RegionError != nil {
-		return nil, errors.Errorf("split region failed: region=%v, err=%v", regionInfo.Region, resp.RegionError)
 	}
 
 	regions := resp.GetRegions()
