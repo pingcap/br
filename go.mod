@@ -41,4 +41,4 @@ require (
 	google.golang.org/grpc v1.25.1
 )
 
-replace github.com/pingcap/tidb => github.com/AilinKid/tidb v1.1.0-beta.0.20200424122616-a5055e8ed472
+replace github.com/pingcap/tidb => github.com/AilinKid/tidb v1.1.0-beta.0.20200424140954-58dedc53e7f2
