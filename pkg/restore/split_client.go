@@ -245,7 +245,7 @@ func (c *pdClient) sendSplitRegionRequest(
 				} else {
 					newRegionInfo, findLeaderErr := c.GetRegionByID(ctx, nl.RegionId)
 					if findLeaderErr != nil || !checkRegionEpoch(newRegionInfo, regionInfo) {
-						return nil, splitErrors
+						return nil, findLeaderErr
 					}
 					regionInfo = newRegionInfo
 				}
