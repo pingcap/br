@@ -85,7 +85,7 @@ EOF
 echo "Restart cluster with allow-auto-random=true"
 start_services "$cur"
 
-# test auto random issue issue https://github.com/pingcap/br/issues/228
+# test auto random issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
 run_sql "create schema $DB;"
@@ -110,6 +110,28 @@ run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE"
 
 run_sql "drop schema $DB;"
+
+# test auto random issue https://github.com/pingcap/br/issues/241
+TABLE="t4"
+run_sql "create schema $DB;"
+run_sql "create table $DB.$TABLE(a int key auto_random);"
+run_sql "insert into $DB.$TABLE values (),(),(),(),();"
+
+# Table backup
+run_br --pd $PD_ADDR backup table --db "$DB" --table "$TABLE" -s "local://$TEST_DIR/$DB$TABLE"
+run_sql "drop schema $DB;"
+
+# Table restore, restore normally without Duplicate entry
+run_br --pd $PD_ADDR restore table --db "$DB" --table "$TABLE" -s "local://$TEST_DIR/$DB$TABLE"
+
+# run insert after restore
+run_sql "insert into $DB.$TABLE values (),(),(),(),();"
+
+row_count=$(run_sql "select a & b'0000011111111111111111111111111' from $DB.$TABLE;" | grep -v "a" | grep -v "-" | sort -u | wc -l)
+if [ "$row_count" -ne "10" ];then
+    echo "TEST: [$TEST_NAME] failed!, because auto_random didn't rebase"
+    exit 1
+fi
 
 echo "Restart service with normal"
 start_services
