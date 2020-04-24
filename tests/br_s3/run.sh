@@ -58,7 +58,7 @@ done
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB" --s3.endpoint="http://$S3_ENDPOINT"
+run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT"
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
