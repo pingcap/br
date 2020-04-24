@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/coreos/pkg/multierror"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -24,6 +23,7 @@ import (
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -197,14 +197,15 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 func (c *pdClient) sendSplitRegionRequest(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) (*kvrpcpb.SplitRegionResponse, error) {
-	splitErrors := multierror.Error{}
+	var splitErrors error
 	for i := 0; i < splitRegionMaxRetryTime; i++ {
 		var peer *metapb.Peer
 		if regionInfo.Leader != nil {
 			peer = regionInfo.Leader
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {
-				return nil, errors.New("region does not have peer")
+				return nil, multierr.Append(splitErrors,
+					errors.New("region does not have peer"))
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
@@ -212,7 +213,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		storeID := peer.GetStoreId()
 		store, err := c.GetStore(ctx, storeID)
 		if err != nil {
-			return nil, err
+			return nil, multierr.Append(splitErrors, err)
 		}
 		opt := grpc.WithInsecure()
 		if c.tlsConf != nil {
@@ -220,7 +221,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		}
 		conn, err := grpc.Dial(store.GetAddress(), opt)
 		if err != nil {
-			return nil, err
+			return nil, multierr.Append(splitErrors, err)
 		}
 		defer conn.Close()
 		client := tikvpb.NewTikvClient(conn)
@@ -233,10 +234,11 @@ func (c *pdClient) sendSplitRegionRequest(
 			SplitKeys: keys,
 		})
 		if err != nil {
-			return nil, err
+			return nil, multierr.Append(splitErrors, err)
 		}
 		if resp.RegionError != nil {
-			splitErrors = append(splitErrors,
+			// TODO: add tests on error.(Do we have to change the mock client?)
+			splitErrors = multierr.Append(splitErrors,
 				errors.Errorf("split region failed: region=%v, err=%v",
 					regionInfo.Region, resp.RegionError))
 			if nl := resp.RegionError.NotLeader; nl != nil {
@@ -245,7 +247,7 @@ func (c *pdClient) sendSplitRegionRequest(
 				} else {
 					newRegionInfo, findLeaderErr := c.GetRegionByID(ctx, nl.RegionId)
 					if findLeaderErr != nil || !checkRegionEpoch(newRegionInfo, regionInfo) {
-						return nil, findLeaderErr
+						return nil, multierr.Append(splitErrors, findLeaderErr)
 					}
 					regionInfo = newRegionInfo
 				}
@@ -270,11 +272,11 @@ func (c *pdClient) sendSplitRegionRequest(
 				)
 				continue
 			}
-			return nil, splitErrors.AsError()
+			return nil, splitErrors
 		}
 		return resp, nil
 	}
-	return nil, splitErrors.AsError()
+	return nil, splitErrors
 }
 
 func (c *pdClient) BatchSplitRegions(

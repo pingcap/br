@@ -8,7 +8,6 @@ require (
 	github.com/cheggaaa/pb/v3 v3.0.1
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
-	github.com/coreos/pkg v0.0.0-20180928190104-399ea9e2e55f
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/fsouza/fake-gcs-server v1.15.0
 	github.com/go-sql-driver/mysql v1.4.1
@@ -38,6 +37,7 @@ require (
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.opencensus.io v0.22.2 // indirect
+	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.14.1
 	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
 	google.golang.org/api v0.14.0
