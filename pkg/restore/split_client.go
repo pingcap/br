@@ -244,10 +244,10 @@ func (c *pdClient) sendSplitRegionRequest(
 					regionInfo.Leader = leader
 				} else {
 					newRegionInfo, findLeaderErr := c.GetRegionByID(ctx, nl.RegionId)
-					if findLeaderErr == nil && checkRegionEpoch(newRegionInfo, regionInfo) {
-						*regionInfo = *newRegionInfo
+					if findLeaderErr != nil || !checkRegionEpoch(newRegionInfo, regionInfo) {
+						return nil, splitErrors
 					}
-					return nil, splitErrors
+					regionInfo = newRegionInfo
 				}
 				log.Info("split region meet not leader error, retrying",
 					zap.Int("retry times", i),
