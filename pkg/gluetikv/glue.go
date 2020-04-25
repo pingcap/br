@@ -50,6 +50,9 @@ func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redi
 	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog)}
 }
 
+// Record implements glue.Glue
+func (Glue) Record(string, uint64) {}
+
 type progress struct {
 	ch chan<- struct{}
 }

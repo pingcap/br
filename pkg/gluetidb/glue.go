@@ -55,6 +55,11 @@ func (g Glue) StartProgress(ctx context.Context, cmdName string, total int64, re
 	return g.tikvGlue.StartProgress(ctx, cmdName, total, redirectLog)
 }
 
+// Record implements glue.Glue
+func (g Glue) Record(name string, value uint64) {
+	g.tikvGlue.Record(name, value)
+}
+
 // Execute implements glue.Session
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
