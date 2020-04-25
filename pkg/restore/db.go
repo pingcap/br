@@ -126,7 +126,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		// we can't merge two alter query, because
 		// it will cause Error: [ddl:8200]Unsupported multi schema change
 		alterAutoRandIDSQL := fmt.Sprintf(
-			"alter table %s.%s auto_random = %d",
+			"alter table %s.%s auto_random_base = %d",
 			utils.EncloseName(table.Db.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoRandID)
