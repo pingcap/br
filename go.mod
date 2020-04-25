@@ -9,12 +9,10 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/fsouza/fake-gcs-server v1.15.0
-	github.com/go-bindata/go-bindata v3.1.2+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gogo/protobuf v1.3.1
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
-	github.com/jeremywohl/flatten v0.0.0-20190921043622-d936035e55cf // indirect
 	github.com/klauspost/cpuid v1.2.0 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/onsi/ginkgo v1.11.0 // indirect
