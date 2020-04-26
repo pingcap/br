@@ -4,7 +4,8 @@ package storage
 
 import (
 	"io/ioutil"
-	"os"
+	"net/url"
+	"path/filepath"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -54,6 +55,16 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Prefix, Equals, "prefix")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
 
+	s, err = ParseBackend("s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=1&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc", nil)
+	c.Assert(err, IsNil)
+	s3 = s.GetS3()
+	c.Assert(s3, NotNil)
+	c.Assert(s3.Bucket, Equals, "bucket3")
+	c.Assert(s3.Prefix, Equals, "prefix/path")
+	c.Assert(s3.Endpoint, Equals, "https://127.0.0.1:9000")
+	c.Assert(s3.ForcePathStyle, IsTrue)
+	c.Assert(s3.Sse, Equals, "aws:kms")
+
 	gcsOpt := &BackendOptions{
 		GCS: GCSBackendOptions{
 			Endpoint: "https://gcs.example.com/",
@@ -68,15 +79,11 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
-	fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+	fakeCredentialsFile := filepath.Join(c.MkDir(), "fakeCredentialsFile")
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), 0600)
 	c.Assert(err, IsNil)
-	_, err = fakeCredentialsFile.Write([]byte("fakeCredentials"))
-	c.Assert(err, IsNil)
-	defer func() {
-		fakeCredentialsFile.Close()
-		os.Remove(fakeCredentialsFile.Name())
-	}()
-	gcsOpt.GCS.CredentialsFile = fakeCredentialsFile.Name()
+
+	gcsOpt.GCS.CredentialsFile = fakeCredentialsFile
 
 	s, err = ParseBackend("gcs://bucket/more/prefix/", gcsOpt)
 	c.Assert(err, IsNil)
@@ -86,6 +93,16 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Prefix, Equals, "more/prefix/")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCredentials")
+
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCreds2"), 0600)
+	c.Assert(err, IsNil)
+	s, err = ParseBackend("gs://bucket4/backup/?credentials-file="+url.QueryEscape(fakeCredentialsFile), nil)
+	c.Assert(err, IsNil)
+	gcs = s.GetGcs()
+	c.Assert(gcs, NotNil)
+	c.Assert(gcs.Bucket, Equals, "bucket4")
+	c.Assert(gcs.Prefix, Equals, "backup/")
+	c.Assert(gcs.CredentialsBlob, Equals, "fakeCreds2")
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
