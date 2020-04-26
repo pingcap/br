@@ -20,10 +20,10 @@ require (
 	github.com/pingcap/kvproto v0.0.0-20200331072206-c211b473fe43
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v3.1.0-beta.2.0.20200425032215-994651e9b6df+incompatible
-	github.com/pingcap/pd/v3 v3.1.0-rc.0.20200410125843-8b7475c6bfd6
+	github.com/pingcap/pd/v3 v3.1.1-0.20200426091027-e639f0b1e62b
 	github.com/pingcap/tidb v1.1.0-beta.0.20200426082429-52b31342cb0e
-	github.com/pingcap/tidb-tools v4.0.0-beta.2.0.20200317092225-ed6b2a87af54+incompatible
-	github.com/pingcap/tipb v0.0.0-20200401093201-cc8b75c53383
+	github.com/pingcap/tidb-tools v4.0.0-beta.2.0.20200426094956-7d70d54da224+incompatible
+	github.com/pingcap/tipb v0.0.0-20200426072603-ce17d2d03251
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.4.1
 	github.com/sirupsen/logrus v1.4.2
