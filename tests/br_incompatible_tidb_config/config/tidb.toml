@@ -6,3 +6,6 @@
 lease = "360s"
 
 alter-primary-key = true
+
+max-index-length = 12288
+
