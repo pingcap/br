@@ -9,19 +9,17 @@ require (
 	github.com/coreos/go-semver v0.3.0 // indirect
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f // indirect
 	github.com/fsouza/fake-gcs-server v1.15.0
-	github.com/go-bindata/go-bindata v3.1.2+incompatible // indirect
 	github.com/go-sql-driver/mysql v1.4.1
 	github.com/gogo/protobuf v1.3.1
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
-	github.com/jeremywohl/flatten v0.0.0-20190921043622-d936035e55cf // indirect
 	github.com/klauspost/cpuid v1.2.0 // indirect
 	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/onsi/ginkgo v1.11.0 // indirect
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200423024253-3500763f0214
+	github.com/pingcap/kvproto v0.0.0-20200424032552-6650270c39c3
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v0.0.0-20200425031156-fb338edcaac2
 	github.com/pingcap/pd/v4 v4.0.0-rc.1.0.20200422143320-428acd53eba2
