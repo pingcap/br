@@ -72,6 +72,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return err
 	}
+	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}
