@@ -324,25 +324,77 @@ func (rc *Client) CreateTables(
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	for _, table := range tables {
-		if rc.IsSkipCreateSQL() {
-			log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
-		} else {
-			err := rc.db.CreateTable(rc.ctx, table)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
-		if err != nil {
-			return nil, nil, err
-		}
-		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
+	dataCh, errCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS)
+	for et := range dataCh {
+		rules := et.RewriteRule
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
-		newTables = append(newTables, newTableInfo)
+		newTables = append(newTables, et.Table)
+	}
+	if err, ok := <-errCh; ok {
+		return nil, nil, err
 	}
 	return rewriteRules, newTables, nil
+}
+
+func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint64) (CreatedTable, error) {
+	if rc.IsSkipCreateSQL() {
+		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
+	} else {
+		err := rc.db.CreateTable(rc.ctx, table)
+		if err != nil {
+			return CreatedTable{}, err
+		}
+	}
+	newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
+	if err != nil {
+		return CreatedTable{}, err
+	}
+	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
+	et := CreatedTable{
+		RewriteRule: rules,
+		Table: newTableInfo,
+	}
+	return et, nil
+}
+
+// GoCreateTables create tables, and generate their information.
+func (rc *Client) GoCreateTables(
+	ctx context.Context,
+	dom *domain.Domain,
+	tables []*utils.Table,
+	newTS uint64,
+	) (<-chan CreatedTable, <-chan error) {
+	// Could we have a smaller size of tables?
+	outCh := make(chan CreatedTable, len(tables))
+	errCh := make(chan error, 1)
+	go func() {
+		defer close(outCh)
+		defer close(errCh)
+		for _, table := range tables {
+			select {
+			case <-ctx.Done():
+				log.Error("create table canceled",
+					zap.Error(ctx.Err()),
+					zap.Stringer("table", table.Info.Name),
+					zap.Stringer("database", table.Db.Name))
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+			rt, err := rc.createTable(dom, table, newTS)
+			if err != nil {
+				log.Error("create table failed",
+					zap.Error(err),
+					zap.Stringer("table", table.Info.Name),
+					zap.Stringer("database", table.Db.Name))
+				errCh <- err
+				return
+			}
+			outCh <- rt
+		}
+	}()
+	return outCh, errCh
 }
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table
