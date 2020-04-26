@@ -64,7 +64,6 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Endpoint, Equals, "https://127.0.0.1:9000")
 	c.Assert(s3.ForcePathStyle, IsTrue)
 	c.Assert(s3.Sse, Equals, "aws:kms")
-	c.Assert(s3.SseKmsKeyId, Equals, "TestKey")
 
 	gcsOpt := &BackendOptions{
 		GCS: GCSBackendOptions{
