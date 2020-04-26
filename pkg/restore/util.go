@@ -132,27 +132,97 @@ func ValidateFileRanges(
 	for _, file := range files {
 		// We skips all default cf files because we don't range overlap.
 		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
-			err := ValidateFileRewriteRule(file, rewriteRules)
+			rng, err := validateAndGetFileRange(file, rewriteRules)
 			if err != nil {
 				return nil, err
 			}
-			startID := tablecodec.DecodeTableID(file.GetStartKey())
-			endID := tablecodec.DecodeTableID(file.GetEndKey())
-			if startID != endID {
-				log.Error("table ids dont match",
-					zap.Int64("startID", startID),
-					zap.Int64("endID", endID),
-					zap.Stringer("file", file))
-				return nil, errors.New("table ids dont match")
-			}
-			ranges = append(ranges, rtree.Range{
-				StartKey: file.GetStartKey(),
-				EndKey:   file.GetEndKey(),
-			})
+			ranges = append(ranges, rng)
 			fileAppended[file.GetName()] = true
 		}
 	}
 	return ranges, nil
+}
+
+// MapTableToFiles makes a map that mapping table ID to its backup files.
+// aware that one file can and only can hold one table.
+func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
+	result := map[int64][]*backup.File{ }
+	for _, file := range files {
+		tableID :=  tablecodec.DecodeTableID(file.GetStartKey())
+		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
+		if tableID != tableEndID {
+			log.Warn("key range spread between many files.",
+				zap.String("file name", file.Name),
+				zap.Binary("start key", file.GetStartKey()),
+				zap.Binary("end key", file.GetEndKey()))
+		}
+		if tableID == 0 {
+			log.Warn("invalid table key of file",
+				zap.String("file name", file.Name),
+				zap.Binary("start key", file.GetStartKey()),
+				zap.Binary("end key", file.GetEndKey()))
+		}
+		result[tableID] = append(result[tableID], file)
+	}
+	return result
+}
+
+func GoValidateFileRanges(
+	ctx context.Context,
+	tableStream <-chan CreatedTable,
+	fileOfTable map[int64][]*backup.File,
+	errCh chan<- error,
+	) <-chan TableWithRange {
+	outCh := make(chan TableWithRange, len(fileOfTable))
+	go func() {
+		defer close(outCh)
+		defer log.Info("all range generated")
+
+		for t := range tableStream {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+			files := fileOfTable[t.OldTable.ID]
+			ranges, err := ValidateFileRanges(files, t.RewriteRule)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			tableWithRange := TableWithRange{
+				CreatedTable: t,
+				Range:        AttachFilesToRanges(files, ranges),
+			}
+			log.Debug("sending range info",
+				zap.Stringer("table", t.Table.Name),
+				zap.Int("files", len(files)),
+				zap.Int("range size", len(ranges)),
+				zap.Int("output channel size", len(outCh)))
+			outCh <- tableWithRange
+		}
+	}()
+	return outCh
+}
+
+// validateAndGetFileRange validates a file, if success, return the key range of this file.
+func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Range, error) {
+	err := ValidateFileRewriteRule(file, rules)
+	if err != nil {
+		return rtree.Range{}, err
+	}
+	startID := tablecodec.DecodeTableID(file.GetStartKey())
+	endID := tablecodec.DecodeTableID(file.GetEndKey())
+	if startID != endID {
+		log.Error("table ids dont match",
+			zap.Int64("startID", startID),
+			zap.Int64("endID", endID),
+			zap.Stringer("file", file))
+		return rtree.Range{}, errors.New("table ids dont match")
+	}
+	r := rtree.Range{ StartKey: file.GetStartKey(), EndKey: file.GetEndKey() }
+	return r, nil
 }
 
 // AttachFilesToRanges attach files to ranges.

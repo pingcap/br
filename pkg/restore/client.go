@@ -324,7 +324,8 @@ func (rc *Client) CreateTables(
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	dataCh, errCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS)
+	errCh := make(chan error, 1)
+	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
@@ -354,6 +355,7 @@ func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint
 	et := CreatedTable{
 		RewriteRule: rules,
 		Table: newTableInfo,
+		OldTable: table.Info,
 	}
 	return et, nil
 }
@@ -364,13 +366,14 @@ func (rc *Client) GoCreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-	) (<-chan CreatedTable, <-chan error) {
+	errCh chan<- error,
+	) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	outCh := make(chan CreatedTable, len(tables))
-	errCh := make(chan error, 1)
 	go func() {
 		defer close(outCh)
-		defer close(errCh)
+		defer log.Info("all tables created")
+
 		for _, table := range tables {
 			select {
 			case <-ctx.Done():
@@ -391,10 +394,14 @@ func (rc *Client) GoCreateTables(
 				errCh <- err
 				return
 			}
+			log.Debug("table created and send to next",
+				zap.Int("output chan size", len(outCh)),
+				zap.Stringer("table", table.Info.Name),
+				zap.Stringer("database", table.Db.Name),)
 			outCh <- rt
 		}
 	}()
-	return outCh, errCh
+	return outCh
 }
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table

@@ -4,9 +4,9 @@ package task
 
 import (
 	"context"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb-tools/pkg/filter"
@@ -174,13 +174,38 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
-	if err != nil {
-		return err
-	}
+	errCh := make(chan error, 2)
+	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, errCh)
 	placementRules, err := client.GetPlacementRules(cfg.PD)
 	if err != nil {
 		return err
+	}
+
+	tableFileMap := restore.MapTableToFiles(files)
+	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
+
+	var newTables []*model.TableInfo
+	var ranges []rtree.Range
+	rewriteRules := &restore.RewriteRules{
+		Table: []*import_sstpb.RewriteRule{},
+		Data:  []*import_sstpb.RewriteRule{},
+	}
+	for ct := range rangeStream {
+		newTables = append(newTables, ct.Table)
+		ranges = append(ranges, ct.Range...)
+		rewriteRules.Table = append(rewriteRules.Table, ct.RewriteRule.Table...)
+		rewriteRules.Data = append(rewriteRules.Data, ct.RewriteRule.Data...)
+	}
+	log.Debug("Go back to sequential path.",
+		zap.Int("files", len(files)),
+		zap.Int("new tables", len(newTables)),
+		zap.Int("ranges", len(ranges)))
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			return err
+		}
+	default:
 	}
 
 	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
@@ -192,17 +217,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		_ = client.RecoverTiFlashReplica(tables)
 	}()
 
-	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
-	if err != nil {
-		return err
-	}
 	summary.CollectInt("restore ranges", len(ranges))
 
 	if err = splitPrepareWork(ctx, client, newTables); err != nil {
 		return err
 	}
 
-	ranges = restore.AttachFilesToRanges(files, ranges)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(

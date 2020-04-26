@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/parser/model"
 )
 
@@ -9,4 +10,11 @@ import (
 type CreatedTable struct {
 	RewriteRule *RewriteRules
 	Table *model.TableInfo
+	OldTable *model.TableInfo
+}
+
+type TableWithRange struct {
+	CreatedTable
+
+	Range []rtree.Range
 }
