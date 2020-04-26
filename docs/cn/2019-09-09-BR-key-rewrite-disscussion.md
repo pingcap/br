@@ -78,7 +78,7 @@ fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
 
 ### 解决方案：Key rewrite before ingest in every replica
 
-<img src="../resources/solution3-of-key-rewrite.svg" alt="img" style="zoom:50%;" />
+<img src="../resources/solution3-of-key-rewrite.svg" alt="solution3-of-key-rewrite" width="500" />
 
 每个 Peer 独自在 ingest 之前进行 Key Rewrite。
 * 源数据读盘：(R+1)**N** (Split 前 in Importer、Key rewrite 前 in TiKV)
