@@ -332,8 +332,12 @@ func (rc *Client) CreateTables(
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
-	if err, ok := <-errCh; ok {
-		return nil, nil, err
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			return nil, nil, err
+		}
+	default:
 	}
 	return rewriteRules, newTables, nil
 }
@@ -354,8 +358,8 @@ func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint
 	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 	et := CreatedTable{
 		RewriteRule: rules,
-		Table: newTableInfo,
-		OldTable: table.Info,
+		Table:       newTableInfo,
+		OldTable:    table,
 	}
 	return et, nil
 }
@@ -367,7 +371,7 @@ func (rc *Client) GoCreateTables(
 	tables []*utils.Table,
 	newTS uint64,
 	errCh chan<- error,
-	) <-chan CreatedTable {
+) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	outCh := make(chan CreatedTable, len(tables))
 	go func() {
@@ -397,7 +401,7 @@ func (rc *Client) GoCreateTables(
 			log.Debug("table created and send to next",
 				zap.Int("output chan size", len(outCh)),
 				zap.Stringer("table", table.Info.Name),
-				zap.Stringer("database", table.Db.Name),)
+				zap.Stringer("database", table.Db.Name))
 			outCh <- rt
 		}
 	}()
@@ -461,15 +465,40 @@ func (rc *Client) RemoveTiFlashReplica(
 	return nil
 }
 
+// RemoveTiFlashOfTable removes TiFlash replica of some table,
+// returns the removed count of TiFlash nodes.
+// TODO: save the removed TiFlash information into disk.
+// TODO: remove this after tiflash supports restore.
+func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
+	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
+		if rule.Count > 0 {
+			err := rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0)
+			if err != nil {
+				return 0, errors.Trace(err)
+			}
+		}
+	}
+	return 0, nil
+}
+
+// RecoverTiFlashOfTable recoveres TiFlash replica of some table.
+// TODO: remove this after tiflash supports restore
+func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
+	if table.TiFlashReplicas > 0 {
+		err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
 // RecoverTiFlashReplica recovers all the tiflash replicas of a table
 // TODO: remove this after tiflash supports restore
 func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
 	for _, table := range tables {
-		if table.TiFlashReplicas > 0 {
-			err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
-			if err != nil {
-				return errors.Trace(err)
-			}
+		if err := rc.RecoverTiFlashOfTable(table); err != nil {
+			return err
 		}
 	}
 	return nil

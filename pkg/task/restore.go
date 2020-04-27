@@ -4,11 +4,13 @@ package task
 
 import (
 	"context"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
@@ -174,7 +176,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 32)
 	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, errCh)
 	placementRules, err := client.GetPlacementRules(cfg.PD)
 	if err != nil {
@@ -184,52 +186,15 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	tableFileMap := restore.MapTableToFiles(files)
 	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
 
-	var newTables []*model.TableInfo
-	var ranges []rtree.Range
-	rewriteRules := &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{},
-		Data:  []*import_sstpb.RewriteRule{},
-	}
-	for ct := range rangeStream {
-		newTables = append(newTables, ct.Table)
-		ranges = append(ranges, ct.Range...)
-		rewriteRules.Table = append(rewriteRules.Table, ct.RewriteRule.Table...)
-		rewriteRules.Data = append(rewriteRules.Data, ct.RewriteRule.Data...)
-	}
-	log.Debug("Go back to sequential path.",
-		zap.Int("files", len(files)),
-		zap.Int("new tables", len(newTables)),
-		zap.Int("ranges", len(ranges)))
-	select {
-	case err, ok := <-errCh:
-		if ok {
-			return err
-		}
-	default:
-	}
-
-	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_ = client.RecoverTiFlashReplica(tables)
-	}()
-
-	summary.CollectInt("restore ranges", len(ranges))
-
-	if err = splitPrepareWork(ctx, client, newTables); err != nil {
-		return err
-	}
-
+	rangeSize := restore.EstimateRangeSize(files)
+	summary.CollectInt("restore ranges", rangeSize)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(
 		ctx,
 		cmdName,
 		// Split/Scatter + Download/Ingest
-		int64(len(ranges)+len(files)),
+		int64(restore.EstimateRangeSize(files)+len(files)),
 		!cfg.LogProgress)
 
 	clusterCfg, err := restorePreWork(ctx, client, mgr)
@@ -258,33 +223,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		rejectStoreMap[store.GetId()] = true
 	}
 
-	for {
-		if len(ranges) == 0 {
-			break
-		}
-		batchSize = utils.MinInt(batchSize, len(ranges))
-		var rangeBatch []rtree.Range
-		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
-
-		// Split regions by the given rangeBatch.
-		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
-		if err != nil {
-			log.Error("split regions failed", zap.Error(err))
-			return err
-		}
-
-		// Collect related files in the given rangeBatch.
-		fileBatch := make([]*backup.File, 0, 2*len(rangeBatch))
-		for _, rg := range rangeBatch {
-			fileBatch = append(fileBatch, rg.Files...)
-		}
-
-		// After split, we can restore backup files.
-		err = client.RestoreFiles(fileBatch, rewriteRules, rejectStoreMap, updateCh)
-		if err != nil {
-			break
-		}
-	}
+	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, updateCh, rejectStoreMap, errCh)
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
@@ -292,15 +231,34 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		err = errRestorePostWork
 	}
 
-	if errSplitPostWork := splitPostWork(ctx, client, newTables); err == nil {
-		err = errSplitPostWork
-	}
-
 	// If any error happened, return now, don't execute checksum.
 	if err != nil {
 		return err
 	}
 
+	var newTables []*model.TableInfo
+	var ranges []rtree.Range
+	rewriteRules := &restore.RewriteRules{
+		Table: []*import_sstpb.RewriteRule{},
+		Data:  []*import_sstpb.RewriteRule{},
+	}
+	for ct := range afterRestoreStream {
+		newTables = append(newTables, ct.Table)
+		ranges = append(ranges, ct.Range...)
+		rewriteRules.Table = append(rewriteRules.Table, ct.RewriteRule.Table...)
+		rewriteRules.Data = append(rewriteRules.Data, ct.RewriteRule.Data...)
+	}
+	log.Debug("Go back to sequential path.",
+		zap.Int("files", len(files)),
+		zap.Int("new tables", len(newTables)),
+		zap.Int("ranges", len(ranges)))
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			return err
+		}
+	default:
+	}
 	// Restore has finished.
 	updateCh.Close()
 
@@ -500,4 +458,95 @@ func enableTiDBConfig() {
 	conf.Experimental.AllowsExpressionIndex = true
 
 	config.StoreGlobalConfig(conf)
+}
+
+// goRestore forks a goroutine to do the restore process.
+// TODO: use a struct to contain general data structs(like, client + ctx + updateCh).
+// NOTE: is ctx.WithValue() a good idea? It would be simpler but will broken the type-constraint.
+func goRestore(
+	ctx context.Context,
+	inputCh <-chan restore.TableWithRange,
+	rules []placement.Rule,
+	client *restore.Client,
+	updateCh glue.Progress,
+	rejectStoreMap map[uint64]bool,
+	errCh chan<- error,
+) <-chan restore.TableWithRange {
+	outCh := make(chan restore.TableWithRange)
+	go func() {
+		// We cache old tables so that we can 'batch' recover TiFlash and tables.
+		oldTables := []*utils.Table{}
+		newTables := []*model.TableInfo{}
+		defer close(outCh)
+		defer func() {
+			if err := splitPostWork(ctx, client, newTables); err != nil {
+				log.Error("failed on unset online restore placement rules", zap.Error(err))
+				errCh <- err
+			}
+			if err := client.RecoverTiFlashReplica(oldTables); err != nil {
+				log.Error("failed on recover TiFlash replicas", zap.Error(err))
+				errCh <- err
+			}
+		}()
+		for t := range inputCh {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+			default:
+			}
+			// Omit the number of TiFlash have been removed.
+			if _, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules); err != nil {
+				log.Error("failed on remove TiFlash replicas", zap.Error(err))
+				errCh <- err
+				return
+			}
+			oldTables = append(oldTables, t.OldTable)
+
+			// Reusage of splitPrepareWork would be safe.
+			// But this operation sometime would be costly.
+			if err := splitPrepareWork(ctx, client, []*model.TableInfo{t.Table}); err != nil {
+				log.Error("failed on set online restore placement rules", zap.Error(err))
+				errCh <- err
+				return
+			}
+			newTables = append(newTables, t.Table)
+
+			// TODO: add batch / concurrence limit.
+			if err := restore.SplitRanges(ctx, client, t.Range, t.RewriteRule, updateCh); err != nil {
+				log.Error("failed on split range",
+					zap.Stringer("database", t.OldTable.Db.Name),
+					zap.Stringer("table", t.OldTable.Info.Name),
+					zap.Any("ranges", t.Range),
+					zap.Error(err),
+				)
+				errCh <- err
+				return
+			}
+
+			files := []*backup.File{}
+			for _, rng := range t.Range {
+				files = append(files, rng.Files...)
+			}
+			log.Info("restoring table",
+				zap.Stringer("database", t.OldTable.Db.Name),
+				zap.Stringer("table", t.OldTable.Info.Name),
+				zap.Int("ranges", len(t.Range)),
+				zap.Int("files", len(files)),
+			)
+
+			if err := client.RestoreFiles(files, t.RewriteRule, rejectStoreMap, updateCh); err != nil {
+				log.Error("failed on download & ingest",
+					zap.Stringer("database", t.OldTable.Db.Name),
+					zap.Stringer("table", t.OldTable.Info.Name),
+					zap.Any("files", files),
+					zap.Error(err),
+				)
+				errCh <- err
+				return
+			}
+
+			outCh <- t
+		}
+	}()
+	return outCh
 }

@@ -121,6 +121,19 @@ func getSSTMetaFromFile(
 	}
 }
 
+// EstimateRangeSize estimates the total range count by file.
+func EstimateRangeSize(files []*backup.File) int {
+	result := 0
+	visitedSet := map[string]bool{}
+	for _, f := range files {
+		if !visitedSet[f.GetName()] && strings.Contains(f.GetName(), "write") {
+			result++
+			visitedSet[f.GetName()] = true
+		}
+	}
+	return result
+}
+
 // ValidateFileRanges checks and returns the ranges of the files.
 func ValidateFileRanges(
 	files []*backup.File,
@@ -146,9 +159,9 @@ func ValidateFileRanges(
 // MapTableToFiles makes a map that mapping table ID to its backup files.
 // aware that one file can and only can hold one table.
 func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
-	result := map[int64][]*backup.File{ }
+	result := map[int64][]*backup.File{}
 	for _, file := range files {
-		tableID :=  tablecodec.DecodeTableID(file.GetStartKey())
+		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
 		if tableID != tableEndID {
 			log.Warn("key range spread between many files.",
@@ -172,7 +185,7 @@ func GoValidateFileRanges(
 	tableStream <-chan CreatedTable,
 	fileOfTable map[int64][]*backup.File,
 	errCh chan<- error,
-	) <-chan TableWithRange {
+) <-chan TableWithRange {
 	outCh := make(chan TableWithRange, len(fileOfTable))
 	go func() {
 		defer close(outCh)
@@ -185,7 +198,7 @@ func GoValidateFileRanges(
 				return
 			default:
 			}
-			files := fileOfTable[t.OldTable.ID]
+			files := fileOfTable[t.OldTable.Info.ID]
 			ranges, err := ValidateFileRanges(files, t.RewriteRule)
 			if err != nil {
 				errCh <- err
@@ -221,7 +234,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 			zap.Stringer("file", file))
 		return rtree.Range{}, errors.New("table ids dont match")
 	}
-	r := rtree.Range{ StartKey: file.GetStartKey(), EndKey: file.GetEndKey() }
+	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
 	return r, nil
 }
 

@@ -1,7 +1,10 @@
+// Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
+
 package restore
 
 import (
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/parser/model"
 )
 
@@ -9,10 +12,11 @@ import (
 // but not yet filled by data.
 type CreatedTable struct {
 	RewriteRule *RewriteRules
-	Table *model.TableInfo
-	OldTable *model.TableInfo
+	Table       *model.TableInfo
+	OldTable    *utils.Table
 }
 
+// TableWithRange is a CreatedTable that has been bind to some of key ranges.
 type TableWithRange struct {
 	CreatedTable
 
