@@ -68,3 +68,9 @@ type RewriteRules struct {
 	Table []*import_sstpb.RewriteRule
 	Data  []*import_sstpb.RewriteRule
 }
+
+// Combine append its argument to this rewrite rules.
+func (r *RewriteRules) Append(other RewriteRules) {
+	r.Data = append(r.Data, other.Data...)
+	r.Table = append(r.Table, other.Table...)
+}

@@ -223,7 +223,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		rejectStoreMap[store.GetId()] = true
 	}
 
-	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, updateCh, rejectStoreMap, errCh)
+	batcher := restore.NewBatcher(ctx, client, rejectStoreMap, updateCh)
+	batcher.BatchSizeThreshold = batchSize
+	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
@@ -468,8 +470,7 @@ func goRestore(
 	inputCh <-chan restore.TableWithRange,
 	rules []placement.Rule,
 	client *restore.Client,
-	updateCh glue.Progress,
-	rejectStoreMap map[uint64]bool,
+	batcher *restore.Batcher,
 	errCh chan<- error,
 ) <-chan restore.TableWithRange {
 	outCh := make(chan restore.TableWithRange)
@@ -479,6 +480,10 @@ func goRestore(
 		newTables := []*model.TableInfo{}
 		defer close(outCh)
 		defer func() {
+			log.Info("doing postwork", 
+				zap.Int("new tables", len(newTables)),
+				zap.Int("old tables", len(oldTables)),
+			)
 			if err := splitPostWork(ctx, client, newTables); err != nil {
 				log.Error("failed on unset online restore placement rules", zap.Error(err))
 				errCh <- err
@@ -511,41 +516,18 @@ func goRestore(
 			}
 			newTables = append(newTables, t.Table)
 
-			// TODO: add batch / concurrence limit.
-			if err := restore.SplitRanges(ctx, client, t.Range, t.RewriteRule, updateCh); err != nil {
-				log.Error("failed on split range",
-					zap.Stringer("database", t.OldTable.Db.Name),
-					zap.Stringer("table", t.OldTable.Info.Name),
-					zap.Any("ranges", t.Range),
-					zap.Error(err),
-				)
+			if err := batcher.Add(t); err != nil {
 				errCh <- err
 				return
 			}
-
-			files := []*backup.File{}
-			for _, rng := range t.Range {
-				files = append(files, rng.Files...)
-			}
-			log.Info("restoring table",
-				zap.Stringer("database", t.OldTable.Db.Name),
-				zap.Stringer("table", t.OldTable.Info.Name),
-				zap.Int("ranges", len(t.Range)),
-				zap.Int("files", len(files)),
-			)
-
-			if err := client.RestoreFiles(files, t.RewriteRule, rejectStoreMap, updateCh); err != nil {
-				log.Error("failed on download & ingest",
-					zap.Stringer("database", t.OldTable.Db.Name),
-					zap.Stringer("table", t.OldTable.Info.Name),
-					zap.Any("files", files),
-					zap.Error(err),
-				)
-				errCh <- err
-				return
-			}
-
+			
 			outCh <- t
+		}
+		
+		// when things done, we must clean pending requests.
+		if err := batcher.Send(); err != nil {
+			errCh <- err
+			return
 		}
 	}()
 	return outCh
