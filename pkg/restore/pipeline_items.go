@@ -4,13 +4,13 @@ package restore
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
@@ -32,10 +32,9 @@ type TableWithRange struct {
 }
 
 // Batcher collectes ranges to restore and send batching split/ingest request.
-// TODO: support cross-table batching. (i.e. one table can occur in two batches)
 type Batcher struct {
-	currentBatch []TableWithRange
-	currentSize  int
+	currentBatch []rtree.Range
+	rewriteRules *RewriteRules
 
 	ctx                context.Context
 	client             *Client
@@ -44,15 +43,31 @@ type Batcher struct {
 	BatchSizeThreshold int
 }
 
+// Len calculate the current size of this batcher.
+func (b *Batcher) Len() int {
+	return len(b.currentBatch)
+}
+
 // NewBatcher creates a new batcher by client and updateCh.
 func NewBatcher(
 	ctx context.Context,
 	client *Client,
-	rejectStoreMap map[uint64]bool,
 	updateCh glue.Progress,
 ) *Batcher {
+	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+	if err != nil {
+		// After TiFlash support restore, we can remove this panic.
+		// The origin of this panic is at RunRestore, and its semantic is nearing panic, don't worry about it.
+		log.Panic("failed to get and remove TiFlash replicas", zap.Error(errors.Trace(err)))
+	}
+	rejectStoreMap := make(map[uint64]bool)
+	for _, store := range tiflashStores {
+		rejectStoreMap[store.GetId()] = true
+	}
+
 	return &Batcher{
-		currentBatch:       []TableWithRange{},
+		currentBatch:       []rtree.Range{},
+		rewriteRules:       EmptyRewriteRule(),
 		client:             client,
 		rejectStoreMap:     rejectStoreMap,
 		updateCh:           updateCh,
@@ -61,29 +76,20 @@ func NewBatcher(
 	}
 }
 
+func (b *Batcher) splitPoint() int {
+	splitPoint := b.BatchSizeThreshold
+	if splitPoint > b.Len() {
+		return b.Len()
+	}
+	return splitPoint
+}
+
 // Send sends all pending requests in the batcher.
 func (b *Batcher) Send() error {
-	ranges := []rtree.Range{}
-	rewriteRules := &RewriteRules{
-		Table: []*import_sstpb.RewriteRule{},
-		Data:  []*import_sstpb.RewriteRule{},
-	}
-	for _, t := range b.currentBatch {
-		ranges = append(ranges, t.Range...)
-		rewriteRules.Append(*t.RewriteRule)
-	}
+	var ranges []rtree.Range
+	ranges, b.currentBatch = b.currentBatch[:b.splitPoint()], b.currentBatch[b.splitPoint():]
 
-	tableNames := []string{}
-	for _, t := range b.currentBatch {
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	log.Info("sending batch restore request",
-		zap.Int("range count", len(ranges)),
-		zap.Int("table count", len(b.currentBatch)),
-		zap.Strings("tables", tableNames),
-	)
-
-	if err := SplitRanges(b.ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
+	if err := SplitRanges(b.ctx, b.client, ranges, b.rewriteRules, b.updateCh); err != nil {
 		log.Error("failed on split range",
 			zap.Any("ranges", ranges),
 			zap.Error(err),
@@ -95,30 +101,39 @@ func (b *Batcher) Send() error {
 	for _, fs := range ranges {
 		files = append(files, fs.Files...)
 	}
-	if err := b.client.RestoreFiles(files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
+	log.Info("send batch",
+		zap.Int("range count", len(ranges)),
+		zap.Int("file count", len(files)),
+	)
+	if err := b.client.RestoreFiles(files, b.rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
 		return err
 	}
-	b.currentBatch = []TableWithRange{}
-	b.currentSize = 0
 	return nil
 }
 
 func (b *Batcher) sendIfFull() error {
-	if b.currentSize >= b.BatchSizeThreshold {
+	if b.Len() >= b.BatchSizeThreshold {
 		return b.Send()
 	}
 	return nil
 }
 
-// AddRangeCount add current size of the Batcher,
-// and sends cached requests if current size is greater than BatchThreshold.
-func (b *Batcher) AddRangeCount(by int) error {
-	b.currentSize += by
+// Add addes a task to bather.
+func (b *Batcher) Add(tbs TableWithRange) error {
+	log.Info("adding table to batch",
+		zap.Stringer("table", tbs.Table.Name),
+		zap.Stringer("database", tbs.OldTable.Db.Name),
+		zap.Int64("old id", tbs.OldTable.Info.ID),
+		zap.Int64("new id", tbs.Table.ID),
+		zap.Int("batch size", b.Len()),
+	)
+	b.currentBatch = append(b.currentBatch, tbs.Range...)
+	b.rewriteRules.Append(*tbs.RewriteRule)
 	return b.sendIfFull()
 }
 
-// Add addes a task to bather.
-func (b *Batcher) Add(tbs TableWithRange) error {
-	b.currentBatch = append(b.currentBatch, tbs)
-	return b.AddRangeCount(len(tbs.Range))
+// Close closes the batcher, sending all pending requests, close updateCh.
+func (b *Batcher) Close() error {
+	defer b.updateCh.Close()
+	return b.Send()
 }
