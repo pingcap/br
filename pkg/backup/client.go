@@ -215,6 +215,7 @@ func BuildBackupRangeAndSchema(
 
 		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
+		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
 		for _, tableInfo := range dbInfo.Tables {
 			if !tableFilter.Match(&filter.Table{Schema: dbInfo.Name.L, Name: tableInfo.Name.L}) {
@@ -226,6 +227,20 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 			tableInfo.AutoIncID = globalAutoID
+
+			if tableInfo.PKIsHandle && tableInfo.ContainsAutoRandomBits() {
+				// this table has auto_random id, we need backup and rebase in restoration
+				var globalAutoRandID int64
+				globalAutoRandID, err = randAlloc.NextGlobalAutoID(tableInfo.ID)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+				tableInfo.AutoRandID = globalAutoRandID
+				log.Info("change table AutoRandID",
+					zap.Stringer("db", dbInfo.Name),
+					zap.Stringer("table", tableInfo.Name),
+					zap.Int64("AutoRandID", globalAutoRandID))
+			}
 			log.Info("change table AutoIncID",
 				zap.Stringer("db", dbInfo.Name),
 				zap.Stringer("table", tableInfo.Name),
@@ -795,6 +810,11 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 			zap.String("table", tblInfo.Name.L))
 	}
 	return true, nil
+}
+
+// ArchiveSize returns the total size of the archive (before encryption)
+func (bc *Client) ArchiveSize() uint64 {
+	return utils.ArchiveSize(&bc.backupMeta)
 }
 
 // CollectFileInfo collects ungrouped file summary information, like kv count and size.
