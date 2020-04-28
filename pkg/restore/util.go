@@ -180,40 +180,44 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 	return result
 }
 
+// GoValidateFileRanges validate files by a stream of tables and yields tables with range.
 func GoValidateFileRanges(
 	ctx context.Context,
 	tableStream <-chan CreatedTable,
 	fileOfTable map[int64][]*backup.File,
 	errCh chan<- error,
 ) <-chan TableWithRange {
+	// Could we have a smaller outCh size?
 	outCh := make(chan TableWithRange, len(fileOfTable))
 	go func() {
 		defer close(outCh)
 		defer log.Info("all range generated")
-
-		for t := range tableStream {
+		for {
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 				return
-			default:
+			case t, ok := <-tableStream:
+				if !ok {
+					return
+				}
+				files := fileOfTable[t.OldTable.Info.ID]
+				ranges, err := ValidateFileRanges(files, t.RewriteRule)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				tableWithRange := TableWithRange{
+					CreatedTable: t,
+					Range:        AttachFilesToRanges(files, ranges),
+				}
+				log.Debug("sending range info",
+					zap.Stringer("table", t.Table.Name),
+					zap.Int("files", len(files)),
+					zap.Int("range size", len(ranges)),
+					zap.Int("output channel size", len(outCh)))
+				outCh <- tableWithRange
 			}
-			files := fileOfTable[t.OldTable.Info.ID]
-			ranges, err := ValidateFileRanges(files, t.RewriteRule)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			tableWithRange := TableWithRange{
-				CreatedTable: t,
-				Range:        AttachFilesToRanges(files, ranges),
-			}
-			log.Debug("sending range info",
-				zap.Stringer("table", t.Table.Name),
-				zap.Int("files", len(files)),
-				zap.Int("range size", len(ranges)),
-				zap.Int("output channel size", len(outCh)))
-			outCh <- tableWithRange
 		}
 	}()
 	return outCh
