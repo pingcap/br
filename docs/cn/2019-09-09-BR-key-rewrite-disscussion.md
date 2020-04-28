@@ -54,12 +54,12 @@ fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
 
 ### Key Rewrite 对现在导入流程的影响
 
-现在无论是 BR 还是 Lightning，使用的都是同一套导入流程，如下：
+现在 BR 的导入流程如下：
 1. 把 **KV 对**写入到 RocksDB 实例（“**Engine File**”）来排序
-2. (Prepare) 遍历此 Engine file，
-   1. (Pre-split) 每当 K+V 的累积长度达 512 MB 时（可设置），对这个 **Range** 执行 PrepareRangeJob，如下。
-   2. (GetRegion) 执行 *PD* 的 *get_region_info* 取得这个 *Range.start* 对应的 *Region* 信息。
-   3. (Split) 把这个 *Region* 从 *Range.end* 处使用 *split_region_opt* 分裂成两部分。如果出 EpochNotMatch 或 NotLeader 的错会由 GetRegion 开始重试。
+2. (Prepare) 在 client 侧遍历此 Engine file，
+   1. (Pre-split) 找到所有 *Range* 的 EndKey 和 rewrite rule 的 NewPrefix，依照这些 Key 执行 BatchSplit，如下。
+   2. (GetRegion) 执行 *PD* 的 *get_region_info* 取得这些 Key 对应的 *Region* 信息。
+   3. (Split) 把这个 *Region* 从这些 Key 处使用 *batch_split_region* 分裂若干部分。如果出 EpochNotMatch 或 NotLeader 的错会由 Split 重试若干次（这里是因为 batch 的缘故，如果直接交给 GetRegion 重试，我们必须得要重试整个 batch），如果还是不成功，则会交由 GetRegion 开始重试。
    4. (Scatter) 使用 *scatter_region* 将分裂后 *Range* 对应的 *Region* 打散。
 3. (Import) 按 Prepare 步获得的 *Ranges* 并行导入
    1. (GetRegion) 重新取得这个 *Range* 对应的 *Region*。如果现在横跨了多个 Regions，会按 *PD* 返回的信息分割 *Range* 之后重试。
