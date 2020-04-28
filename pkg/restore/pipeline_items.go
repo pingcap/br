@@ -4,6 +4,7 @@ package restore
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -34,6 +35,7 @@ type TableWithRange struct {
 // Batcher collectes ranges to restore and send batching split/ingest request.
 type Batcher struct {
 	currentBatch []rtree.Range
+	cachedTables []TableWithRange
 	rewriteRules *RewriteRules
 
 	ctx                context.Context
@@ -66,7 +68,6 @@ func NewBatcher(
 	}
 
 	return &Batcher{
-		currentBatch:       []rtree.Range{},
 		rewriteRules:       EmptyRewriteRule(),
 		client:             client,
 		rejectStoreMap:     rejectStoreMap,
@@ -84,17 +85,36 @@ func (b *Batcher) splitPoint() int {
 	return splitPoint
 }
 
+// drainSentTables drains the table just sent.
+// note that this function assumes you call it only after a sent of bench.
+func (b *Batcher) drainSentTables() (drained []TableWithRange) {
+	if b.Len() == 0 {
+		drained, b.cachedTables = b.cachedTables, []TableWithRange{}
+		return
+	}
+	cachedLen := len(b.cachedTables)
+	drained, b.cachedTables = b.cachedTables[:cachedLen-1], b.cachedTables[cachedLen-1:]
+	return
+}
+
 // Send sends all pending requests in the batcher.
-func (b *Batcher) Send() error {
+// returns tables sent in the current batch.
+func (b *Batcher) Send() ([]TableWithRange, error) {
 	var ranges []rtree.Range
 	ranges, b.currentBatch = b.currentBatch[:b.splitPoint()], b.currentBatch[b.splitPoint():]
+	tbs := b.drainSentTables()
+	var tableNames []string
+	for _, t := range tbs {
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	log.Info("prepare split range by tables", zap.Strings("tables", tableNames))
 
 	if err := SplitRanges(b.ctx, b.client, ranges, b.rewriteRules, b.updateCh); err != nil {
 		log.Error("failed on split range",
 			zap.Any("ranges", ranges),
 			zap.Error(err),
 		)
-		return err
+		return nil, err
 	}
 
 	files := []*backup.File{}
@@ -106,20 +126,21 @@ func (b *Batcher) Send() error {
 		zap.Int("file count", len(files)),
 	)
 	if err := b.client.RestoreFiles(files, b.rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	return tbs, nil
 }
 
-func (b *Batcher) sendIfFull() error {
+func (b *Batcher) sendIfFull() ([]TableWithRange, error) {
 	if b.Len() >= b.BatchSizeThreshold {
 		return b.Send()
 	}
-	return nil
+	return []TableWithRange{}, nil
 }
 
 // Add addes a task to bather.
-func (b *Batcher) Add(tbs TableWithRange) error {
+func (b *Batcher) Add(tbs TableWithRange) ([]TableWithRange, error) {
 	log.Info("adding table to batch",
 		zap.Stringer("table", tbs.Table.Name),
 		zap.Stringer("database", tbs.OldTable.Db.Name),
@@ -128,12 +149,13 @@ func (b *Batcher) Add(tbs TableWithRange) error {
 		zap.Int("batch size", b.Len()),
 	)
 	b.currentBatch = append(b.currentBatch, tbs.Range...)
+	b.cachedTables = append(b.cachedTables, tbs)
 	b.rewriteRules.Append(*tbs.RewriteRule)
 	return b.sendIfFull()
 }
 
 // Close closes the batcher, sending all pending requests, close updateCh.
-func (b *Batcher) Close() error {
+func (b *Batcher) Close() ([]TableWithRange, error) {
 	defer b.updateCh.Close()
 	return b.Send()
 }

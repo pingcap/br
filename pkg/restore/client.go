@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -378,31 +379,34 @@ func (rc *Client) GoCreateTables(
 		defer close(outCh)
 		defer log.Info("all tables created")
 
+		group, ectx := errgroup.WithContext(ctx)
+
 		for _, table := range tables {
-			select {
-			case <-ctx.Done():
-				log.Error("create table canceled",
-					zap.Error(ctx.Err()),
-					zap.Stringer("table", table.Info.Name),
-					zap.Stringer("database", table.Db.Name))
-				errCh <- ctx.Err()
-				return
-			default:
-			}
-			rt, err := rc.createTable(dom, table, newTS)
-			if err != nil {
-				log.Error("create table failed",
-					zap.Error(err),
-					zap.Stringer("table", table.Info.Name),
-					zap.Stringer("database", table.Db.Name))
-				errCh <- err
-				return
-			}
-			log.Debug("table created and send to next",
-				zap.Int("output chan size", len(outCh)),
-				zap.Stringer("table", table.Info.Name),
-				zap.Stringer("database", table.Db.Name))
-			outCh <- rt
+			t := table
+			group.Go(func() error {
+				select {
+				case <-ectx.Done():
+					return ectx.Err()
+				default:
+				}
+				rt, err := rc.createTable(dom, t, newTS)
+				if err != nil {
+					log.Error("create table failed",
+						zap.Error(err),
+						zap.Stringer("table", t.Info.Name),
+						zap.Stringer("database", t.Db.Name))
+					return err
+				}
+				log.Debug("table created and send to next",
+					zap.Int("output chan size", len(outCh)),
+					zap.Stringer("table", t.Info.Name),
+					zap.Stringer("database", t.Db.Name))
+				outCh <- rt
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			errCh <- err
 		}
 	}()
 	return outCh
@@ -712,14 +716,15 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	return nil
 }
 
-//ValidateChecksum validate checksum after restore
+// ValidateChecksum validate checksum after restore
+// it returns a channel fires a struct{} when all things get done.
 func (rc *Client) ValidateChecksum(
 	ctx context.Context,
+	tableStream <-chan TableWithRange,
 	kvClient kv.Client,
-	tables []*utils.Table,
-	newTables []*model.TableInfo,
+	errCh chan<- error,
 	updateCh glue.Progress,
-) error {
+) <-chan struct{} {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -727,74 +732,70 @@ func (rc *Client) ValidateChecksum(
 	}()
 
 	log.Info("Start to validate checksum")
-	wg := new(sync.WaitGroup)
-	errCh := make(chan error)
+	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		for i, t := range tables {
-			table := t
-			newTable := newTables[i]
-			wg.Add(1)
-			workers.Apply(func() {
-				defer wg.Done()
-
-				if table.NoChecksum() {
-					log.Info("table doesn't have checksum, skipping checksum",
-						zap.Stringer("db", table.Db.Name),
-						zap.Stringer("table", table.Info.Name))
+		defer func() {
+			log.Info("all checksum ended")
+			outCh <- struct{}{}
+			close(outCh)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+			case tbl, ok := <-tableStream:
+				if !ok {
+					return
+				}
+				workers.Apply(func() {
+					err := rc.execChecksum(ctx, tbl.CreatedTable, kvClient)
+					if err != nil {
+						errCh <- err
+					}
 					updateCh.Inc()
-					return
-				}
-
-				startTS, err := rc.GetTS(ctx)
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-				exe, err := checksum.NewExecutorBuilder(newTable, startTS).
-					SetOldTable(table).
-					Build()
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-				checksumResp, err := exe.Execute(ctx, kvClient, func() {
-					// TODO: update progress here.
 				})
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-
-				if checksumResp.Checksum != table.Crc64Xor ||
-					checksumResp.TotalKvs != table.TotalKvs ||
-					checksumResp.TotalBytes != table.TotalBytes {
-					log.Error("failed in validate checksum",
-						zap.String("database", table.Db.Name.L),
-						zap.String("table", table.Info.Name.L),
-						zap.Uint64("origin tidb crc64", table.Crc64Xor),
-						zap.Uint64("calculated crc64", checksumResp.Checksum),
-						zap.Uint64("origin tidb total kvs", table.TotalKvs),
-						zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
-						zap.Uint64("origin tidb total bytes", table.TotalBytes),
-						zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
-					)
-					errCh <- errors.New("failed to validate checksum")
-					return
-				}
-
-				updateCh.Inc()
-			})
+			}
 		}
-		wg.Wait()
-		close(errCh)
 	}()
-	for err := range errCh {
-		if err != nil {
-			return err
-		}
+	return outCh
+}
+
+func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+	startTS, err := rc.GetTS(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
-	log.Info("validate checksum passed!!")
+	exe, err := checksum.NewExecutorBuilder(tbl.Table, startTS).
+		SetOldTable(tbl.OldTable).
+		Build()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	checksumResp, err := exe.Execute(ctx, kvClient, func() {
+		// TODO: update progress here.
+	})
+	if err != nil {
+		return errors.Trace(err)
+
+	}
+
+	table := tbl.OldTable
+	if checksumResp.Checksum != table.Crc64Xor ||
+		checksumResp.TotalKvs != table.TotalKvs ||
+		checksumResp.TotalBytes != table.TotalBytes {
+		log.Error("failed in validate checksum",
+			zap.String("database", table.Db.Name.L),
+			zap.String("table", table.Info.Name.L),
+			zap.Uint64("origin tidb crc64", table.Crc64Xor),
+			zap.Uint64("calculated crc64", checksumResp.Checksum),
+			zap.Uint64("origin tidb total kvs", table.TotalKvs),
+			zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
+			zap.Uint64("origin tidb total bytes", table.TotalBytes),
+			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+		)
+		return errors.New("failed to validate checksum")
+	}
 	return nil
 }
 

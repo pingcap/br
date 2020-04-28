@@ -218,7 +218,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher.BatchSizeThreshold = batchSize
 	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
-	newTables, _, _, err := collectRestoreResults(ctx, afterRestoreStream, errCh)
+	// Checksum
+	updateCh = g.StartProgress(
+		ctx, "Checksum", int64(len(tables)), !cfg.LogProgress)
+	out := client.ValidateChecksum(
+		ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+	select {
+	case err = <-errCh:
+	case <-out:
+		log.Info("all works end.")
+	}
 
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
@@ -230,16 +239,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-
-	// Checksum
-	// TODO: add checksum to pipeline.
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
-	err = client.ValidateChecksum(
-		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
-	if err != nil {
-		return err
-	}
+	updateCh.Close()
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
@@ -429,7 +429,7 @@ func enableTiDBConfig() {
 
 // collectRestoreResults collectes result of pipelined restore process,
 // block the current goroutine, until all the tasks finished.
-// TODO: remove this function when all the link
+// TODO: remove this function when all the link is pipelined.
 func collectRestoreResults(
 	ctx context.Context,
 	ch <-chan restore.TableWithRange,
@@ -458,16 +458,20 @@ func goRestore(
 	batcher *restore.Batcher,
 	errCh chan<- error,
 ) <-chan restore.TableWithRange {
-	outCh := make(chan restore.TableWithRange)
+	outCh := make(chan restore.TableWithRange, 8)
 	go func() {
 		// We cache old tables so that we can 'batch' recover TiFlash and tables.
 		oldTables := []*utils.Table{}
 		newTables := []*model.TableInfo{}
 		defer func() {
 			// when things done, we must clean pending requests.
-			if err := batcher.Close(); err != nil {
+			rem, err := batcher.Close()
+			if err != nil {
 				errCh <- err
 				return
+			}
+			for _, t := range rem {
+				outCh <- t
 			}
 			log.Info("doing postwork",
 				zap.Int("new tables", len(newTables)),
@@ -509,12 +513,14 @@ func goRestore(
 				}
 				newTables = append(newTables, t.Table)
 
-				if err := batcher.Add(t); err != nil {
+				sent, err := batcher.Add(t)
+				if err != nil {
 					errCh <- err
 					return
 				}
-
-				outCh <- t
+				for _, t := range sent {
+					outCh <- t
+				}
 			}
 		}
 	}()
