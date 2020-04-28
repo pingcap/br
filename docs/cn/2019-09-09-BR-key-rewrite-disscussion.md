@@ -55,8 +55,8 @@ fn undo_rewrite_key(rules: &[RewriteRule], key: &[u8]) -> Cow<[u8]> {
 ### Key Rewrite 对现在导入流程的影响
 
 现在 BR 的导入流程如下：
-1. 把 **KV 对**写入到 RocksDB 实例（“**Engine File**”）来排序
-2. (Prepare) 在 client 侧遍历此 Engine file，
+1. 把 **KV 对**写入到 RocksDB 实例（“**SST File**”）来排序
+2. (Prepare) 在 client 侧遍历此 SST file，
    1. (Pre-split) 找到所有 *Range* 的 EndKey 和 rewrite rule 的 NewPrefix，依照这些 Key 执行 BatchSplit，如下。
    2. (GetRegion) 执行 *PD* 的 *get_region_info* 取得这些 Key 对应的 *Region* 信息。
    3. (Split) 把这个 *Region* 从这些 Key 处使用 *batch_split_region* 分裂若干部分。如果出 EpochNotMatch 或 NotLeader 的错会由 Split 重试若干次（这里是因为 batch 的缘故，如果直接交给 GetRegion 重试，我们必须得要重试整个 batch），如果还是不成功，则会交由 GetRegion 开始重试。
