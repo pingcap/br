@@ -215,9 +215,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Restore sst files in batch.
 	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
 
-	batcher := restore.NewBatcher(ctx, client, updateCh)
+	batcher, afterRestoreStream := restore.NewBatcher(ctx, client, updateCh, errCh)
 	batcher.BatchSizeThreshold = batchSize
-	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
+	goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
 	// Checksum
 	// TODO: skip checksum when user specificated.
@@ -462,22 +462,14 @@ func goRestore(
 	client *restore.Client,
 	batcher *restore.Batcher,
 	errCh chan<- error,
-) <-chan restore.TableWithRange {
-	outCh := make(chan restore.TableWithRange, 8)
+) {
 	go func() {
 		// We cache old tables so that we can 'batch' recover TiFlash and tables.
 		oldTables := []*utils.Table{}
 		newTables := []*model.TableInfo{}
 		defer func() {
 			// when things done, we must clean pending requests.
-			rem, err := batcher.Close()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			for _, t := range rem {
-				outCh <- t
-			}
+			batcher.Close()
 			log.Info("doing postwork",
 				zap.Int("new tables", len(newTables)),
 				zap.Int("old tables", len(oldTables)),
@@ -490,13 +482,13 @@ func goRestore(
 				log.Error("failed on recover TiFlash replicas", zap.Error(err))
 				errCh <- err
 			}
-			close(outCh)
 		}()
 
 		for {
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
+				return
 			case t, ok := <-inputCh:
 				if !ok {
 					return
@@ -518,16 +510,8 @@ func goRestore(
 				}
 				newTables = append(newTables, t.Table)
 
-				sent, err := batcher.Add(t)
-				if err != nil {
-					errCh <- err
-					return
-				}
-				for _, t := range sent {
-					outCh <- t
-				}
+				batcher.Add(t)
 			}
 		}
 	}()
-	return outCh
 }
