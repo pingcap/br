@@ -6,15 +6,16 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/glue"
-	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // CreatedTable is a table is created on restore process,
@@ -43,6 +44,17 @@ type Batcher struct {
 	rejectStoreMap     map[uint64]bool
 	updateCh           glue.Progress
 	BatchSizeThreshold int
+}
+
+// Exhasut drains all remaining errors in the channel, into a slice of errors.
+func Exhasut(ec <-chan error) []error {
+	out := make([]error, 0, len(ec))
+	select {
+	case err := <-ec:
+		out = append(out, err)
+	default:
+	}
+	return out
 }
 
 // Len calculate the current size of this batcher.

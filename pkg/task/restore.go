@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
@@ -219,12 +220,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	afterRestoreStream := goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
 	// Checksum
+	// TODO: skip checksum when user specificated.
+	// TODO: allow checksum progress bar can appear together with each other.
+	// For now, we have to redirect one of them.
 	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(tables)), !cfg.LogProgress)
-	out := client.ValidateChecksum(
+		ctx, "Checksum", int64(len(tables)), true)
+	out := client.GoValidateChecksum(
 		ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
 	select {
 	case err = <-errCh:
+		err = multierr.Append(err, multierr.Combine(restore.Exhasut(errCh)...))
 	case <-out:
 		log.Info("all works end.")
 	}

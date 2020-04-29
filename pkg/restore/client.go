@@ -30,7 +30,6 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -326,6 +325,10 @@ func (rc *Client) CreateTables(
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	errCh := make(chan error, 1)
+	tbMapping := map[string]int{}
+	for i, t := range tables {
+		tbMapping[t.Info.Name.String()] = i
+	}
 	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
@@ -333,6 +336,11 @@ func (rc *Client) CreateTables(
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
+	// Let's ensure that the original order.
+	sort.Slice(newTables, func(i, j int) bool {
+		return tbMapping[newTables[i].Name.String()] < tbMapping[newTables[j].Name.String()]
+	})
+
 	select {
 	case err, ok := <-errCh:
 		if ok {
@@ -375,38 +383,36 @@ func (rc *Client) GoCreateTables(
 ) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	outCh := make(chan CreatedTable, len(tables))
+	createOneTable := func(t *utils.Table) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		rt, err := rc.createTable(dom, t, newTS)
+		if err != nil {
+			log.Error("create table failed",
+				zap.Error(err),
+				zap.Stringer("table", t.Info.Name),
+				zap.Stringer("database", t.Db.Name))
+			return err
+		}
+		log.Debug("table created and send to next",
+			zap.Int("output chan size", len(outCh)),
+			zap.Stringer("table", t.Info.Name),
+			zap.Stringer("database", t.Db.Name))
+		outCh <- rt
+		return nil
+	}
 	go func() {
 		defer close(outCh)
 		defer log.Info("all tables created")
 
-		group, ectx := errgroup.WithContext(ctx)
-
 		for _, table := range tables {
-			t := table
-			group.Go(func() error {
-				select {
-				case <-ectx.Done():
-					return ectx.Err()
-				default:
-				}
-				rt, err := rc.createTable(dom, t, newTS)
-				if err != nil {
-					log.Error("create table failed",
-						zap.Error(err),
-						zap.Stringer("table", t.Info.Name),
-						zap.Stringer("database", t.Db.Name))
-					return err
-				}
-				log.Debug("table created and send to next",
-					zap.Int("output chan size", len(outCh)),
-					zap.Stringer("table", t.Info.Name),
-					zap.Stringer("database", t.Db.Name))
-				outCh <- rt
-				return nil
-			})
-		}
-		if err := group.Wait(); err != nil {
-			errCh <- err
+			if err := createOneTable(table); err != nil {
+				errCh <- err
+				return
+			}
 		}
 	}()
 	return outCh
@@ -716,9 +722,9 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	return nil
 }
 
-// ValidateChecksum validate checksum after restore
+// GoValidateChecksum forks a goroutine to validate checksum after restore.
 // it returns a channel fires a struct{} when all things get done.
-func (rc *Client) ValidateChecksum(
+func (rc *Client) GoValidateChecksum(
 	ctx context.Context,
 	tableStream <-chan TableWithRange,
 	kvClient kv.Client,
