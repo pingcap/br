@@ -215,7 +215,7 @@ func BuildBackupRangeAndSchema(
 
 		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
-    seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
+		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
 		for _, tableInfo := range dbInfo.Tables {
