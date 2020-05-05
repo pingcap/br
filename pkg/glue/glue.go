@@ -22,6 +22,9 @@ type Glue interface {
 	OwnsStorage() bool
 
 	StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) Progress
+
+	// Record records some information useful for log-less summary.
+	Record(name string, value uint64)
 }
 
 // Session is an abstraction of the session.Session interface.
