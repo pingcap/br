@@ -212,7 +212,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err = splitPrepareWork(ctx, client, newTables); err != nil {
 		return err
 	}
-	splitPostWork(ctx, client, newTables)
+	defer splitPostWork(ctx, client, newTables)
 
 	ranges = restore.AttachFilesToRanges(files, ranges)
 
