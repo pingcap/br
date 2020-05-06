@@ -5,6 +5,7 @@ package task
 import (
 	"context"
 	"math"
+	"sync"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -231,7 +232,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	defer restorePostWork(ctx, client, mgr, clusterCfg)
+	restorePostWorkOnce := sync.Once{}
+	restorePostWork := func() {
+		restorePostWorkOnce.Do(func() {
+			restorePostWork(ctx, client, mgr, clusterCfg)
+		})
+	}
+	defer restorePostWork()
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -291,6 +298,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Restore has finished.
 	updateCh.Close()
+
+	// Restore TiKV/PD config before validating checksum.
+	restorePostWork()
 
 	// Checksum
 	updateCh = g.StartProgress(
