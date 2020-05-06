@@ -230,11 +230,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	restorePostWorkOnce := sync.Once{}
+	shouldRestorePostWork := true
 	restorePostWork := func() {
-		restorePostWorkOnce.Do(func() {
+		if shouldRestorePostWork {
+			shouldRestorePostWork = false
 			restorePostWork(ctx, client, mgr, clusterCfg)
-		})
+		}
 	}
 	defer restorePostWork()
 
