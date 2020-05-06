@@ -33,6 +33,11 @@ type Table struct {
 	TiFlashReplicas int
 }
 
+// NoChecksum checks whether the table has a calculated checksum.
+func (tbl *Table) NoChecksum() bool {
+	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
+}
+
 // Database wraps the schema and tables of a database.
 type Database struct {
 	Info   *model.DBInfo
@@ -107,6 +112,15 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	}
 
 	return databases, nil
+}
+
+// ArchiveSize returns the total size of the backup archive.
+func ArchiveSize(meta *backup.BackupMeta) uint64 {
+	total := uint64(meta.Size())
+	for _, file := range meta.Files {
+		total += file.Size_
+	}
+	return total
 }
 
 // EncloseName formats name in sql

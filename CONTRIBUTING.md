@@ -15,7 +15,6 @@ your contribution accepted.
 Developing BR requires:
 
 * [Go 1.13+](http://golang.org/doc/code.html)
-* [Retool](https://github.com/twitchtv/retool)
 * An internet connection to download the dependencies
 
 Simply run `make` to build the program.

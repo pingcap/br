@@ -142,6 +142,8 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		return err
 	}
 
+	g.Record("Size", client.ArchiveSize())
+
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil

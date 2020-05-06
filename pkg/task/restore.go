@@ -135,6 +135,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}
@@ -159,16 +160,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
+
+	// pre-set TiDB config for restore
+	enableTiDBConfig()
+
 	// execute DDL first
-
-	// set max-index-length before execute DDLs and create tables
-	// we set this value to max(3072*4), otherwise we might not restore table
-	// when upstream and downstream both set this value greater than default(3072)
-	conf := config.GetGlobalConfig()
-	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
-	config.StoreGlobalConfig(conf)
-	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
-
 	err = client.ExecDDLs(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
@@ -177,6 +173,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// nothing to restore, maybe only ddl changes in incremental restore
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		// even nothing to restore, we show a success message since there is no failure.
+		summary.SetSuccessStatus(true)
 		return nil
 	}
 
@@ -250,10 +248,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := int(cfg.Concurrency)
-	if batchSize > maxRestoreBatchSizeLimit {
-		batchSize = maxRestoreBatchSizeLimit // 256
-	}
+	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
 
 	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
@@ -268,9 +263,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		if len(ranges) == 0 {
 			break
 		}
-		if batchSize > len(ranges) {
-			batchSize = len(ranges)
-		}
+		batchSize = utils.MinInt(batchSize, len(ranges))
 		var rangeBatch []rtree.Range
 		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
 
@@ -303,14 +296,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	restorePostWork()
 
 	// Checksum
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
-	err = client.ValidateChecksum(
-		ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
-	if err != nil {
-		return err
+	if cfg.Checksum {
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
+		err = client.ValidateChecksum(
+			ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
+		if err != nil {
+			return err
+		}
+		updateCh.Close()
 	}
-	updateCh.Close()
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
@@ -568,4 +563,23 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
+}
+
+func enableTiDBConfig() {
+	// set max-index-length before execute DDLs and create tables
+	// we set this value to max(3072*4), otherwise we might not restore table
+	// when upstream and downstream both set this value greater than default(3072)
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+
+	// we need set this to true, since all create table DDLs will create with tableInfo
+	// and we can handle alter drop pk/add pk DDLs with no impact
+	conf.AlterPrimaryKey = true
+
+	// set this to true for some auto random DDL execute normally during incremental restore
+	conf.Experimental.AllowAutoRandom = true
+	conf.Experimental.AllowsExpressionIndex = true
+
+	config.StoreGlobalConfig(conf)
 }
