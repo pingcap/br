@@ -5,7 +5,6 @@ package task
 import (
 	"context"
 	"math"
-	"sync"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
