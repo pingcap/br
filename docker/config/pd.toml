@@ -2,7 +2,7 @@
 [schedule]
 # Disbale Region Merge
 max-merge-region-size = 0
-max-merge-region-key = 0
+max-merge-region-keys = 0
 merge-schedule-limit = 0
 
 max-snapshot-count = 10
