@@ -17,7 +17,7 @@ require (
 	github.com/montanaflynn/stats v0.5.0 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/kvproto v0.0.0-20200331072206-c211b473fe43
+	github.com/pingcap/kvproto v0.0.0-20200506072111-3a6b8b9cb29e
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v3.1.0-beta.2.0.20200425032215-994651e9b6df+incompatible
 	github.com/pingcap/pd/v3 v3.1.1-0.20200426091027-e639f0b1e62b
