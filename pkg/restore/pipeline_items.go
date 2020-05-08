@@ -5,6 +5,8 @@ package restore
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -40,15 +42,16 @@ type TableWithRange struct {
 
 // Batcher collectes ranges to restore and send batching split/ingest request.
 type Batcher struct {
-	cachedTables []TableWithRange
-	rewriteRules *RewriteRules
+	cachedTables   []TableWithRange
+	cachedTablesMu *sync.Mutex
+	rewriteRules   *RewriteRules
 
 	ctx                context.Context
-	sendTrigger        chan<- struct{}
 	sendErr            chan<- error
 	outCh              chan<- CreatedTable
 	sender             BatchSender
 	BatchSizeThreshold int
+	size               int32
 }
 
 // Exhasut drains all remaining errors in the channel, into a slice of errors.
@@ -64,11 +67,7 @@ func Exhasut(ec <-chan error) []error {
 
 // Len calculate the current size of this batcher.
 func (b *Batcher) Len() int {
-	result := 0
-	for _, tbl := range b.cachedTables {
-		result += len(tbl.Range)
-	}
-	return result
+	return int(atomic.LoadInt32(&b.size))
 }
 
 // BatchSender is the abstract of how the batcher send a batch.
@@ -150,23 +149,21 @@ func NewBatcher(
 	sender BatchSender,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
-	// use block channel here for forbid send table unexpectly.
-	mailbox := make(chan struct{})
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
-		sendTrigger:        mailbox,
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
 		ctx:                ctx,
+		cachedTablesMu:     new(sync.Mutex),
 		BatchSizeThreshold: 1,
 	}
-	go b.workLoop(mailbox)
+	go b.workLoop()
 	return b, output
 }
 
-func (b *Batcher) workLoop(mailbox <-chan struct{}) {
+func (b *Batcher) workLoop() {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
@@ -174,12 +171,6 @@ func (b *Batcher) workLoop(mailbox <-chan struct{}) {
 		case <-b.ctx.Done():
 			b.sendErr <- b.ctx.Err()
 			return
-		case _, ok := <-mailbox:
-			if !ok {
-				return
-			}
-			log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
-			b.asyncSend()
 		case <-tick.C:
 			if b.Len() > 0 {
 				log.Info("sending batch because time limit exceed", zap.Int("size", b.Len()))
@@ -209,6 +200,9 @@ func (b *Batcher) splitPoint() int {
 }
 
 func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTable) {
+	b.cachedTablesMu.Lock()
+	defer b.cachedTablesMu.Unlock()
+
 	for offset, thisTable := range b.cachedTables {
 		thisTableLen := len(thisTable.Range)
 		collected := len(ranges)
@@ -230,13 +224,14 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 			)
 			ranges = append(ranges, drained...)
 			b.cachedTables = b.cachedTables[offset:]
+			atomic.AddInt32(&b.size, -int32(len(ranges)))
 			return
 		}
 
 		emptyTables = append(emptyTables, b.cachedTables[offset].CreatedTable)
 		// let 'drain' the ranges of current table. This op must not make the batch full.
 		ranges = append(ranges, b.cachedTables[offset].Range...)
-		// clear the table
+		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
 			zap.Stringer("table", thisTable.Table.Name),
@@ -247,6 +242,7 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 
 	// all tables are drained.
 	b.cachedTables = []TableWithRange{}
+	atomic.AddInt32(&b.size, -int32(len(ranges)))
 	return
 }
 
@@ -261,13 +257,16 @@ func (b *Batcher) Send() ([]CreatedTable, error) {
 }
 
 func (b *Batcher) sendIfFull() {
-	if b.Len() >= b.BatchSizeThreshold {
-		b.sendTrigger <- struct{}{}
+	// never collect the send batch request message.
+	for b.Len() >= b.BatchSizeThreshold {
+		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
+		b.asyncSend()
 	}
 }
 
 // Add addes a task to batcher.
 func (b *Batcher) Add(tbs TableWithRange) {
+	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
 		zap.Stringer("table", tbs.Table.Name),
 		zap.Stringer("database", tbs.OldTable.Db.Name),
@@ -278,13 +277,18 @@ func (b *Batcher) Add(tbs TableWithRange) {
 	)
 	b.cachedTables = append(b.cachedTables, tbs)
 	b.rewriteRules.Append(*tbs.RewriteRule)
+	atomic.AddInt32(&b.size, int32(len(tbs.Range)))
+	b.cachedTablesMu.Unlock()
+
+	b.sendIfFull()
 }
 
 // Close closes the batcher, sending all pending requests, close updateCh.
 func (b *Batcher) Close() {
 	log.Info("sending batch lastly on close.", zap.Int("size", b.Len()))
-	b.asyncSend()
+	for b.Len() > 0 {
+		b.asyncSend()
+	}
 	close(b.outCh)
-	close(b.sendTrigger)
 	b.sender.Close()
 }
