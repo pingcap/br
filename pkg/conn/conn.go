@@ -41,6 +41,7 @@ const (
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
+	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -431,6 +432,47 @@ func (mgr *Mgr) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]st
 		return d, nil
 	}
 	return nil, err
+}
+
+// GetPDScheduleConfig returns PD schedule config value associated with the key.
+// It returns nil if there is no such config item.
+func (mgr *Mgr) GetPDScheduleConfig(
+	ctx context.Context,
+) (map[string]interface{}, error) {
+	var err error
+	for _, addr := range mgr.pdHTTP.addrs {
+		v, e := pdRequest(
+			ctx, addr, scheduleConfigPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
+		if e != nil {
+			err = e
+			continue
+		}
+		cfg := make(map[string]interface{})
+		err = json.Unmarshal(v, &cfg)
+		if err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+	return nil, err
+}
+
+// UpdatePDScheduleConfig updates PD schedule config value associated with the key.
+func (mgr *Mgr) UpdatePDScheduleConfig(
+	ctx context.Context, cfg map[string]interface{},
+) error {
+	for _, addr := range mgr.pdHTTP.addrs {
+		reqData, err := json.Marshal(cfg)
+		if err != nil {
+			return err
+		}
+		_, e := pdRequest(ctx, addr, scheduleConfigPrefix,
+			mgr.pdHTTP.cli, http.MethodPost, bytes.NewBuffer(reqData))
+		if e == nil {
+			return nil
+		}
+	}
+	return errors.New("update PD schedule config failed")
 }
 
 // Close closes all client in Mgr.

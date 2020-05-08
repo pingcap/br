@@ -68,6 +68,8 @@ type Client struct {
 	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
 	backend    *kvproto.StorageBackend
+
+	gcTTL int64
 }
 
 // NewBackupClient returns a new backup client
@@ -112,12 +114,22 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	}
 
 	// check backup time do not exceed GCSafePoint
-	err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
+}
+
+// SetGCTTL set gcTTL for client
+func (bc *Client) SetGCTTL(ttl int64) {
+	bc.gcTTL = ttl
+}
+
+// GetGCTTL get gcTTL for this backup.
+func (bc *Client) GetGCTTL() int64 {
+	return bc.gcTTL
 }
 
 // SetStorage set ExternalStorage for client
@@ -215,6 +227,7 @@ func BuildBackupRangeAndSchema(
 
 		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
+		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
 		for _, tableInfo := range dbInfo.Tables {
 			if !tableFilter.Match(&filter.Table{Schema: dbInfo.Name.L, Name: tableInfo.Name.L}) {
@@ -226,6 +239,20 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 			tableInfo.AutoIncID = globalAutoID
+
+			if tableInfo.PKIsHandle && tableInfo.ContainsAutoRandomBits() {
+				// this table has auto_random id, we need backup and rebase in restoration
+				var globalAutoRandID int64
+				globalAutoRandID, err = randAlloc.NextGlobalAutoID(tableInfo.ID)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+				tableInfo.AutoRandID = globalAutoRandID
+				log.Info("change table AutoRandID",
+					zap.Stringer("db", dbInfo.Name),
+					zap.Stringer("table", tableInfo.Name),
+					zap.Int64("AutoRandID", globalAutoRandID))
+			}
 			log.Info("change table AutoIncID",
 				zap.Stringer("db", dbInfo.Name),
 				zap.Stringer("table", tableInfo.Name),
@@ -355,19 +382,26 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
+	backupTS := req.EndVersion
+	// use lastBackupTS as safePoint if exists
+	if req.StartVersion > 0 {
+		backupTS = req.StartVersion
+	}
+
+	log.Info("current backup safePoint job",
+		zap.Uint64("backupTS", backupTS))
+
 	finished := false
 	for {
-		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.EndVersion)
+		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
 		if err != nil {
-			log.Error("check GC safepoint failed", zap.Error(err))
+			log.Error("update GC safePoint with TTL failed", zap.Error(err))
 			return err
 		}
-		if req.StartVersion > 0 {
-			err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.StartVersion)
-			if err != nil {
-				log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
-				return err
-			}
+		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+		if err != nil {
+			log.Error("check GC safePoint failed", zap.Error(err))
+			return err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
@@ -795,6 +829,11 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 			zap.String("table", tblInfo.Name.L))
 	}
 	return true, nil
+}
+
+// ArchiveSize returns the total size of the archive (before encryption)
+func (bc *Client) ArchiveSize() uint64 {
+	return utils.ArchiveSize(&bc.backupMeta)
 }
 
 // CollectFileInfo collects ungrouped file summary information, like kv count and size.

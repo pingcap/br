@@ -29,25 +29,27 @@ run_sql "CREATE DATABASE $DB;"
 
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
-row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
-
 # Update GC safepoint to now + 5s after 10s seconds.
-sleep 10 && bin/gc -pd $PD_ADDR -gc-offset "5s" &
+sleep 10 && bin/gc -pd $PD_ADDR -gc-offset "5s" -update-service true &
 
-# Set ratelimit to 1 bytes/second, we assume it can not finish within 10s,
-# so it will trigger exceed GC safe point error.
+# total bytes is 1136000
+# Set ratelimit to 40960 bytes/second, it will finish within 25s,
+# so it won't trigger exceed GC safe point error. even It use updateServiceGCSafePoint to update GC safePoint.
 backup_gc_fail=0
-echo "backup start (expect fail)..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
+echo "backup start (won't fail)..."
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/1" --db $DB -t $TABLE --ratelimit 40960 --ratelimit-unit 1 || backup_gc_fail=1
 
-if [ "$backup_gc_fail" -ne "1" ];then
+if [ "$backup_gc_fail" -ne "0" ];then
     echo "TEST: [$TEST_NAME] test check backup ts failed!"
     exit 1
 fi
 
+# set safePoint otherwise the default safePoint is zero
+bin/gc -pd $PD_ADDR -gc-offset "1s"
+
 backup_gc_fail=0
 echo "incremental backup start (expect fail)..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --lastbackupts 1 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/2" --db $DB -t $TABLE --lastbackupts 1 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
 
 if [ "$backup_gc_fail" -ne "1" ];then
     echo "TEST: [$TEST_NAME] test check last backup ts failed!"
@@ -56,7 +58,7 @@ fi
 
 backup_gc_fail=0
 echo "incremental backup with max_uint64 start (expect fail)..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --lastbackupts $MAX_UINT64 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/3" --db $DB -t $TABLE --lastbackupts $MAX_UINT64 --ratelimit 1 --ratelimit-unit 1 || backup_gc_fail=1
 
 if [ "$backup_gc_fail" -ne "1" ];then
     echo "TEST: [$TEST_NAME] test check max backup ts failed!"
