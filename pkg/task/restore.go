@@ -258,12 +258,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		log.Info("all works end.")
 	}
 
-	// Always run the post-work even on error, so we don't stuck in the import
-	// mode or emptied schedulers
-	if errRestorePostWork := restorePostWork(ctx, client, mgr, clusterCfg); err == nil {
-		err = errRestorePostWork
-	}
-
 	// If any error happened, return now, don't execute checksum.
 	if err != nil {
 		return err
@@ -589,10 +583,7 @@ func goRestore(
 				zap.Int("new tables", len(newTables)),
 				zap.Int("old tables", len(oldTables)),
 			)
-			if err := splitPostWork(ctx, client, newTables); err != nil {
-				log.Error("failed on unset online restore placement rules", zap.Error(err))
-				errCh <- err
-			}
+			splitPostWork(ctx, client, newTables)
 			if err := client.RecoverTiFlashReplica(oldTables); err != nil {
 				log.Error("failed on recover TiFlash replicas", zap.Error(err))
 				errCh <- err
