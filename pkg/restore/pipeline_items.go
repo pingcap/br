@@ -191,14 +191,6 @@ func (b *Batcher) asyncSend() {
 	}
 }
 
-func (b *Batcher) splitPoint() int {
-	splitPoint := b.BatchSizeThreshold
-	if splitPoint > b.Len() {
-		return b.Len()
-	}
-	return splitPoint
-}
-
 func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTable) {
 	b.cachedTablesMu.Lock()
 	defer b.cachedTablesMu.Unlock()

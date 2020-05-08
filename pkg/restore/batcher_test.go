@@ -6,13 +6,14 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBatcherSuite struct{}
