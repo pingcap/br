@@ -215,7 +215,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Restore sst files in batch.
 	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
 
-	batcher, afterRestoreStream := restore.NewBatcher(ctx, client, updateCh, errCh)
+	sender, err := restore.NewTiKVSender(ctx, client, updateCh)
+	if err != nil {
+		return err
+	}
+	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, errCh)
 	batcher.BatchSizeThreshold = batchSize
 	goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 

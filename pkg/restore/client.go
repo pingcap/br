@@ -726,7 +726,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 // it returns a channel fires a struct{} when all things get done.
 func (rc *Client) GoValidateChecksum(
 	ctx context.Context,
-	tableStream <-chan TableWithRange,
+	tableStream <-chan CreatedTable,
 	kvClient kv.Client,
 	errCh chan<- error,
 	updateCh glue.Progress,
@@ -755,7 +755,7 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.Apply(func() {
-					err := rc.execChecksum(ctx, tbl.CreatedTable, kvClient)
+					err := rc.execChecksum(ctx, tbl, kvClient)
 					if err != nil {
 						errCh <- err
 					}
