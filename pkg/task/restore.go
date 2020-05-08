@@ -346,7 +346,7 @@ type clusterConfig struct {
 	scheduleCfg map[string]interface{}
 }
 
-// restorePreWork executes some prepare work before restore
+// restorePreWork executes some prepare work before restore.
 func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (clusterConfig, error) {
 	if client.IsOnline() {
 		return clusterConfig{}, nil
@@ -436,7 +436,7 @@ func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers
 	return removedSchedulers, nil
 }
 
-// restorePostWork executes some post work after restore
+// restorePostWork executes some post work after restore.
 func restorePostWork(
 	ctx context.Context, client *restore.Client, mgr *conn.Mgr, clusterCfg clusterConfig,
 ) {
