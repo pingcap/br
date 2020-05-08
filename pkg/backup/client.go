@@ -68,6 +68,8 @@ type Client struct {
 	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
 	backend    *kvproto.StorageBackend
+
+	gcTTL int64
 }
 
 // NewBackupClient returns a new backup client
@@ -112,12 +114,22 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	}
 
 	// check backup time do not exceed GCSafePoint
-	err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
 	log.Info("backup encode timestamp", zap.Uint64("BackupTS", backupTS))
 	return backupTS, nil
+}
+
+// SetGCTTL set gcTTL for client
+func (bc *Client) SetGCTTL(ttl int64) {
+	bc.gcTTL = ttl
+}
+
+// GetGCTTL get gcTTL for this backup.
+func (bc *Client) GetGCTTL() int64 {
+	return bc.gcTTL
 }
 
 // SetStorage set ExternalStorage for client
@@ -370,19 +382,26 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
+	backupTS := req.EndVersion
+	// use lastBackupTS as safePoint if exists
+	if req.StartVersion > 0 {
+		backupTS = req.StartVersion
+	}
+
+	log.Info("current backup safePoint job",
+		zap.Uint64("backupTS", backupTS))
+
 	finished := false
 	for {
-		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.EndVersion)
+		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
 		if err != nil {
-			log.Error("check GC safepoint failed", zap.Error(err))
+			log.Error("update GC safePoint with TTL failed", zap.Error(err))
 			return err
 		}
-		if req.StartVersion > 0 {
-			err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.StartVersion)
-			if err != nil {
-				log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
-				return err
-			}
+		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+		if err != nil {
+			log.Error("check GC safePoint failed", zap.Error(err))
+			return err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
