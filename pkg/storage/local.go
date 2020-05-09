@@ -24,7 +24,7 @@ func (l *localStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	return ioutil.ReadFile(filepath)
 }
 
-// FileExists implement ExternalStorage.FileExists
+// FileExists implement ExternalStorage.FileExists.
 func (l *localStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	filepath := path.Join(l.base, name)
 	return pathExists(filepath)

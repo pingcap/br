@@ -23,7 +23,7 @@ const (
 	placementRuleURL = "/pd/api/v1/config/rules"
 )
 
-// ResetTS resets the timestamp of PD to a bigger value
+// ResetTS resets the timestamp of PD to a bigger value.
 func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	req, err := json.Marshal(struct {
 		TSO string `json:"tso,omitempty"`
@@ -53,7 +53,7 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	return nil
 }
 
-// GetPlacementRules return the current placement rules
+// GetPlacementRules return the current placement rules.
 func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, error) {
 	cli := &http.Client{Timeout: 30 * time.Second}
 	prefix := "http://"
@@ -88,7 +88,7 @@ func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, er
 	return rules, nil
 }
 
-// SearchPlacementRule returns the placement rule matched to the table or nil
+// SearchPlacementRule returns the placement rule matched to the table or nil.
 func SearchPlacementRule(tableID int64, placementRules []placement.Rule, role placement.PeerRoleType) *placement.Rule {
 	for _, rule := range placementRules {
 		key, err := hex.DecodeString(rule.StartKeyHex)

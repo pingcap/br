@@ -82,7 +82,7 @@ func GetRewriteRules(
 }
 
 // getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
-// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
+// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)].
 func getSSTMetaFromFile(
 	id []byte,
 	file *backup.File,
@@ -188,7 +188,7 @@ func AttachFilesToRanges(
 	return sortedRanges
 }
 
-// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
+// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file.
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
@@ -229,7 +229,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 	return nil
 }
 
-// Rewrites a raw key and returns a encoded key
+// Rewrites a raw key and returns a encoded key.
 func rewriteRawKey(key []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
 	if rewriteRules == nil {
 		return codec.EncodeBytes([]byte{}, key), nil
@@ -278,8 +278,8 @@ func truncateTS(key []byte) []byte {
 }
 
 // SplitRanges splits region by
-// 1. data range after rewrite
-// 2. rewrite rules
+// 1. data range after rewrite.
+// 2. rewrite rules.
 func SplitRanges(
 	ctx context.Context,
 	client *Client,

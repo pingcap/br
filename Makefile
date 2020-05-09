@@ -35,11 +35,11 @@ build_for_integration_test:
 test:
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
 
-testcover:
+testcover: tools
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
-		-ignore='.git,vendor,tests,_tools' \
+		-ignore='.git,vendor,tests,_tools,docker' \
 		-debug \
 		-- -coverpkg=./...
 
@@ -80,7 +80,9 @@ static: tools
 		--disable gocognit \
 		--disable godox \
 		--disable gomnd \
-		$$($(PACKAGE_DIRECTORIES)) || true
+		--disable testpackage \
+		--disable nestif \
+		$$($(PACKAGE_DIRECTORIES))
 
 lint: tools
 	@echo "linting"

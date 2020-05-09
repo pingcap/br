@@ -237,13 +237,13 @@ func NewMgr(
 	return mgr, nil
 }
 
-// SetPDHTTP set pd addrs and cli for test
+// SetPDHTTP set pd addrs and cli for test.
 func (mgr *Mgr) SetPDHTTP(addrs []string, cli *http.Client) {
 	mgr.pdHTTP.addrs = addrs
 	mgr.pdHTTP.cli = cli
 }
 
-// SetPDClient set pd addrs and cli for test
+// SetPDClient set pd addrs and cli for test.
 func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
 	mgr.pdClient = pdClient
 }
@@ -362,7 +362,7 @@ func (mgr *Mgr) GetTiKV() tikv.Storage {
 	return mgr.storage
 }
 
-// GetTLSConfig returns the tls config
+// GetTLSConfig returns the tls config.
 func (mgr *Mgr) GetTLSConfig() *tls.Config {
 	return mgr.tlsConf
 }
@@ -377,7 +377,7 @@ func (mgr *Mgr) GetDomain() *domain.Domain {
 	return mgr.dom
 }
 
-// RemoveScheduler remove pd scheduler
+// RemoveScheduler remove pd scheduler.
 func (mgr *Mgr) RemoveScheduler(ctx context.Context, scheduler string) error {
 	return mgr.removeSchedulerWith(ctx, scheduler, pdRequest)
 }
@@ -394,7 +394,7 @@ func (mgr *Mgr) removeSchedulerWith(ctx context.Context, scheduler string, delet
 	return err
 }
 
-// AddScheduler add pd scheduler
+// AddScheduler add pd scheduler.
 func (mgr *Mgr) AddScheduler(ctx context.Context, scheduler string) error {
 	return mgr.addSchedulerWith(ctx, scheduler, pdRequest)
 }
@@ -411,7 +411,7 @@ func (mgr *Mgr) addSchedulerWith(ctx context.Context, scheduler string, post pdH
 	return err
 }
 
-// ListSchedulers list all pd scheduler
+// ListSchedulers list all pd scheduler.
 func (mgr *Mgr) ListSchedulers(ctx context.Context) ([]string, error) {
 	return mgr.listSchedulersWith(ctx, pdRequest)
 }

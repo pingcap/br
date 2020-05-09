@@ -258,7 +258,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 }
 
 // getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
-// 	the ranges, groups the split keys by region id
+// the ranges, groups the split keys by region id.
 func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
@@ -287,7 +287,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 	return splitKeyMap
 }
 
-// needSplit checks whether a key is necessary to split, if true returns the split region
+// needSplit checks whether a key is necessary to split, if true returns the split region.
 func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	// If splitKey is the max key.
 	if len(splitKey) == 0 {

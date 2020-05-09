@@ -13,7 +13,7 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
-// sortRanges checks if the range overlapped and sort them
+// sortRanges checks if the range overlapped and sort them.
 func sortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
 	rangeTree := rtree.NewRangeTree()
 	for _, rg := range ranges {

@@ -55,12 +55,12 @@ type TLSConfig struct {
 	Key  string `json:"key" toml:"key"`
 }
 
-// IsEnabled checks if TLS open or not
+// IsEnabled checks if TLS open or not.
 func (tls *TLSConfig) IsEnabled() bool {
 	return tls.CA != ""
 }
 
-// ToTLSConfig generate tls.Config
+// ToTLSConfig generate tls.Config.
 func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 	tlsInfo := transport.TLSInfo{
 		CertFile:      tls.Cert,
