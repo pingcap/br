@@ -202,6 +202,16 @@ func GoValidateFileRanges(
 					return
 				}
 				files := fileOfTable[t.OldTable.Info.ID]
+				if partitions := t.OldTable.Info.Partition; partitions != nil {
+					log.Debug("table partition",
+						zap.Stringer("database", t.OldTable.Db.Name),
+						zap.Stringer("table", t.Table.Name),
+						zap.Any("partition info", partitions),
+					)
+					for _, partition := range partitions.Definitions {
+						files = append(files, fileOfTable[partition.ID]...)
+					}
+				}
 				ranges, err := ValidateFileRanges(files, t.RewriteRule)
 				if err != nil {
 					errCh <- err

@@ -138,7 +138,9 @@ func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRul
 }
 
 func (b *tikvSender) Close() {
-	b.updateCh.Close()
+	// Instead of close update channel here, we close it when main function ends execute.
+	// Because when Close called, there may be some pending work at import worker.
+	// If possiable, it would be better to move close operation to sender side(e.g. func RestoreFiles).
 }
 
 // NewBatcher creates a new batcher by client and updateCh.
@@ -220,9 +222,9 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 			return
 		}
 
-		emptyTables = append(emptyTables, b.cachedTables[offset].CreatedTable)
-		// let 'drain' the ranges of current table. This op must not make the batch full.
-		ranges = append(ranges, b.cachedTables[offset].Range...)
+		emptyTables = append(emptyTables, thisTable.CreatedTable)
+		// let's 'drain' the ranges of current table. This op must not make the batch full.
+		ranges = append(ranges, thisTable.Range...)
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
@@ -242,6 +244,14 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 // returns tables sent in the current batch.
 func (b *Batcher) Send() ([]CreatedTable, error) {
 	ranges, tbs := b.drainRanges()
+	var tableNames []string
+	for _, t := range tbs {
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	log.Debug("do batch send",
+		zap.Strings("tables", tableNames),
+		zap.Int("ranges", len(ranges)),
+	)
 	if err := b.sender.RestoreBatch(ranges, b.rewriteRules, tbs); err != nil {
 		return nil, err
 	}

@@ -195,10 +195,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	tableFileMap := restore.MapTableToFiles(files)
+	log.Debug("mapped table to files.", zap.Any("result map", tableFileMap))
+
 	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
 
 	rangeSize := restore.EstimateRangeSize(files)
 	summary.CollectInt("restore ranges", rangeSize)
+	log.Info("range and file prepared", zap.Int("file count", len(files)), zap.Int("range count", rangeSize))
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(
@@ -207,6 +210,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		// Split/Scatter + Download/Ingest
 		int64(restore.EstimateRangeSize(files)+len(files)),
 		!cfg.LogProgress)
+	defer updateCh.Close()
 
 	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
