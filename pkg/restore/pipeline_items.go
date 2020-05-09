@@ -172,6 +172,7 @@ func NewBatcher(
 func (b *Batcher) joinWorker() {
 	log.Info("gracefully stoping worker goroutine")
 	b.joiner <- struct{}{}
+	log.Info("gracefully stopped worker goroutine")
 }
 
 func (b *Batcher) workLoop(joiner <-chan struct{}) {
@@ -180,7 +181,7 @@ func (b *Batcher) workLoop(joiner <-chan struct{}) {
 	for {
 		select {
 		case <-joiner:
-			log.Info("worker goroutine gracefully stoped")
+			log.Debug("graceful stop signal received")
 			return
 		case <-b.ctx.Done():
 			b.sendErr <- b.ctx.Err()

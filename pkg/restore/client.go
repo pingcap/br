@@ -772,6 +772,14 @@ func (rc *Client) GoValidateChecksum(
 }
 
 func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+	if tbl.OldTable.NoChecksum() {
+		log.Warn("table has no checksum, skipping checksum.",
+			zap.Stringer("table", tbl.OldTable.Info.Name),
+			zap.Stringer("database", tbl.OldTable.Db.Name),
+		)
+		return nil
+	}
+
 	startTS, err := rc.GetTS(ctx)
 	if err != nil {
 		return errors.Trace(err)

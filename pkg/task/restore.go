@@ -246,19 +246,23 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher.BatchSizeThreshold = batchSize
 	goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
+	var finish <-chan struct{}
 	// Checksum
-	// TODO: skip checksum when user specificated.
-	// TODO: allow checksum progress bar can appear together with each other.
-	// For now, we have to redirect one of them.
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(len(tables)), true)
-	defer updateCh.Close()
-	out := client.GoValidateChecksum(
-		ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+	if cfg.Checksum {
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(len(tables)), true)
+		defer updateCh.Close()
+		finish = client.GoValidateChecksum(
+			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+	} else {
+		// when user skip checksum, just collect tables, and drop them.
+		finish = dropToBlockhole(ctx, afterRestoreStream, errCh)
+	}
+
 	select {
 	case err = <-errCh:
 		err = multierr.Append(err, multierr.Combine(restore.Exhasut(errCh)...))
-	case <-out:
+	case <-finish:
 		log.Info("all works end.")
 	}
 
@@ -270,6 +274,37 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
+}
+
+// dropToBlockhole drop all incoming tables into black hole.
+func dropToBlockhole(
+	ctx context.Context,
+	tableStream <-chan restore.CreatedTable,
+	errCh chan<- error,
+) <-chan struct{} {
+	outCh := make(chan struct{}, 1)
+	go func() {
+		defer func() {
+			outCh <- struct{}{}
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			case tbl, ok := <-tableStream:
+				if !ok {
+					log.Info("all works end.")
+					return
+				}
+				log.Info("skipping checksum of table because user config",
+					zap.Stringer("database", tbl.OldTable.Db.Name),
+					zap.Stringer("table", tbl.Table.Name),
+				)
+			}
+		}
+	}()
+	return outCh
 }
 
 func filterRestoreFiles(
