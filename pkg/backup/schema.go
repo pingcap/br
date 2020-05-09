@@ -110,7 +110,8 @@ func (pending *Schemas) Start(
 	}()
 }
 
-func (pending *Schemas) finishTableChecksum() ([]*backup.Schema, error) {
+// FinishTableChecksum waits until all schemas' checksums are verified.
+func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
 	schemas := make([]*backup.Schema, 0, len(pending.schemas))
 	for {
 		select {

@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore
+package restore_test
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -39,11 +40,8 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	client := Client{}
-	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
+	client, err := restore.NewRestoreClient(context.Background(), gluetidb.Glue{}, s.mock.PDClient, s.mock.Storage, nil)
 	c.Assert(err, IsNil)
-	client.db = db
-	client.ctx = context.Background()
 
 	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxInt64)
 	c.Assert(err, IsNil)
@@ -100,11 +98,8 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	client := Client{}
-	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
+	client, err := restore.NewRestoreClient(context.Background(), gluetidb.Glue{}, s.mock.PDClient, s.mock.Storage, nil)
 	c.Assert(err, IsNil)
-	client.db = db
-	client.ctx = context.Background()
 
 	c.Assert(client.IsOnline(), IsFalse)
 	client.EnableOnline()

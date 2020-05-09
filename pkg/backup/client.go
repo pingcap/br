@@ -169,7 +169,9 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
-func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
+// BuildTableRanges returns the key ranges encompassing the entire table,
+// and its partitions if exists.
+func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 	pis := tbl.GetPartitionInfo()
 	if pis == nil {
 		// Short path, no partition.
@@ -285,7 +287,7 @@ func BuildBackupRangeAndSchema(
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
-			tableRanges, err := buildTableRanges(tableInfo)
+			tableRanges, err := BuildTableRanges(tableInfo)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -897,7 +899,7 @@ func (bc *Client) CollectChecksums() ([]Checksum, error) {
 
 // CompleteMeta wait response of admin checksum from TiDB to complete backup meta.
 func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
-	schemas, err := backupSchemas.finishTableChecksum()
+	schemas, err := backupSchemas.FinishTableChecksum()
 	if err != nil {
 		return err
 	}

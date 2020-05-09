@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	errEpochNotMatch       = errors.NewNoStackError("epoch not match")
-	errKeyNotInRegion      = errors.NewNoStackError("key not in region")
-	errRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
-	errRangeIsEmpty        = errors.NewNoStackError("range is empty")
-	errGrpc                = errors.NewNoStackError("gRPC error")
-	errDownloadFailed      = errors.NewNoStackError("download sst failed")
-	errIngestFailed        = errors.NewNoStackError("ingest sst failed")
+	ErrEpochNotMatch       = errors.NewNoStackError("epoch not match")
+	ErrKeyNotInRegion      = errors.NewNoStackError("key not in region")
+	ErrRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
+	ErrRangeIsEmpty        = errors.NewNoStackError("range is empty")
+	ErrGRPC                = errors.NewNoStackError("gRPC error")
+	ErrDownloadFailed      = errors.NewNoStackError("download sst failed")
+	ErrIngestFailed        = errors.NewNoStackError("ingest sst failed")
 )
 
 const (
@@ -42,28 +42,29 @@ type importerBackoffer struct {
 	maxDelayTime time.Duration
 }
 
-func newImportSSTBackoffer() utils.Backoffer {
+// NewBackoffer creates a new controller regulating a truncated exponential backoff.
+func NewBackoffer(attempt int, delayTime, maxDelayTime time.Duration) utils.Backoffer {
 	return &importerBackoffer{
-		attempt:      importSSTRetryTimes,
-		delayTime:    importSSTWaitInterval,
-		maxDelayTime: importSSTMaxWaitInterval,
+		attempt:      attempt,
+		delayTime:    delayTime,
+		maxDelayTime: maxDelayTime,
 	}
 }
 
+func newImportSSTBackoffer() utils.Backoffer {
+	return NewBackoffer(importSSTRetryTimes, importSSTWaitInterval, importSSTMaxWaitInterval)
+}
+
 func newDownloadSSTBackoffer() utils.Backoffer {
-	return &importerBackoffer{
-		attempt:      downloadSSTRetryTimes,
-		delayTime:    downloadSSTWaitInterval,
-		maxDelayTime: downloadSSTMaxWaitInterval,
-	}
+	return NewBackoffer(downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 }
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case errGrpc, errEpochNotMatch, errIngestFailed:
+	case ErrGRPC, ErrEpochNotMatch, ErrIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
-	case errRangeIsEmpty, errRewriteRuleNotFound:
+	case ErrRangeIsEmpty, ErrRewriteRuleNotFound:
 		// Excepted error, finish the operation
 		bo.delayTime = 0
 		bo.attempt = 0
