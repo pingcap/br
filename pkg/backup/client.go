@@ -204,7 +204,6 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 		kvRanges = append(kvRanges, idxRanges...)
 	}
 	return kvRanges, nil
-
 }
 
 // BuildBackupRangeAndSchema gets the range and schema of tables.

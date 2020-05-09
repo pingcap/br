@@ -13,13 +13,24 @@ import (
 )
 
 var (
-	ErrEpochNotMatch       = errors.NewNoStackError("epoch not match")
-	ErrKeyNotInRegion      = errors.NewNoStackError("key not in region")
+	// ErrEpochNotMatch is the error raised when ingestion failed with "epoch
+	// not match". This error is retryable.
+	ErrEpochNotMatch = errors.NewNoStackError("epoch not match")
+	// ErrKeyNotInRegion is the error raised when ingestion failed with "key not
+	// in region". This error cannot be retried.
+	ErrKeyNotInRegion = errors.NewNoStackError("key not in region")
+	// ErrRewriteRuleNotFound is the error raised when download failed with
+	// "rewrite rule not found". This error cannot be retried
 	ErrRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
-	ErrRangeIsEmpty        = errors.NewNoStackError("range is empty")
-	ErrGRPC                = errors.NewNoStackError("gRPC error")
-	ErrDownloadFailed      = errors.NewNoStackError("download sst failed")
-	ErrIngestFailed        = errors.NewNoStackError("ingest sst failed")
+	// ErrRangeIsEmpty is the error raised when download failed with "range is
+	// empty". This error cannot be retried.
+	ErrRangeIsEmpty = errors.NewNoStackError("range is empty")
+	// ErrGRPC indicates any gRPC communication error. This error can be retried.
+	ErrGRPC = errors.NewNoStackError("gRPC error")
+	// ErrDownloadFailed indicates a generic, non-retryable download error.
+	ErrDownloadFailed = errors.NewNoStackError("download sst failed")
+	// ErrIngestFailed indicates a generic, retryable ingest error.
+	ErrIngestFailed = errors.NewNoStackError("ingest sst failed")
 )
 
 const (

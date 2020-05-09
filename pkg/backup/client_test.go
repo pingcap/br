@@ -96,7 +96,6 @@ func (r *testBackup) TestGetTS(c *C) {
 	ts, err = r.backupClient.GetTS(r.ctx, time.Minute, backupts)
 	c.Assert(err, IsNil)
 	c.Assert(ts, Equals, backupts)
-
 }
 
 func (r *testBackup) TestBuildTableRange(c *C) {
@@ -138,5 +137,4 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	c.Assert(ranges, DeepEquals, []kv.KeyRange{
 		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
 	})
-
 }

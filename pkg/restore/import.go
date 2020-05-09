@@ -27,7 +27,7 @@ import (
 const importScanRegionTime = 10 * time.Second
 const scanRegionPaginationLimit = int(128)
 
-// ImporterClient is used to import a file to TiKV
+// ImporterClient is used to import a file to TiKV.
 type ImporterClient interface {
 	DownloadSST(
 		ctx context.Context,

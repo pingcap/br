@@ -241,7 +241,7 @@ func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
 	resp.TotalBytes += update.TotalBytes
 }
 
-// Executor is a checksum executor
+// Executor is a checksum executor.
 type Executor struct {
 	reqs []*kv.Request
 }

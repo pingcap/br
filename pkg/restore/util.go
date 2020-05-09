@@ -166,7 +166,6 @@ func AttachFilesToRanges(
 		rangeTree.Update(rg)
 	}
 	for _, f := range files {
-
 		rg := rangeTree.Find(&rtree.Range{
 			StartKey: f.GetStartKey(),
 			EndKey:   f.GetEndKey(),

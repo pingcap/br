@@ -29,7 +29,7 @@ const (
 	DefaultSchemaConcurrency = 64
 )
 
-// Schemas is task for backuping schemas
+// Schemas is task for backuping schemas.
 type Schemas struct {
 	// name -> schema
 	schemas        map[string]backup.Schema
