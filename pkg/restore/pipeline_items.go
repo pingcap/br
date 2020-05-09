@@ -40,7 +40,7 @@ type TableWithRange struct {
 	Range []rtree.Range
 }
 
-// Batcher collectes ranges to restore and send batching split/ingest request.
+// Batcher collects ranges to restore and send batching split/ingest request.
 type Batcher struct {
 	cachedTables   []TableWithRange
 	cachedTablesMu *sync.Mutex
@@ -56,8 +56,8 @@ type Batcher struct {
 	size               int32
 }
 
-// Exhasut drains all remaining errors in the channel, into a slice of errors.
-func Exhasut(ec <-chan error) []error {
+// Exhaust drains all remaining errors in the channel, into a slice of errors.
+func Exhaust(ec <-chan error) []error {
 	out := make([]error, 0, len(ec))
 	select {
 	case err := <-ec:
@@ -109,7 +109,7 @@ func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (Ba
 }
 
 func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRules, tbs []CreatedTable) error {
-	var tableNames []string
+	tableNames := make([]string, 0, len(tbs))
 	for _, t := range tbs {
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
 	}
@@ -232,7 +232,7 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 			ranges = append(ranges, drained...)
 			b.cachedTables = b.cachedTables[offset:]
 			atomic.AddInt32(&b.size, -int32(len(ranges)))
-			return
+			return ranges, emptyTables
 		}
 
 		emptyTables = append(emptyTables, thisTable.CreatedTable)
@@ -250,14 +250,14 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 	// all tables are drained.
 	b.cachedTables = []TableWithRange{}
 	atomic.AddInt32(&b.size, -int32(len(ranges)))
-	return
+	return ranges, emptyTables
 }
 
 // Send sends all pending requests in the batcher.
 // returns tables sent in the current batch.
 func (b *Batcher) Send() ([]CreatedTable, error) {
 	ranges, tbs := b.drainRanges()
-	var tableNames []string
+	tableNames := make([]string, 0, len(tbs))
 	for _, t := range tbs {
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
 	}

@@ -419,7 +419,7 @@ func (rc *Client) GoCreateTables(
 }
 
 // RemoveTiFlashReplica removes all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
+// TODO: remove this after tiflash supports restore.
 func (rc *Client) RemoveTiFlashReplica(
 	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
@@ -491,8 +491,8 @@ func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule
 	return 0, nil
 }
 
-// RecoverTiFlashOfTable recoveres TiFlash replica of some table.
-// TODO: remove this after tiflash supports restore
+// RecoverTiFlashOfTable recovers TiFlash replica of some table.
+// TODO: remove this after tiflash supports restore.
 func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
 	if table.TiFlashReplicas > 0 {
 		err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
@@ -504,7 +504,7 @@ func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
 }
 
 // RecoverTiFlashReplica recovers all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
+// TODO: remove this after tiflash supports restore.
 func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
 	for _, table := range tables {
 		if err := rc.RecoverTiFlashOfTable(table); err != nil {
