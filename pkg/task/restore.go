@@ -249,6 +249,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// For now, we have to redirect one of them.
 	updateCh = g.StartProgress(
 		ctx, "Checksum", int64(len(tables)), true)
+	defer updateCh.Close()
 	out := client.GoValidateChecksum(
 		ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
 	select {
@@ -262,7 +263,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	updateCh.Close()
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)

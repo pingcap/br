@@ -746,20 +746,24 @@ func (rc *Client) GoValidateChecksum(
 			outCh <- struct{}{}
 			close(outCh)
 		}()
+		wg := new(sync.WaitGroup)
 		for {
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 			case tbl, ok := <-tableStream:
 				if !ok {
+					wg.Wait()
 					return
 				}
+				wg.Add(1)
 				workers.Apply(func() {
 					err := rc.execChecksum(ctx, tbl, kvClient)
 					if err != nil {
 						errCh <- err
 					}
 					updateCh.Inc()
+					wg.Done()
 				})
 			}
 		}
@@ -783,7 +787,6 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	})
 	if err != nil {
 		return errors.Trace(err)
-
 	}
 
 	table := tbl.OldTable
