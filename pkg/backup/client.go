@@ -72,7 +72,7 @@ type Client struct {
 	gcTTL int64
 }
 
-// NewBackupClient returns a new backup client
+// NewBackupClient returns a new backup client.
 func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
@@ -122,7 +122,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	return backupTS, nil
 }
 
-// SetGCTTL set gcTTL for client
+// SetGCTTL set gcTTL for client.
 func (bc *Client) SetGCTTL(ttl int64) {
 	bc.gcTTL = ttl
 }
@@ -132,7 +132,7 @@ func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
 }
 
-// SetStorage set ExternalStorage for client
+// SetStorage set ExternalStorage for client.
 func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBackend, sendCreds bool) error {
 	var err error
 	bc.storage, err = storage.Create(ctx, backend, sendCreds)
@@ -305,7 +305,7 @@ func BuildBackupRangeAndSchema(
 	return ranges, backupSchemas, nil
 }
 
-// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS]
+// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
 func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
 	snapMeta, err := dom.GetSnapshotMeta(backupTS)
 	if err != nil {
@@ -831,7 +831,7 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	return true, nil
 }
 
-// ArchiveSize returns the total size of the archive (before encryption)
+// ArchiveSize returns the total size of the archive (before encryption).
 func (bc *Client) ArchiveSize() uint64 {
 	return utils.ArchiveSize(&bc.backupMeta)
 }
@@ -895,7 +895,7 @@ func (bc *Client) CollectChecksums() ([]Checksum, error) {
 	return checksums, nil
 }
 
-// CompleteMeta wait response of admin checksum from TiDB to complete backup meta
+// CompleteMeta wait response of admin checksum from TiDB to complete backup meta.
 func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
 	schemas, err := backupSchemas.finishTableChecksum()
 	if err != nil {

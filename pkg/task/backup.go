@@ -256,7 +256,7 @@ func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
 	return nil
 }
 
-// parseTSString port from tidb setSnapshotTS
+// parseTSString port from tidb setSnapshotTS.
 func parseTSString(ts string) (uint64, error) {
 	if len(ts) == 0 {
 		return 0, nil

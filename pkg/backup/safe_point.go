@@ -42,7 +42,7 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 	return nil
 }
 
-// UpdateServiceSafePoint register backupTS to PD, to lock down backupTS as safePoint with ttl seconds
+// UpdateServiceSafePoint register backupTS to PD, to lock down backupTS as safePoint with ttl seconds.
 func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, ttl int64, backupTS uint64) error {
 	log.Debug("update PD safePoint limit with ttl",
 		zap.Uint64("safePoint", backupTS),
