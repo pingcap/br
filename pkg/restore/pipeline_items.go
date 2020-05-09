@@ -46,7 +46,9 @@ type Batcher struct {
 	cachedTablesMu *sync.Mutex
 	rewriteRules   *RewriteRules
 
-	ctx                context.Context
+	ctx context.Context
+	// joiner is for joining the background batch sender.
+	joiner             chan<- struct{}
 	sendErr            chan<- error
 	outCh              chan<- CreatedTable
 	sender             BatchSender
@@ -107,6 +109,12 @@ func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (Ba
 }
 
 func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRules, tbs []CreatedTable) error {
+	var tableNames []string
+	for _, t := range tbs {
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	log.Debug("split region by tables start", zap.Strings("tables", tableNames))
+
 	if err := SplitRanges(b.ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
 		log.Error("failed on split range",
 			zap.Any("ranges", ranges),
@@ -114,17 +122,12 @@ func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRul
 		)
 		return err
 	}
+	log.Debug("split region by tables end", zap.Strings("tables", tableNames))
 
 	files := []*backup.File{}
 	for _, fs := range ranges {
 		files = append(files, fs.Files...)
 	}
-
-	var tableNames []string
-	for _, t := range tbs {
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	log.Debug("split range by tables done", zap.Strings("tables", tableNames))
 
 	if err := b.client.RestoreFiles(files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
 		return err
@@ -138,9 +141,7 @@ func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRul
 }
 
 func (b *tikvSender) Close() {
-	// Instead of close update channel here, we close it when main function ends execute.
-	// Because when Close called, there may be some pending work at import worker.
-	// If possiable, it would be better to move close operation to sender side(e.g. func RestoreFiles).
+	b.updateCh.Close()
 }
 
 // NewBatcher creates a new batcher by client and updateCh.
@@ -152,24 +153,35 @@ func NewBatcher(
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
+	joiner := make(chan struct{})
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
 		ctx:                ctx,
+		joiner:             joiner,
 		cachedTablesMu:     new(sync.Mutex),
 		BatchSizeThreshold: 1,
 	}
-	go b.workLoop()
+	go b.workLoop(joiner)
 	return b, output
 }
 
-func (b *Batcher) workLoop() {
+// joinWorker blocks the current goroutine until the worker can gracefully stop.
+func (b *Batcher) joinWorker() {
+	log.Info("gracefully stoping worker goroutine")
+	b.joiner <- struct{}{}
+}
+
+func (b *Batcher) workLoop(joiner <-chan struct{}) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		select {
+		case <-joiner:
+			log.Info("worker goroutine gracefully stoped")
+			return
 		case <-b.ctx.Done():
 			b.sendErr <- b.ctx.Err()
 			return
@@ -291,6 +303,7 @@ func (b *Batcher) Close() {
 	for b.Len() > 0 {
 		b.asyncSend()
 	}
+	b.joinWorker()
 	close(b.outCh)
 	b.sender.Close()
 }

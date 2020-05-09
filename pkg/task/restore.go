@@ -210,7 +210,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		// Split/Scatter + Download/Ingest
 		int64(restore.EstimateRangeSize(files)+len(files)),
 		!cfg.LogProgress)
-	defer updateCh.Close()
 
 	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
