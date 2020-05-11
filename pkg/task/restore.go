@@ -593,8 +593,6 @@ func enableTiDBConfig() {
 	// and we can handle alter drop pk/add pk DDLs with no impact
 	conf.AlterPrimaryKey = true
 
-	// set this to true for some auto random DDL execute normally during incremental restore
-	conf.Experimental.AllowAutoRandom = true
 	conf.Experimental.AllowsExpressionIndex = true
 
 	config.StoreGlobalConfig(conf)
