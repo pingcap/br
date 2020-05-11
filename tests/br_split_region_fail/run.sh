@@ -56,6 +56,8 @@ grep "Full restore Success" $LOG
 
 if [ $? -ne 0 ]; then
     echo "failed to retry on failpoint."
+    echo "full log:"
+    cat $LOG
     exit 1
 fi
 

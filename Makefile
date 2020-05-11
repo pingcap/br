@@ -22,16 +22,14 @@ all: check test build
 build:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
 
-build_for_integration_test:
-	GO111MODULE=on go test -c -cover -covermode=count \
+build_for_integration_test: failpoint-enable
+	(GO111MODULE=on go test -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
-		-o bin/br.test
-	# build key locker
-	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go
-	# build gc
-	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go
-	# build rawkv client
-	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go
+		-o bin/br.test && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
+	@make failpoint-disable
 
 test: failpoint-enable
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
@@ -45,7 +43,7 @@ testcover:
 		-debug \
 		-- -coverpkg=./...
 
-integration_test: failpoint-enable build build_for_integration_test
+integration_test: build build_for_integration_test
 	@which bin/tidb-server
 	@which bin/tikv-server
 	@which bin/pd-server
@@ -53,8 +51,7 @@ integration_test: failpoint-enable build build_for_integration_test
 	@which bin/go-ycsb
 	@which bin/minio
 	@which bin/br
-	tests/run.sh || ( make failpoint-disable && exit 1 )
-	@make failpoint-disable
+	tests/run.sh
 
 tools:
 	@echo "install tools..."
