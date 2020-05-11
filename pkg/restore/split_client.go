@@ -239,7 +239,7 @@ func (c *pdClient) sendSplitRegionRequest(
 					nl.Leader = regionInfo.Leader
 				}
 				resp.RegionError.NotLeader = nl
-				goto injected_error
+				failpoint.Goto("injected_error")
 			}
 		})
 		resp, err = client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
@@ -250,7 +250,7 @@ func (c *pdClient) sendSplitRegionRequest(
 			},
 			SplitKeys: keys,
 		})
-injected_error:		
+		failpoint.Label("injected_error")
 		if err != nil {
 			return nil, multierr.Append(splitErrors, err)
 		}
