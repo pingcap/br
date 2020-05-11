@@ -35,13 +35,13 @@ test: failpoint-enable
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
-testcover: tools
+testcover: tools failpoint-enable
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
 		-ignore='.git,vendor,tests,_tools,docker' \
 		-debug \
-		-- -coverpkg=./...
+		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
 integration_test: build build_for_integration_test
 	@which bin/tidb-server
