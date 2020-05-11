@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"path"
 	"strconv"
@@ -211,9 +210,9 @@ func splitRegionWithFailpoint(
 		resp.RegionError = new(errorpb.Error)
 		nl := new(errorpb.NotLeader)
 		nl.RegionId = regionInfo.Region.Id
-		if rand.Int()%2 == 0 {
+		failpoint.Inject("possiable-leader-find", func() {
 			nl.Leader = regionInfo.Leader
-		}
+		})
 		resp.RegionError.NotLeader = nl
 		failpoint.Return(resp, nil)
 	})

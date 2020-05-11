@@ -46,7 +46,9 @@ done
 echo "restore start..."
 
 unset BR_LOG_TO_TERM
-GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=1*return(true);github.com/pingcap/br/pkg/restore/somewhat-retryable-error=1*return(true)" \
+GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=2*return(true);\
+github.com/pingcap/br/pkg/restore/somewhat-retryable-error=1*return(true);\
+github.com/pingcap/br/pkg/restore/possiable-leader-find=1*return(true)" \
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024 --log-file $LOG || true
 BR_LOG_TO_TERM=1
 
