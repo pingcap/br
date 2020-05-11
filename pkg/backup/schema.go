@@ -56,7 +56,7 @@ func (pending *Schemas) pushPending(
 	pending.schemas[name] = schema
 }
 
-// Start backups schemas
+// Start backups schemas.
 func (pending *Schemas) Start(
 	ctx context.Context,
 	store kv.Storage,

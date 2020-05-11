@@ -83,7 +83,7 @@ type gcsStorage struct {
 	bucket *storage.BucketHandle
 }
 
-// Write file to storage
+// Write file to storage.
 func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error {
 	object := s.gcs.Prefix + name
 	wc := s.bucket.Object(object).NewWriter(ctx)
@@ -96,7 +96,7 @@ func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error 
 	return wc.Close()
 }
 
-// Read storage file
+// Read storage file.
 func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	object := s.gcs.Prefix + name
 	rc, err := s.bucket.Object(object).NewReader(ctx)
@@ -110,7 +110,7 @@ func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	return b, err
 }
 
-// FileExists return true if file exists
+// FileExists return true if file exists.
 func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	object := s.gcs.Prefix + name
 	_, err := s.bucket.Object(object).Attrs(ctx)

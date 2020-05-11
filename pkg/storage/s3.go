@@ -153,7 +153,7 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
-// newS3Storage initialize a new s3 storage for metadata
+// newS3Storage initialize a new s3 storage for metadata.
 func newS3Storage( // revive:disable-line:flag-parameter
 	backend *backup.S3,
 	sendCredential bool,
@@ -220,7 +220,7 @@ var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	return err
 }
 
-// Write write to s3 storage
+// Write write to s3 storage.
 func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error {
 	input := &s3.PutObjectInput{
 		Body:   aws.ReadSeekCloser(bytes.NewReader(data)),
@@ -252,7 +252,7 @@ func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error 
 	return err
 }
 
-// Read read file from s3
+// Read read file from s3.
 func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
@@ -271,7 +271,7 @@ func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 	return data, nil
 }
 
-// FileExists check if file exists on s3 storage
+// FileExists check if file exists on s3 storage.
 func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) {
 	input := &s3.HeadObjectInput{
 		Bucket: aws.String(rs.options.Bucket),

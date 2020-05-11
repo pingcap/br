@@ -19,12 +19,12 @@ type Range struct {
 	Files    []*backup.File
 }
 
-// String formats a range to a string
+// String formats a range to a string.
 func (rg *Range) String() string {
 	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
-// Intersect returns
+// Intersect returns?
 func (rg *Range) Intersect(
 	start, end []byte,
 ) (subStart, subEnd []byte, isIntersect bool) {
@@ -56,14 +56,14 @@ func (rg *Range) Intersect(
 	return
 }
 
-// Contains check if the range contains the given key, [start, end)
+// Contains check if the range contains the given key, [start, end).
 func (rg *Range) Contains(key []byte) bool {
 	start, end := rg.StartKey, rg.EndKey
 	return bytes.Compare(key, start) >= 0 &&
 		(len(end) == 0 || bytes.Compare(key, end) < 0)
 }
 
-// Less impls btree.Item
+// Less impls btree.Item.
 func (rg *Range) Less(than btree.Item) bool {
 	// rg.StartKey < than.StartKey
 	ta := than.(*Range)

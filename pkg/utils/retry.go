@@ -18,7 +18,7 @@ type Backoffer interface {
 	Attempt() int
 }
 
-// WithRetry retrys a given operation with a backoff policy
+// WithRetry retrys a given operation with a backoff policy.
 func WithRetry(
 	ctx context.Context,
 	retryableFunc RetryableFunc,

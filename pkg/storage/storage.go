@@ -19,7 +19,7 @@ type ExternalStorage interface {
 	FileExists(ctx context.Context, name string) (bool, error)
 }
 
-// Create creates ExternalStorage
+// Create creates ExternalStorage.
 func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) (ExternalStorage, error) {
 	switch backend := backend.Backend.(type) {
 	case *backup.StorageBackend_Local:

@@ -203,7 +203,7 @@ func (tc *logCollector) Summary(name string) {
 	tc.log(name+" Success summary: "+msg, logFields...)
 }
 
-// SetLogCollector allow pass LogCollector outside
+// SetLogCollector allow pass LogCollector outside.
 func SetLogCollector(l LogCollector) {
 	collector = l
 }

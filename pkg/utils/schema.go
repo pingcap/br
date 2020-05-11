@@ -114,7 +114,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 	return databases, nil
 }
 
-// EncloseName formats name in sql
+// EncloseName formats name in sql.
 func EncloseName(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }

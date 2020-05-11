@@ -28,7 +28,7 @@ type ExecutorBuilder struct {
 	oldTable *utils.Table
 }
 
-// NewExecutorBuilder returns a new executor builder
+// NewExecutorBuilder returns a new executor builder.
 func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 	return &ExecutorBuilder{
 		table: table,
@@ -36,13 +36,13 @@ func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 	}
 }
 
-// SetOldTable set a old table info to the builder
+// SetOldTable set a old table info to the builder.
 func (builder *ExecutorBuilder) SetOldTable(oldTable *utils.Table) *ExecutorBuilder {
 	builder.oldTable = oldTable
 	return builder
 }
 
-// Build builds a checksum executor
+// Build builds a checksum executor.
 func (builder *ExecutorBuilder) Build() (*Executor, error) {
 	reqs, err := buildChecksumRequest(builder.table, builder.oldTable, builder.ts)
 	if err != nil {
@@ -246,7 +246,7 @@ type Executor struct {
 	reqs []*kv.Request
 }
 
-// Len returns the total number of checksum requests
+// Len returns the total number of checksum requests.
 func (exec *Executor) Len() int {
 	return len(exec.reqs)
 }

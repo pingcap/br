@@ -55,7 +55,7 @@ type importClient struct {
 	tlsConf    *tls.Config
 }
 
-// NewImportClient returns a new ImporterClient
+// NewImportClient returns a new ImporterClient.
 func NewImportClient(metaClient SplitClient, tlsConf *tls.Config) ImporterClient {
 	return &importClient{
 		metaClient: metaClient,
