@@ -70,7 +70,7 @@ func (rs *RegionSplitter) Split(
 	}
 	startTime := time.Now()
 	// Sort the range for getting the min and max key of the ranges
-	sortedRanges, errSplit := sortRanges(ranges, rewriteRules)
+	sortedRanges, errSplit := SortRanges(ranges, rewriteRules)
 	if errSplit != nil {
 		return errors.Trace(errSplit)
 	}
@@ -96,7 +96,7 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		regions, errScan := paginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		regions, errScan := PaginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
 		if errScan != nil {
 			return errors.Trace(errScan)
 		}
@@ -272,7 +272,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 		checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
 	}
 	for _, key := range checkKeys {
-		if region := needSplit(key, regions); region != nil {
+		if region := NeedSplit(key, regions); region != nil {
 			splitKeys, ok := splitKeyMap[region.Region.GetId()]
 			if !ok {
 				splitKeys = make([][]byte, 0, 1)
@@ -287,8 +287,8 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 	return splitKeyMap
 }
 
-// needSplit checks whether a key is necessary to split, if true returns the split region
-func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
+// NeedSplit checks whether a key is necessary to split, if true returns the split region.
+func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	// If splitKey is the max key.
 	if len(splitKey) == 0 {
 		return nil
@@ -300,7 +300,7 @@ func needSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 			return nil
 		}
 		// If splitKey is in a region
-		if bytes.Compare(splitKey, region.Region.GetStartKey()) > 0 && beforeEnd(splitKey, region.Region.GetEndKey()) {
+		if region.ContainsInterior(splitKey) {
 			return region
 		}
 	}
@@ -320,10 +320,6 @@ func truncateRowKey(key []byte) []byte {
 		return key[:tablecodec.RecordRowKeyLen]
 	}
 	return key
-}
-
-func beforeEnd(key []byte, end []byte) bool {
-	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
 func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {

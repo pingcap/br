@@ -1,37 +1,43 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package rtree
+package rtree_test
 
 import (
 	"fmt"
 	"testing"
 
 	. "github.com/pingcap/check"
+
+	"github.com/pingcap/br/pkg/rtree"
 )
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 var _ = Suite(&testRangeTreeSuite{})
 
 type testRangeTreeSuite struct{}
 
-func newRange(start, end []byte) *Range {
-	return &Range{
+func newRange(start, end []byte) *rtree.Range {
+	return &rtree.Range{
 		StartKey: start,
 		EndKey:   end,
 	}
 }
 
 func (s *testRangeTreeSuite) TestRangeTree(c *C) {
-	rangeTree := NewRangeTree()
+	rangeTree := rtree.NewRangeTree()
 	c.Assert(rangeTree.Get(newRange([]byte(""), []byte(""))), IsNil)
 
-	search := func(key []byte) *Range {
+	search := func(key []byte) *rtree.Range {
 		rg := rangeTree.Get(newRange(key, []byte("")))
 		if rg == nil {
 			return nil
 		}
-		return rg.(*Range)
+		return rg.(*rtree.Range)
 	}
-	assertIncomplete := func(startKey, endKey []byte, ranges []Range) {
+	assertIncomplete := func(startKey, endKey []byte, ranges []rtree.Range) {
 		incomplete := rangeTree.GetIncompleteRange(startKey, endKey)
 		c.Logf("%#v %#v\n%#v\n%#v\n", startKey, endKey, incomplete, ranges)
 		c.Assert(len(incomplete), Equals, len(ranges))
@@ -45,7 +51,7 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 			for e := s + 1; e < 0xff; e++ {
 				start := []byte{byte(s)}
 				end := []byte{byte(e)}
-				assertIncomplete(start, end, []Range{})
+				assertIncomplete(start, end, []rtree.Range{})
 			}
 		}
 	}
@@ -58,23 +64,23 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 
 	rangeTree.Update(*rangeA)
 	c.Assert(rangeTree.Len(), Equals, 1)
-	assertIncomplete([]byte("a"), []byte("b"), []Range{})
+	assertIncomplete([]byte("a"), []byte("b"), []rtree.Range{})
 	assertIncomplete([]byte(""), []byte(""),
-		[]Range{
+		[]rtree.Range{
 			{StartKey: []byte(""), EndKey: []byte("a")},
 			{StartKey: []byte("b"), EndKey: []byte("")},
 		})
 
 	rangeTree.Update(*rangeC)
 	c.Assert(rangeTree.Len(), Equals, 2)
-	assertIncomplete([]byte("a"), []byte("c"), []Range{
+	assertIncomplete([]byte("a"), []byte("c"), []rtree.Range{
 		{StartKey: []byte("b"), EndKey: []byte("c")},
 	})
-	assertIncomplete([]byte("b"), []byte("c"), []Range{
+	assertIncomplete([]byte("b"), []byte("c"), []rtree.Range{
 		{StartKey: []byte("b"), EndKey: []byte("c")},
 	})
 	assertIncomplete([]byte(""), []byte(""),
-		[]Range{
+		[]rtree.Range{
 			{StartKey: []byte(""), EndKey: []byte("a")},
 			{StartKey: []byte("b"), EndKey: []byte("c")},
 			{StartKey: []byte("d"), EndKey: []byte("")},
@@ -90,7 +96,7 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	c.Assert(rangeTree.Len(), Equals, 3)
 	c.Assert(search([]byte("b")), DeepEquals, rangeB)
 	assertIncomplete([]byte(""), []byte(""),
-		[]Range{
+		[]rtree.Range{
 			{StartKey: []byte(""), EndKey: []byte("a")},
 			{StartKey: []byte("d"), EndKey: []byte("")},
 		})
@@ -98,7 +104,7 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	rangeTree.Update(*rangeD)
 	c.Assert(rangeTree.Len(), Equals, 4)
 	c.Assert(search([]byte("d")), DeepEquals, rangeD)
-	assertIncomplete([]byte(""), []byte(""), []Range{
+	assertIncomplete([]byte(""), []byte(""), []rtree.Range{
 		{StartKey: []byte(""), EndKey: []byte("a")},
 	})
 
@@ -115,7 +121,7 @@ func (s *testRangeTreeSuite) TestRangeTree(c *C) {
 	// Overwrite range BD, c-d should be empty
 	rangeTree.Update(*rangeB)
 	c.Assert(rangeTree.Len(), Equals, 4)
-	assertIncomplete([]byte(""), []byte(""), []Range{
+	assertIncomplete([]byte(""), []byte(""), []rtree.Range{
 		{StartKey: []byte("c"), EndKey: []byte("d")},
 	})
 
@@ -169,9 +175,9 @@ func (s *testRangeTreeSuite) TestRangeIntersect(c *C) {
 }
 
 func BenchmarkRangeTreeUpdate(b *testing.B) {
-	rangeTree := NewRangeTree()
+	rangeTree := rtree.NewRangeTree()
 	for i := 0; i < b.N; i++ {
-		item := Range{
+		item := rtree.Range{
 			StartKey: []byte(fmt.Sprintf("%20d", i)),
 			EndKey:   []byte(fmt.Sprintf("%20d", i+1))}
 		rangeTree.Update(item)

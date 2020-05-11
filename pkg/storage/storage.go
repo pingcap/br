@@ -9,7 +9,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
-// ExternalStorage represents a kind of file system storage
+// ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
 	// Write file to storage
 	Write(ctx context.Context, name string, data []byte) error

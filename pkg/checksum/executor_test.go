@@ -1,19 +1,18 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package checksum
+package checksum_test
 
 import (
 	"context"
 	"math"
 	"testing"
 
-	"github.com/gogo/protobuf/proto"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
-	"github.com/pingcap/tipb/go-tipb"
 
+	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -59,9 +58,9 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	tk.MustExec("create table t1 (a int);")
 	tk.MustExec("insert into t1 values (10);")
 	tableInfo1 := s.getTableInfo(c, "test", "t1")
-	exe1, err := NewExecutorBuilder(tableInfo1, math.MaxUint64).Build()
+	exe1, err := checksum.NewExecutorBuilder(tableInfo1, math.MaxUint64).Build()
 	c.Assert(err, IsNil)
-	c.Assert(len(exe1.reqs), Equals, 1)
+	c.Assert(exe1.Len(), Equals, 1)
 	resp, err := exe1.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
 	// Cluster returns a dummy checksum (all fields are 1).
@@ -74,9 +73,9 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	tk.MustExec("alter table t2 add index i2(a);")
 	tk.MustExec("insert into t2 values (10);")
 	tableInfo2 := s.getTableInfo(c, "test", "t2")
-	exe2, err := NewExecutorBuilder(tableInfo2, math.MaxUint64).Build()
+	exe2, err := checksum.NewExecutorBuilder(tableInfo2, math.MaxUint64).Build()
 	c.Assert(err, IsNil)
-	c.Assert(len(exe2.reqs), Equals, 2, Commentf("%v", tableInfo2))
+	c.Assert(exe2.Len(), Equals, 2, Commentf("%v", tableInfo2))
 	resp2, err := exe2.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
 	c.Assert(resp2.Checksum, Equals, uint64(0), Commentf("%v", resp2))
@@ -87,18 +86,16 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	tk.MustExec("alter table t1 add index i2(a);")
 	tableInfo1 = s.getTableInfo(c, "test", "t1")
 	oldTable := utils.Table{Info: tableInfo1}
-	exe2, err = NewExecutorBuilder(tableInfo2, math.MaxUint64).
+	exe2, err = checksum.NewExecutorBuilder(tableInfo2, math.MaxUint64).
 		SetOldTable(&oldTable).Build()
 	c.Assert(err, IsNil)
-	c.Assert(len(exe2.reqs), Equals, 2)
-	req := tipb.ChecksumRequest{}
-	err = proto.Unmarshal(exe2.reqs[0].Data, &req)
+	c.Assert(exe2.Len(), Equals, 2)
+	rawReqs, err := exe2.RawRequests()
 	c.Assert(err, IsNil)
-	c.Assert(req.Rule, NotNil)
-	req = tipb.ChecksumRequest{}
-	err = proto.Unmarshal(exe2.reqs[1].Data, &req)
-	c.Assert(err, IsNil)
-	c.Assert(req.Rule, NotNil)
+	c.Assert(rawReqs, HasLen, 2)
+	for _, rawReq := range rawReqs {
+		c.Assert(rawReq.Rule, NotNil)
+	}
 	resp2, err = exe2.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
 	c.Assert(resp2, NotNil)

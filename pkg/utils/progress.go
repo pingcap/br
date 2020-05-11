@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ProgressPrinter prints a progress bar
+// ProgressPrinter prints a progress bar.
 type ProgressPrinter struct {
 	name        string
 	total       int64

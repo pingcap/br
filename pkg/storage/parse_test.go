@@ -142,5 +142,4 @@ func (r *testStorageSuite) TestFormatBackendURL(c *C) {
 		},
 	})
 	c.Assert(url.String(), Equals, "gcs://bucket/some%20prefix/")
-
 }

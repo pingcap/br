@@ -68,19 +68,31 @@ static: tools
 	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 
+	@# why some lints are disabled?
+	@#   gochecknoglobals - disabled because we do use quite a lot of globals
+	@#          goimports - executed above already
+	@#              gofmt - ditto
+	@#                wsl - too pedantic about the formatting
+	@#             funlen - PENDING REFACTORING
+	@#           gocognit - PENDING REFACTORING
+	@#              godox - TODO
+	@#              gomnd - too many magic numbers, and too pedantic (even 2*x got flagged...)
+	@#        testpackage - several test packages still rely on private functions
+	@#             nestif - PENDING REFACTORING
+	@#           goerr113 - it mistaken pingcap/errors with standard errors
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
-		--disable gochecknoinits \
-		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
 		--disable wsl \
 		--disable funlen \
-		--disable whitespace \
 		--disable gocognit \
 		--disable godox \
 		--disable gomnd \
-		$$($(PACKAGE_DIRECTORIES)) || true
+		--disable testpackage \
+		--disable nestif \
+		--disable goerr113 \
+		$$($(PACKAGE_DIRECTORIES))
 
 lint: tools
 	@echo "linting"
