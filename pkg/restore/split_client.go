@@ -197,6 +197,43 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	}, nil
 }
 
+func splitRegionWithFailpoint(
+	ctx context.Context,
+	regionInfo *RegionInfo,
+	peer *metapb.Peer,
+	client tikvpb.TikvClient,
+	keys [][]byte,
+) (*kvrpcpb.SplitRegionResponse, error) {
+	var resp *kvrpcpb.SplitRegionResponse
+	failpoint.Inject("not-leader-error", func() {
+		log.Debug("failpoint not-leader-error injected.")
+		resp = new(kvrpcpb.SplitRegionResponse)
+		resp.RegionError = new(errorpb.Error)
+		nl := new(errorpb.NotLeader)
+		nl.RegionId = regionInfo.Region.Id
+		if rand.Int()%2 == 0 {
+			nl.Leader = regionInfo.Leader
+		}
+		resp.RegionError.NotLeader = nl
+		failpoint.Return(resp, nil)
+	})
+	failpoint.Inject("somewhat-retryable-error", func() {
+		log.Debug("failpoint somewhat-retryable-error injected.")
+		resp = new(kvrpcpb.SplitRegionResponse)
+		resp.RegionError = new(errorpb.Error)
+		resp.RegionError.ServerIsBusy = new(errorpb.ServerIsBusy)
+		failpoint.Return(resp, nil)
+	})
+	return client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
+		Context: &kvrpcpb.Context{
+			RegionId:    regionInfo.Region.Id,
+			RegionEpoch: regionInfo.Region.RegionEpoch,
+			Peer:        peer,
+		},
+		SplitKeys: keys,
+	})
+}
+
 func (c *pdClient) sendSplitRegionRequest(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) (*kvrpcpb.SplitRegionResponse, error) {
@@ -227,28 +264,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		}
 		defer conn.Close()
 		client := tikvpb.NewTikvClient(conn)
-		var resp *kvrpcpb.SplitRegionResponse
-		failpoint.Inject("not-leader-error", func() {
-			log.Debug("failpoint not-leader-error injected.")
-			resp = new(kvrpcpb.SplitRegionResponse)
-			resp.RegionError = new(errorpb.Error)
-			nl := new(errorpb.NotLeader)
-			nl.RegionId = regionInfo.Region.Id
-			if rand.Int()%2 == 0 {
-				nl.Leader = regionInfo.Leader
-			}
-			resp.RegionError.NotLeader = nl
-			failpoint.Goto("injected_error")
-		})
-		resp, err = client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
-			Context: &kvrpcpb.Context{
-				RegionId:    regionInfo.Region.Id,
-				RegionEpoch: regionInfo.Region.RegionEpoch,
-				Peer:        peer,
-			},
-			SplitKeys: keys,
-		})
-		failpoint.Label("injected_error")
+		resp, err := splitRegionWithFailpoint(ctx, regionInfo, peer, client, keys)
 		if err != nil {
 			return nil, multierr.Append(splitErrors, err)
 		}

@@ -16,7 +16,7 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
-LOG="/tmp/not-leader.log"
+LOG="not-leader.log"
 DB_COUNT=3
 
 for i in $(seq $DB_COUNT); do
@@ -46,12 +46,15 @@ done
 echo "restore start..."
 
 unset BR_LOG_TO_TERM
-GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=2*return(true)" \
+GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=1*return(true);github.com/pingcap/br/pkg/restore/somewhat-retryable-error=1*return(true)" \
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024 --log-file $LOG || true
 BR_LOG_TO_TERM=1
 
-grep "split region meet not leader error" $LOG && grep "Full restore Success" $LOG
-if [ ! $? ]; then
+grep "a error occurs on split region" $LOG && \
+grep "split region meet not leader error" $LOG && \
+grep "Full restore Success" $LOG
+
+if [ $? -ne 0 ]; then
     echo "failed to retry on failpoint."
     exit 1
 fi
