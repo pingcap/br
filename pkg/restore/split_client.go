@@ -228,19 +228,17 @@ func (c *pdClient) sendSplitRegionRequest(
 		defer conn.Close()
 		client := tikvpb.NewTikvClient(conn)
 		var resp *kvrpcpb.SplitRegionResponse
-		failpoint.Inject("not-leader-error", func(prob failpoint.Value) {
-			if rand.Int()%100 < prob.(int) {
-				log.Debug("failpoint not-leader-error injected.")
-				resp = new(kvrpcpb.SplitRegionResponse)
-				resp.RegionError = new(errorpb.Error)
-				nl := new(errorpb.NotLeader)
-				nl.RegionId = regionInfo.Region.Id
-				if rand.Int()%2 == 0 {
-					nl.Leader = regionInfo.Leader
-				}
-				resp.RegionError.NotLeader = nl
-				failpoint.Goto("injected_error")
+		failpoint.Inject("not-leader-error", func() {
+			log.Debug("failpoint not-leader-error injected.")
+			resp = new(kvrpcpb.SplitRegionResponse)
+			resp.RegionError = new(errorpb.Error)
+			nl := new(errorpb.NotLeader)
+			nl.RegionId = regionInfo.Region.Id
+			if rand.Int()%2 == 0 {
+				nl.Leader = regionInfo.Leader
 			}
+			resp.RegionError.NotLeader = nl
+			failpoint.Goto("injected_error")
 		})
 		resp, err = client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
 			Context: &kvrpcpb.Context{

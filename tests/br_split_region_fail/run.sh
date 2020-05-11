@@ -33,36 +33,27 @@ done
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
-success=0
-for j in $(seq 10); do
-    echo "trying $j time(s) to seek failed condition."
-    if [ -e $LOG ]; then
-        rm $LOG
-    fi
+if [ -e $LOG ]; then
+    rm $LOG
+fi
 
-    for i in $(seq $DB_COUNT); do
-        run_sql "DROP DATABASE $DB${i};"
-    done
-
-
-    # restore full
-    echo "restore start..."
-
-    unset BR_LOG_TO_TERM
-    GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=return(50)" \
-    run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024 --log-file $LOG || true
-    BR_LOG_TO_TERM=1
-
-    if grep "split region meet not leader error" $LOG && grep "Full restore Success" $LOG; then
-        echo "success injected fail-point"
-        success=1
-        break
-    fi
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
 done
 
-if [ $success -ne 1 ]; then
-    echo "Retry too many times but not found retrying."
-    echo "failpoint control variable is: " $GO_FAILPOINTS
+
+# restore full
+echo "restore start..."
+
+unset BR_LOG_TO_TERM
+GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/not-leader-error=2*return(true)" \
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024 --log-file $LOG || true
+BR_LOG_TO_TERM=1
+
+grep "split region meet not leader error" $LOG && grep "Full restore Success" $LOG
+if [ ! $? ]; then
+    echo "failed to retry on failpoint."
+    exit 1
 fi
 
 for i in $(seq $DB_COUNT); do

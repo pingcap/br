@@ -34,7 +34,7 @@ build_for_integration_test:
 	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go
 
 test: failpoint-enable
-	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
+	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover:
@@ -53,7 +53,7 @@ integration_test: failpoint-enable build build_for_integration_test
 	@which bin/go-ycsb
 	@which bin/minio
 	@which bin/br
-	tests/run.sh
+	tests/run.sh || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 tools:
