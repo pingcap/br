@@ -21,7 +21,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	server, err := fakestorage.NewServerWithOptions(opts)
 	c.Assert(err, IsNil)
 	bucketName := "testbucket"
-	server.CreateBucket(bucketName)
+	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
 
 	gcs := &backup.GCS{
 		Bucket:          bucketName,
@@ -65,7 +65,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	server, err := fakestorage.NewServerWithOptions(opts)
 	c.Assert(err, IsNil)
 	bucketName := "testbucket"
-	server.CreateBucket(bucketName)
+	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
 
 	{
 		gcs := &backup.GCS{

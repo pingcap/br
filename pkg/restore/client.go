@@ -47,7 +47,7 @@ import (
 // checksum tasks.
 const defaultChecksumConcurrency = 64
 
-// Client sends requests to restore files
+// Client sends requests to restore files.
 type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -527,7 +527,6 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 
 	err := rc.fileImporter.SetRawRange(startKey, endKey)
 	if err != nil {
-
 		return errors.Trace(err)
 	}
 

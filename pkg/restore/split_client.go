@@ -88,7 +88,6 @@ func (c *pdClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store,
 	}
 	c.storeCache[storeID] = store
 	return store, nil
-
 }
 
 func (c *pdClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, error) {

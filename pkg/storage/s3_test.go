@@ -99,8 +99,8 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 		s3 := u.GetS3()
 		c.Assert(err, IsNil)
 		c.Assert(s3, DeepEquals, test.s3)
-
 	}
+
 	tests := []testcase{
 		{
 			name: "no region and no endpoint",
