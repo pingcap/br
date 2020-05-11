@@ -1,10 +1,12 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore
+package restore_test
 
 import (
 	"context"
 	"time"
+
+	"github.com/pingcap/br/pkg/restore"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
@@ -19,12 +21,16 @@ import (
 type testBatcherSuite struct{}
 
 type drySender struct {
-	tbls   chan CreatedTable
+	tbls   chan restore.CreatedTable
 	ranges chan rtree.Range
 	nBatch int
 }
 
-func (d *drySender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRules, tbs []CreatedTable) error {
+func (d *drySender) RestoreBatch(
+	ranges []rtree.Range,
+	rewriteRules *restore.RewriteRules,
+	tbs []restore.CreatedTable,
+) error {
 	d.nBatch++
 	for _, tbl := range tbs {
 		log.Info("dry restore", zap.Int64("table ID", tbl.Table.ID))
@@ -41,7 +47,7 @@ func (d *drySender) Close() {
 	close(d.ranges)
 }
 
-func (d *drySender) exhaust() (tbls []CreatedTable, rngs []rtree.Range) {
+func (d *drySender) exhaust() (tbls []restore.CreatedTable, rngs []rtree.Range) {
 	for tbl := range d.tbls {
 		tbls = append(tbls, tbl)
 	}
@@ -53,7 +59,7 @@ func (d *drySender) exhaust() (tbls []CreatedTable, rngs []rtree.Range) {
 
 func newDrySender() *drySender {
 	return &drySender{
-		tbls:   make(chan CreatedTable, 4096),
+		tbls:   make(chan restore.CreatedTable, 4096),
 		ranges: make(chan rtree.Range, 4096),
 	}
 }
@@ -74,16 +80,16 @@ var (
 	_ = Suite(&testBatcherSuite{})
 )
 
-func fakeTableWithRange(id int64, rngs []rtree.Range) TableWithRange {
+func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 	tbl := &utils.Table{
 		Db: &model.DBInfo{},
 		Info: &model.TableInfo{
 			ID: id,
 		},
 	}
-	tblWithRng := TableWithRange{
-		CreatedTable: CreatedTable{
-			RewriteRule: EmptyRewriteRule(),
+	tblWithRng := restore.TableWithRange{
+		CreatedTable: restore.CreatedTable{
+			RewriteRule: restore.EmptyRewriteRule(),
 			Table:       tbl.Info,
 			OldTable:    tbl,
 		},
@@ -103,10 +109,10 @@ func fakeRange(startKey, endKey string) rtree.Range {
 func (*testBatcherSuite) TestBasic(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := NewBatcher(context.Background(), sender, errCh)
+	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
 	batcher.BatchSizeThreshold = 2
 
-	simpleTables := []TableWithRange{
+	simpleTables := []restore.TableWithRange{
 		fakeTableWithRange(1, []rtree.Range{fakeRange("aaa", "aab")}),
 		fakeTableWithRange(2, []rtree.Range{fakeRange("baa", "bab"), fakeRange("bac", "bad")}),
 		fakeTableWithRange(3, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")}),
@@ -137,7 +143,7 @@ func (*testBatcherSuite) TestBasic(c *C) {
 func (*testBatcherSuite) TestAutoSend(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := NewBatcher(context.Background(), sender, errCh)
+	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
 	batcher.BatchSizeThreshold = 1024
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")})
@@ -165,7 +171,7 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := NewBatcher(context.Background(), sender, errCh)
+	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
 	batcher.BatchSizeThreshold = 2
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
@@ -193,7 +199,7 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 func (*testBatcherSuite) TestBatcherLen(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := NewBatcher(context.Background(), sender, errCh)
+	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
 	batcher.BatchSizeThreshold = 1024
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
