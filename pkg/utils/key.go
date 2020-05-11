@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap/errors"
 )
 
-// ParseKey parse key by given format
+// ParseKey parse key by given format.
 func ParseKey(format, key string) ([]byte, error) {
 	switch format {
 	case "raw":

@@ -26,12 +26,12 @@ type tidbSession struct {
 	se session.Session
 }
 
-// GetDomain implements glue.Glue
+// GetDomain implements glue.Glue.
 func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
 	return session.GetDomain(store)
 }
 
-// CreateSession implements glue.Glue
+// CreateSession implements glue.Glue.
 func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	se, err := session.CreateSession(store)
 	if err != nil {
@@ -40,33 +40,33 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	return &tidbSession{se: se}, nil
 }
 
-// Open implements glue.Glue
+// Open implements glue.Glue.
 func (g Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 	return g.tikvGlue.Open(path, option)
 }
 
-// OwnsStorage implements glue.Glue
+// OwnsStorage implements glue.Glue.
 func (Glue) OwnsStorage() bool {
 	return true
 }
 
-// StartProgress implements glue.Glue
+// StartProgress implements glue.Glue.
 func (g Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
 	return g.tikvGlue.StartProgress(ctx, cmdName, total, redirectLog)
 }
 
-// Record implements glue.Glue
+// Record implements glue.Glue.
 func (g Glue) Record(name string, value uint64) {
 	g.tikvGlue.Record(name, value)
 }
 
-// Execute implements glue.Session
+// Execute implements glue.Session.
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
 	return err
 }
 
-// CreateDatabase implements glue.Session
+// CreateDatabase implements glue.Session.
 func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
 	schema = schema.Clone()
@@ -76,7 +76,7 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 	return d.CreateSchemaWithInfo(gs.se, schema, ddl.OnExistIgnore, true)
 }
 
-// CreateTable implements glue.Session
+// CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
 
@@ -91,7 +91,7 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 	return d.CreateTableWithInfo(gs.se, dbName, table, ddl.OnExistIgnore, true)
 }
 
-// Close implements glue.Session
+// Close implements glue.Session.
 func (gs *tidbSession) Close() {
 	gs.se.Close()
 }

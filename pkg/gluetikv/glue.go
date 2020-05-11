@@ -18,17 +18,17 @@ import (
 // Glue is an implementation of glue.Glue that accesses only TiKV without TiDB.
 type Glue struct{}
 
-// GetDomain implements glue.Glue
+// GetDomain implements glue.Glue.
 func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
 	return nil, nil
 }
 
-// CreateSession implements glue.Glue
+// CreateSession implements glue.Glue.
 func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	return nil, nil
 }
 
-// Open implements glue.Glue
+// Open implements glue.Glue.
 func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 	if option.CAPath != "" {
 		conf := config.GetGlobalConfig()
@@ -40,29 +40,29 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 	return tikv.Driver{}.Open(path)
 }
 
-// OwnsStorage implements glue.Glue
+// OwnsStorage implements glue.Glue.
 func (Glue) OwnsStorage() bool {
 	return true
 }
 
-// StartProgress implements glue.Glue
+// StartProgress implements glue.Glue.
 func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
 	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog)}
 }
 
-// Record implements glue.Glue
+// Record implements glue.Glue.
 func (Glue) Record(string, uint64) {}
 
 type progress struct {
 	ch chan<- struct{}
 }
 
-// Inc implements glue.Progress
+// Inc implements glue.Progress.
 func (p progress) Inc() {
 	p.ch <- struct{}{}
 }
 
-// Close implements glue.Progress
+// Close implements glue.Progress.
 func (p progress) Close() {
 	close(p.ch)
 }

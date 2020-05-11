@@ -22,7 +22,7 @@ type DB struct {
 	se glue.Session
 }
 
-// NewDB returns a new DB
+// NewDB returns a new DB.
 func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	se, err := g.CreateSession(store)
 	if err != nil {
@@ -144,7 +144,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	return errors.Trace(err)
 }
 
-// AlterTiflashReplica alters the replica count of tiflash
+// AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
 	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
 	err := db.se.Execute(ctx, switchDbSQL)
@@ -179,12 +179,12 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 	return nil
 }
 
-// Close closes the connection
+// Close closes the connection.
 func (db *DB) Close() {
 	db.se.Close()
 }
 
-// FilterDDLJobs filters ddl jobs
+// FilterDDLJobs filters ddl jobs.
 func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*model.Job) {
 	// Sort the ddl jobs by schema version in descending order.
 	sort.Slice(allDDLJobs, func(i, j int) bool {

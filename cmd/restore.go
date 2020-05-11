@@ -42,7 +42,7 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) err
 	return task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
-// NewRestoreCommand returns a restore subcommand
+// NewRestoreCommand returns a restore subcommand.
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:          "restore",
