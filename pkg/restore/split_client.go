@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"path"
 	"strconv"
@@ -16,6 +17,8 @@ import (
 	"sync"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
@@ -209,7 +212,6 @@ func (c *pdClient) sendSplitRegionRequest(
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
-
 		storeID := peer.GetStoreId()
 		store, err := c.GetStore(ctx, storeID)
 		if err != nil {
@@ -225,7 +227,22 @@ func (c *pdClient) sendSplitRegionRequest(
 		}
 		defer conn.Close()
 		client := tikvpb.NewTikvClient(conn)
-		resp, err := client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
+		var resp *kvrpcpb.SplitRegionResponse
+		failpoint.Inject("not-leader-error", func(prob failpoint.Value) {
+			if rand.Int()%100 < prob.(int) {
+				log.Debug("failpoint not-leader-error injected.")
+				resp = new(kvrpcpb.SplitRegionResponse)
+				resp.RegionError = new(errorpb.Error)
+				nl := new(errorpb.NotLeader)
+				nl.RegionId = regionInfo.Region.Id
+				if rand.Int()%2 == 0 {
+					nl.Leader = regionInfo.Leader
+				}
+				resp.RegionError.NotLeader = nl
+				goto injected_error
+			}
+		})
+		resp, err = client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
 			Context: &kvrpcpb.Context{
 				RegionId:    regionInfo.Region.Id,
 				RegionEpoch: regionInfo.Region.RegionEpoch,
@@ -233,11 +250,11 @@ func (c *pdClient) sendSplitRegionRequest(
 			},
 			SplitKeys: keys,
 		})
+injected_error:		
 		if err != nil {
 			return nil, multierr.Append(splitErrors, err)
 		}
 		if resp.RegionError != nil {
-			// TODO: add tests on error.(Do we have to change the mock client?)
 			splitErrors = multierr.Append(splitErrors,
 				errors.Errorf("split region failed: region=%v, err=%v",
 					regionInfo.Region, resp.RegionError))

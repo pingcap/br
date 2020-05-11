@@ -112,6 +112,7 @@ func (c *testClient) BatchSplitRegions(
 ) ([]*RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	newRegions := make([]*RegionInfo, 0)
 	for _, key := range keys {
 		var target *RegionInfo

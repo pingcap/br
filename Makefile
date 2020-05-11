@@ -5,6 +5,7 @@ PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
+
 BR_PKG := github.com/pingcap/br
 
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(shell git describe --tags --dirty)"
@@ -32,8 +33,9 @@ build_for_integration_test:
 	# build rawkv client
 	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go
 
-test:
+test: failpoint-enable
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
+	@make failpoint-disable
 
 testcover:
 	GO111MODULE=on tools/bin/overalls \
@@ -43,7 +45,7 @@ testcover:
 		-debug \
 		-- -coverpkg=./...
 
-integration_test: build build_for_integration_test
+integration_test: failpoint-enable build build_for_integration_test
 	@which bin/tidb-server
 	@which bin/tikv-server
 	@which bin/pd-server
@@ -52,6 +54,7 @@ integration_test: build build_for_integration_test
 	@which bin/minio
 	@which bin/br
 	tests/run.sh
+	@make failpoint-disable
 
 tools:
 	@echo "install tools..."
@@ -90,5 +93,11 @@ tidy:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet go.mod go.sum
+
+failpoint-enable: tools
+	tools/bin/failpoint-ctl enable
+
+failpoint-disable: tools
+	tools/bin/failpoint-ctl disable
 
 .PHONY: tools
