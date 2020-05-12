@@ -33,9 +33,7 @@ done
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
-if [ -e $LOG ]; then
-    rm $LOG
-fi
+rm -f $LOG
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"

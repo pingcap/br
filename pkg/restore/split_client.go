@@ -203,17 +203,18 @@ func splitRegionWithFailpoint(
 	client tikvpb.TikvClient,
 	keys [][]byte,
 ) (*kvrpcpb.SplitRegionResponse, error) {
-	var resp *kvrpcpb.SplitRegionResponse
-	failpoint.Inject("not-leader-error", func(injectRoot failpoint.Value) {
+	failpoint.Inject("not-leader-error", func(injectNewLeader failpoint.Value) {
 		log.Debug("failpoint not-leader-error injected.")
-		resp = new(kvrpcpb.SplitRegionResponse)
-		resp.RegionError = new(errorpb.Error)
-		nl := new(errorpb.NotLeader)
-		nl.RegionId = regionInfo.Region.Id
-		if injectRoot.(bool) {
-			nl.Leader = regionInfo.Leader
+		resp := &kvrpcpb.SplitRegionResponse{
+			RegionError: &errorpb.Error{
+				NotLeader: &errorpb.NotLeader{
+					RegionId: regionInfo.Region.Id,
+				},
+			},
 		}
-		resp.RegionError.NotLeader = nl
+		if injectNewLeader.(bool) {
+			resp.RegionError.NotLeader.Leader = regionInfo.Leader
+		}
 		failpoint.Return(resp, nil)
 	})
 	failpoint.Inject("somewhat-retryable-error", func() {
@@ -285,8 +286,7 @@ func (c *pdClient) sendSplitRegionRequest(
 				}
 				log.Info("split region meet not leader error, retrying",
 					zap.Int("retry times", i),
-					zap.Uint64("region id", regionInfo.Region.Id),
-					zap.ByteStrings("on keys", keys),
+					zap.Uint64("regionID", regionInfo.Region.Id),
 					zap.Any("new leader", regionInfo.Leader),
 				)
 				continue
@@ -297,8 +297,7 @@ func (c *pdClient) sendSplitRegionRequest(
 				resp.RegionError.EpochNotMatch != nil {
 				log.Warn("a error occurs on split region",
 					zap.Int("retry times", i),
-					zap.Uint64("region id", regionInfo.Region.Id),
-					zap.ByteStrings("on keys", keys),
+					zap.Uint64("regionID", regionInfo.Region.Id),
 					zap.String("error", resp.RegionError.Message),
 					zap.Any("error verbose", resp.RegionError),
 				)
