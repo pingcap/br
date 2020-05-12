@@ -81,9 +81,9 @@ func GetRewriteRules(
 	}
 }
 
-// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
-// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
-func getSSTMetaFromFile(
+// GetSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
+// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)].
+func GetSSTMetaFromFile(
 	id []byte,
 	file *backup.File,
 	region *metapb.Region,
@@ -165,7 +165,6 @@ func AttachFilesToRanges(
 		rangeTree.Update(rg)
 	}
 	for _, f := range files {
-
 		rg := rangeTree.Find(&rtree.Range{
 			StartKey: f.GetStartKey(),
 			EndKey:   f.GetEndKey(),
@@ -187,7 +186,7 @@ func AttachFilesToRanges(
 	return sortedRanges
 }
 
-// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
+// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file.
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
@@ -228,7 +227,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 	return nil
 }
 
-// Rewrites a raw key and returns a encoded key
+// rewriteRawKey rewrites a raw key and returns a encoded key.
 func rewriteRawKey(key []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
 	if rewriteRules == nil {
 		return codec.EncodeBytes([]byte{}, key), nil
@@ -278,7 +277,7 @@ func truncateTS(key []byte) []byte {
 
 // SplitRanges splits region by
 // 1. data range after rewrite
-// 2. rewrite rules
+// 2. rewrite rules.
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
@@ -337,10 +336,10 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// paginateScanRegion scan regions with a limit pagination and
+// PaginateScanRegion scan regions with a limit pagination and
 // return all regions at once.
 // It reduces max gRPC message size.
-func paginateScanRegion(
+func PaginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {

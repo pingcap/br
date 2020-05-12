@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// RetryableFunc presents a retryable opreation
+// RetryableFunc presents a retryable operation.
 type RetryableFunc func() error
 
-// Backoffer implements a backoff policy for retrying operations
+// Backoffer implements a backoff policy for retrying operations.
 type Backoffer interface {
 	// NextBackoff returns a duration to wait before retrying again
 	NextBackoff(err error) time.Duration
@@ -18,7 +18,7 @@ type Backoffer interface {
 	Attempt() int
 }
 
-// WithRetry retrys a given operation with a backoff policy
+// WithRetry retrys a given operation with a backoff policy.
 func WithRetry(
 	ctx context.Context,
 	retryableFunc RetryableFunc,

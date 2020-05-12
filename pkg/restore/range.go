@@ -3,6 +3,8 @@
 package restore
 
 import (
+	"bytes"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -13,8 +15,8 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
-// sortRanges checks if the range overlapped and sort them
-func sortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
+// SortRanges checks if the range overlapped and sort them.
+func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
 	rangeTree := rtree.NewRangeTree()
 	for _, rg := range ranges {
 		if rewriteRules != nil {
@@ -61,6 +63,14 @@ func sortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 type RegionInfo struct {
 	Region *metapb.Region
 	Leader *metapb.Peer
+}
+
+// ContainsInterior returns whether the region contains the given key, and also
+// that the key does not fall on the boundary (start key) of the region.
+func (region *RegionInfo) ContainsInterior(key []byte) bool {
+	return bytes.Compare(key, region.Region.GetStartKey()) > 0 &&
+		(len(region.Region.GetEndKey()) == 0 ||
+			bytes.Compare(key, region.Region.GetEndKey()) < 0)
 }
 
 // RewriteRules contains rules for rewriting keys of tables.

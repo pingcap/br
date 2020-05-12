@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package backup
+package backup_test
 
 import (
 	"context"
@@ -10,12 +10,14 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
+	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
 )
 
@@ -23,7 +25,8 @@ type testBackup struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	backupClient *Client
+	mockPDClient pd.Client
+	backupClient *backup.Client
 }
 
 var _ = Suite(&testBackup{})
@@ -33,15 +36,14 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	mockPDClient := mocktikv.NewPDClient(mocktikv.NewCluster())
+	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster())
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{}
-	mockMgr.SetPDClient(mockPDClient)
+	mockMgr.SetPDClient(r.mockPDClient)
 	mockMgr.SetPDHTTP([]string{"test"}, nil)
-	r.backupClient = &Client{
-		clusterID: mockPDClient.GetClusterID(r.ctx),
-		mgr:       mockMgr,
-	}
+	var err error
+	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
+	c.Assert(err, IsNil)
 }
 
 func (r *testBackup) TestGetTS(c *C) {
@@ -81,10 +83,10 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(err, ErrorMatches, "backup ts overflow.*")
 
 	// timeago = "10h" exceed GCSafePoint
-	p, l, err := r.backupClient.mgr.GetPDClient().GetTS(r.ctx)
+	p, l, err := r.mockPDClient.GetTS(r.ctx)
 	c.Assert(err, IsNil)
 	now := oracle.ComposeTS(p, l)
-	_, err = r.backupClient.mgr.GetPDClient().UpdateGCSafePoint(r.ctx, now)
+	_, err = r.mockPDClient.UpdateGCSafePoint(r.ctx, now)
 	c.Assert(err, IsNil)
 	_, err = r.backupClient.GetTS(r.ctx, 10*time.Hour, 0)
 	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
@@ -94,7 +96,6 @@ func (r *testBackup) TestGetTS(c *C) {
 	ts, err = r.backupClient.GetTS(r.ctx, time.Minute, backupts)
 	c.Assert(err, IsNil)
 	c.Assert(ts, Equals, backupts)
-
 }
 
 func (r *testBackup) TestBuildTableRange(c *C) {
@@ -125,16 +126,15 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 			tbl.Partition.Definitions = append(tbl.Partition.Definitions,
 				model.PartitionDefinition{ID: id})
 		}
-		ranges, err := buildTableRanges(tbl)
+		ranges, err := backup.BuildTableRanges(tbl)
 		c.Assert(err, IsNil)
 		c.Assert(ranges, DeepEquals, cs.trs)
 	}
 
 	tbl := &model.TableInfo{ID: 7}
-	ranges, err := buildTableRanges(tbl)
+	ranges, err := backup.BuildTableRanges(tbl)
 	c.Assert(err, IsNil)
 	c.Assert(ranges, DeepEquals, []kv.KeyRange{
 		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
 	})
-
 }

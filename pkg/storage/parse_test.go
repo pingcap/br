@@ -55,7 +55,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Prefix, Equals, "prefix")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
 
-	s, err = ParseBackend("s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=1&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc", nil)
+	s, err = ParseBackend("s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=1&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc", nil) // nolint:lll
 	c.Assert(err, IsNil)
 	s3 = s.GetS3()
 	c.Assert(s3, NotNil)
@@ -142,5 +142,4 @@ func (r *testStorageSuite) TestFormatBackendURL(c *C) {
 		},
 	})
 	c.Assert(url.String(), Equals, "gcs://bucket/some%20prefix/")
-
 }

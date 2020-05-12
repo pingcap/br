@@ -9,14 +9,15 @@ import (
 	"path"
 )
 
-// localStorage represents local file system storage
+// localStorage represents local file system storage.
 type localStorage struct {
 	base string
 }
 
 func (l *localStorage) Write(ctx context.Context, name string, data []byte) error {
 	filepath := path.Join(l.base, name)
-	return ioutil.WriteFile(filepath, data, 0644)
+	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
+	// the backupmeta file _is_ intended to be world-readable.
 }
 
 func (l *localStorage) Read(ctx context.Context, name string) ([]byte, error) {
@@ -24,7 +25,7 @@ func (l *localStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	return ioutil.ReadFile(filepath)
 }
 
-// FileExists implement ExternalStorage.FileExists
+// FileExists implement ExternalStorage.FileExists.
 func (l *localStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	filepath := path.Join(l.base, name)
 	return pathExists(filepath)

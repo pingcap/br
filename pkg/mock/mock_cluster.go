@@ -83,7 +83,7 @@ func NewCluster() (*Cluster, error) {
 	}, nil
 }
 
-// Start runs a mock cluster
+// Start runs a mock cluster.
 func (mock *Cluster) Start() error {
 	statusURL, err := url.Parse(tempurl.Alloc())
 	if err != nil {
@@ -125,7 +125,7 @@ func (mock *Cluster) Start() error {
 	return nil
 }
 
-// Stop stops a mock cluster
+// Stop stops a mock cluster.
 func (mock *Cluster) Stop() {
 	if mock.Domain != nil {
 		mock.Domain.Close()
