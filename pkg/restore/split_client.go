@@ -218,10 +218,11 @@ func splitRegionWithFailpoint(
 	})
 	failpoint.Inject("somewhat-retryable-error", func() {
 		log.Debug("failpoint somewhat-retryable-error injected.")
-		resp = new(kvrpcpb.SplitRegionResponse)
-		resp.RegionError = new(errorpb.Error)
-		resp.RegionError.ServerIsBusy = new(errorpb.ServerIsBusy)
-		failpoint.Return(resp, nil)
+		failpoint.Return(&kvrpcpb.SplitRegionResponse{
+			RegionError: &errorpb.Error{
+				ServerIsBusy: &errorpb.ServerIsBusy{},
+			},
+		}, nil)
 	})
 	return client.SplitRegion(ctx, &kvrpcpb.SplitRegionRequest{
 		Context: &kvrpcpb.Context{
