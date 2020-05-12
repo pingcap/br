@@ -46,7 +46,6 @@ type Batcher struct {
 	cachedTablesMu *sync.Mutex
 	rewriteRules   *RewriteRules
 
-	ctx context.Context
 	// joiner is for joining the background batch sender.
 	joiner             chan<- struct{}
 	sendErr            chan<- error
@@ -59,12 +58,16 @@ type Batcher struct {
 // Exhaust drains all remaining errors in the channel, into a slice of errors.
 func Exhaust(ec <-chan error) []error {
 	out := make([]error, 0, len(ec))
-	select {
-	case err := <-ec:
-		out = append(out, err)
-	default:
+	for {
+		select {
+		case err := <-ec:
+			out = append(out, err)
+		default:
+			// errCh will *never* closed(ya see, it has multi send-part),
+			// so we just consume the current backlog of this cannel, then return.
+			return out
+		}
 	}
-	return out
 }
 
 // Len calculate the current size of this batcher.
@@ -75,7 +78,7 @@ func (b *Batcher) Len() int {
 // BatchSender is the abstract of how the batcher send a batch.
 type BatchSender interface {
 	// RestoreBatch will backup all ranges and tables
-	RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRules, tbs []CreatedTable) error
+	RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs []CreatedTable) error
 	Close()
 }
 
@@ -108,9 +111,11 @@ func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (Ba
 	}, nil
 }
 
-func (b *tikvSender) RestoreBatch(ranges []rtree.Range, rewriteRules *RewriteRules, tbs []CreatedTable) error {
+func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs []CreatedTable) error {
+	rewriteRules := EmptyRewriteRule()
 	tableNames := make([]string, 0, len(tbs))
 	for _, t := range tbs {
+		rewriteRules.Append(*t.RewriteRule)
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
 	}
 	log.Debug("split region by tables start", zap.Strings("tables", tableNames))
@@ -159,12 +164,11 @@ func NewBatcher(
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
-		ctx:                ctx,
 		joiner:             joiner,
 		cachedTablesMu:     new(sync.Mutex),
 		BatchSizeThreshold: 1,
 	}
-	go b.workLoop(joiner)
+	go b.workLoop(ctx, joiner)
 	return b, output
 }
 
@@ -175,7 +179,7 @@ func (b *Batcher) joinWorker() {
 	log.Info("gracefully stopped worker goroutine")
 }
 
-func (b *Batcher) workLoop(joiner <-chan struct{}) {
+func (b *Batcher) workLoop(ctx context.Context, joiner <-chan struct{}) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
@@ -183,20 +187,20 @@ func (b *Batcher) workLoop(joiner <-chan struct{}) {
 		case <-joiner:
 			log.Debug("graceful stop signal received")
 			return
-		case <-b.ctx.Done():
-			b.sendErr <- b.ctx.Err()
+		case <-ctx.Done():
+			b.sendErr <- ctx.Err()
 			return
 		case <-tick.C:
 			if b.Len() > 0 {
 				log.Info("sending batch because time limit exceed", zap.Int("size", b.Len()))
-				b.asyncSend()
+				b.asyncSend(ctx)
 			}
 		}
 	}
 }
 
-func (b *Batcher) asyncSend() {
-	tbls, err := b.Send()
+func (b *Batcher) asyncSend(ctx context.Context) {
+	tbls, err := b.Send(ctx)
 	if err != nil {
 		b.sendErr <- err
 		return
@@ -255,7 +259,7 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 
 // Send sends all pending requests in the batcher.
 // returns tables sent in the current batch.
-func (b *Batcher) Send() ([]CreatedTable, error) {
+func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	ranges, tbs := b.drainRanges()
 	tableNames := make([]string, 0, len(tbs))
 	for _, t := range tbs {
@@ -265,17 +269,17 @@ func (b *Batcher) Send() ([]CreatedTable, error) {
 		zap.Strings("tables", tableNames),
 		zap.Int("ranges", len(ranges)),
 	)
-	if err := b.sender.RestoreBatch(ranges, b.rewriteRules, tbs); err != nil {
+	if err := b.sender.RestoreBatch(ctx, ranges, tbs); err != nil {
 		return nil, err
 	}
 	return tbs, nil
 }
 
-func (b *Batcher) sendIfFull() {
+func (b *Batcher) sendIfFull(ctx context.Context) {
 	// never collect the send batch request message.
 	for b.Len() >= b.BatchSizeThreshold {
 		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
-		b.asyncSend()
+		b.asyncSend(ctx)
 	}
 }
 
@@ -295,14 +299,14 @@ func (b *Batcher) Add(tbs TableWithRange) {
 	atomic.AddInt32(&b.size, int32(len(tbs.Range)))
 	b.cachedTablesMu.Unlock()
 
-	b.sendIfFull()
+	b.sendIfFull(ctx)
 }
 
 // Close closes the batcher, sending all pending requests, close updateCh.
-func (b *Batcher) Close() {
+func (b *Batcher) Close(ctx context.Context) {
 	log.Info("sending batch lastly on close.", zap.Int("size", b.Len()))
 	for b.Len() > 0 {
-		b.asyncSend()
+		b.asyncSend(ctx)
 	}
 	b.joinWorker()
 	close(b.outCh)

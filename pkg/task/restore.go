@@ -592,7 +592,7 @@ func goRestore(
 		newTables := []*model.TableInfo{}
 		defer func() {
 			// when things done, we must clean pending requests.
-			batcher.Close()
+			batcher.Close(ctx)
 			log.Info("doing postwork",
 				zap.Int("new tables", len(newTables)),
 				zap.Int("old tables", len(oldTables)),
@@ -630,7 +630,7 @@ func goRestore(
 				}
 				newTables = append(newTables, t.Table)
 
-				batcher.Add(t)
+				batcher.Add(ctx, t)
 			}
 		}
 	}()

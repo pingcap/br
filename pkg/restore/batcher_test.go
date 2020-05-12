@@ -27,8 +27,8 @@ type drySender struct {
 }
 
 func (d *drySender) RestoreBatch(
+	_ctx context.Context,
 	ranges []rtree.Range,
-	rewriteRules *restore.RewriteRules,
 	tbs []restore.CreatedTable,
 ) error {
 	d.nBatch++
@@ -119,10 +119,10 @@ func (*testBatcherSuite) TestBasic(c *C) {
 	}
 
 	for _, tbl := range simpleTables {
-		batcher.Add(tbl)
+		batcher.Add(context.TODO(), tbl)
 	}
 
-	batcher.Close()
+	batcher.Close(context.TODO())
 	tbls, rngs := sender.exhaust()
 	totalRngs := []rtree.Range{}
 
@@ -143,19 +143,19 @@ func (*testBatcherSuite) TestBasic(c *C) {
 func (*testBatcherSuite) TestAutoSend(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
+	batcher, _ := restore.NewBatcher(context.TODO(), sender, errCh)
 	batcher.BatchSizeThreshold = 1024
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")})
 
-	batcher.Add(simpleTable)
+	batcher.Add(context.TODO(), simpleTable)
 	// wait until auto send.
 	time.Sleep(1300 * time.Millisecond)
 	c.Assert(sender.RangeLen(), Greater, 0)
 	c.Assert(sender.TableLen(), Greater, 0)
 	c.Assert(batcher.Len(), Equals, 0)
 
-	batcher.Close()
+	batcher.Close(context.TODO())
 
 	tbls, rngs := sender.exhaust()
 	c.Assert(len(tbls), Greater, 0)
@@ -180,10 +180,10 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	batcher.Add(simpleTable)
+	batcher.Add(context.TODO(), simpleTable)
 	c.Assert(sender.BatchCount(), Equals, 4)
 
-	batcher.Close()
+	batcher.Close(context.TODO())
 
 	tbls, rngs := sender.exhaust()
 	c.Assert(len(tbls), Greater, 0)
@@ -208,9 +208,9 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	batcher.Add(simpleTable)
+	batcher.Add(context.TODO(), simpleTable)
 	c.Assert(batcher.Len(), Equals, 8)
-	batcher.Close()
+	batcher.Close(context.TODO())
 	c.Assert(batcher.Len(), Equals, 0)
 
 	select {
