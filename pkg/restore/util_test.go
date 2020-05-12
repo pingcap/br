@@ -118,7 +118,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		}},
 		rules,
 	)
-	c.Assert(err, ErrorMatches, "table ids dont match")
+	c.Assert(err, ErrorMatches, "table ids mismatch")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{

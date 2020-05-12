@@ -257,14 +257,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
 	} else {
 		// when user skip checksum, just collect tables, and drop them.
-		finish = dropToBlockhole(ctx, afterRestoreStream, errCh)
+		finish = dropToBlackhole(ctx, afterRestoreStream, errCh)
 	}
 
 	select {
 	case err = <-errCh:
 		err = multierr.Append(err, multierr.Combine(restore.Exhaust(errCh)...))
 	case <-finish:
-		log.Info("all works end.")
 	}
 
 	// If any error happened, return now, don't execute checksum.

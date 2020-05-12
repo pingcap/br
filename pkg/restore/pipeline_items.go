@@ -92,7 +92,6 @@ type BatchSender interface {
 type tikvSender struct {
 	client         *Client
 	updateCh       glue.Progress
-	ctx            context.Context
 	rejectStoreMap map[uint64]bool
 }
 
@@ -113,7 +112,6 @@ func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (Ba
 	return &tikvSender{
 		client:         cli,
 		updateCh:       updateCh,
-		ctx:            ctx,
 		rejectStoreMap: rejectStoreMap,
 	}, nil
 }
@@ -127,7 +125,7 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs
 	}
 	log.Debug("split region by tables start", zap.Strings("tables", tableNames))
 
-	if err := SplitRanges(b.ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
+	if err := SplitRanges(ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
 		log.Error("failed on split range",
 			zap.Any("ranges", ranges),
 			zap.Error(err),
@@ -310,7 +308,7 @@ func (b *Batcher) sendIfFull(ctx context.Context) {
 }
 
 // Add adds a task to the Batcher.
-func (b *Batcher) Add(tbs TableWithRange) {
+func (b *Batcher) Add(ctx context.Context, tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
 		zap.Stringer("table", tbs.Table.Name),
