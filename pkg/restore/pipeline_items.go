@@ -25,8 +25,8 @@ const (
 	defaultBatcherOutputChannelSize = 1024
 )
 
-// CreatedTable is a table is created on restore process,
-// but not yet filled by data.
+// CreatedTable is a table created on restore process,
+// but not yet filled with data.
 type CreatedTable struct {
 	RewriteRule *RewriteRules
 	Table       *model.TableInfo
@@ -279,7 +279,7 @@ func (b *Batcher) sendIfFull() {
 	}
 }
 
-// Add addes a task to batcher.
+// Add adds a task to the Batcher.
 func (b *Batcher) Add(tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",

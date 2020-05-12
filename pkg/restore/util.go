@@ -124,11 +124,9 @@ func getSSTMetaFromFile(
 // EstimateRangeSize estimates the total range count by file.
 func EstimateRangeSize(files []*backup.File) int {
 	result := 0
-	visitedSet := map[string]bool{}
 	for _, f := range files {
-		if !visitedSet[f.GetName()] && strings.Contains(f.GetName(), "write") {
+		if strings.HasSuffix(f.GetName(), "_write.sst") {
 			result++
-			visitedSet[f.GetName()] = true
 		}
 	}
 	return result
@@ -242,11 +240,11 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	if startID != endID {
-		log.Error("table ids dont match",
+		log.Error("table ids mismatch",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
 			zap.Stringer("file", file))
-		return rtree.Range{}, errors.New("table ids dont match")
+		return rtree.Range{}, errors.New("table ids mismatch")
 	}
 	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
 	return r, nil

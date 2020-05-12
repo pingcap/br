@@ -194,7 +194,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	tableFileMap := restore.MapTableToFiles(files)
-	log.Debug("mapped table to files.", zap.Any("result map", tableFileMap))
+	log.Debug("mapped table to files", zap.Any("result map", tableFileMap))
 
 	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
 
@@ -276,7 +276,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 }
 
 // dropToBlockhole drop all incoming tables into black hole.
-func dropToBlockhole(
+func dropToBlackhole(
 	ctx context.Context,
 	tableStream <-chan restore.CreatedTable,
 	errCh chan<- error,
@@ -293,7 +293,6 @@ func dropToBlockhole(
 				return
 			case tbl, ok := <-tableStream:
 				if !ok {
-					log.Info("all works end.")
 					return
 				}
 				log.Info("skipping checksum of table because user config",
