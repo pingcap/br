@@ -167,16 +167,14 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
-		return err
 	} else if table.TiFlashReplicas > 0 {
 		log.Warn("alter tiflash replica done",
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Int("originalReplicaCount", table.TiFlashReplicas),
 			zap.Int("replicaCount", count))
-
 	}
-	return nil
+	return err
 }
 
 // Close closes the connection.

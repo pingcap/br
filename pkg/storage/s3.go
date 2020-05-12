@@ -33,7 +33,7 @@ const (
 	maxRetries = 3
 )
 
-// s3Handlers make it easy to inject test functions
+// s3Handlers make it easy to inject test functions.
 type s3Handlers interface {
 	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
 	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
@@ -42,14 +42,14 @@ type s3Handlers interface {
 	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
 }
 
-// S3Storage info for s3 storage
+// S3Storage info for s3 storage.
 type S3Storage struct {
 	session *session.Session
 	svc     s3Handlers
 	options *backup.S3
 }
 
-// S3BackendOptions contains options for s3 storage
+// S3BackendOptions contains options for s3 storage.
 type S3BackendOptions struct {
 	Endpoint              string `json:"endpoint" toml:"endpoint"`
 	Region                string `json:"region" toml:"region"`
@@ -211,7 +211,7 @@ func newS3Storage( // revive:disable-line:flag-parameter
 	}, nil
 }
 
-// checkBucket checks if a bucket exists
+// checkBucket checks if a bucket exists.
 var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),

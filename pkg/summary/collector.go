@@ -23,7 +23,7 @@ const (
 	TotalBytes = "total bytes"
 )
 
-// LogCollector collects infos into summary log
+// LogCollector collects infos into summary log.
 type LogCollector interface {
 	SetUnit(unit string)
 

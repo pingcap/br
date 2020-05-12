@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/distsql"
@@ -240,7 +241,7 @@ func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
 	resp.TotalBytes += update.TotalBytes
 }
 
-// Executor is a checksum executor
+// Executor is a checksum executor.
 type Executor struct {
 	reqs []*kv.Request
 }
@@ -248,6 +249,20 @@ type Executor struct {
 // Len returns the total number of checksum requests.
 func (exec *Executor) Len() int {
 	return len(exec.reqs)
+}
+
+// RawRequests extracts the raw requests associated with this executor.
+// This is mainly used for debugging only.
+func (exec *Executor) RawRequests() ([]*tipb.ChecksumRequest, error) {
+	res := make([]*tipb.ChecksumRequest, 0, len(exec.reqs))
+	for _, req := range exec.reqs {
+		rawReq := new(tipb.ChecksumRequest)
+		if err := proto.Unmarshal(req.Data, rawReq); err != nil {
+			return nil, err
+		}
+		res = append(res, rawReq)
+	}
+	return res, nil
 }
 
 // Execute executes a checksum executor.
