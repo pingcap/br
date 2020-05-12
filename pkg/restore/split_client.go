@@ -279,6 +279,7 @@ func (c *pdClient) sendSplitRegionRequest(
 					if findLeaderErr != nil || !checkRegionEpoch(newRegionInfo, regionInfo) {
 						return nil, multierr.Append(splitErrors, findLeaderErr)
 					}
+					log.Info("find new leader", zap.Uint64("new leader", newRegionInfo.Leader.Id))
 					regionInfo = newRegionInfo
 				}
 				log.Info("split region meet not leader error, retrying",
