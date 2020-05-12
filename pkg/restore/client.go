@@ -486,6 +486,7 @@ func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule
 			if err != nil {
 				return 0, errors.Trace(err)
 			}
+			return rule.Count, nil
 		}
 	}
 	return 0, nil

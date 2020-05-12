@@ -615,14 +615,16 @@ func goRestore(
 					return
 				}
 				// Omit the number of TiFlash have been removed.
-				if _, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules); err != nil {
+				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
+				if err != nil {
 					log.Error("failed on remove TiFlash replicas", zap.Error(err))
 					errCh <- err
 					return
 				}
+				t.OldTable.TiFlashReplicas = tiFlashRep
 				oldTables = append(oldTables, t.OldTable)
 
-				// Reusage of splitPrepareWork would be safe.
+				// Reuse of splitPrepareWork would be safe.
 				// But this operation sometime would be costly.
 				if err := splitPrepareWork(ctx, client, []*model.TableInfo{t.Table}); err != nil {
 					log.Error("failed on set online restore placement rules", zap.Error(err))
