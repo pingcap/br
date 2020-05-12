@@ -204,15 +204,15 @@ func splitRegionWithFailpoint(
 	keys [][]byte,
 ) (*kvrpcpb.SplitRegionResponse, error) {
 	var resp *kvrpcpb.SplitRegionResponse
-	failpoint.Inject("not-leader-error", func() {
+	failpoint.Inject("not-leader-error", func(injectRoot failpoint.Value) {
 		log.Debug("failpoint not-leader-error injected.")
 		resp = new(kvrpcpb.SplitRegionResponse)
 		resp.RegionError = new(errorpb.Error)
 		nl := new(errorpb.NotLeader)
 		nl.RegionId = regionInfo.Region.Id
-		failpoint.Inject("possiable-leader-find", func() {
+		if injectRoot.(bool) {
 			nl.Leader = regionInfo.Leader
-		})
+		}
 		resp.RegionError.NotLeader = nl
 		failpoint.Return(resp, nil)
 	})
