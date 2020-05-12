@@ -51,8 +51,15 @@ type Batcher struct {
 	sendErr            chan<- error
 	outCh              chan<- CreatedTable
 	sender             BatchSender
-	BatchSizeThreshold int
+	batchSizeThreshold int
 	size               int32
+}
+
+// SetThreshold sets the threshold that how big the batch size reaching need to send batch.
+// note this function isn't goroutine safe yet,
+// just set threshold before anything starts(e.g. EnableAutoCommit), please.
+func (b *Batcher) SetThreshold(newThreshold int) {
+	b.batchSizeThreshold = newThreshold
 }
 
 // Exhaust drains all remaining errors in the channel, into a slice of errors.
@@ -63,7 +70,7 @@ func Exhaust(ec <-chan error) []error {
 		case err := <-ec:
 			out = append(out, err)
 		default:
-			// errCh will *never* closed(ya see, it has multi send-part),
+			// errCh will *never* closed(ya see, it has multi sender-part),
 			// so we just consume the current backlog of this cannel, then return.
 			return out
 		}
@@ -153,34 +160,52 @@ func (b *tikvSender) Close() {
 // this batcher will work background, send batches per second, or batch size reaches limit.
 // and it will emit full-restored tables to the output channel returned.
 func NewBatcher(
-	ctx context.Context,
 	sender BatchSender,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
-	joiner := make(chan struct{})
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
-		joiner:             joiner,
 		cachedTablesMu:     new(sync.Mutex),
-		BatchSizeThreshold: 1,
+		batchSizeThreshold: 1,
 	}
-	go b.workLoop(ctx, joiner)
 	return b, output
 }
 
-// joinWorker blocks the current goroutine until the worker can gracefully stop.
-func (b *Batcher) joinWorker() {
-	log.Info("gracefully stoping worker goroutine")
-	b.joiner <- struct{}{}
-	log.Info("gracefully stopped worker goroutine")
+// EnableAutoCommit enables the batcher commit batch periodicity even batcher size isn't big enough.
+// we make this function for disable AutoCommit in some case.
+func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
+	if b.joiner != nil {
+		log.Warn("enable auto commit on a batcher that is enabled auto commit, nothing will happen")
+		log.Info("if desire, please disable auto commit firstly")
+	}
+	joiner := make(chan struct{})
+	go b.workLoop(ctx, joiner, delay)
+	b.joiner = joiner
 }
 
-func (b *Batcher) workLoop(ctx context.Context, joiner <-chan struct{}) {
-	tick := time.NewTicker(time.Second)
+// DisableAutoCommit blocks the current goroutine until the worker can gracefully stop,
+// and then disable auto commit.
+func (b *Batcher) DisableAutoCommit(ctx context.Context) {
+	b.joinWorker()
+	b.joiner = nil
+}
+
+// joinWorker blocks the current goroutine until the worker can gracefully stop.
+// return immediately when auto commit disabled.
+func (b *Batcher) joinWorker() {
+	if b.joiner != nil {
+		log.Info("gracefully stoping worker goroutine")
+		b.joiner <- struct{}{}
+		log.Info("gracefully stopped worker goroutine")
+	}
+}
+
+func (b *Batcher) workLoop(ctx context.Context, joiner <-chan struct{}, delay time.Duration) {
+	tick := time.NewTicker(delay)
 	defer tick.Stop()
 	for {
 		select {
@@ -221,8 +246,8 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 		// the batch is full, we should stop here!
 		// we use strictly greater than because when we send a batch at equal, the offset should plus one.
 		// (because the last table is sent, we should put it in emptyTables), and this will intrduce extra complex.
-		if thisTableLen+collected > b.BatchSizeThreshold {
-			drainSize := b.BatchSizeThreshold - collected
+		if thisTableLen+collected > b.batchSizeThreshold {
+			drainSize := b.batchSizeThreshold - collected
 			thisTableRanges := thisTable.Range
 
 			var drained []rtree.Range
@@ -235,13 +260,15 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 			)
 			ranges = append(ranges, drained...)
 			b.cachedTables = b.cachedTables[offset:]
-			atomic.AddInt32(&b.size, -int32(len(ranges)))
+			atomic.AddInt32(&b.size, -int32(len(drained)))
 			return ranges, emptyTables
 		}
 
 		emptyTables = append(emptyTables, thisTable.CreatedTable)
 		// let's 'drain' the ranges of current table. This op must not make the batch full.
 		ranges = append(ranges, thisTable.Range...)
+		// let's reduce the batcher size each time, to make a consitance view of
+		atomic.AddInt32(&b.size, -int32(len(thisTable.Range)))
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
@@ -253,7 +280,6 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 
 	// all tables are drained.
 	b.cachedTables = []TableWithRange{}
-	atomic.AddInt32(&b.size, -int32(len(ranges)))
 	return ranges, emptyTables
 }
 
@@ -277,7 +303,7 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 
 func (b *Batcher) sendIfFull(ctx context.Context) {
 	// never collect the send batch request message.
-	for b.Len() >= b.BatchSizeThreshold {
+	for b.Len() >= b.batchSizeThreshold {
 		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
 		b.asyncSend(ctx)
 	}
@@ -308,7 +334,7 @@ func (b *Batcher) Close(ctx context.Context) {
 	for b.Len() > 0 {
 		b.asyncSend(ctx)
 	}
-	b.joinWorker()
+	b.DisableAutoCommit(ctx)
 	close(b.outCh)
 	b.sender.Close()
 }

@@ -109,8 +109,8 @@ func fakeRange(startKey, endKey string) rtree.Range {
 func (*testBatcherSuite) TestBasic(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
-	batcher.BatchSizeThreshold = 2
+	batcher, _ := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(2)
 
 	simpleTables := []restore.TableWithRange{
 		fakeTableWithRange(1, []rtree.Range{fakeRange("aaa", "aab")}),
@@ -143,14 +143,18 @@ func (*testBatcherSuite) TestBasic(c *C) {
 func (*testBatcherSuite) TestAutoSend(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(context.TODO(), sender, errCh)
-	batcher.BatchSizeThreshold = 1024
+	batcher, _ := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(1024)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")})
 
 	batcher.Add(context.TODO(), simpleTable)
-	// wait until auto send.
-	time.Sleep(1300 * time.Millisecond)
+	c.Assert(batcher.Len(), Greater, 0)
+
+	// enable auto commit.
+	batcher.EnableAutoCommit(context.TODO(), 100*time.Millisecond)
+	time.Sleep(120 * time.Millisecond)
+
 	c.Assert(sender.RangeLen(), Greater, 0)
 	c.Assert(sender.TableLen(), Greater, 0)
 	c.Assert(batcher.Len(), Equals, 0)
@@ -171,8 +175,8 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
-	batcher.BatchSizeThreshold = 2
+	batcher, _ := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(2)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
 		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
@@ -199,8 +203,8 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 func (*testBatcherSuite) TestBatcherLen(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(context.Background(), sender, errCh)
-	batcher.BatchSizeThreshold = 1024
+	batcher, _ := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(15)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
 		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
@@ -208,8 +212,16 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
+	simpleTable2 := fakeTableWithRange(2, []rtree.Range{
+		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
+		fakeRange("cae", "caf"), fakeRange("cag", "cai"),
+		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
+		fakeRange("can", "cao"), fakeRange("cap", "caq")})
+
 	batcher.Add(context.TODO(), simpleTable)
 	c.Assert(batcher.Len(), Equals, 8)
+	batcher.Add(context.TODO(), simpleTable2)
+	c.Assert(batcher.Len(), Equals, 1)
 	batcher.Close(context.TODO())
 	c.Assert(batcher.Len(), Equals, 0)
 

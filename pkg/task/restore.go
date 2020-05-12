@@ -5,6 +5,7 @@ package task
 import (
 	"context"
 	"math"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -241,8 +242,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, errCh)
-	batcher.BatchSizeThreshold = batchSize
+	batcher, afterRestoreStream := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(batchSize)
+	batcher.EnableAutoCommit(ctx, time.Second)
 	goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
 
 	var finish <-chan struct{}
