@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -23,7 +22,7 @@ type DB struct {
 	se glue.Session
 }
 
-// NewDB returns a new DB
+// NewDB returns a new DB.
 func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	se, err := g.CreateSession(store)
 	if err != nil {
@@ -46,7 +45,27 @@ func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 // ExecDDL executes the query of a ddl job.
 func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	var err error
-	if ddlJob.BinlogInfo.TableInfo != nil {
+	tableInfo := ddlJob.BinlogInfo.TableInfo
+	dbInfo := ddlJob.BinlogInfo.DBInfo
+	switch ddlJob.Type {
+	case model.ActionCreateSchema:
+		err = db.se.CreateDatabase(ctx, dbInfo)
+		if err != nil {
+			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
+		}
+		return errors.Trace(err)
+	case model.ActionCreateTable:
+		err = db.se.CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
+		if err != nil {
+			log.Error("create table failed",
+				zap.Stringer("db", dbInfo.Name),
+				zap.Stringer("table", tableInfo.Name),
+				zap.Error(err))
+		}
+		return errors.Trace(err)
+	}
+
+	if tableInfo != nil {
 		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
 		err = db.se.Execute(ctx, switchDbSQL)
 		if err != nil {
@@ -70,57 +89,29 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 // CreateDatabase executes a CREATE DATABASE SQL.
 func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
-	createSQL, err := db.se.ShowCreateDatabase(schema)
+	err := db.se.CreateDatabase(ctx, schema)
 	if err != nil {
-		log.Error("build create database SQL failed", zap.Stringer("db", schema.Name), zap.Error(err))
-		return errors.Trace(err)
-	}
-	err = db.se.Execute(ctx, createSQL)
-	if err != nil {
-		log.Error("create database failed", zap.String("query", createSQL), zap.Error(err))
+		log.Error("create database failed", zap.Stringer("db", schema.Name), zap.Error(err))
 	}
 	return errors.Trace(err)
 }
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	tableInfo := table.Info
-	createSQL, err := db.se.ShowCreateTable(tableInfo, newIDAllocator(tableInfo.AutoIncID))
-	if err != nil {
-		log.Error(
-			"build create table SQL failed",
-			zap.Stringer("db", table.Db.Name),
-			zap.Stringer("table", tableInfo.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
-	err = db.se.Execute(ctx, switchDbSQL)
-	if err != nil {
-		log.Error("switch db failed",
-			zap.String("SQL", switchDbSQL),
-			zap.Stringer("db", table.Db.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	// Insert `IF NOT EXISTS` statement to skip the created tables
-	words := strings.SplitN(createSQL, " ", 3)
-	if len(words) > 2 && strings.ToUpper(words[0]) == "CREATE" && strings.ToUpper(words[1]) == "TABLE" {
-		createSQL = "CREATE TABLE IF NOT EXISTS " + words[2]
-	}
-	err = db.se.Execute(ctx, createSQL)
+	err := db.se.CreateTable(ctx, table.Db.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
-			zap.String("SQL", createSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
 	alterAutoIncIDSQL := fmt.Sprintf(
-		"alter table %s auto_increment = %d",
-		utils.EncloseName(tableInfo.Name.O),
-		tableInfo.AutoIncID)
+		"alter table %s.%s auto_increment = %d",
+		utils.EncloseName(table.Db.Name.O),
+		utils.EncloseName(table.Info.Name.O),
+		table.Info.AutoIncID)
+
 	err = db.se.Execute(ctx, alterAutoIncIDSQL)
 	if err != nil {
 		log.Error("alter AutoIncID failed",
@@ -129,11 +120,31 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 	}
+	if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
+		// this table has auto random id, we need rebase it
+
+		// we can't merge two alter query, because
+		// it will cause Error: [ddl:8200]Unsupported multi schema change
+		alterAutoRandIDSQL := fmt.Sprintf(
+			"alter table %s.%s auto_random_base = %d",
+			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.Info.Name.O),
+			table.Info.AutoRandID)
+
+		err = db.se.Execute(ctx, alterAutoRandIDSQL)
+		if err != nil {
+			log.Error("alter AutoRandID failed",
+				zap.String("query", alterAutoRandIDSQL),
+				zap.Stringer("db", table.Db.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Error(err))
+		}
+	}
 
 	return errors.Trace(err)
 }
 
-// AlterTiflashReplica alters the replica count of tiflash
+// AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
 	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
 	err := db.se.Execute(ctx, switchDbSQL)
@@ -156,24 +167,22 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
-		return err
 	} else if table.TiFlashReplicas > 0 {
 		log.Warn("alter tiflash replica done",
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Int("originalReplicaCount", table.TiFlashReplicas),
 			zap.Int("replicaCount", count))
-
 	}
-	return nil
+	return err
 }
 
-// Close closes the connection
+// Close closes the connection.
 func (db *DB) Close() {
 	db.se.Close()
 }
 
-// FilterDDLJobs filters ddl jobs
+// FilterDDLJobs filters ddl jobs.
 func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*model.Job) {
 	// Sort the ddl jobs by schema version in descending order.
 	sort.Slice(allDDLJobs, func(i, j int) bool {

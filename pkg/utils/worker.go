@@ -7,21 +7,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// WorkerPool contains a pool of workers
+// WorkerPool contains a pool of workers.
 type WorkerPool struct {
 	limit   uint
 	workers chan *Worker
 	name    string
 }
 
-// Worker identified by ID
+// Worker identified by ID.
 type Worker struct {
 	ID uint64
 }
 
 type taskFunc func()
 
-// NewWorkerPool returns a WorkPool
+// NewWorkerPool returns a WorkPool.
 func NewWorkerPool(limit uint, name string) *WorkerPool {
 	workers := make(chan *Worker, limit)
 	for i := uint(0); i < limit; i++ {
@@ -34,7 +34,7 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 	}
 }
 
-// Apply executes a task
+// Apply executes a task.
 func (pool *WorkerPool) Apply(fn taskFunc) {
 	var worker *Worker
 	select {
@@ -56,7 +56,7 @@ func (pool *WorkerPool) recycle(worker *Worker) {
 	pool.workers <- worker
 }
 
-// HasWorker checks if the pool has unallocated workers
+// HasWorker checks if the pool has unallocated workers.
 func (pool *WorkerPool) HasWorker() bool {
 	return len(pool.workers) > 0
 }

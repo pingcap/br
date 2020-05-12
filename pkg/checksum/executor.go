@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/distsql"
@@ -27,7 +28,7 @@ type ExecutorBuilder struct {
 	oldTable *utils.Table
 }
 
-// NewExecutorBuilder returns a new executor builder
+// NewExecutorBuilder returns a new executor builder.
 func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 	return &ExecutorBuilder{
 		table: table,
@@ -35,13 +36,13 @@ func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 	}
 }
 
-// SetOldTable set a old table info to the builder
+// SetOldTable set a old table info to the builder.
 func (builder *ExecutorBuilder) SetOldTable(oldTable *utils.Table) *ExecutorBuilder {
 	builder.oldTable = oldTable
 	return builder
 }
 
-// Build builds a checksum executor
+// Build builds a checksum executor.
 func (builder *ExecutorBuilder) Build() (*Executor, error) {
 	reqs, err := buildChecksumRequest(builder.table, builder.oldTable, builder.ts)
 	if err != nil {
@@ -240,17 +241,31 @@ func updateChecksumResponse(resp, update *tipb.ChecksumResponse) {
 	resp.TotalBytes += update.TotalBytes
 }
 
-// Executor is a checksum executor
+// Executor is a checksum executor.
 type Executor struct {
 	reqs []*kv.Request
 }
 
-// Len returns the total number of checksum requests
+// Len returns the total number of checksum requests.
 func (exec *Executor) Len() int {
 	return len(exec.reqs)
 }
 
-// Execute executes a checksum executor
+// RawRequests extracts the raw requests associated with this executor.
+// This is mainly used for debugging only.
+func (exec *Executor) RawRequests() ([]*tipb.ChecksumRequest, error) {
+	res := make([]*tipb.ChecksumRequest, 0, len(exec.reqs))
+	for _, req := range exec.reqs {
+		rawReq := new(tipb.ChecksumRequest)
+		if err := proto.Unmarshal(req.Data, rawReq); err != nil {
+			return nil, err
+		}
+		res = append(res, rawReq)
+	}
+	return res, nil
+}
+
+// Execute executes a checksum executor.
 func (exec *Executor) Execute(
 	ctx context.Context,
 	client kv.Client,

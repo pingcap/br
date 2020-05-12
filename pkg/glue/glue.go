@@ -9,7 +9,6 @@ import (
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/meta/autoid"
 )
 
 // Glue is an abstraction of TiDB function calls used in BR.
@@ -23,13 +22,16 @@ type Glue interface {
 	OwnsStorage() bool
 
 	StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) Progress
+
+	// Record records some information useful for log-less summary.
+	Record(name string, value uint64)
 }
 
 // Session is an abstraction of the session.Session interface.
 type Session interface {
 	Execute(ctx context.Context, sql string) error
-	ShowCreateDatabase(schema *model.DBInfo) (string, error)
-	ShowCreateTable(table *model.TableInfo, allocator autoid.Allocator) (string, error)
+	CreateDatabase(ctx context.Context, schema *model.DBInfo) error
+	CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error
 	Close()
 }
 

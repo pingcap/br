@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/br/pkg/utils"
+
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -31,6 +33,8 @@ const (
 	flagBackupTS      = "backupts"
 	flagLastBackupTS  = "lastbackupts"
 
+	flagGCTTL = "gcttl"
+
 	defaultBackupConcurrency = 4
 )
 
@@ -41,6 +45,7 @@ type BackupConfig struct {
 	TimeAgo      time.Duration `json:"time-ago" toml:"time-ago"`
 	BackupTS     uint64        `json:"backup-ts" toml:"backup-ts"`
 	LastBackupTS uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL        int64         `json:"gc-ttl" toml:"gc-ttl"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -54,6 +59,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		" use for incremental backup, support TSO only")
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
+	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -78,6 +84,11 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	gcTTL, err := flags.GetInt64(flagGCTTL)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.GCTTL = gcTTL
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -115,11 +126,13 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
 		return err
 	}
+	client.SetGCTTL(cfg.GCTTL)
 
 	backupTS, err := client.GetTS(ctx, cfg.TimeAgo, cfg.BackupTS)
 	if err != nil {
 		return err
 	}
+	g.Record("BackupTS", backupTS)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)
@@ -128,7 +141,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	// nothing to backup
 	if ranges == nil {
-		return nil
+		return client.SaveBackupMeta(ctx, nil)
 	}
 
 	ddlJobs := make([]*model.Job, 0)
@@ -137,7 +150,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("LastBackupTS is larger than current TS")
 			return errors.New("LastBackupTS is larger than current TS")
 		}
-		err = backup.CheckGCSafepoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
+		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return err
@@ -180,51 +193,70 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	// Checksum
-	backupSchemasConcurrency := backup.DefaultSchemaConcurrency
-	if backupSchemas.Len() < backupSchemasConcurrency {
-		backupSchemasConcurrency = backupSchemas.Len()
-	}
-	updateCh = g.StartProgress(
-		ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-	backupSchemas.SetSkipChecksum(!cfg.Checksum)
-	backupSchemas.Start(
-		ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
-
-	err = client.CompleteMeta(backupSchemas)
-	if err != nil {
-		return err
-	}
-
-	if cfg.LastBackupTS == 0 {
-		var valid bool
-		valid, err = client.FastChecksum()
+	// Checksum from server, and then fulfill the backup metadata.
+	if cfg.Checksum {
+		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
+		updateCh = g.StartProgress(
+			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
+		backupSchemas.Start(
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+		err = client.CompleteMeta(backupSchemas)
 		if err != nil {
 			return err
 		}
-		if !valid {
-			log.Error("backup FastChecksum mismatch!")
-			return errors.Errorf("mismatched checksum")
+		// Checksum has finished
+		updateCh.Close()
+		// collect file information.
+		err = checkChecksums(client, cfg)
+		if err != nil {
+			return err
 		}
-
 	} else {
-		// Since we don't support checksum for incremental data, fast checksum should be skipped.
-		log.Info("Skip fast checksum in incremental backup")
+		// When user specified not to calculate checksum, don't calculate checksum.
+		// Just... copy schemas from origin.
+		log.Info("Skip fast checksum because user requirement.")
+		client.CopyMetaFrom(backupSchemas)
+		// Anyway, let's collect file info for summary.
+		client.CollectFileInfo()
 	}
-	// Checksum has finished
-	updateCh.Close()
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
 	if err != nil {
 		return err
 	}
 
+	g.Record("Size", client.ArchiveSize())
+
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
 }
 
-// parseTSString port from tidb setSnapshotTS
+// checkChecksums checks the checksum of the client, once failed,
+// returning a error with message: "mismatched checksum".
+func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
+	checksums, err := client.CollectChecksums()
+	if err != nil {
+		return err
+	}
+	if cfg.LastBackupTS == 0 {
+		var matches bool
+		matches, err = client.ChecksumMatches(checksums)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			log.Error("backup FastChecksum mismatch!")
+			return errors.New("mismatched checksum")
+		}
+		return nil
+	}
+	// Since we don't support checksum for incremental data, fast checksum should be skipped.
+	log.Info("Skip fast checksum in incremental backup")
+	return nil
+}
+
+// parseTSString port from tidb setSnapshotTS.
 func parseTSString(ts string) (uint64, error) {
 	if len(ts) == 0 {
 		return 0, nil

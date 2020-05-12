@@ -16,56 +16,16 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
 )
 
 var recordPrefixSep = []byte("_r")
-
-// idAllocator always returns a specified ID
-type idAllocator struct {
-	id int64
-}
-
-func newIDAllocator(id int64) *idAllocator {
-	return &idAllocator{id: id}
-}
-
-func (alloc *idAllocator) Alloc(tableID int64, n uint64, increment, offset int64) (min int64, max int64, err error) {
-	return alloc.id, alloc.id, nil
-}
-
-func (alloc *idAllocator) AllocSeqCache(sequenceID int64) (min int64, max int64, round int64, err error) {
-	// TODO fix this function after support backup sequence
-	return 0, 0, 0, nil
-}
-
-func (alloc *idAllocator) Rebase(tableID, newBase int64, allocIDs bool) error {
-	return nil
-}
-
-func (alloc *idAllocator) Base() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) End() int64 {
-	return alloc.id
-}
-
-func (alloc *idAllocator) NextGlobalAutoID(tableID int64) (int64, error) {
-	return alloc.id, nil
-}
-
-func (alloc *idAllocator) GetType() autoid.AllocatorType {
-	return autoid.RowIDAllocType
-}
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -121,9 +81,9 @@ func GetRewriteRules(
 	}
 }
 
-// getSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
-// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)]
-func getSSTMetaFromFile(
+// GetSSTMetaFromFile compares the keys in file, region and rewrite rules, then returns a sst conn.
+// The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)].
+func GetSSTMetaFromFile(
 	id []byte,
 	file *backup.File,
 	region *metapb.Region,
@@ -155,6 +115,7 @@ func getSSTMetaFromFile(
 			Start: rangeStart,
 			End:   rangeEnd,
 		},
+		Length:      file.GetSize_(),
 		RegionId:    region.GetId(),
 		RegionEpoch: region.GetRegionEpoch(),
 	}
@@ -205,7 +166,6 @@ func AttachFilesToRanges(
 		rangeTree.Update(rg)
 	}
 	for _, f := range files {
-
 		rg := rangeTree.Find(&rtree.Range{
 			StartKey: f.GetStartKey(),
 			EndKey:   f.GetEndKey(),
@@ -227,7 +187,7 @@ func AttachFilesToRanges(
 	return sortedRanges
 }
 
-// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file
+// ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file.
 func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
@@ -268,7 +228,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 	return nil
 }
 
-// Rewrites a raw key and returns a encoded key
+// Rewrites a raw key and returns a encoded key.
 func rewriteRawKey(key []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
 	if rewriteRules == nil {
 		return codec.EncodeBytes([]byte{}, key), nil
@@ -317,8 +277,8 @@ func truncateTS(key []byte) []byte {
 }
 
 // SplitRanges splits region by
-// 1. data range after rewrite
-// 2. rewrite rules
+// 1. data range after rewrite.
+// 2. rewrite rules.
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
@@ -332,16 +292,8 @@ func SplitRanges(
 		summary.CollectDuration("split region", elapsed)
 	}()
 	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	storeMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		storeMap[store.GetId()] = true
-	}
 
-	return splitter.Split(ctx, ranges, rewriteRules, storeMap, func(keys [][]byte) {
+	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
 		for range keys {
 			updateCh.Inc()
 		}
@@ -385,10 +337,10 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// paginateScanRegion scan regions with a limit pagination and
+// PaginateScanRegion scan regions with a limit pagination and
 // return all regions at once.
 // It reduces max gRPC message size.
-func paginateScanRegion(
+func PaginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
@@ -415,4 +367,60 @@ func paginateScanRegion(
 		}
 	}
 	return regions, nil
+}
+
+func hasRejectStorePeer(
+	ctx context.Context,
+	client SplitClient,
+	regionID uint64,
+	rejectStores map[uint64]bool,
+) (bool, error) {
+	regionInfo, err := client.GetRegionByID(ctx, regionID)
+	if err != nil {
+		return false, err
+	}
+	if regionInfo == nil {
+		return false, nil
+	}
+	for _, peer := range regionInfo.Region.GetPeers() {
+		if rejectStores[peer.GetStoreId()] {
+			return true, nil
+		}
+	}
+	retryTimes := ctx.Value(retryTimes).(int)
+	if retryTimes > 10 {
+		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+	}
+	return false, nil
+}
+
+func waitForRemoveRejectStores(
+	ctx context.Context,
+	client SplitClient,
+	regionInfo *RegionInfo,
+	rejectStores map[uint64]bool,
+) bool {
+	interval := RejectStoreCheckInterval
+	regionID := regionInfo.Region.GetId()
+	for i := 0; i < RejectStoreCheckRetryTimes; i++ {
+		ctx1 := context.WithValue(ctx, retryTimes, i)
+		ok, err := hasRejectStorePeer(ctx1, client, regionID, rejectStores)
+		if err != nil {
+			log.Warn("wait for rejecting store failed",
+				zap.Stringer("region", regionInfo.Region),
+				zap.Error(err))
+			return false
+		}
+		// Do not have any peer in the rejected store, return true
+		if !ok {
+			return true
+		}
+		interval = 2 * interval
+		if interval > RejectStoreMaxCheckInterval {
+			interval = RejectStoreMaxCheckInterval
+		}
+		time.Sleep(interval)
+	}
+
+	return false
 }

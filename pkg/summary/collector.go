@@ -23,7 +23,7 @@ const (
 	TotalBytes = "total bytes"
 )
 
-// LogCollector collects infos into summary log
+// LogCollector collects infos into summary log.
 type LogCollector interface {
 	SetUnit(unit string)
 
@@ -203,7 +203,7 @@ func (tc *logCollector) Summary(name string) {
 	tc.log(name+" Success summary: "+msg, logFields...)
 }
 
-// SetLogCollector allow pass LogCollector outside
+// SetLogCollector allow pass LogCollector outside.
 func SetLogCollector(l LogCollector) {
 	collector = l
 }

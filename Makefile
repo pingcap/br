@@ -35,11 +35,11 @@ build_for_integration_test:
 test:
 	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
 
-testcover:
-	GO111MODULE=on retool do overalls \
+testcover: tools
+	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
-		-ignore='.git,vendor,tests,_tools' \
+		-ignore='.git,vendor,tests,_tools,docker' \
 		-debug \
 		-- -coverpkg=./...
 
@@ -55,8 +55,7 @@ integration_test: build build_for_integration_test
 
 tools:
 	@echo "install tools..."
-	@GO111MODULE=off go get github.com/twitchtv/retool
-	@GO111MODULE=off retool sync
+	@cd tools && make
 
 check-all: static lint tidy
 	@echo "checking"
@@ -64,30 +63,44 @@ check-all: static lint tidy
 check: tools check-all
 
 static: export GO111MODULE=on
-static:
+static: tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	retool do goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
-	retool do govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
 
-	CGO_ENABLED=0 retool do golangci-lint run --enable-all --deadline 120s \
+	@# why some lints are disabled?
+	@#   gochecknoglobals - disabled because we do use quite a lot of globals
+	@#          goimports - executed above already
+	@#              gofmt - ditto
+	@#                wsl - too pedantic about the formatting
+	@#             funlen - PENDING REFACTORING
+	@#           gocognit - PENDING REFACTORING
+	@#              godox - TODO
+	@#              gomnd - too many magic numbers, and too pedantic (even 2*x got flagged...)
+	@#        testpackage - several test packages still rely on private functions
+	@#             nestif - PENDING REFACTORING
+	@#           goerr113 - it mistaken pingcap/errors with standard errors
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
-		--disable gochecknoinits \
-		--disable interfacer \
 		--disable goimports \
 		--disable gofmt \
 		--disable wsl \
 		--disable funlen \
-		--disable whitespace \
 		--disable gocognit \
 		--disable godox \
 		--disable gomnd \
+		--disable testpackage \
+		--disable nestif \
+		--disable goerr113 \
 		$$($(PACKAGE_DIRECTORIES))
 
-lint:
+lint: tools
 	@echo "linting"
-	CGO_ENABLED=0 retool do revive -formatter friendly -config revive.toml $$($(PACKAGES))
+	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
 
 tidy:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet go.mod go.sum
+
+.PHONY: tools

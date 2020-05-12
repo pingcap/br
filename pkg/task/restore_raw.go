@@ -72,6 +72,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return err
 	}
+	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}
@@ -113,12 +114,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer func() {
-		errPostWork := restorePostWork(ctx, client, mgr, removedSchedulers)
-		if err == nil {
-			err = errPostWork
-		}
-	}()
+	defer restorePostWork(ctx, client, mgr, removedSchedulers)
 
 	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {

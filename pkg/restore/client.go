@@ -46,7 +46,7 @@ import (
 // checksum tasks.
 const defaultChecksumConcurrency = 64
 
-// Client sends requests to restore files
+// Client sends requests to restore files.
 type Client struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -72,7 +72,7 @@ type Client struct {
 	backend *backup.StorageBackend
 }
 
-// NewRestoreClient returns a new RestoreClient
+// NewRestoreClient returns a new RestoreClient.
 func NewRestoreClient(
 	ctx context.Context,
 	g glue.Glue,
@@ -102,7 +102,7 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
 }
 
-// SetStorage set ExternalStorage for client
+// SetStorage set ExternalStorage for client.
 func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
 	var err error
 	rc.storage, err = storage.Create(ctx, backend, sendCreds)
@@ -118,12 +118,12 @@ func (rc *Client) GetPDClient() pd.Client {
 	return rc.pdClient
 }
 
-// IsOnline tells if it's a online restore
+// IsOnline tells if it's a online restore.
 func (rc *Client) IsOnline() bool {
 	return rc.isOnline
 }
 
-// Close a client
+// Close a client.
 func (rc *Client) Close() {
 	// rc.db can be nil in raw kv mode.
 	if rc.db != nil {
@@ -133,7 +133,7 @@ func (rc *Client) Close() {
 	log.Info("Restore client closed")
 }
 
-// InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient
+// InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
 func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.StorageBackend) error {
 	if !backupMeta.IsRawKv {
 		databases, err := utils.LoadBackupTables(backupMeta)
@@ -216,7 +216,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 	return nil, errors.New("no backup data in the range")
 }
 
-// SetConcurrency sets the concurrency of dbs tables files
+// SetConcurrency sets the concurrency of dbs tables files.
 func (rc *Client) SetConcurrency(c uint) {
 	rc.workerPool = utils.NewWorkerPool(c, "file")
 }
@@ -226,12 +226,12 @@ func (rc *Client) EnableOnline() {
 	rc.isOnline = true
 }
 
-// GetTLSConfig returns the tls config
+// GetTLSConfig returns the tls config.
 func (rc *Client) GetTLSConfig() *tls.Config {
 	return rc.tlsConf
 }
 
-// GetTS gets a new timestamp from PD
+// GetTS gets a new timestamp from PD.
 func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	p, l, err := rc.pdClient.GetTS(ctx)
 	if err != nil {
@@ -241,7 +241,7 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 	return restoreTS, nil
 }
 
-// ResetTS resets the timestamp of PD to a bigger value
+// ResetTS resets the timestamp of PD to a bigger value.
 func (rc *Client) ResetTS(pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
@@ -253,7 +253,7 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 	}, newPDReqBackoffer())
 }
 
-// GetPlacementRules return the current placement rules
+// GetPlacementRules return the current placement rules.
 func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
 	var placementRules []placement.Rule
 	i := 0
@@ -276,12 +276,12 @@ func (rc *Client) GetDatabases() []*utils.Database {
 	return dbs
 }
 
-// GetDatabase returns a database by name
+// GetDatabase returns a database by name.
 func (rc *Client) GetDatabase(name string) *utils.Database {
 	return rc.databases[name]
 }
 
-// GetDDLJobs returns ddl jobs
+// GetDDLJobs returns ddl jobs.
 func (rc *Client) GetDDLJobs() []*model.Job {
 	return rc.ddlJobs
 }
@@ -341,17 +341,20 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
-// RemoveTiFlashReplica removes all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
-func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []placement.Rule) error {
+// RemoveTiFlashReplica removes all the tiflash replicas of a table.
+// TODO: remove this after tiflash supports restore.
+func (rc *Client) RemoveTiFlashReplica(
+	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
 	schemas := make([]*backup.Schema, 0, len(tables))
 	var updateReplica bool
-	for _, table := range tables {
-		if rule := utils.SearchPlacementRule(table.Info.ID, placementRules, placement.Learner); rule != nil {
+	// must use new table id to search placement rules
+	// here newTables and tables must have same order
+	for i, table := range tables {
+		if rule := utils.SearchPlacementRule(newTables[i].ID, placementRules, placement.Learner); rule != nil {
 			table.TiFlashReplicas = rule.Count
 			updateReplica = true
 		}
-		tableData, err := json.Marshal(table.Info)
+		tableData, err := json.Marshal(newTables[i])
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -395,8 +398,8 @@ func (rc *Client) RemoveTiFlashReplica(tables []*utils.Table, placementRules []p
 	return nil
 }
 
-// RecoverTiFlashReplica recovers all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
+// RecoverTiFlashReplica recovers all the tiflash replicas of a table.
+// TODO: remove this after tiflash supports restore.
 func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
 	for _, table := range tables {
 		if table.TiFlashReplicas > 0 {
@@ -450,6 +453,7 @@ func (rc *Client) setSpeedLimit() error {
 func (rc *Client) RestoreFiles(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
+	rejectStoreMap map[uint64]bool,
 	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
@@ -482,7 +486,7 @@ func (rc *Client) RestoreFiles(
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, rewriteRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, rejectStoreMap, rewriteRules):
 					updateCh.Inc()
 				}
 			})
@@ -519,7 +523,6 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 
 	err := rc.fileImporter.SetRawRange(startKey, endKey)
 	if err != nil {
-
 		return errors.Trace(err)
 	}
 
@@ -533,7 +536,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
-				case errCh <- rc.fileImporter.Import(fileReplica, emptyRules):
+				case errCh <- rc.fileImporter.Import(fileReplica, nil, emptyRules):
 					updateCh.Inc()
 				}
 			})
@@ -560,12 +563,12 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 	return nil
 }
 
-//SwitchToImportMode switch tikv cluster to import mode
+// SwitchToImportMode switch tikv cluster to import mode.
 func (rc *Client) SwitchToImportMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
 }
 
-//SwitchToNormalMode switch tikv cluster to normal mode
+// SwitchToNormalMode switch tikv cluster to normal mode.
 func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
@@ -616,7 +619,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	return nil
 }
 
-//ValidateChecksum validate checksum after restore
+// ValidateChecksum validate checksum after restore.
 func (rc *Client) ValidateChecksum(
 	ctx context.Context,
 	kvClient kv.Client,
@@ -641,6 +644,14 @@ func (rc *Client) ValidateChecksum(
 			wg.Add(1)
 			workers.Apply(func() {
 				defer wg.Done()
+
+				if table.NoChecksum() {
+					log.Info("table doesn't have checksum, skipping checksum",
+						zap.Stringer("db", table.Db.Name),
+						zap.Stringer("table", table.Info.Name))
+					updateCh.Inc()
+					return
+				}
 
 				startTS, err := rc.GetTS(ctx)
 				if err != nil {
@@ -847,18 +858,18 @@ func (rc *Client) getRuleID(tableID int64) string {
 	return "restore-t" + strconv.FormatInt(tableID, 10)
 }
 
-// IsIncremental returns whether this backup is incremental
+// IsIncremental returns whether this backup is incremental.
 func (rc *Client) IsIncremental() bool {
 	return !(rc.backupMeta.StartVersion == rc.backupMeta.EndVersion ||
 		rc.backupMeta.StartVersion == 0)
 }
 
-// EnableSkipCreateSQL sets switch of skip create schema and tables
+// EnableSkipCreateSQL sets switch of skip create schema and tables.
 func (rc *Client) EnableSkipCreateSQL() {
 	rc.noSchema = true
 }
 
-// IsSkipCreateSQL returns whether we need skip create schema and tables in restore
+// IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
 }
