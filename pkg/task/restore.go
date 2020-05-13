@@ -4,7 +4,9 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"os"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -86,8 +88,16 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	if cfg.Config.Concurrency < defaultRestoreConcurrency {
+		fmt.Fprintf(os.Stdout,
+			"[warn] concurrency is too low for restore cluster,"+
+				"set concurrency >= %d will get suitable performance,"+
+				"if you want to reduce impact on restore cluster, please consider --rate-limit\n",
+			defaultRestoreConcurrency)
 	}
 	return nil
 }
