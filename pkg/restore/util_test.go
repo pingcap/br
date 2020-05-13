@@ -60,7 +60,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 			EndKey:   tablecodec.EncodeTablePrefix(2)},
 	}
 
-	result := MapTableToFiles(append(filesOfTable2, filesOfTable1...))
+	result := restore.MapTableToFiles(append(filesOfTable2, filesOfTable1...))
 
 	c.Assert(result[1], DeepEquals, filesOfTable1)
 	c.Assert(result[2], DeepEquals, filesOfTable2)
