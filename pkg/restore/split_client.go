@@ -245,7 +245,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {
 				return nil, multierr.Append(splitErrors,
-					errors.New("region does not have peer"))
+					errors.Errorf("region[%d] doesn't have any peer", regionInfo.Region.GetId()))
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
@@ -277,8 +277,11 @@ func (c *pdClient) sendSplitRegionRequest(
 					regionInfo.Leader = leader
 				} else {
 					newRegionInfo, findLeaderErr := c.GetRegionByID(ctx, nl.RegionId)
-					if findLeaderErr != nil || !checkRegionEpoch(newRegionInfo, regionInfo) {
+					if findLeaderErr != nil {
 						return nil, multierr.Append(splitErrors, findLeaderErr)
+					}
+					if !checkRegionEpoch(newRegionInfo, regionInfo) {
+						return nil, multierr.Append(splitErrors, ErrEpochNotMatch)
 					}
 					log.Info("find new leader", zap.Uint64("new leader", newRegionInfo.Leader.Id))
 					regionInfo = newRegionInfo
@@ -290,10 +293,11 @@ func (c *pdClient) sendSplitRegionRequest(
 				)
 				continue
 			}
+			// TODO: we don't handle RegionNotMatch and RegionNotFound here,
+			// because I think we don't have enough information to retry.
+			// But maybe we can handle them here by some information the error itself provides.
 			if resp.RegionError.ServerIsBusy != nil ||
-				resp.RegionError.RegionNotFound != nil ||
-				resp.RegionError.StaleCommand != nil ||
-				resp.RegionError.EpochNotMatch != nil {
+				resp.RegionError.StaleCommand != nil {
 				log.Warn("a error occurs on split region",
 					zap.Int("retry times", i),
 					zap.Uint64("regionID", regionInfo.Region.Id),
