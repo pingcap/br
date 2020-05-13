@@ -103,18 +103,10 @@ func (tc *logCollector) CollectSuccessUnit(name string, unitCount int, arg inter
 
 	switch v := arg.(type) {
 	case time.Duration:
-		if _, ok := tc.successCosts[name]; !ok {
-			tc.successCosts[name] = v
-			tc.successUnitCount += unitCount
-		} else {
-			tc.successCosts[name] += v
-		}
+		tc.successUnitCount += unitCount
+		tc.successCosts[name] += v
 	case uint64:
-		if _, ok := tc.successData[name]; !ok {
-			tc.successData[name] = v
-		} else {
-			tc.successData[name] += v
-		}
+		tc.successData[name] += v
 	}
 }
 
