@@ -162,13 +162,13 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
 		if tableID != tableEndID {
-			log.Warn("key range spread between many files.",
+			log.Error("key range spread between many files.",
 				zap.String("file name", file.Name),
 				zap.Binary("start key", file.GetStartKey()),
 				zap.Binary("end key", file.GetEndKey()))
 		}
 		if tableID == 0 {
-			log.Warn("invalid table key of file",
+			log.Error("invalid table key of file",
 				zap.String("file name", file.Name),
 				zap.Binary("start key", file.GetStartKey()),
 				zap.Binary("end key", file.GetEndKey()))
