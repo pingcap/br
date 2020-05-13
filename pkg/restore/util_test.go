@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore
+package restore_test
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+
+	"github.com/pingcap/br/pkg/restore"
 )
 
 var _ = Suite(&testRestoreUtilSuite{})
@@ -33,7 +35,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 		StartKey: []byte("t2abc"),
 		EndKey:   []byte("t3a"),
 	}
-	sstMeta := getSSTMetaFromFile([]byte{}, file, region, rule)
+	sstMeta := restore.GetSSTMetaFromFile([]byte{}, file, region, rule)
 	c.Assert(string(sstMeta.GetRange().GetStart()), Equals, "t2abc")
 	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff")
 }
@@ -65,7 +67,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
-	rules := &RewriteRules{
+	rules := &restore.RewriteRules{
 		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
@@ -73,7 +75,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 	}
 
 	// Empty start/end key is not allowed.
-	_, err := ValidateFileRanges(
+	_, err := restore.ValidateFileRanges(
 		[]*backup.File{&backup.File{
 			Name:     "file_write.sst",
 			StartKey: []byte(""),
@@ -84,7 +86,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// Range is not overlap, no rule found.
-	_, err = ValidateFileRanges(
+	_, err = restore.ValidateFileRanges(
 		[]*backup.File{{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(0),
@@ -95,7 +97,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// No rule for end key.
-	_, err = ValidateFileRanges(
+	_, err = restore.ValidateFileRanges(
 		[]*backup.File{{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
@@ -110,7 +112,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
-	_, err = ValidateFileRanges(
+	_, err = restore.ValidateFileRanges(
 		[]*backup.File{{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
@@ -125,7 +127,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
-	_, err = ValidateFileRanges(
+	_, err = restore.ValidateFileRanges(
 		[]*backup.File{{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
@@ -147,12 +149,12 @@ func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {
 		Id: 1,
 	}
 
-	makeRegions := func(num uint64) (map[uint64]*RegionInfo, []*RegionInfo) {
-		regionsMap := make(map[uint64]*RegionInfo, num)
-		regions := make([]*RegionInfo, 0, num)
+	makeRegions := func(num uint64) (map[uint64]*restore.RegionInfo, []*restore.RegionInfo) {
+		regionsMap := make(map[uint64]*restore.RegionInfo, num)
+		regions := make([]*restore.RegionInfo, 0, num)
 		endKey := make([]byte, 8)
 		for i := uint64(0); i < num-1; i++ {
-			ri := &RegionInfo{
+			ri := &restore.RegionInfo{
 				Region: &metapb.Region{
 					Id:    i + 1,
 					Peers: peers,
@@ -177,7 +179,7 @@ func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {
 		} else {
 			endKey = codec.EncodeBytes([]byte{}, endKey)
 		}
-		ri := &RegionInfo{
+		ri := &restore.RegionInfo{
 			Region: &metapb.Region{
 				Id:       num,
 				Peers:    peers,
@@ -192,48 +194,48 @@ func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {
 	}
 
 	ctx := context.Background()
-	regionMap := make(map[uint64]*RegionInfo)
-	regions := []*RegionInfo{}
-	batch, err := paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	regionMap := make(map[uint64]*restore.RegionInfo)
+	regions := []*restore.RegionInfo{}
+	batch, err := restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(1)
-	batch, err = paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(2)
-	batch, err = paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(3)
-	batch, err = paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(8)
-	batch, err = paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(8)
-	batch, err = paginateScanRegion(
+	batch, err = restore.PaginateScanRegion(
 		ctx, newTestClient(stores, regionMap, 0), regions[1].Region.StartKey, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[1:])
 
-	batch, err = paginateScanRegion(
+	batch, err = restore.PaginateScanRegion(
 		ctx, newTestClient(stores, regionMap, 0), []byte{}, regions[6].Region.EndKey, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[:7])
 
-	batch, err = paginateScanRegion(
+	batch, err = restore.PaginateScanRegion(
 		ctx, newTestClient(stores, regionMap, 0), regions[1].Region.StartKey, regions[1].Region.EndKey, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[1:2])
 
-	_, err = paginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{2}, []byte{1}, 3)
+	_, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{2}, []byte{1}, 3)
 	c.Assert(err, ErrorMatches, "startKey >= endKey.*")
 }

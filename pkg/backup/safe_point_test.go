@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package backup
+package backup_test
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"
 )
 
@@ -36,19 +37,19 @@ func (s *testSafePointSuite) TestCheckGCSafepoint(c *C) {
 	ctx := context.Background()
 	pdClient := &mockSafePoint{Client: s.mock.PDClient, safepoint: 2333}
 	{
-		err := CheckGCSafePoint(ctx, pdClient, 2333+1)
+		err := backup.CheckGCSafePoint(ctx, pdClient, 2333+1)
 		c.Assert(err, IsNil)
 	}
 	{
-		err := CheckGCSafePoint(ctx, pdClient, 2333)
+		err := backup.CheckGCSafePoint(ctx, pdClient, 2333)
 		c.Assert(err, NotNil)
 	}
 	{
-		err := CheckGCSafePoint(ctx, pdClient, 2333-1)
+		err := backup.CheckGCSafePoint(ctx, pdClient, 2333-1)
 		c.Assert(err, NotNil)
 	}
 	{
-		err := CheckGCSafePoint(ctx, pdClient, 0)
+		err := backup.CheckGCSafePoint(ctx, pdClient, 0)
 		c.Assert(err, ErrorMatches, "GC safepoint 2333 exceed TS 0")
 	}
 }

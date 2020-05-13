@@ -32,7 +32,6 @@ type GCSBackendOptions struct {
 }
 
 func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
-
 	gcs.Endpoint = options.Endpoint
 	gcs.StorageClass = options.StorageClass
 	gcs.PredefinedAcl = options.PredefinedACL

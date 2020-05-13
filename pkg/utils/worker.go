@@ -7,14 +7,14 @@ import (
 	"go.uber.org/zap"
 )
 
-// WorkerPool contains a pool of workers
+// WorkerPool contains a pool of workers.
 type WorkerPool struct {
 	limit   uint
 	workers chan *Worker
 	name    string
 }
 
-// Worker identified by ID
+// Worker identified by ID.
 type Worker struct {
 	ID uint64
 }
