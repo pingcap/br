@@ -5,6 +5,7 @@ PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
+
 BR_PKG := github.com/pingcap/br
 
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(shell git describe --tags --dirty)"
@@ -21,27 +22,26 @@ all: check test build
 build:
 	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
 
-build_for_integration_test:
-	GO111MODULE=on go test -c -cover -covermode=count \
+build_for_integration_test: failpoint-enable
+	(GO111MODULE=on go test -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
-		-o bin/br.test
-	# build key locker
-	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go
-	# build gc
-	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go
-	# build rawkv client
-	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go
+		-o bin/br.test && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go && \
+	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
+	@make failpoint-disable
 
-test:
-	GO111MODULE=on go test ${RACEFLAG} -tags leak ./...
+test: failpoint-enable
+	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
+	@make failpoint-disable
 
-testcover: tools
+testcover: tools failpoint-enable
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
 		-ignore='.git,vendor,tests,_tools,docker' \
 		-debug \
-		-- -coverpkg=./...
+		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
 integration_test: build build_for_integration_test
 	@which bin/tidb-server
@@ -102,5 +102,11 @@ tidy:
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet go.mod go.sum
+
+failpoint-enable: tools
+	tools/bin/failpoint-ctl enable
+
+failpoint-disable: tools
+	tools/bin/failpoint-ctl disable
 
 .PHONY: tools
