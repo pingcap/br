@@ -17,4 +17,7 @@ import (
 
 	// govet checks for code correctness
 	_ "github.com/dnephin/govet"
+
+	// failpoint enables manual 'failure' of some execution points.
+	_ "github.com/pingcap/failpoint"
 )

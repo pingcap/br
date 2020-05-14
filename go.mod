@@ -13,6 +13,7 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
+	github.com/pingcap/failpoint v0.0.0-20200506114213-c17f16071c53
 	github.com/pingcap/kvproto v0.0.0-20200509065137-6a4d5c264a8b
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v0.0.0-20200512060642-fa8905763928
@@ -26,6 +27,7 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
+	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
 	google.golang.org/api v0.15.1
