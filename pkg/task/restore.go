@@ -4,9 +4,7 @@ package task
 
 import (
 	"context"
-	"fmt"
 	"math"
-	"os"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -91,13 +89,6 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
-	}
-	if cfg.Config.Concurrency < defaultRestoreConcurrency {
-		fmt.Fprintf(os.Stdout,
-			"[warn] concurrency is too low for restore cluster,"+
-				"set concurrency >= %d will get suitable performance,"+
-				"if you want to reduce impact on restore cluster, please consider --rate-limit\n",
-			defaultRestoreConcurrency)
 	}
 	return nil
 }
@@ -257,7 +248,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
+	batchSize := int(cfg.Concurrency)
+	if batchSize < defaultRestoreConcurrency {
+		batchSize = defaultRestoreConcurrency
+	}
+	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
 
 	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
