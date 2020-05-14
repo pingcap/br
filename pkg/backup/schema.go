@@ -29,14 +29,13 @@ const (
 	DefaultSchemaConcurrency = 64
 )
 
-// Schemas is task for backuping schemas
+// Schemas is task for backuping schemas.
 type Schemas struct {
 	// name -> schema
 	schemas        map[string]backup.Schema
 	backupSchemaCh chan backup.Schema
 	errCh          chan error
 	wg             *sync.WaitGroup
-	skipChecksum   bool
 }
 
 func newBackupSchemas() *Schemas {
@@ -57,12 +56,7 @@ func (pending *Schemas) pushPending(
 	pending.schemas[name] = schema
 }
 
-// SetSkipChecksum sets whether it should skip checksum
-func (pending *Schemas) SetSkipChecksum(skip bool) {
-	pending.skipChecksum = skip
-}
-
-// Start backups schemas
+// Start backups schemas.
 func (pending *Schemas) Start(
 	ctx context.Context,
 	store kv.Storage,
@@ -80,12 +74,6 @@ func (pending *Schemas) Start(
 			pending.wg.Add(1)
 			workerPool.Apply(func() {
 				defer pending.wg.Done()
-
-				if pending.skipChecksum {
-					pending.backupSchemaCh <- schema
-					updateCh.Inc()
-					return
-				}
 
 				start := time.Now()
 				table := model.TableInfo{}
@@ -122,7 +110,8 @@ func (pending *Schemas) Start(
 	}()
 }
 
-func (pending *Schemas) finishTableChecksum() ([]*backup.Schema, error) {
+// FinishTableChecksum waits until all schemas' checksums are verified.
+func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
 	schemas := make([]*backup.Schema, 0, len(pending.schemas))
 	for {
 		select {

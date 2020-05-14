@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ProgressPrinter prints a progress bar
+// ProgressPrinter prints a progress bar.
 type ProgressPrinter struct {
 	name        string
 	total       int64
@@ -21,7 +21,7 @@ type ProgressPrinter struct {
 	updateCh chan struct{}
 }
 
-// NewProgressPrinter returns a new progress printer
+// NewProgressPrinter returns a new progress printer.
 func NewProgressPrinter(
 	name string,
 	total int64,
@@ -35,12 +35,12 @@ func NewProgressPrinter(
 	}
 }
 
-// UpdateCh returns an update channel
+// UpdateCh returns an update channel.
 func (pp *ProgressPrinter) UpdateCh() chan<- struct{} {
 	return pp.updateCh
 }
 
-// goPrintProgress starts a gorouinte and prints progress
+// goPrintProgress starts a gorouinte and prints progress.
 func (pp *ProgressPrinter) goPrintProgress(
 	ctx context.Context,
 	testWriter io.Writer, // Only for tests

@@ -55,12 +55,12 @@ type TLSConfig struct {
 	Key  string `json:"key" toml:"key"`
 }
 
-// IsEnabled checks if TLS open or not
+// IsEnabled checks if TLS open or not.
 func (tls *TLSConfig) IsEnabled() bool {
 	return tls.CA != ""
 }
 
-// ToTLSConfig generate tls.Config
+// ToTLSConfig generate tls.Config.
 func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 	tlsInfo := transport.TLSInfo{
 		CertFile:      tls.Cert,
@@ -95,7 +95,7 @@ type Config struct {
 // DefineCommonFlags defines the flags common to all BRIE commands.
 func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.BoolP(flagSendCreds, "c", true, "Whether send credentials to tikv")
-	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3:///path/to/save"`)
+	flags.StringP(flagStorage, "s", "", `specify the url where backup storage, eg, "s3://bucket/path/prefix"`)
 	flags.StringSliceP(flagPD, "u", []string{"127.0.0.1:2379"}, "PD address")
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")

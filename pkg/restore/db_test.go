@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore
+package restore_test
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -74,7 +75,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
 	table.Info.AutoIncID = globalAutoID + 100
-	db, err := NewDB(gluetidb.Glue{}, s.mock.Storage)
+	db, err := restore.NewDB(gluetidb.Glue{}, s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
 	// Test empty collate value
@@ -126,7 +127,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 		Db:   dbInfo,
 		Info: tableInfo.Meta(),
 	}}
-	ddlJobs := FilterDDLJobs(allDDLJobs, tables)
+	ddlJobs := restore.FilterDDLJobs(allDDLJobs, tables)
 	for _, job := range ddlJobs {
 		c.Logf("get ddl job: %s", job.Query)
 	}

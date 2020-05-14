@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package backup
+package backup_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"
 )
 
@@ -60,9 +61,9 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 		DoTables: []*filter.Table{{Schema: "test", Name: "t1"}},
 	})
 	c.Assert(err, IsNil)
-	_, backupSchemas, err := BuildBackupRangeAndSchema(
+	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	// Database is not exist.
@@ -70,17 +71,17 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 		DoTables: []*filter.Table{{Schema: "foo", Name: "t1"}},
 	})
 	c.Assert(err, IsNil)
-	_, backupSchemas, err = BuildBackupRangeAndSchema(
+	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
-	// Empty databse.
+	// Empty database.
 	noFilter, err := filter.New(false, &filter.Rules{})
 	c.Assert(err, IsNil)
-	_, backupSchemas, err = BuildBackupRangeAndSchema(
+	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
-	c.Assert(err, NotNil)
+	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
 	tk.MustExec("use test")
@@ -88,13 +89,13 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("create table t1 (a int);")
 	tk.MustExec("insert into t1 values (10);")
 
-	_, backupSchemas, err = BuildBackupRangeAndSchema(
+	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 	updateCh := new(simpleProgress)
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, updateCh)
-	schemas, err := backupSchemas.finishTableChecksum()
+	schemas, err := backupSchemas.FinishTableChecksum()
 	c.Assert(updateCh.get(), Equals, int64(1))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 1)
@@ -108,13 +109,13 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t2 values (10);")
 	tk.MustExec("insert into t2 values (11);")
 
-	_, backupSchemas, err = BuildBackupRangeAndSchema(
+	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	updateCh.reset()
 	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, updateCh)
-	schemas, err = backupSchemas.finishTableChecksum()
+	schemas, err = backupSchemas.FinishTableChecksum()
 	c.Assert(updateCh.get(), Equals, int64(2))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 2)

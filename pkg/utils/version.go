@@ -46,7 +46,7 @@ func BRInfo() string {
 	return buf.String()
 }
 
-// LogArguments prints origin command arguments
+// LogArguments prints origin command arguments.
 func LogArguments(cmd *cobra.Command) {
 	var fields []zap.Field
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {

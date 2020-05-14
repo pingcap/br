@@ -32,6 +32,15 @@ run_sql "DROP TABLE $DB.$TABLE;"
 # change backup path
 mv $TEST_DIR/$DB $TEST_DIR/another$DB
 
+# restore table with old path
+echo "restore with old path start..."
+run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB" --pd $PD_ADDR || restore_old_fail=1
+
+if [ "$restore_old_fail" -ne "1" ];then
+    echo "TEST: [$TEST_NAME] test restore with old path failed!"
+    exit 1
+fi
+
 # restore table
 echo "restore start..."
 run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/another$DB" --pd $PD_ADDR

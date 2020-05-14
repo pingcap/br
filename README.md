@@ -1,6 +1,6 @@
 # BR
 
-[![Build Status](https://internal.pingcap.net/idc-jenkins/job/build_br_master/badge/icon)](https://internal.pingcap.net/idc-jenkins/job/build_br_master/)
+[![Build Status](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/master/badge/icon)](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/master/)
 [![codecov](https://codecov.io/gh/pingcap/br/branch/master/graph/badge.svg)](https://codecov.io/gh/pingcap/br)
 [![LICENSE](https://img.shields.io/github/license/pingcap/br.svg)](https://github.com/pingcap/br/blob/master/LICENSE)
 [![Language](https://img.shields.io/badge/Language-Go-blue.svg)](https://golang.org/)
@@ -23,9 +23,7 @@
 
 ## Building
 
-1. Install [retool](https://github.com/twitchtv/retool)
-
-2. To build binary and run test:
+To build binary and run test:
 
 ```bash
 $ make
@@ -56,7 +54,7 @@ go-ycsb load mysql -p workload=core \
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
 
 # Build BR and backup!
-make release && \
+make build && \
 bin/br backup full --pd pd0:2379 --storage "local:///data/backup/full" \
     --log-file "/logs/br_backup.log"
 
@@ -69,6 +67,20 @@ bin/br restore full --pd pd0:2379 --storage "local:///data/backup/full" \
 
 # How many rows do we get again? Expected to be 100000 rows.
 mysql -uroot -htidb -P4000 -E -e "SELECT COUNT(*) FROM test.usertable"
+
+# Test S3 compatible storage (MinIO).
+# Create a bucket to save backup by mc (a MinIO Client).
+mc config host add minio $S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY && \
+mc mb minio/mybucket
+
+# Backup to S3 compatible storage.
+bin/br backup full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
+
+# Drop database and restore!
+mysql -uroot -htidb -P4000 -E -e "DROP DATABASE test; SHOW DATABASES;" && \
+bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
+    --s3.endpoint="$S3_ENDPOINT"
 ```
 
 ## Contributing

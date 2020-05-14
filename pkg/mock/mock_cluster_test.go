@@ -1,21 +1,29 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package mock
+package mock_test
 
 import (
+	"testing"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/util/testleak"
+
+	"github.com/pingcap/br/pkg/mock"
 )
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 var _ = Suite(&testClusterSuite{})
 
 type testClusterSuite struct {
-	mock *Cluster
+	mock *mock.Cluster
 }
 
 func (s *testClusterSuite) SetUpSuite(c *C) {
 	var err error
-	s.mock, err = NewCluster()
+	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 }
 
