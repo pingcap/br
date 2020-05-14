@@ -86,6 +86,7 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
 	}
@@ -247,7 +248,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
+	batchSize := int(cfg.Concurrency)
+	if batchSize < defaultRestoreConcurrency {
+		batchSize = defaultRestoreConcurrency
+	}
+	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
 
 	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
