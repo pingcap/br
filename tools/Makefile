@@ -1,4 +1,4 @@
-all: bin/goimports bin/govet bin/revive bin/overalls bin/golangci-lint
+all: bin/goimports bin/govet bin/revive bin/overalls bin/golangci-lint bin/failpoint-ctl
 
 bin/goimports:
 	go build -o $@ golang.org/x/tools/cmd/goimports
@@ -14,3 +14,6 @@ bin/overalls:
 
 bin/golangci-lint:
 	go build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
+
+bin/failpoint-ctl:
+	go build -o $@ github.com/pingcap/failpoint/failpoint-ctl
