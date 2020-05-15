@@ -6,8 +6,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -285,4 +289,28 @@ func escapeFilterName(name string) string {
 		return name
 	}
 	return "~^" + regexp.QuoteMeta(name) + "$"
+}
+
+// flagToZapField checks whether this flag can be logged,
+// if need to log, return its zap field. Or return a field with hidden value.
+func flagToZapField(f *pflag.Flag) zap.Field {
+	if f.Name == flagStorage {
+		hiddenQuery, err := url.Parse(f.Value.String())
+		if err != nil {
+			return zap.String(f.Name, "<invalid URI>")
+		}
+		// hide all query here.
+		hiddenQuery.RawQuery = ""
+		return zap.Stringer(f.Name, hiddenQuery)
+	}
+	return zap.Stringer(f.Name, f.Value)
+}
+
+// LogArguments prints origin command arguments.
+func LogArguments(cmd *cobra.Command) {
+	var fields []zap.Field
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		fields = append(fields, flagToZapField(f))
+	})
+	log.Info("arguments", fields...)
 }
