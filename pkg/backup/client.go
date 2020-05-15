@@ -763,8 +763,7 @@ func SendBackup(
 	log.Info("try backup",
 		zap.Binary("StartKey", req.StartKey),
 		zap.Binary("EndKey", req.EndKey),
-		zap.Uint64("RateLimit", req.RateLimit),
-		zap.Uint32("Concurrency", req.Concurrency),
+		zap.Uint64("storeID", storeID),
 	)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

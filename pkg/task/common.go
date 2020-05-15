@@ -309,7 +309,9 @@ func flagToZapField(f *pflag.Flag) zap.Field {
 func LogArguments(cmd *cobra.Command) {
 	var fields []zap.Field
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		fields = append(fields, flagToZapField(f))
+		if f.Changed {
+			fields = append(fields, flagToZapField(f))
+		}
 	})
 	log.Info("arguments", fields...)
 }
