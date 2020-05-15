@@ -58,7 +58,16 @@ done
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT"
+BACKUP_LOG="backup.log"
+rm -f $BACKUP_LOG
+unset BR_LOG_TO_TERM
+run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT" --log-file $BACKUP_LOG || \
+    (cat $BACKUP_LOG && exit 1)
+
+if grep -i $MINIO_SECRET_KEY $BACKUP_LOG; then
+    echo "Secret key logged in log. Please remove them."
+    exit 1
+fi
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
@@ -66,7 +75,16 @@ done
 
 # restore full
 echo "restore start..."
-run_br restore full -s "s3://mybucket/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT"
+RESTORE_LOG="restore.log"
+rm -f $RESTORE_LOG
+run_br restore full -s "s3://mybucket/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" --log-file $RESTORE_LOG || \
+    (cat $RESTORE_LOG && exit 1)
+BR_LOG_TO_TERM=1
+
+if grep -i $MINIO_SECRET_KEY $RESTORE_LOG; then
+    echo "Secret key logged in log. Please remove them."
+    exit 1
+fi
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
