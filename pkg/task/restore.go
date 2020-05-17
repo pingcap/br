@@ -276,7 +276,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	return nil
 }
 
-// dropToBlockhole drop all incoming tables into black hole.
+// dropToBlackhole drop all incoming tables into black hole.
 func dropToBlackhole(
 	ctx context.Context,
 	tableStream <-chan restore.CreatedTable,

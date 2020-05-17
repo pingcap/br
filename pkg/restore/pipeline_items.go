@@ -84,7 +84,7 @@ func (b *Batcher) Len() int {
 
 // BatchSender is the abstract of how the batcher send a batch.
 type BatchSender interface {
-	// RestoreBatch will backup all ranges and tables
+	// RestoreBatch will send the restore request.
 	RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs []CreatedTable) error
 	Close()
 }

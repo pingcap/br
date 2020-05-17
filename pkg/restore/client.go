@@ -336,7 +336,7 @@ func (rc *Client) CreateTables(
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
-	// Let's ensure that the original order.
+	// Let's ensure that it won't break the original order.
 	sort.Slice(newTables, func(i, j int) bool {
 		return tbMapping[newTables[i].Name.String()] < tbMapping[newTables[j].Name.String()]
 	})
