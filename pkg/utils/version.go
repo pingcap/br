@@ -9,8 +9,6 @@ import (
 
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/israce"
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"go.uber.org/zap"
 )
 
@@ -44,13 +42,4 @@ func BRInfo() string {
 	fmt.Fprintf(&buf, "UTC Build Time: %s\n", BRBuildTS)
 	fmt.Fprintf(&buf, "Race Enabled: %t", israce.RaceEnabled)
 	return buf.String()
-}
-
-// LogArguments prints origin command arguments.
-func LogArguments(cmd *cobra.Command) {
-	var fields []zap.Field
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		fields = append(fields, zap.Stringer(f.Name, f.Value))
-	})
-	log.Info("arguments", fields...)
 }

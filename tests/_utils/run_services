@@ -77,7 +77,7 @@ start_services() {
           echo 'Failed to initialize TiKV cluster'
           exit 1
        fi
-       sleep 3
+       sleep 5
     done
 
     echo "Starting TiDB..."
