@@ -42,7 +42,7 @@ func NewBackupCommand() *cobra.Command {
 				return err
 			}
 			utils.LogBRInfo()
-			utils.LogArguments(c)
+			task.LogArguments(c)
 
 			// Do not run ddl worker in BR.
 			ddl.RunWorker = false
