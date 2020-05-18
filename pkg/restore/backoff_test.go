@@ -61,14 +61,17 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 		case 1:
 			return restore.ErrEpochNotMatch
 		case 2:
+			return restore.ErrDownloadFailed
+		case 3:
 			return restore.ErrRangeIsEmpty
 		}
 		return nil
 	}, backoffer)
-	c.Assert(counter, Equals, 3)
+	c.Assert(counter, Equals, 4)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
 		restore.ErrGRPC,
 		restore.ErrEpochNotMatch,
+		restore.ErrDownloadFailed,
 		restore.ErrRangeIsEmpty,
 	})
 }
