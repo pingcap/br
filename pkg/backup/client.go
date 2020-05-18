@@ -760,7 +760,11 @@ func SendBackup(
 	req kvproto.BackupRequest,
 	respFn func(*kvproto.BackupResponse) error,
 ) error {
-	log.Info("try backup", zap.Any("backup request", req))
+	log.Info("try backup",
+		zap.Binary("StartKey", req.StartKey),
+		zap.Binary("EndKey", req.EndKey),
+		zap.Uint64("storeID", storeID),
+	)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	bcli, err := client.Backup(ctx, &req)
