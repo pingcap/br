@@ -33,7 +33,7 @@ const (
 	maxRetries = 3
 )
 
-// s3Handlers make it easy to inject test functions
+// s3Handlers make it easy to inject test functions.
 type s3Handlers interface {
 	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
 	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
@@ -42,14 +42,14 @@ type s3Handlers interface {
 	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
 }
 
-// S3Storage info for s3 storage
+// S3Storage info for s3 storage.
 type S3Storage struct {
 	session *session.Session
 	svc     s3Handlers
 	options *backup.S3
 }
 
-// S3BackendOptions contains options for s3 storage
+// S3BackendOptions contains options for s3 storage.
 type S3BackendOptions struct {
 	Endpoint              string `json:"endpoint" toml:"endpoint"`
 	Region                string `json:"region" toml:"region"`
@@ -153,7 +153,7 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
-// newS3Storage initialize a new s3 storage for metadata
+// newS3Storage initialize a new s3 storage for metadata.
 func newS3Storage( // revive:disable-line:flag-parameter
 	backend *backup.S3,
 	sendCredential bool,
@@ -211,7 +211,7 @@ func newS3Storage( // revive:disable-line:flag-parameter
 	}, nil
 }
 
-// checkBucket checks if a bucket exists
+// checkBucket checks if a bucket exists.
 var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
@@ -220,7 +220,7 @@ var checkS3Bucket = func(svc *s3.S3, bucket string) error {
 	return err
 }
 
-// Write write to s3 storage
+// Write write to s3 storage.
 func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error {
 	input := &s3.PutObjectInput{
 		Body:   aws.ReadSeekCloser(bytes.NewReader(data)),
@@ -252,7 +252,7 @@ func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error 
 	return err
 }
 
-// Read read file from s3
+// Read read file from s3.
 func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
@@ -271,7 +271,7 @@ func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 	return data, nil
 }
 
-// FileExists check if file exists on s3 storage
+// FileExists check if file exists on s3 storage.
 func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) {
 	input := &s3.HeadObjectInput{
 		Bucket: aws.String(rs.options.Bucket),

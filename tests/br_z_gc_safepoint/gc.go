@@ -30,6 +30,7 @@ var (
 	pdAddr   = flag.String("pd", "", "PD address")
 	gcOffset = flag.Duration("gc-offset", time.Second*10,
 		"Set GC safe point to current time - gc-offset, default: 10s")
+	updateService = flag.Bool("update-service", false, "use new service to update min SafePoint")
 )
 
 func main() {
@@ -55,10 +56,17 @@ func main() {
 	now := oracle.ComposeTS(p, l)
 	nowMinusOffset := oracle.GetTimeFromTS(now).Add(-*gcOffset)
 	newSP := oracle.ComposeTS(oracle.GetPhysical(nowMinusOffset), 0)
-	_, err = pdclient.UpdateGCSafePoint(ctx, newSP)
-	if err != nil {
-		log.Fatal("create pd client failed", zap.Error(err))
+	if *updateService {
+		_, err = pdclient.UpdateServiceGCSafePoint(ctx, "br", 300, newSP)
+		if err != nil {
+			log.Fatal("update service safe point failed", zap.Error(err))
+		}
+		log.Info("update service GC safe point", zap.Uint64("SP", newSP), zap.Uint64("now", now))
+	} else {
+		_, err = pdclient.UpdateGCSafePoint(ctx, newSP)
+		if err != nil {
+			log.Fatal("update safe point failed", zap.Error(err))
+		}
+		log.Info("update GC safe point", zap.Uint64("SP", newSP), zap.Uint64("now", now))
 	}
-
-	log.Info("update GC safe point", zap.Uint64("SP", newSP), zap.Uint64("now", now))
 }

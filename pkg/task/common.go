@@ -6,18 +6,21 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"go.etcd.io/etcd/pkg/transport"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -55,12 +58,12 @@ type TLSConfig struct {
 	Key  string `json:"key" toml:"key"`
 }
 
-// IsEnabled checks if TLS open or not
+// IsEnabled checks if TLS open or not.
 func (tls *TLSConfig) IsEnabled() bool {
 	return tls.CA != ""
 }
 
-// ToTLSConfig generate tls.Config
+// ToTLSConfig generate tls.Config.
 func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 	tlsInfo := transport.TLSInfo{
 		CertFile:      tls.Cert,
@@ -285,4 +288,30 @@ func escapeFilterName(name string) string {
 		return name
 	}
 	return "~^" + regexp.QuoteMeta(name) + "$"
+}
+
+// flagToZapField checks whether this flag can be logged,
+// if need to log, return its zap field. Or return a field with hidden value.
+func flagToZapField(f *pflag.Flag) zap.Field {
+	if f.Name == flagStorage {
+		hiddenQuery, err := url.Parse(f.Value.String())
+		if err != nil {
+			return zap.String(f.Name, "<invalid URI>")
+		}
+		// hide all query here.
+		hiddenQuery.RawQuery = ""
+		return zap.Stringer(f.Name, hiddenQuery)
+	}
+	return zap.Stringer(f.Name, f.Value)
+}
+
+// LogArguments prints origin command arguments.
+func LogArguments(cmd *cobra.Command) {
+	var fields []zap.Field
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			fields = append(fields, flagToZapField(f))
+		}
+	})
+	log.Info("arguments", fields...)
 }

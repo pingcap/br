@@ -68,9 +68,11 @@ type Client struct {
 	backupMeta kvproto.BackupMeta
 	storage    storage.ExternalStorage
 	backend    *kvproto.StorageBackend
+
+	gcTTL int64
 }
 
-// NewBackupClient returns a new backup client
+// NewBackupClient returns a new backup client.
 func NewBackupClient(ctx context.Context, mgr ClientMgr) (*Client, error) {
 	log.Info("new backup client")
 	pdClient := mgr.GetPDClient()
@@ -112,7 +114,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	}
 
 	// check backup time do not exceed GCSafePoint
-	err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -120,7 +122,17 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	return backupTS, nil
 }
 
-// SetStorage set ExternalStorage for client
+// SetGCTTL set gcTTL for client.
+func (bc *Client) SetGCTTL(ttl int64) {
+	bc.gcTTL = ttl
+}
+
+// GetGCTTL get gcTTL for this backup.
+func (bc *Client) GetGCTTL() int64 {
+	return bc.gcTTL
+}
+
+// SetStorage set ExternalStorage for client.
 func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBackend, sendCreds bool) error {
 	var err error
 	bc.storage, err = storage.Create(ctx, backend, sendCreds)
@@ -157,7 +169,9 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
-func buildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
+// BuildTableRanges returns the key ranges encompassing the entire table,
+// and its partitions if exists.
+func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 	pis := tbl.GetPartitionInfo()
 	if pis == nil {
 		// Short path, no partition.
@@ -190,7 +204,6 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 		kvRanges = append(kvRanges, idxRanges...)
 	}
 	return kvRanges, nil
-
 }
 
 // BuildBackupRangeAndSchema gets the range and schema of tables.
@@ -282,7 +295,7 @@ func BuildBackupRangeAndSchema(
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
-			tableRanges, err := buildTableRanges(tableInfo)
+			tableRanges, err := BuildTableRanges(tableInfo)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -302,7 +315,7 @@ func BuildBackupRangeAndSchema(
 	return ranges, backupSchemas, nil
 }
 
-// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS]
+// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
 func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
 	snapMeta, err := dom.GetSnapshotMeta(backupTS)
 	if err != nil {
@@ -379,19 +392,26 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
+	backupTS := req.EndVersion
+	// use lastBackupTS as safePoint if exists
+	if req.StartVersion > 0 {
+		backupTS = req.StartVersion
+	}
+
+	log.Info("current backup safePoint job",
+		zap.Uint64("backupTS", backupTS))
+
 	finished := false
 	for {
-		err := CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.EndVersion)
+		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
 		if err != nil {
-			log.Error("check GC safepoint failed", zap.Error(err))
+			log.Error("update GC safePoint with TTL failed", zap.Error(err))
 			return err
 		}
-		if req.StartVersion > 0 {
-			err = CheckGCSafepoint(ctx, bc.mgr.GetPDClient(), req.StartVersion)
-			if err != nil {
-				log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
-				return err
-			}
+		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+		if err != nil {
+			log.Error("check GC safePoint failed", zap.Error(err))
+			return err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
@@ -749,7 +769,11 @@ func SendBackup(
 	req kvproto.BackupRequest,
 	respFn func(*kvproto.BackupResponse) error,
 ) error {
-	log.Info("try backup", zap.Any("backup request", req))
+	log.Info("try backup",
+		zap.Binary("StartKey", req.StartKey),
+		zap.Binary("EndKey", req.EndKey),
+		zap.Uint64("storeID", storeID),
+	)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	bcli, err := client.Backup(ctx, &req)
@@ -821,7 +845,7 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	return true, nil
 }
 
-// ArchiveSize returns the total size of the archive (before encryption)
+// ArchiveSize returns the total size of the archive (before encryption).
 func (bc *Client) ArchiveSize() uint64 {
 	return utils.ArchiveSize(&bc.backupMeta)
 }
@@ -885,9 +909,9 @@ func (bc *Client) CollectChecksums() ([]Checksum, error) {
 	return checksums, nil
 }
 
-// CompleteMeta wait response of admin checksum from TiDB to complete backup meta
+// CompleteMeta wait response of admin checksum from TiDB to complete backup meta.
 func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
-	schemas, err := backupSchemas.finishTableChecksum()
+	schemas, err := backupSchemas.FinishTableChecksum()
 	if err != nil {
 		return err
 	}

@@ -29,7 +29,7 @@ const (
 	DefaultSchemaConcurrency = 64
 )
 
-// Schemas is task for backuping schemas
+// Schemas is task for backuping schemas.
 type Schemas struct {
 	// name -> schema
 	schemas        map[string]backup.Schema
@@ -56,7 +56,7 @@ func (pending *Schemas) pushPending(
 	pending.schemas[name] = schema
 }
 
-// Start backups schemas
+// Start backups schemas.
 func (pending *Schemas) Start(
 	ctx context.Context,
 	store kv.Storage,
@@ -110,7 +110,8 @@ func (pending *Schemas) Start(
 	}()
 }
 
-func (pending *Schemas) finishTableChecksum() ([]*backup.Schema, error) {
+// FinishTableChecksum waits until all schemas' checksums are verified.
+func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
 	schemas := make([]*backup.Schema, 0, len(pending.schemas))
 	for {
 		select {

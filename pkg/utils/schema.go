@@ -123,7 +123,7 @@ func ArchiveSize(meta *backup.BackupMeta) uint64 {
 	return total
 }
 
-// EncloseName formats name in sql
+// EncloseName formats name in sql.
 func EncloseName(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }

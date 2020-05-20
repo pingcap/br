@@ -42,7 +42,7 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) err
 	return task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg)
 }
 
-// NewRestoreCommand returns a restore subcommand
+// NewRestoreCommand returns a restore subcommand.
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:          "restore",
@@ -53,7 +53,7 @@ func NewRestoreCommand() *cobra.Command {
 				return err
 			}
 			utils.LogBRInfo()
-			utils.LogArguments(c)
+			task.LogArguments(c)
 
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()

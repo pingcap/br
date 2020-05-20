@@ -25,7 +25,7 @@ var (
 		})
 )
 
-func init() {
+func init() { // nolint:gochecknoinits
 	prometheus.MustRegister(backupRegionCounters)
 	prometheus.MustRegister(backupRegionHistogram)
 }

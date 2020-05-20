@@ -34,4 +34,9 @@ Related changes
 
  - Need to cherry-pick to the release branch
  - Need to update the documentation
- - Need to be included in the release note
+
+### Release Note
+
+ -
+
+<!-- fill in the release note, or just write "No release note" -->
