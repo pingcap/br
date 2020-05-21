@@ -397,7 +397,8 @@ func (importer *FileImporter) downloadRawKVSST(
 	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
 		sstMeta.Range.Start = importer.rawStartKey
 	}
-	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) <= 0 {
+	if len(importer.rawEndKey) > 0 &&
+		(len(sstMeta.Range.GetEnd()) == 0 || bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) <= 0) {
 		sstMeta.Range.End = importer.rawEndKey
 		sstMeta.EndKeyExclusive = true
 	}
