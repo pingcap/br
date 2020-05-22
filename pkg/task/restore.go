@@ -88,6 +88,7 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
 	}
@@ -228,7 +229,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
+	batchSize := int(cfg.Concurrency)
+	if batchSize < defaultRestoreConcurrency {
+		batchSize = defaultRestoreConcurrency
+	}
+	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(
@@ -273,7 +278,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	return nil
 }
 
-// dropToBlockhole drop all incoming tables into black hole.
+// dropToBlackhole drop all incoming tables into black hole.
 func dropToBlackhole(
 	ctx context.Context,
 	tableStream <-chan restore.CreatedTable,

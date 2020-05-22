@@ -13,12 +13,13 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
+	github.com/pingcap/failpoint v0.0.0-20200506114213-c17f16071c53
 	github.com/pingcap/kvproto v0.0.0-20200509065137-6a4d5c264a8b
 	github.com/pingcap/log v0.0.0-20200117041106-d28c14d3b1cd
 	github.com/pingcap/parser v0.0.0-20200507022230-f3bf29096657
 	github.com/pingcap/pd/v4 v4.0.0-rc.1.0.20200508085806-feb738d721fb
 	github.com/pingcap/tidb v1.1.0-beta.0.20200509133407-a9dc72cf2558
-	github.com/pingcap/tidb-tools v4.0.0-rc.1.0.20200421113014-507d2bb3a15e+incompatible
+	github.com/pingcap/tidb-tools v4.0.0-rc.1.0.20200514040632-f76b3e428e19+incompatible
 	github.com/pingcap/tipb v0.0.0-20200417094153-7316d94df1ee
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1

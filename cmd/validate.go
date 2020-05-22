@@ -37,7 +37,7 @@ func NewValidateCommand() *cobra.Command {
 				return err
 			}
 			utils.LogBRInfo()
-			utils.LogArguments(c)
+			task.LogArguments(c)
 			return nil
 		},
 	}
