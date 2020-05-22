@@ -514,16 +514,16 @@ func (bc *Client) findRegionLeader(
 	key = codec.EncodeBytes([]byte{}, key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
-		_, leader, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
+		region, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
 		if err != nil {
 			log.Error("find leader failed", zap.Error(err))
 			time.Sleep(time.Millisecond * time.Duration(100*i))
 			continue
 		}
-		if leader != nil {
+		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", leader), zap.Binary("Key", key))
-			return leader, nil
+				zap.Reflect("Leader", region.Leader), zap.Binary("Key", key))
+			return region.Leader, nil
 		}
 		log.Warn("no region found", zap.Binary("Key", key))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
@@ -760,7 +760,11 @@ func SendBackup(
 	req kvproto.BackupRequest,
 	respFn func(*kvproto.BackupResponse) error,
 ) error {
-	log.Info("try backup", zap.Any("backup request", req))
+	log.Info("try backup",
+		zap.Binary("StartKey", req.StartKey),
+		zap.Binary("EndKey", req.EndKey),
+		zap.Uint64("storeID", storeID),
+	)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	bcli, err := client.Backup(ctx, &req)

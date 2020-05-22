@@ -53,7 +53,7 @@ func NewRestoreCommand() *cobra.Command {
 				return err
 			}
 			utils.LogBRInfo()
-			utils.LogArguments(c)
+			task.LogArguments(c)
 
 			// Do not run stat worker in BR.
 			session.DisableStats4Test()
