@@ -35,12 +35,10 @@ require (
 	github.com/syndtr/goleveldb v1.0.1-0.20190625010220-02440ea7a285 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
+	go.opencensus.io v0.22.2 // indirect
 	go.uber.org/multierr v1.5.0
-	go.uber.org/zap v1.15.0
-	golang.org/x/net v0.0.0-20200324143707-d3edc9973b7e // indirect
-	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/tools v0.0.0-20200325010219-a49f79bcc224 // indirect
-	google.golang.org/api v0.15.1
-	google.golang.org/grpc v1.26.0
-	honnef.co/go/tools v0.0.1-2020.1.3 // indirect
+	go.uber.org/zap v1.14.1
+	golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45
+	google.golang.org/api v0.14.0
+	google.golang.org/grpc v1.25.1
 )
