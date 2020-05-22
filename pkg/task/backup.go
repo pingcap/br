@@ -34,6 +34,7 @@ const (
 	flagLastBackupTS  = "lastbackupts"
 
 	flagGCTTL = "gcttl"
+	flagBackupSequence = "backupsequence"
 
 	defaultBackupConcurrency = 4
 )
@@ -46,6 +47,7 @@ type BackupConfig struct {
 	BackupTS     uint64        `json:"backup-ts" toml:"backup-ts"`
 	LastBackupTS uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
 	GCTTL        int64         `json:"gc-ttl" toml:"gc-ttl"`
+	BackupSequence bool `json:"backup-sequence" toml:"backup-sequence"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -60,6 +62,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
+	flags.Bool(flagBackupSequence, false, "whether backup sequence or not")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -89,6 +92,12 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.GCTTL = gcTTL
+
+	backupSequence, err := flags.GetBool(flagBackupSequence)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.BackupSequence = backupSequence
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -135,7 +144,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	g.Record("BackupTS", backupTS)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)
+		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS, cfg.BackupSequence)
 	if err != nil {
 		return err
 	}
