@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"sync"
@@ -293,10 +292,7 @@ func (rc *Client) GetTableSchema(
 	dbName model.CIStr,
 	tableName model.CIStr,
 ) (*model.TableInfo, error) {
-	info, err := dom.GetSnapshotInfoSchema(math.MaxInt64)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+	info := dom.InfoSchema()
 	table, err := info.TableByName(dbName, tableName)
 	if err != nil {
 		return nil, errors.Trace(err)
