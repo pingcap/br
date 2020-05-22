@@ -203,14 +203,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	summary.CollectInt("restore ranges", rangeSize)
 	log.Info("range and file prepared", zap.Int("file count", len(files)), zap.Int("range count", rangeSize))
 
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := g.StartProgress(
-		ctx,
-		cmdName,
-		// Split/Scatter + Download/Ingest
-		int64(restore.EstimateRangeSize(files)+len(files)),
-		!cfg.LogProgress)
-
 	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
 		return err
@@ -238,6 +230,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Restore sst files in batch.
 	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
 
+	// Redirect to log if there is no log file to avoid unreadable output.
+	updateCh := g.StartProgress(
+		ctx,
+		cmdName,
+		// Split/Scatter + Download/Ingest + Checksum
+		int64(restore.EstimateRangeSize(files)+len(files)+len(tables)),
+		!cfg.LogProgress)
+	defer updateCh.Close()
 	sender, err := restore.NewTiKVSender(ctx, client, updateCh)
 	if err != nil {
 		return err
@@ -250,9 +250,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	var finish <-chan struct{}
 	// Checksum
 	if cfg.Checksum {
-		updateCh = g.StartProgress(
-			ctx, "Checksum", int64(len(tables)), true)
-		defer updateCh.Close()
 		finish = client.GoValidateChecksum(
 			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
 	} else {

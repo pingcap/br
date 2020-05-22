@@ -151,7 +151,7 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs
 }
 
 func (b *tikvSender) Close() {
-	b.updateCh.Close()
+	// don't close update channel here, since we may need it then.
 }
 
 // NewBatcher creates a new batcher by client and updateCh.
