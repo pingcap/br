@@ -62,7 +62,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64, false)
+		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -72,7 +72,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64, false)
+		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -80,7 +80,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	noFilter, err := filter.New(false, &filter.Rules{})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64, false)
+		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -90,7 +90,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t1 values (10);")
 
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64, false)
+		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 	updateCh := new(simpleProgress)
@@ -110,7 +110,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t2 values (11);")
 
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64, false)
+		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	updateCh.reset()

@@ -212,7 +212,6 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	tableFilter *filter.Filter,
 	backupTS uint64,
-	backupSequence bool,
 ) ([]rtree.Range, *Schemas, error) {
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
@@ -240,10 +239,6 @@ func BuildBackupRangeAndSchema(
 			var globalAutoID int64
 			switch {
 			case tableInfo.IsSequence():
-				if !backupSequence {
-					// don't backup sequence
-					continue
-				}
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
 			case tableInfo.IsView():
 				// no auto ID for views.
