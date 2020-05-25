@@ -5,6 +5,8 @@ package utils
 import (
 	"context"
 	"time"
+
+	"go.uber.org/multierr"
 )
 
 // RetryableFunc presents a retryable operation.
@@ -18,25 +20,28 @@ type Backoffer interface {
 	Attempt() int
 }
 
-// WithRetry retrys a given operation with a backoff policy.
+// WithRetry retries a given operation with a backoff policy.
+//
+// Returns nil if `retryableFunc` succeeded at least once. Otherwise, returns a
+// multierr containing all errors encountered.
 func WithRetry(
 	ctx context.Context,
 	retryableFunc RetryableFunc,
 	backoffer Backoffer,
 ) error {
-	var lastErr error
+	var allErrors error
 	for backoffer.Attempt() > 0 {
 		err := retryableFunc()
 		if err != nil {
-			lastErr = err
+			allErrors = multierr.Append(allErrors, err)
 			select {
 			case <-ctx.Done():
-				return lastErr
+				return allErrors
 			case <-time.After(backoffer.NextBackoff(err)):
 			}
 		} else {
 			return nil
 		}
 	}
-	return lastErr
+	return allErrors
 }
