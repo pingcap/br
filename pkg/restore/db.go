@@ -109,27 +109,30 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 
 	var restoreMetaSQL string
 	if table.Info.IsSequence() {
-		increment := table.Info.Sequence.Increment
-		// TiDB sequence's behaviour is designed to keep the same pace
-		// among all nodes within the same cluster. so we need restore round.
-		// Here is a hack way to trigger sequence cycle round > 0 according to
-		// https://github.com/pingcap/br/pull/242#issuecomment-631307978
-		// TODO use sql to set cycle round
 		setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
 			utils.EncloseName(table.Db.Name.O),
 			utils.EncloseName(table.Info.Name.O))
-		nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
-			utils.EncloseName(table.Db.Name.O),
-			utils.EncloseName(table.Info.Name.O))
-
-		if increment < 0 {
-			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+		if table.Info.Sequence.Cycle {
+			increment := table.Info.Sequence.Increment
+			// TiDB sequence's behaviour is designed to keep the same pace
+			// among all nodes within the same cluster. so we need restore round.
+			// Here is a hack way to trigger sequence cycle round > 0 according to
+			// https://github.com/pingcap/br/pull/242#issuecomment-631307978
+			// TODO use sql to set cycle round
+			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
+				utils.EncloseName(table.Db.Name.O),
+				utils.EncloseName(table.Info.Name.O))
+			if increment < 0 {
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+			} else {
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+			}
+			// trigger cycle round > 0
+			restoreMetaSQL += nextSeqSQL
+			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 		} else {
-			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 		}
-		// trigger cycle round > 0
-		restoreMetaSQL += nextSeqSQL
-		restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 	} else {
 		var alterAutoIncIDFormat string
 		switch {
