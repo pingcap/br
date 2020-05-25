@@ -228,6 +228,7 @@ func BuildBackupRangeAndSchema(
 
 		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
+		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
 		for _, tableInfo := range dbInfo.Tables {
@@ -235,7 +236,15 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
-			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+			var globalAutoID int64
+			switch {
+			case tableInfo.IsSequence():
+				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
+			case tableInfo.IsView():
+				// no auto ID for views.
+			default:
+				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
+			}
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
@@ -514,16 +523,16 @@ func (bc *Client) findRegionLeader(
 	key = codec.EncodeBytes([]byte{}, key)
 	for i := 0; i < 5; i++ {
 		// better backoff.
-		_, leader, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
+		region, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
 		if err != nil {
 			log.Error("find leader failed", zap.Error(err))
 			time.Sleep(time.Millisecond * time.Duration(100*i))
 			continue
 		}
-		if leader != nil {
+		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", leader), zap.Binary("Key", key))
-			return leader, nil
+				zap.Reflect("Leader", region.Leader), zap.Binary("Key", key))
+			return region.Leader, nil
 		}
 		log.Warn("no region found", zap.Binary("Key", key))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
