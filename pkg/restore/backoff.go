@@ -60,7 +60,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case errGrpc, errEpochNotMatch, errIngestFailed:
+	case errGrpc, errEpochNotMatch, errDownloadFailed, errIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	case errRangeIsEmpty, errRewriteRuleNotFound:
