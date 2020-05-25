@@ -3,16 +3,18 @@
 package restore_test
 
 import (
+	"bytes"
 	"context"
+	"sync"
 	"time"
+
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 
 	"github.com/pingcap/br/pkg/restore"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
@@ -21,55 +23,51 @@ import (
 type testBatcherSuite struct{}
 
 type drySender struct {
-	tbls   chan restore.CreatedTable
-	ranges chan rtree.Range
-	nBatch int
+	mu *sync.Mutex
+
+	rewriteRules *restore.RewriteRules
+	ranges       []rtree.Range
+	nBatch       int
 }
 
 func (d *drySender) RestoreBatch(
 	_ctx context.Context,
 	ranges []rtree.Range,
-	tbs []restore.CreatedTable,
+	rewriteRules *restore.RewriteRules,
 ) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.nBatch++
-	for _, tbl := range tbs {
-		log.Info("dry restore", zap.Int64("table ID", tbl.Table.ID))
-		d.tbls <- tbl
-	}
-	for _, rng := range ranges {
-		d.ranges <- rng
-	}
+	d.rewriteRules.Append(*rewriteRules)
+	d.ranges = append(d.ranges, ranges...)
 	return nil
 }
 
-func (d *drySender) Close() {
-	close(d.tbls)
-	close(d.ranges)
-}
+func (d *drySender) Close() {}
 
-func (d *drySender) exhaust() (tbls []restore.CreatedTable, rngs []rtree.Range) {
-	for tbl := range d.tbls {
-		tbls = append(tbls, tbl)
-	}
-	for rng := range d.ranges {
-		rngs = append(rngs, rng)
-	}
-	return
+func (d *drySender) Ranges() []rtree.Range {
+	return d.ranges
 }
 
 func newDrySender() *drySender {
 	return &drySender{
-		tbls:   make(chan restore.CreatedTable, 4096),
-		ranges: make(chan rtree.Range, 4096),
+		rewriteRules: restore.EmptyRewriteRule(),
+		ranges:       []rtree.Range{},
+		mu:           new(sync.Mutex),
 	}
+}
+
+func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
+	for _, rule := range d.rewriteRules.Table {
+		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *drySender) RangeLen() int {
 	return len(d.ranges)
-}
-
-func (d *drySender) TableLen() int {
-	return len(d.tbls)
 }
 
 func (d *drySender) BatchCount() int {
@@ -98,11 +96,29 @@ func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 	return tblWithRng
 }
 
+func fakeRewriteRules(oldPrefix string, newPrefix string) *restore.RewriteRules {
+	return &restore.RewriteRules{
+		Table: []*import_sstpb.RewriteRule{
+			{
+				OldKeyPrefix: []byte(oldPrefix),
+				NewKeyPrefix: []byte(newPrefix),
+			},
+		},
+	}
+}
+
 func fakeRange(startKey, endKey string) rtree.Range {
 	return rtree.Range{
 		StartKey: []byte(startKey),
 		EndKey:   []byte(endKey),
 	}
+}
+
+func join(nested [][]rtree.Range) (plain []rtree.Range) {
+	for _, ranges := range nested {
+		plain = append(plain, ranges...)
+	}
+	return plain
 }
 
 // TestBasic tests basic workflow of batcher.
@@ -112,10 +128,15 @@ func (*testBatcherSuite) TestBasic(c *C) {
 	batcher, _ := restore.NewBatcher(sender, errCh)
 	batcher.SetThreshold(2)
 
-	simpleTables := []restore.TableWithRange{
-		fakeTableWithRange(1, []rtree.Range{fakeRange("aaa", "aab")}),
-		fakeTableWithRange(2, []rtree.Range{fakeRange("baa", "bab"), fakeRange("bac", "bad")}),
-		fakeTableWithRange(3, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")}),
+	tableRanges := [][]rtree.Range{
+		{fakeRange("aaa", "aab")},
+		{fakeRange("baa", "bab"), fakeRange("bac", "bad")},
+		{fakeRange("caa", "cab"), fakeRange("cac", "cad")},
+	}
+
+	simpleTables := []restore.TableWithRange{}
+	for i, ranges := range tableRanges {
+		simpleTables = append(simpleTables, fakeTableWithRange(int64(i), ranges))
 	}
 
 	for _, tbl := range simpleTables {
@@ -123,16 +144,9 @@ func (*testBatcherSuite) TestBasic(c *C) {
 	}
 
 	batcher.Close(context.TODO())
-	tbls, rngs := sender.exhaust()
-	totalRngs := []rtree.Range{}
+	rngs := sender.Ranges()
 
-	c.Assert(len(tbls), Equals, len(simpleTables))
-	for i, tbl := range simpleTables {
-		c.Assert(tbls[i], DeepEquals, tbl.CreatedTable)
-		totalRngs = append(totalRngs, tbl.Range...)
-	}
-
-	c.Assert(totalRngs, DeepEquals, rngs)
+	c.Assert(join(tableRanges), DeepEquals, rngs)
 	select {
 	case err := <-errCh:
 		c.Fatal(errors.Trace(err))
@@ -153,18 +167,15 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 
 	// enable auto commit.
 	batcher.EnableAutoCommit(context.TODO(), 100*time.Millisecond)
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	c.Assert(sender.RangeLen(), Greater, 0)
-	c.Assert(sender.TableLen(), Greater, 0)
 	c.Assert(batcher.Len(), Equals, 0)
 
 	batcher.Close(context.TODO())
 
-	tbls, rngs := sender.exhaust()
-	c.Assert(len(tbls), Greater, 0)
+	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
-	c.Assert(tbls[0], DeepEquals, simpleTable.CreatedTable)
 	select {
 	case err := <-errCh:
 		c.Fatal(errors.Trace(err))
@@ -189,10 +200,54 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 
 	batcher.Close(context.TODO())
 
-	tbls, rngs := sender.exhaust()
-	c.Assert(len(tbls), Greater, 0)
+	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
-	c.Assert(tbls[0], DeepEquals, simpleTable.CreatedTable)
+	select {
+	case err := <-errCh:
+		c.Fatal(errors.Trace(err))
+	default:
+	}
+}
+
+func (*testBatcherSuite) TestRewriteRules(c *C) {
+	tableRanges := [][]rtree.Range{
+		{fakeRange("aaa", "aab")},
+		{fakeRange("baa", "bab"), fakeRange("bac", "bad")},
+		{fakeRange("caa", "cab"), fakeRange("cac", "cad"),
+			fakeRange("cae", "caf"), fakeRange("cag", "cai"),
+			fakeRange("caj", "cak"), fakeRange("cal", "cam"),
+			fakeRange("can", "cao"), fakeRange("cap", "caq")},
+	}
+	rewriteRules := []*restore.RewriteRules{
+		fakeRewriteRules("a", "ada"),
+		fakeRewriteRules("b", "bob"),
+		fakeRewriteRules("c", "cpp"),
+	}
+
+	tables := make([]restore.TableWithRange, 0, len(tableRanges))
+	for i, ranges := range tableRanges {
+		table := fakeTableWithRange(int64(i), ranges)
+		table.RewriteRule = rewriteRules[i]
+		tables = append(tables, table)
+	}
+
+	ctx := context.TODO()
+	errCh := make(chan error, 8)
+	sender := newDrySender()
+	batcher, _ := restore.NewBatcher(sender, errCh)
+	batcher.SetThreshold(2)
+
+	batcher.Add(ctx, tables[0])
+	c.Assert(sender.RangeLen(), Equals, 0)
+	batcher.Add(ctx, tables[1])
+	c.Assert(sender.HasRewriteRuleOfKey("a"), IsTrue)
+	c.Assert(sender.HasRewriteRuleOfKey("b"), IsTrue)
+	c.Assert(sender.RangeLen(), Equals, 2)
+	batcher.Add(ctx, tables[2])
+	batcher.Close(ctx)
+	c.Assert(sender.HasRewriteRuleOfKey("c"), IsTrue)
+	c.Assert(sender.Ranges(), DeepEquals, join(tableRanges))
+
 	select {
 	case err := <-errCh:
 		c.Fatal(errors.Trace(err))

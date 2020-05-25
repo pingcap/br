@@ -85,7 +85,7 @@ func (b *Batcher) Len() int {
 // BatchSender is the abstract of how the batcher send a batch.
 type BatchSender interface {
 	// RestoreBatch will send the restore request.
-	RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs []CreatedTable) error
+	RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error
 	Close()
 }
 
@@ -116,15 +116,7 @@ func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (Ba
 	}, nil
 }
 
-func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs []CreatedTable) error {
-	rewriteRules := EmptyRewriteRule()
-	tableNames := make([]string, 0, len(tbs))
-	for _, t := range tbs {
-		rewriteRules.Append(*t.RewriteRule)
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	log.Debug("split region by tables start", zap.Strings("tables", tableNames))
-
+func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error {
 	if err := SplitRanges(ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
 		log.Error("failed on split range",
 			zap.Any("ranges", ranges),
@@ -132,7 +124,6 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, tbs
 		)
 		return err
 	}
-	log.Debug("split region by tables end", zap.Strings("tables", tableNames))
 
 	files := []*backup.File{}
 	for _, fs := range ranges {
@@ -233,13 +224,19 @@ func (b *Batcher) asyncSend(ctx context.Context) {
 	}
 }
 
-func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTable) {
+func (b *Batcher) drainRanges() (
+	ranges []rtree.Range,
+	emptyTables []CreatedTable,
+	rewriteRules *RewriteRules,
+) {
 	b.cachedTablesMu.Lock()
+	rewriteRules = EmptyRewriteRule()
 	defer b.cachedTablesMu.Unlock()
 
 	for offset, thisTable := range b.cachedTables {
 		thisTableLen := len(thisTable.Range)
 		collected := len(ranges)
+		rewriteRules.Append(*thisTable.RewriteRule)
 
 		// the batch is full, we should stop here!
 		// we use strictly greater than because when we send a batch at equal, the offset should plus one.
@@ -259,7 +256,7 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 			ranges = append(ranges, drained...)
 			b.cachedTables = b.cachedTables[offset:]
 			atomic.AddInt32(&b.size, -int32(len(drained)))
-			return ranges, emptyTables
+			return ranges, emptyTables, rewriteRules
 		}
 
 		emptyTables = append(emptyTables, thisTable.CreatedTable)
@@ -278,13 +275,13 @@ func (b *Batcher) drainRanges() (ranges []rtree.Range, emptyTables []CreatedTabl
 
 	// all tables are drained.
 	b.cachedTables = []TableWithRange{}
-	return ranges, emptyTables
+	return ranges, emptyTables, rewriteRules
 }
 
 // Send sends all pending requests in the batcher.
 // returns tables sent in the current batch.
 func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
-	ranges, tbs := b.drainRanges()
+	ranges, tbs, rewriteRules := b.drainRanges()
 	tableNames := make([]string, 0, len(tbs))
 	for _, t := range tbs {
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
@@ -293,7 +290,7 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 		zap.Strings("tables", tableNames),
 		zap.Int("ranges", len(ranges)),
 	)
-	if err := b.sender.RestoreBatch(ctx, ranges, tbs); err != nil {
+	if err := b.sender.RestoreBatch(ctx, ranges, rewriteRules); err != nil {
 		return nil, err
 	}
 	return tbs, nil
