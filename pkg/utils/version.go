@@ -59,6 +59,10 @@ func removeV(v string) string {
 
 // CheckClusterVersion check TiKV version.
 func CheckClusterVersion(ctx context.Context, client pd.Client) error {
+	if BRReleaseVersion == "None" {
+		// for test
+		return nil
+	}
 	BRVersion, err := semver.NewVersion(removeV(BRReleaseVersion))
 	if err != nil {
 		return err
