@@ -228,6 +228,7 @@ func BuildBackupRangeAndSchema(
 
 		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
+		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
 		for _, tableInfo := range dbInfo.Tables {
@@ -235,7 +236,15 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
-			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+			var globalAutoID int64
+			switch {
+			case tableInfo.IsSequence():
+				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
+			case tableInfo.IsView():
+				// no auto ID for views.
+			default:
+				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
+			}
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
