@@ -178,7 +178,6 @@ func NewMgr(
 		}
 		processedAddrs = append(processedAddrs, addr)
 		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
 			break
 		}
@@ -195,6 +194,10 @@ func NewMgr(
 		addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
+		return nil, err
+	}
+	err = utils.CheckClusterVersion(ctx, pdClient)
+	if err != nil {
 		return nil, err
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
