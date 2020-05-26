@@ -124,6 +124,23 @@ func NewMgr(
 				"if you believe it's OK, use --check-requirements=false to skip.")
 		}
 	}
+<<<<<<< HEAD
+=======
+	if failure != nil {
+		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
+	}
+
+	maxCallMsgSize := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
+	}
+	pdClient, err := pd.NewClientWithContext(
+		ctx, addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
+	if err != nil {
+		log.Error("fail to create pd client", zap.Error(err))
+		return nil, err
+	}
+>>>>>>> bc21c31... conn: attach context to pd client (#287)
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
