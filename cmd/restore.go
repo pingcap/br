@@ -21,7 +21,7 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 		return err
 	}
 	if err := task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
-		log.Error("restore failed", zap.Error(err))
+		log.Error("failed to restore", zap.Error(err))
 		return err
 	}
 	return nil
@@ -36,7 +36,7 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 		return err
 	}
 	if err := task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
-		log.Error("restore failed", zap.Error(err))
+		log.Error("failed to restore raw kv", zap.Error(err))
 		return err
 	}
 	return nil
@@ -50,7 +50,7 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) err
 	}
 
 	if err := task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
-		log.Error("restore failed", zap.Error(err))
+		log.Error("failed to restore tiflash replica", zap.Error(err))
 		return err
 	}
 	return nil
