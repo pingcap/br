@@ -54,9 +54,6 @@ var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
 var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
 
 func removeV(v string) string {
-	if v == "" {
-		return v
-	}
 	return strings.TrimPrefix(v, "v")
 }
 
