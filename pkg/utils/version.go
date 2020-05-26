@@ -78,13 +78,13 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		}
 
 		if tikvVersion.Compare(*minTiKVVersion) < 0 {
-			return errors.Errorf("TiKV %s don't support BR, please upgrade cluster to %s",
-				removeV(s.Version), BRReleaseVersion)
+			return errors.Errorf("TiKV node %s version %s don't support BR, please upgrade cluster to %s",
+				s.Address, removeV(s.Version), BRReleaseVersion)
 		}
 
 		if tikvVersion.Major != BRVersion.Major {
-			return errors.Errorf("TiKV %s and BR %s major version mismatch, please use the same version of BR",
-				removeV(s.Version), BRReleaseVersion)
+			return errors.Errorf("TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
+				s.Address, removeV(s.Version), BRReleaseVersion)
 		}
 
 		// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
@@ -92,15 +92,15 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		// These incompatible version is 3.1.0 and 4.0.0-rc.1
 		if tikvVersion.Major == 3 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
-				return errors.Errorf("TiKV %s and BR %s version mismatch, please use the same version of BR",
-					removeV(s.Version), BRReleaseVersion)
+				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+					s.Address, removeV(s.Version), BRReleaseVersion)
 			}
 		}
 
 		if tikvVersion.Major == 4 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
-				return errors.Errorf("TiKV %s and BR %s version mismatch, please use the same version of BR",
-					removeV(s.Version), BRReleaseVersion)
+				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+					s.Address, removeV(s.Version), BRReleaseVersion)
 			}
 		}
 
