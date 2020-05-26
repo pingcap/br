@@ -3,9 +3,11 @@
 package cmd
 
 import (
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
@@ -19,7 +21,11 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return err
 	}
-	return task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
+		log.Error("failed to backup", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func runBackupRawCommand(command *cobra.Command, cmdName string) error {
@@ -28,7 +34,11 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return err
 	}
-	return task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
+	if err := task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
+		log.Error("failed to backup raw kv", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 // NewBackupCommand return a full backup subcommand.
