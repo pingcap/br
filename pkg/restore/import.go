@@ -190,6 +190,8 @@ func (importer *FileImporter) Import(
 		endKey = file.EndKey
 	} else {
 		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+		startKey = truncateRowKey(startKey)
+		endKey = truncateRowKey(endKey)
 	}
 	if err != nil {
 		return err
