@@ -32,7 +32,7 @@ func (s *testBackofferSuite) TearDownSuite(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 	var counter int
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
@@ -51,6 +51,7 @@ func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 	var counter int
+	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
@@ -76,7 +77,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 	var counter int
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		return errEpochNotMatch
