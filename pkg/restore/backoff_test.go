@@ -32,12 +32,12 @@ func (s *testBackofferSuite) TearDownSuite(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 	var counter int
-	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
+	backoffer := &importerBackoffer{attempt: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
 		case 0:
-			return errGRPC
+			return errGrpc
 		case 1:
 			return errEpochNotMatch
 		case 2:
@@ -51,7 +51,7 @@ func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 	var counter int
-	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
+	backoffer := &importerBackoffer{attempt: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
@@ -68,7 +68,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 	}, backoffer)
 	c.Assert(counter, Equals, 4)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
-		errGRPC,
+		errGrpc,
 		errEpochNotMatch,
 		errDownloadFailed,
 		errRangeIsEmpty,
@@ -77,11 +77,11 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 	var counter int
-	backoffer := &newImportSSTBackoffer{attemp: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
+	backoffer := &importerBackoffer{attempt: 10, delayTime: time.Nanosecond, maxDelayTime: time.Nanosecond}
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		return errEpochNotMatch
-	}, &backoffer)
+	}, backoffer)
 	c.Assert(counter, Equals, 10)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
 		errEpochNotMatch,
