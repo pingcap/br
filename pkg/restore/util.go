@@ -103,7 +103,7 @@ func GetSSTMetaFromFile(
 	if bytes.Compare(rangeStart, region.GetStartKey()) < 0 {
 		rangeStart = region.GetStartKey()
 	}
-	suffix := []byte{0xff, 0xff}
+	suffix := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), suffix...)
 	// rangeEnd = min(rangeEnd, region.EndKey)
 	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
