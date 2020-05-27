@@ -250,6 +250,12 @@ func (importer *FileImporter) Import(
 					switch e {
 					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
 						// Skip this region
+						log.Error("download file skipped",
+							zap.Stringer("file", file),
+							zap.Stringer("region", info.Region),
+							zap.Binary("startKey", startKey),
+							zap.Binary("endKey", endKey),
+							zap.Error(e))
 						continue regionLoop
 					}
 				}
@@ -368,6 +374,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("file", file),
 		zap.Stringer("region", regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse

@@ -108,6 +108,11 @@ func GetSSTMetaFromFile(
 	if len(region.GetEndKey()) > 0 && bytes.Compare(rangeEnd, region.GetEndKey()) > 0 {
 		rangeEnd = region.GetEndKey()
 	}
+
+	log.Debug("Get sstMeta",
+		zap.Stringer("file", file),
+		zap.Binary("rangeStart", rangeStart),
+		zap.Binary("rangeEnd", rangeEnd))
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
