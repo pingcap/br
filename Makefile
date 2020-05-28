@@ -25,6 +25,7 @@ build:
 build_for_integration_test: failpoint-enable
 	(GO111MODULE=on go test -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
+		-ldflags '$(LDFLAGS)'\
 		-o bin/br.test && \
 	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go && \
 	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go && \
