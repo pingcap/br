@@ -103,6 +103,10 @@ func GetSSTMetaFromFile(
 	if bytes.Compare(rangeStart, region.GetStartKey()) < 0 {
 		rangeStart = region.GetStartKey()
 	}
+
+	// Append 10 * 0xff to make sure rangeEnd cover all file key
+	// If choose to regionRule.NewKeyPrefix + 1, it may cause WrongPrefix here
+	// https://github.com/tikv/tikv/blob/master/components/sst_importer/src/sst_importer.rs#L221
 	suffix := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), suffix...)
 	// rangeEnd = min(rangeEnd, region.EndKey)
