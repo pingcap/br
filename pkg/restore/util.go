@@ -106,7 +106,8 @@ func GetSSTMetaFromFile(
 
 	// Append 10 * 0xff to make sure rangeEnd cover all file key
 	// If choose to regionRule.NewKeyPrefix + 1, it may cause WrongPrefix here
-	// https://github.com/tikv/tikv/blob/970a9bf2a9ea782a455ae579ad237aaf6cb1daec/components/sst_importer/src/sst_importer.rs#L221
+	// https://github.com/tikv/tikv/blob/970a9bf2a9ea782a455ae579ad237aaf6cb1daec/
+	// components/sst_importer/src/sst_importer.rs#L221
 	suffix := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	rangeEnd := append(append([]byte{}, regionRule.GetNewKeyPrefix()...), suffix...)
 	// rangeEnd = min(rangeEnd, region.EndKey)
@@ -114,10 +115,17 @@ func GetSSTMetaFromFile(
 		rangeEnd = region.GetEndKey()
 	}
 
+	if bytes.Compare(rangeStart, rangeEnd) > 0 {
+		log.Fatal("range start exceed range end",
+			zap.Binary("start", rangeStart),
+			zap.Binary("end", rangeEnd))
+	}
+
 	log.Debug("get sstMeta",
 		zap.Stringer("file", file),
 		zap.Binary("rangeStart", rangeStart),
 		zap.Binary("rangeEnd", rangeEnd))
+
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
 		CfName: cfName,
