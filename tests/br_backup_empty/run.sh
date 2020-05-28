@@ -32,7 +32,7 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# backup and restore empty tables
+# backup and restore empty tables.
 run_sql "CREATE DATABASE $DB;"
 run_sql "CREATE TABLE $DB.usertable1 ( \
   YCSB_KEY varchar(64) NOT NULL, \
@@ -46,5 +46,8 @@ run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_table" --ratelimit 
 run_sql "DROP DATABASE $DB;"
 echo "restore start..."
 run_br --pd $PD_ADDR restore full -s "local://$TEST_DIR/empty_table" --ratelimit 5 --concurrency 4
+
+# insert one row to make sure table is restored.
+run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"
 
 echo "TEST: [$TEST_NAME] successed!"
