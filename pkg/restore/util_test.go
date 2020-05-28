@@ -35,7 +35,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	}
 	sstMeta := getSSTMetaFromFile([]byte{}, file, region, rule)
 	c.Assert(string(sstMeta.GetRange().GetStart()), Equals, "t2abc")
-	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff")
+	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")
 }
 
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
