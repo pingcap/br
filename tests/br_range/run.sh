@@ -22,6 +22,10 @@ run_sql "create table $DB.sbtest(id bigint primary key, c char(120) not null);"
 run_sql "insert into $DB.sbtest values (9223372036854775807, 'test');"
 run_sql "insert into $DB.sbtest values (9187343239835811840, 'test');"
 
+run_sql "create table $DB.sbtest2(id bigint unsigned primary key, c char(120) not null);"
+run_sql "insert into $DB.sbtest2 values (18446744073709551615, 'test');"
+run_sql "insert into $DB.sbtest2 values (9223372036854775808, 'test');"
+
 # backup db
 echo "backup start..."
 run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
