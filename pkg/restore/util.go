@@ -104,9 +104,9 @@ func GetSSTMetaFromFile(
 		rangeStart = region.GetStartKey()
 	}
 	rangeEnd := append([]byte{}, regionRule.GetNewKeyPrefix()...)
-	for i := len(rangeEnd)-1; i >= 0; i -- {
+	for i := len(rangeEnd) - 1; i >= 0; i-- {
 		if rangeEnd[i] != 0xff {
-			rangeEnd[i] += 1
+			rangeEnd[i] ++
 			break
 		}
 	}
