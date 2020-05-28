@@ -37,19 +37,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	}
 	sstMeta := restore.GetSSTMetaFromFile([]byte{}, file, region, rule)
 	c.Assert(string(sstMeta.GetRange().GetStart()), Equals, "t2abc")
-	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t3")
-
-	rule = &import_sstpb.RewriteRule{
-		OldKeyPrefix: []byte("t1"),
-		NewKeyPrefix: []byte("t2\xff"),
-	}
-	region = &metapb.Region{
-		StartKey: []byte("t2abc"),
-		EndKey:   []byte("t3a"),
-	}
-	sstMeta = restore.GetSSTMetaFromFile([]byte{}, file, region, rule)
-	c.Assert(string(sstMeta.GetRange().GetStart()), Equals, "t2\xff")
-	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t3a")
+	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")
 }
 
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
