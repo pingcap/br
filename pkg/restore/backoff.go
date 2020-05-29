@@ -27,7 +27,8 @@ var (
 	ErrRangeIsEmpty = errors.NewNoStackError("range is empty")
 	// ErrGRPC indicates any gRPC communication error. This error can be retried.
 	ErrGRPC = errors.NewNoStackError("gRPC error")
-	// ErrDownloadFailed indicates a generic, non-retryable download error.
+	// ErrDownloadFailed indicates a generic download error, expected to be
+	// retryable.
 	ErrDownloadFailed = errors.NewNoStackError("download sst failed")
 	// ErrIngestFailed indicates a generic, retryable ingest error.
 	ErrIngestFailed = errors.NewNoStackError("ingest sst failed")
@@ -72,7 +73,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case ErrGRPC, ErrEpochNotMatch, ErrIngestFailed:
+	case ErrGRPC, ErrEpochNotMatch, ErrDownloadFailed, ErrIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	case ErrRangeIsEmpty, ErrRewriteRuleNotFound:
