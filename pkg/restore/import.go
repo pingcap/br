@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/pd/v3/pkg/codec"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -232,6 +233,7 @@ func (importer *FileImporter) Import(
 
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
+	regionLoop:
 		for _, regionInfo := range regionInfos {
 			info := regionInfo
 			// Try to download file.
@@ -246,15 +248,18 @@ func (importer *FileImporter) Import(
 				return e
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
-				if errDownload == errRewriteRuleNotFound || errDownload == errRangeIsEmpty {
-					// Skip this region
-					log.Warn("download file skipped",
-						zap.Stringer("file", file),
-						zap.Stringer("region", info.Region),
-						zap.Binary("startKey", startKey),
-						zap.Binary("endKey", endKey),
-						zap.Error(errDownload))
-					continue
+				for _, e := range multierr.Errors(errDownload) {
+					switch e {
+					case errRewriteRuleNotFound, errRangeIsEmpty:
+						// Skip this region
+						log.Warn("download file skipped",
+							zap.Stringer("file", file),
+							zap.Stringer("region", info.Region),
+							zap.Binary("startKey", startKey),
+							zap.Binary("endKey", endKey),
+							zap.Error(errDownload))
+						continue regionLoop
+					}
 				}
 				log.Error("download file failed",
 					zap.Stringer("file", file),
