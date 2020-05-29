@@ -193,7 +193,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(files) == 0 {
 		log.Info("no files, empty databases and tables are restored")
 		summary.SetSuccessStatus(true)
-		return nil
+		// don't return immediately, wait all pipeline done.
 	}
 
 	placementRules, err := client.GetPlacementRules(cfg.PD)
@@ -256,7 +256,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher, afterRestoreStream := restore.NewBatcher(sender, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
-	goRestore(ctx, rangeStream, placementRules, client, batcher, errCh)
+	go restoreTableStream(ctx, rangeStream, placementRules, client, batcher, errCh)
 
 	var finish <-chan struct{}
 	// Checksum
@@ -589,8 +589,9 @@ func enableTiDBConfig() {
 	config.StoreGlobalConfig(conf)
 }
 
-// goRestore forks a goroutine to do the restore process.
-func goRestore(
+// restoreTableStream blocks current goroutine and restore a stream of tables,
+// by send tables to batcher.
+func restoreTableStream(
 	ctx context.Context,
 	inputCh <-chan restore.TableWithRange,
 	rules []placement.Rule,
@@ -598,54 +599,51 @@ func goRestore(
 	batcher *restore.Batcher,
 	errCh chan<- error,
 ) {
-	go func() {
-		// We cache old tables so that we can 'batch' recover TiFlash and tables.
-		oldTables := []*utils.Table{}
-		newTables := []*model.TableInfo{}
-		defer func() {
-			// when things done, we must clean pending requests.
-			batcher.Close(ctx)
-			log.Info("doing postwork",
-				zap.Int("new tables", len(newTables)),
-				zap.Int("old tables", len(oldTables)),
-			)
-			splitPostWork(ctx, client, newTables)
-			if err := client.RecoverTiFlashReplica(oldTables); err != nil {
-				log.Error("failed on recover TiFlash replicas", zap.Error(err))
-				errCh <- err
-			}
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				errCh <- ctx.Err()
-				return
-			case t, ok := <-inputCh:
-				if !ok {
-					return
-				}
-				// Omit the number of TiFlash have been removed.
-				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
-				if err != nil {
-					log.Error("failed on remove TiFlash replicas", zap.Error(err))
-					errCh <- err
-					return
-				}
-				t.OldTable.TiFlashReplicas = tiFlashRep
-				oldTables = append(oldTables, t.OldTable)
-
-				// Reuse of splitPrepareWork would be safe.
-				// But this operation sometime would be costly.
-				if err := splitPrepareWork(ctx, client, []*model.TableInfo{t.Table}); err != nil {
-					log.Error("failed on set online restore placement rules", zap.Error(err))
-					errCh <- err
-					return
-				}
-				newTables = append(newTables, t.Table)
-
-				batcher.Add(ctx, t)
-			}
+	// We cache old tables so that we can 'batch' recover TiFlash and tables.
+	oldTables := []*utils.Table{}
+	newTables := []*model.TableInfo{}
+	defer func() {
+		// when things done, we must clean pending requests.
+		batcher.Close(ctx)
+		log.Info("doing postwork",
+			zap.Int("new tables", len(newTables)),
+			zap.Int("old tables", len(oldTables)),
+		)
+		splitPostWork(ctx, client, newTables)
+		if err := client.RecoverTiFlashReplica(oldTables); err != nil {
+			log.Error("failed on recover TiFlash replicas", zap.Error(err))
+			errCh <- err
 		}
 	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			errCh <- ctx.Err()
+			return
+		case t, ok := <-inputCh:
+			if !ok {
+				return
+			}
+			tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
+			if err != nil {
+				log.Error("failed on remove TiFlash replicas", zap.Error(err))
+				errCh <- err
+				return
+			}
+			t.OldTable.TiFlashReplicas = tiFlashRep
+			oldTables = append(oldTables, t.OldTable)
+
+			// Reuse of splitPrepareWork would be safe.
+			// But this operation sometime would be costly.
+			if err := splitPrepareWork(ctx, client, []*model.TableInfo{t.Table}); err != nil {
+				log.Error("failed on set online restore placement rules", zap.Error(err))
+				errCh <- err
+				return
+			}
+			newTables = append(newTables, t.Table)
+
+			batcher.Add(ctx, t)
+		}
+	}
 }

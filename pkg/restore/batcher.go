@@ -77,9 +77,9 @@ func (b *Batcher) DisableAutoCommit(ctx context.Context) {
 // return immediately when auto commit disabled.
 func (b *Batcher) joinWorker() {
 	if b.joiner != nil {
-		log.Info("gracefully stoping worker goroutine")
+		log.Debug("gracefully stoping worker goroutine")
 		b.joiner <- struct{}{}
-		log.Info("gracefully stopped worker goroutine")
+		log.Debug("gracefully stopped worker goroutine")
 	}
 }
 
@@ -169,7 +169,6 @@ func (b *Batcher) drainRanges() drainResult {
 		result.BlankTablesAfterSend = append(result.BlankTablesAfterSend, thisTable.CreatedTable)
 		// let's 'drain' the ranges of current table. This op must not make the batch full.
 		result.Ranges = append(result.Ranges, thisTable.Range...)
-		// let's reduce the batcher size each time, to make a consistence of batcher's size.
 		atomic.AddInt32(&b.size, -int32(len(thisTable.Range)))
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
@@ -206,7 +205,6 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 }
 
 func (b *Batcher) sendIfFull(ctx context.Context) {
-	// never collect the send batch request message.
 	for b.Len() >= b.batchSizeThreshold {
 		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
 		b.asyncSend(ctx)
