@@ -3,8 +3,10 @@
 package cmd
 
 import (
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
@@ -18,7 +20,11 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return err
 	}
-	return task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+	if err := task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
+		log.Error("failed to restore", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
@@ -29,7 +35,11 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return err
 	}
-	return task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg)
+	if err := task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
+		log.Error("failed to restore raw kv", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) error {
@@ -39,7 +49,11 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) err
 		return err
 	}
 
-	return task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg)
+	if err := task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
+		log.Error("failed to restore tiflash replica", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 // NewRestoreCommand returns a restore subcommand
