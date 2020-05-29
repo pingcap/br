@@ -44,12 +44,13 @@ const (
 	flagDatabase = "db"
 	flagTable    = "table"
 
-	flagRateLimit     = "ratelimit"
-	flagRateLimitUnit = "ratelimit-unit"
-	flagConcurrency   = "concurrency"
-	flagChecksum      = "checksum"
-	flagFilter        = "filter"
-	flagCaseSensitive = "case-sensitive"
+	flagRateLimit        = "ratelimit"
+	flagRateLimitUnit    = "ratelimit-unit"
+	flagConcurrency      = "concurrency"
+	flagChecksum         = "checksum"
+	flagFilter           = "filter"
+	flagCaseSensitive    = "case-sensitive"
+	flagCheckRequirement = "check-requirements"
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -103,7 +104,8 @@ type Config struct {
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter filter.Filter `json:"-" toml:"-"`
+	TableFilter       filter.Filter `json:"-" toml:"-"`
+	CaseSensitive     bool          `json:"case-sensitive" toml:"case-sensitive"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -126,6 +128,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
+
+	flags.Bool(flagCheckRequirement, true,
+		"Whether start version check before execute command")
 
 	storage.DefineFlags(flags)
 }
@@ -240,6 +245,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if !caseSensitive {
 		cfg.TableFilter = filter.CaseInsensitive(cfg.TableFilter)
 	}
+	checkRequirements, err := flags.GetBool(flagCheckRequirement)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CheckRequirements = checkRequirements
 
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
@@ -254,6 +264,7 @@ func newMgr(
 	pds []string,
 	tlsConfig TLSConfig,
 	storeBehavior conn.StoreBehavior,
+	checkRequirements bool,
 ) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
@@ -280,7 +291,7 @@ func newMgr(
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior)
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior, checkRequirements)
 }
 
 // GetStorage gets the storage backend from the config.
