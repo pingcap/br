@@ -190,6 +190,10 @@ func (importer *FileImporter) Import(
 		endKey = file.EndKey
 	} else {
 		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+		// if not truncateRowKey here, if will scan one more region
+		// TODO need more test to check here
+		// startKey = truncateRowKey(startKey)
+		// endKey = truncateRowKey(endKey)
 	}
 	if err != nil {
 		return err
@@ -248,6 +252,12 @@ func (importer *FileImporter) Import(
 					switch e {
 					case errRewriteRuleNotFound, errRangeIsEmpty:
 						// Skip this region
+						log.Warn("download file skipped",
+							zap.Stringer("file", file),
+							zap.Stringer("region", info.Region),
+							zap.Binary("startKey", startKey),
+							zap.Binary("endKey", endKey),
+							zap.Error(errDownload))
 						continue regionLoop
 					}
 				}
@@ -366,6 +376,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("file", file),
 		zap.Stringer("region", regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse
