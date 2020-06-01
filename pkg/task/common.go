@@ -110,7 +110,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
-	flags.Bool(flagRemoveTiFlash, true, "Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
+	flags.Bool(flagRemoveTiFlash, true,
+		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
 
 	// Default concurrency is different for backup and restore.
 	// Leave it 0 and let them adjust the value.
