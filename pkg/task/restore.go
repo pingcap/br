@@ -25,9 +25,8 @@ import (
 )
 
 const (
-	flagOnline        = "online"
-	flagNoSchema      = "no-schema"
-	flagRemoveTiFlash = "remove-tiflash"
+	flagOnline   = "online"
+	flagNoSchema = "no-schema"
 
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256

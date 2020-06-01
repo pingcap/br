@@ -49,6 +49,7 @@ const (
 	flagRateLimitUnit    = "ratelimit-unit"
 	flagConcurrency      = "concurrency"
 	flagChecksum         = "checksum"
+	flagRemoveTiFlash    = "remove-tiflash"
 	flagCheckRequirement = "check-requirements"
 )
 
