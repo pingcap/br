@@ -118,12 +118,13 @@ start_services() {
     LD_LIBRARY_PATH=bin/ bin/tiflash server --config-file=$TIFLASH_CONFIG &
 
     i=0
-    while ! bin/pd-ctl store | grep tiflash; do
+    while ! bin/pd-ctl store | grep "tiflash"; do
         i=$((i+1))
-        if [ $i -gt 5 ]; then
+        if [ "$i" -gt 5 ]; then
             echo "failed to start tiflash"
             exit 1
         fi
+        echo "TiFlash seems doesn't started, retrying..."
         sleep 3
     done
 }
