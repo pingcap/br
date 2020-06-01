@@ -93,6 +93,7 @@ type Config struct {
 
 	CaseSensitive bool         `json:"case-sensitive" toml:"case-sensitive"`
 	Filter        filter.Rules `json:"black-white-list" toml:"black-white-list"`
+	RemoveTiFlash bool         `json:"remove-tiflash" toml:"remove-tiflash"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -106,6 +107,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+	flags.Bool(flagRemoveTiFlash, true, "Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
 
 	// Default concurrency is different for backup and restore.
 	// Leave it 0 and let them adjust the value.
@@ -187,6 +189,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
+
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
 		db := escapeFilterName(dbFlag.Value.String())

@@ -44,6 +44,9 @@ testcover: tools failpoint-enable
 		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
 integration_test: build build_for_integration_test
+	tests/run.sh
+
+bins:
 	@which bin/tidb-server
 	@which bin/tikv-server
 	@which bin/pd-server
@@ -51,7 +54,9 @@ integration_test: build build_for_integration_test
 	@which bin/go-ycsb
 	@which bin/minio
 	@which bin/br
-	tests/run.sh
+	@which bin/tiflash
+	@which bin/flash_cluster_manager
+	@which bin/libtiflash_proxy.so
 
 tools:
 	@echo "install tools..."

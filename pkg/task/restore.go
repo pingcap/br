@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	flagOnline   = "online"
-	flagNoSchema = "no-schema"
+	flagOnline        = "online"
+	flagNoSchema      = "no-schema"
+	flagRemoveTiFlash = "remove-tiflash"
 
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256
@@ -79,6 +80,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -195,19 +200,21 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return nil
 	}
 
-	placementRules, err := client.GetPlacementRules(cfg.PD)
-	if err != nil {
-		return err
-	}
+	if cfg.RemoveTiFlash {
+		placementRules, err := client.GetPlacementRules(cfg.PD)
+		if err != nil {
+			return err
+		}
 
-	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
-	if err != nil {
-		return err
-	}
+		err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
+		if err != nil {
+			return err
+		}
 
-	defer func() {
-		_ = client.RecoverTiFlashReplica(tables)
-	}()
+		defer func() {
+			_ = client.RecoverTiFlashReplica(tables)
+		}()
+	}
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
@@ -261,13 +268,15 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
 
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	rejectStoreMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		rejectStoreMap[store.GetId()] = true
+	if cfg.RemoveTiFlash {
+		tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for _, store := range tiflashStores {
+			rejectStoreMap[store.GetId()] = true
+		}
 	}
 
 	for {

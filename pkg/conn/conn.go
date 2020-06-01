@@ -315,9 +315,13 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	keepAliveTimeout := 3
 	bfConf := backoff.DefaultConfig
 	bfConf.MaxDelay = time.Second * 3
+	addr := store.GetPeerAddress()
+	if addr == "" {
+		addr = store.GetAddress()
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		store.GetAddress(),
+		addr,
 		opt,
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
