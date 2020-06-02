@@ -37,6 +37,8 @@ type ContextManager interface {
 func NewBRContextManager(client *Client) ContextManager {
 	return &brContextManager{
 		client: client,
+
+		hasTable: make(map[int64]bool),
 	}
 }
 
