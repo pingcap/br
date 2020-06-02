@@ -46,6 +46,7 @@ const (
 	flagRateLimitUnit = "ratelimit-unit"
 	flagConcurrency   = "concurrency"
 	flagChecksum      = "checksum"
+	flagRemoveTiFlash = "remove-tiflash"
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -88,6 +89,7 @@ type Config struct {
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
+	RemoveTiFlash bool         `json:"remove-tiflash" toml:"remove-tiflash"`
 	CaseSensitive bool         `json:"case-sensitive" toml:"case-sensitive"`
 	Filter        filter.Rules `json:"black-white-list" toml:"black-white-list"`
 }
@@ -103,6 +105,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+	flags.Bool(flagRemoveTiFlash, true,
+		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
 
 	// Default concurrency is different for backup and restore.
 	// Leave it 0 and let them adjust the value.
@@ -184,6 +188,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
+
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
 		db := escapeFilterName(dbFlag.Value.String())

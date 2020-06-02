@@ -82,6 +82,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	err = cfg.Config.ParseFromFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
@@ -193,20 +197,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return nil
 	}
 
-	placementRules, err := client.GetPlacementRules(cfg.PD)
-	if err != nil {
-		return err
-	}
-
-	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_ = client.RecoverTiFlashReplica(tables)
-	}()
-
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
 		return err
@@ -253,15 +243,31 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := utils.MinInt(int(cfg.Concurrency), maxRestoreBatchSizeLimit)
+	batchSize := utils.ClampInt(int(cfg.Concurrency), defaultRestoreConcurrency, maxRestoreBatchSizeLimit)
 
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	rejectStoreMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		rejectStoreMap[store.GetId()] = true
+	if cfg.RemoveTiFlash {
+		placementRules, err := client.GetPlacementRules(cfg.PD)
+		if err != nil {
+			return err
+		}
+
+		err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			_ = client.RecoverTiFlashReplica(tables)
+		}()
+
+		tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for _, store := range tiflashStores {
+			rejectStoreMap[store.GetId()] = true
+		}
 	}
 
 	for {

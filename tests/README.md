@@ -5,15 +5,18 @@ programs.
 
 ## Preparations
 
-1. The following 6 executables must be copied or linked into these locations:
+1. The following 7 executables must be copied or linked into these locations:
     * `bin/tidb-server`
 	* `bin/tikv-server`
 	* `bin/pd-server`
     * `bin/pd-ctl`
 	* `bin/go-ycsb`
 	* `bin/minio`
+    * `bin/tiflash`
 
     The versions must be ≥2.1.0 as usual.
+
+    What's more, there must be dynamic link library for TiFlash, see make target `bin` to learn more. You can install most of dependencies by running `download_tools.sh`.
 
 2. The following programs must be installed:
 
@@ -31,7 +34,7 @@ Make sure the path is `br/`
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
-2. Check that all 6 required executables and `br` executable exist
+2. Check that all 7 required executables and `br` executable exist
 3. Execute `tests/run.sh`
 
 If the first two steps are done before, you could also run `tests/run.sh` directly.
