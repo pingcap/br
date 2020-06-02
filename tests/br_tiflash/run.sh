@@ -29,15 +29,6 @@ for i in $(seq 2 $RECORD_COUNT); do
 done
 run_sql "$stmt"
 
-curl -X POST -d '{
-    "group_id": "pd",
-    "id": "default",
-    "start_key": "",
-    "end_key": "",
-    "role": "voter",
-    "count": 1
-  }' http://$PD_ADDR/pd/api/v1/config/rule
-
 i=0
 while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
     i=$(( i + 1 ))
