@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"
 
@@ -55,6 +57,51 @@ func newDrySender() *drySender {
 		ranges:       []rtree.Range{},
 		mu:           new(sync.Mutex),
 	}
+}
+
+type recordCurrentTableManager map[int64]bool
+
+func newMockManager() recordCurrentTableManager {
+	return make(recordCurrentTableManager)
+}
+
+func (manager recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
+	for _, t := range tables {
+		log.Info("entering", zap.Int64("table ID", t.Table.ID))
+		manager[t.Table.ID] = true
+	}
+	return nil
+}
+
+func (manager recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
+	for _, t := range tables {
+		if !manager[t.Table.ID] {
+			return errors.Errorf("Table %d is removed before added", t.Table.ID)
+		}
+		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
+		manager[t.Table.ID] = false
+	}
+	return nil
+}
+
+func (manager recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
+	ids := make([]int64, 0, len(tables))
+	currentIDs := make([]int64, 0, len(manager))
+	for _, t := range tables {
+		ids = append(ids, t.Table.ID)
+	}
+	for id, contains := range manager {
+		if contains {
+			currentIDs = append(currentIDs, id)
+		}
+	}
+	log.Info("testing", zap.Int64s("should has ID", ids), zap.Int64s("has ID", currentIDs))
+	for _, i := range ids {
+		if !manager[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
@@ -125,7 +172,8 @@ func join(nested [][]rtree.Range) (plain []rtree.Range) {
 func (*testBatcherSuite) TestBasic(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(sender, errCh)
+	manager := newMockManager()
+	batcher, _ := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(2)
 
 	tableRanges := [][]rtree.Range{
@@ -138,12 +186,12 @@ func (*testBatcherSuite) TestBasic(c *C) {
 	for i, ranges := range tableRanges {
 		simpleTables = append(simpleTables, fakeTableWithRange(int64(i), ranges))
 	}
-
+	ctx := context.Background()
 	for _, tbl := range simpleTables {
-		batcher.Add(context.TODO(), tbl)
+		batcher.Add(ctx, tbl)
 	}
 
-	batcher.Close(context.TODO())
+	batcher.Close(ctx)
 	rngs := sender.Ranges()
 
 	c.Assert(join(tableRanges), DeepEquals, rngs)
@@ -157,22 +205,24 @@ func (*testBatcherSuite) TestBasic(c *C) {
 func (*testBatcherSuite) TestAutoSend(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(sender, errCh)
+	manager := newMockManager()
+	batcher, _ := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(1024)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")})
 
-	batcher.Add(context.TODO(), simpleTable)
+	ctx := context.Background()
+	batcher.Add(ctx, simpleTable)
 	c.Assert(batcher.Len(), Greater, 0)
 
 	// enable auto commit.
-	batcher.EnableAutoCommit(context.TODO(), 100*time.Millisecond)
+	batcher.EnableAutoCommit(ctx, 100*time.Millisecond)
 	time.Sleep(200 * time.Millisecond)
 
 	c.Assert(sender.RangeLen(), Greater, 0)
 	c.Assert(batcher.Len(), Equals, 0)
 
-	batcher.Close(context.TODO())
+	batcher.Close(ctx)
 
 	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
@@ -186,7 +236,8 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(sender, errCh)
+	manager := newMockManager()
+	batcher, _ := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(2)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
@@ -195,10 +246,11 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	batcher.Add(context.TODO(), simpleTable)
+	ctx := context.TODO()
+	batcher.Add(ctx, simpleTable)
 	c.Assert(sender.BatchCount(), Equals, 4)
 
-	batcher.Close(context.TODO())
+	batcher.Close(ctx)
 
 	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
@@ -234,7 +286,8 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 	ctx := context.TODO()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(sender, errCh)
+	manager := newMockManager()
+	batcher, _ := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(2)
 
 	batcher.Add(ctx, tables[0])
@@ -242,6 +295,7 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 	batcher.Add(ctx, tables[1])
 	c.Assert(sender.HasRewriteRuleOfKey("a"), IsTrue)
 	c.Assert(sender.HasRewriteRuleOfKey("b"), IsTrue)
+	c.Assert(manager.Has(tables[1]), IsTrue)
 	c.Assert(sender.RangeLen(), Equals, 2)
 	batcher.Add(ctx, tables[2])
 	batcher.Close(ctx)
@@ -258,7 +312,8 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 func (*testBatcherSuite) TestBatcherLen(c *C) {
 	errCh := make(chan error, 8)
 	sender := newDrySender()
-	batcher, _ := restore.NewBatcher(sender, errCh)
+	manager := newMockManager()
+	batcher, _ := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(15)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
@@ -273,11 +328,16 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	batcher.Add(context.TODO(), simpleTable)
+	ctx := context.TODO()
+	batcher.Add(ctx, simpleTable)
 	c.Assert(batcher.Len(), Equals, 8)
-	batcher.Add(context.TODO(), simpleTable2)
+	c.Assert(manager.Has(simpleTable), IsFalse)
+	c.Assert(manager.Has(simpleTable2), IsFalse)
+	batcher.Add(ctx, simpleTable2)
 	c.Assert(batcher.Len(), Equals, 1)
-	batcher.Close(context.TODO())
+	c.Assert(manager.Has(simpleTable2), IsTrue)
+	c.Assert(manager.Has(simpleTable), IsFalse)
+	batcher.Close(ctx)
 	c.Assert(batcher.Len(), Equals, 0)
 
 	select {

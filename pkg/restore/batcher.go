@@ -26,6 +26,7 @@ type Batcher struct {
 	sendErr            chan<- error
 	outCh              chan<- CreatedTable
 	sender             BatchSender
+	manager            ContextManager
 	batchSizeThreshold int
 	size               int32
 }
@@ -40,6 +41,7 @@ func (b *Batcher) Len() int {
 // and it will emit full-restored tables to the output channel returned.
 func NewBatcher(
 	sender BatchSender,
+	manager ContextManager,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
@@ -48,6 +50,7 @@ func NewBatcher(
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
+		manager:            manager,
 		cachedTablesMu:     new(sync.Mutex),
 		batchSizeThreshold: 1,
 	}
@@ -198,7 +201,14 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 		zap.Strings("tables", tableNames),
 		zap.Int("ranges", len(ranges)),
 	)
+
+	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
+		return nil, err
+	}
 	if err := b.sender.RestoreBatch(ctx, ranges, drainResult.RewriteRules); err != nil {
+		return nil, err
+	}
+	if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
 		return nil, err
 	}
 	return drainResult.BlankTablesAfterSend, nil

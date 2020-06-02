@@ -10,7 +10,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/config"
@@ -253,7 +252,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	batcher, afterRestoreStream := restore.NewBatcher(sender, errCh)
+	manager := restore.NewBRContextManager(client)
+	batcher, afterRestoreStream := restore.NewBatcher(sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
 	go restoreTableStream(ctx, rangeStream, placementRules, client, batcher, errCh)
@@ -491,34 +491,6 @@ func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers 
 	return nil
 }
 
-func splitPrepareWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
-	err := client.SetupPlacementRules(ctx, tables)
-	if err != nil {
-		log.Error("setup placement rules failed", zap.Error(err))
-		return errors.Trace(err)
-	}
-
-	err = client.WaitPlacementSchedule(ctx, tables)
-	if err != nil {
-		log.Error("wait placement schedule failed", zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
-}
-
-func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) {
-	err := client.ResetPlacementRules(ctx, tables)
-	if err != nil {
-		log.Warn("reset placement rules failed", zap.Error(err))
-		return
-	}
-
-	err = client.ResetRestoreLabels(ctx)
-	if err != nil {
-		log.Warn("reset store labels failed", zap.Error(err))
-	}
-}
-
 // RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
 func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	defer summary.Summary(cmdName)
@@ -601,15 +573,12 @@ func restoreTableStream(
 ) {
 	// We cache old tables so that we can 'batch' recover TiFlash and tables.
 	oldTables := []*utils.Table{}
-	newTables := []*model.TableInfo{}
 	defer func() {
 		// when things done, we must clean pending requests.
 		batcher.Close(ctx)
 		log.Info("doing postwork",
-			zap.Int("new tables", len(newTables)),
-			zap.Int("old tables", len(oldTables)),
+			zap.Int("table count", len(oldTables)),
 		)
-		splitPostWork(ctx, client, newTables)
 		if err := client.RecoverTiFlashReplica(oldTables); err != nil {
 			log.Error("failed on recover TiFlash replicas", zap.Error(err))
 			errCh <- err
@@ -633,15 +602,6 @@ func restoreTableStream(
 			}
 			t.OldTable.TiFlashReplicas = tiFlashRep
 			oldTables = append(oldTables, t.OldTable)
-
-			// Reuse of splitPrepareWork would be safe.
-			// But this operation sometime would be costly.
-			if err := splitPrepareWork(ctx, client, []*model.TableInfo{t.Table}); err != nil {
-				log.Error("failed on set online restore placement rules", zap.Error(err))
-				errCh <- err
-				return
-			}
-			newTables = append(newTables, t.Table)
 
 			batcher.Add(ctx, t)
 		}

@@ -21,6 +21,84 @@ const (
 	defaultBatcherOutputChannelSize = 1024
 )
 
+// ContextManager is the struct to manage a TiKV 'context' for restore.
+// Batcher will call Enter when any table should be restore on batch,
+// so you can do some prepare work here(e.g. set placement rules for online restore).
+type ContextManager interface {
+	// Enter make some tables 'enter' this context(a.k.a., prepare for restore).
+	Enter(ctx context.Context, tables []CreatedTable) error
+	// Leave make some tables 'leave' this context(a.k.a., restore is done, do some post-works).
+	Leave(ctx context.Context, tables []CreatedTable) error
+}
+
+// NewBRContextManager makes a BR context manager, that is,
+// set placement rules for online restore when enter(see <splitPrepareWork>),
+// unset them when leave.
+func NewBRContextManager(client *Client) ContextManager {
+	return &brContextManager{
+		client: client,
+	}
+}
+
+type brContextManager struct {
+	client *Client
+
+	// This 'set' of table ID allow us handle each table just once.
+	hasTable map[int64]bool
+}
+
+func (manager *brContextManager) Enter(ctx context.Context, tables []CreatedTable) error {
+	placementRuleTables := make([]*model.TableInfo, 0, len(tables))
+
+	for _, tbl := range tables {
+		if manager.hasTable[tbl.Table.ID] {
+			placementRuleTables = append(placementRuleTables, tbl.Table)
+		}
+		manager.hasTable[tbl.Table.ID] = true
+	}
+
+	return splitPrepareWork(ctx, manager.client, placementRuleTables)
+}
+
+func (manager *brContextManager) Leave(ctx context.Context, tables []CreatedTable) error {
+	placementRuleTables := make([]*model.TableInfo, 0, len(tables))
+
+	for _, table := range tables {
+		placementRuleTables = append(placementRuleTables, table.Table)
+	}
+
+	splitPostWork(ctx, manager.client, placementRuleTables)
+	return nil
+}
+
+func splitPostWork(ctx context.Context, client *Client, tables []*model.TableInfo) {
+	err := client.ResetPlacementRules(ctx, tables)
+	if err != nil {
+		log.Warn("reset placement rules failed", zap.Error(err))
+		return
+	}
+
+	err = client.ResetRestoreLabels(ctx)
+	if err != nil {
+		log.Warn("reset store labels failed", zap.Error(err))
+	}
+}
+
+func splitPrepareWork(ctx context.Context, client *Client, tables []*model.TableInfo) error {
+	err := client.SetupPlacementRules(ctx, tables)
+	if err != nil {
+		log.Error("setup placement rules failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+
+	err = client.WaitPlacementSchedule(ctx, tables)
+	if err != nil {
+		log.Error("wait placement schedule failed", zap.Error(err))
+		return errors.Trace(err)
+	}
+	return nil
+}
+
 // CreatedTable is a table created on restore process,
 // but not yet filled with data.
 type CreatedTable struct {
