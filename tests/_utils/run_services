@@ -107,7 +107,22 @@ start_services() {
         sleep 3
     done
 
-        
+    if [[ ! $@ =~ "--no-tiflash" ]]; then
+        start_tiflash
+    fi
+
+    i=0
+    while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
+        i=$((i+1))
+        if [ "$i" -gt 20 ]; then
+            echo 'Failed to bootstrap cluster'
+            exit 1
+        fi
+        sleep 3
+    done
+}
+
+start_tiflash() {
     echo "Starting TiFlash..."
     LD_LIBRARY_PATH=bin/ bin/tiflash server --config-file=$TIFLASH_CONFIG &
     echo "TiFlash started..."
@@ -122,16 +137,6 @@ start_services() {
             exit 1
         fi
         echo "TiFlash seems doesn't started, retrying..."
-        sleep 3
-    done
-
-    i=0
-    while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
-        i=$((i+1))
-        if [ "$i" -gt 20 ]; then
-            echo 'Failed to bootstrap cluster'
-            exit 1
-        fi
         sleep 3
     done
 }

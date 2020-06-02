@@ -15,6 +15,9 @@
 
 set -eu
 
+# restart service without tiflash
+start_services --no-tiflash
+
 BACKUP_DIR="raw_backup"
 
 checksum() {
