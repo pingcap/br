@@ -156,6 +156,7 @@ func NewMgr(
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
 	storeBehavior StoreBehavior,
+	checkRequirements bool,
 ) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
@@ -178,7 +179,6 @@ func NewMgr(
 		}
 		processedAddrs = append(processedAddrs, addr)
 		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
 			break
 		}
@@ -196,6 +196,12 @@ func NewMgr(
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
+	}
+	if checkRequirements {
+		err = utils.CheckClusterVersion(ctx, pdClient)
+		if err != nil {
+			return nil, err
+		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 

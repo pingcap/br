@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/storage v1.5.0
 	github.com/aws/aws-sdk-go v1.30.24
 	github.com/cheggaaa/pb/v3 v3.0.4
+	github.com/coreos/go-semver v0.3.0
 	github.com/fsouza/fake-gcs-server v1.17.0
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/gogo/protobuf v1.3.1
