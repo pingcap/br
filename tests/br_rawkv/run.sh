@@ -16,7 +16,8 @@
 set -eu
 
 # restart service without tiflash
-start_services --no-tiflash
+source $( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/../_utils/run_services
+start_services "tests" --no-tiflash
 
 BACKUP_DIR="raw_backup"
 
