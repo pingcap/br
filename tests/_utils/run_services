@@ -15,7 +15,7 @@
 
 set -eu
 
-TEST_DIR=./tmp/backup_restore_test
+TEST_DIR=/tmp/backup_restore_test
 
 PD_ADDR="127.0.0.1:2379"
 TIDB_IP="127.0.0.1"
@@ -26,6 +26,7 @@ TIDB_STATUS_ADDR="127.0.0.1:10080"
 TIKV_ADDR="127.0.0.1:2016"
 TIKV_STATUS_ADDR="127.0.0.1:2018"
 TIKV_COUNT=4
+TIFLASH_STATUS="127.0.0.1:17000"
 
 stop_services() {
     killall -9 tikv-server || true
@@ -36,8 +37,75 @@ stop_services() {
     find "$TEST_DIR" -maxdepth 1 -not -path "$TEST_DIR" -not -name "*.log" | xargs rm -r || true
 }
 
+make_tiflash_config() {
+    cat > tests/config/tiflash-learner.toml <<eof
+[rocksdb]
+wal-dir = ""
+
+[security]
+ca-path = ""
+cert-path = ""
+key-path = ""
+
+[server]
+addr = "0.0.0.0:20170"
+advertise-addr = "127.0.0.1:20170"
+engine-addr = "127.0.0.1:3930"
+status-addr = "$TIFLASH_STATUS"
+
+[storage]
+data-dir = "$TEST_DIR/tiflash/data"
+eof
+
+    cat > tests/config/tiflash.toml <<eof
+default_profile = "default"
+display_name = "TiFlash"
+http_port = 8125
+listen_host = "0.0.0.0"
+mark_cache_size = 5368709120
+path = "$TEST_DIR/tiflash/data"
+tcp_port = 9002
+tmp_path = "/tmp/tiflash"
+
+[application]
+runAsDaemon = true
+
+[flash]
+service_addr = "127.0.0.1:3932"
+tidb_status_addr = "127.0.0.1:10080"
+
+[flash.proxy]
+config = "./tests/config/tiflash-learner.toml"
+log-file = "$TEST_DIR/tiflash/proxy.log"
+
+[flash.flash_cluster]
+cluster_manager_path = "./bin/flash_cluster_manager"
+log = "$TEST_DIR/tiflash/manager.log"
+master_ttl = 60
+refresh_interval = 20
+update_rule_interval = 5
+
+[logger]
+count = 20
+level = "trace"
+log = "$TEST_DIR/tiflash/stdout.log"
+errorlog = "$TEST_DIR/tiflash/stderr.log"
+size = "1000M"
+
+[raft]
+pd_addr = "127.0.0.1:2379"
+
+[profiles]
+[profiles.default]
+load_balancing = "random"
+max_memory_usage = 10000000000
+use_uncompressed_cache = 0
+eof
+}
+
 start_services() {
     stop_services
+    make_tiflash_config
 
     TIDB_CONFIG="${1-tests}/config/tidb.toml"
     TIKV_CONFIG="${1-tests}/config/tikv.toml"
@@ -45,7 +113,8 @@ start_services() {
     TIFLASH_CONFIG="${1-tests}/config/tiflash.toml"
 
     if [ ! -e $PD_CONFIG ]; then PD_CONFIG=tests/config/pd.toml; fi
-    if [ ! -e $TIFLASH_CONFIG ]; then TIFLASH_CONFIG=tests/config/pd.toml; fi
+    if [ ! -e $TIFLASH_CONFIG ]; then TIFLASH_CONFIG=tests/config/tiflash.toml; fi
+
 
     echo "Starting PD..."
     mkdir -p "$TEST_DIR/pd"
@@ -128,9 +197,7 @@ start_tiflash() {
     echo "TiFlash started..."
 
     i=0
-    # FIXME: Add retry to makesure TiFlash start here, currently, seems pd-ctl NEVER returns at this context.
-    while false # ! bin/pd-ctl store | grep "tiflash"
-    do
+    while ! curl -sf http://$TIFLASH_STATUS/metrics 1>/dev/null 2>&1; do
         i=$((i+1))
         if [ "$i" -gt 5 ]; then
             echo "failed to start tiflash"
