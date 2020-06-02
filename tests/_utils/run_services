@@ -199,7 +199,7 @@ start_tiflash() {
     i=0
     while ! curl -sf http://$TIFLASH_STATUS/metrics 1>/dev/null 2>&1; do
         i=$((i+1))
-        if [ "$i" -gt 5 ]; then
+        if [ "$i" -gt 20 ]; then
             echo "failed to start tiflash"
             exit 1
         fi
