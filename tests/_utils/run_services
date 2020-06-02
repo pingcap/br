@@ -44,6 +44,9 @@ start_services() {
     PD_CONFIG="${1-tests}/config/pd.toml"
     TIFLASH_CONFIG="${1-tests}/config/tiflash.toml"
 
+    if [ ! -e $PD_CONFIG ]; then PD_CONFIG=tests/config/pd.toml; fi
+    if [ ! -e $TIFLASH_CONFIG ]; then TIFLASH_CONFIG=tests/config/pd.toml; fi
+
     echo "Starting PD..."
     mkdir -p "$TEST_DIR/pd"
     bin/pd-server \
