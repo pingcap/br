@@ -29,6 +29,26 @@ for i in $(seq 2 $RECORD_COUNT); do
 done
 run_sql "$stmt"
 
+curl -X POST -d '{
+    "group_id": "pd",
+    "id": "default",
+    "start_key": "",
+    "end_key": "",
+    "role": "voter",
+    "count": 1
+  }' http://$PD_ADDR/pd/api/v1/config/rule
+
+i=0
+while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
+    i=$(( i + 1 ))
+    echo "Waiting for TiFlash synchronizing [$i]."
+    if [ $i -gt 20 ]; then
+        echo "Failed to sync data to tiflash."
+        exit 1
+    fi
+    sleep 5
+done
+
 rm -rf "/${TEST_DIR}/$DB"
 run_br backup full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
@@ -51,6 +71,5 @@ if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
     echo "failed to restore, before: $RECORD_COUNT; after: $AFTER_BR_COUNT"
     exit 1
 fi
-
 
 echo "TEST $TEST_NAME passed!"
