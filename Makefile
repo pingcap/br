@@ -43,7 +43,10 @@ testcover: tools failpoint-enable
 		-debug \
 		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
-integration_test: build build_for_integration_test
+integration_test: bins build build_for_integration_test
+	tests/run.sh
+
+bins:
 	@which bin/tidb-server
 	@which bin/tikv-server
 	@which bin/pd-server
@@ -51,7 +54,9 @@ integration_test: build build_for_integration_test
 	@which bin/go-ycsb
 	@which bin/minio
 	@which bin/br
-	tests/run.sh
+	@which bin/tiflash
+	@which bin/libtiflash_proxy.so
+	if [ ! -d bin/flash_cluster_manager ]; then echo "flash_cluster_manager not exist"; exit 1; fi
 
 tools:
 	@echo "install tools..."

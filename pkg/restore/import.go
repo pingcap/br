@@ -119,7 +119,11 @@ func (ic *importClient) getImportClient(
 	if ic.tlsConf != nil {
 		opt = grpc.WithTransportCredentials(credentials.NewTLS(ic.tlsConf))
 	}
-	conn, err := grpc.Dial(store.GetAddress(), opt)
+	addr := store.GetPeerAddress()
+	if addr == "" {
+		addr = store.GetAddress()
+	}
+	conn, err := grpc.Dial(addr, opt)
 	if err != nil {
 		return nil, err
 	}
