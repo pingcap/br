@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/pd/v4/pkg/codec"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -118,7 +119,11 @@ func (ic *importClient) getImportClient(
 	if ic.tlsConf != nil {
 		opt = grpc.WithTransportCredentials(credentials.NewTLS(ic.tlsConf))
 	}
-	conn, err := grpc.Dial(store.GetAddress(), opt)
+	addr := store.GetPeerAddress()
+	if addr == "" {
+		addr = store.GetAddress()
+	}
+	conn, err := grpc.Dial(addr, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -189,6 +194,10 @@ func (importer *FileImporter) Import(
 		endKey = file.EndKey
 	} else {
 		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
+		// if not truncateRowKey here, if will scan one more region
+		// TODO need more test to check here
+		// startKey = truncateRowKey(startKey)
+		// endKey = truncateRowKey(endKey)
 	}
 	if err != nil {
 		return err
@@ -228,6 +237,7 @@ func (importer *FileImporter) Import(
 
 		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
+	regionLoop:
 		for _, regionInfo := range regionInfos {
 			info := regionInfo
 			// Try to download file.
@@ -242,9 +252,18 @@ func (importer *FileImporter) Import(
 				return e
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
-				if errDownload == ErrRewriteRuleNotFound || errDownload == ErrRangeIsEmpty {
-					// Skip this region
-					continue
+				for _, e := range multierr.Errors(errDownload) {
+					switch e {
+					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
+						// Skip this region
+						log.Error("download file skipped",
+							zap.Stringer("file", file),
+							zap.Stringer("region", info.Region),
+							zap.Binary("startKey", startKey),
+							zap.Binary("endKey", endKey),
+							zap.Error(e))
+						continue regionLoop
+					}
 				}
 				log.Error("download file failed",
 					zap.Stringer("file", file),
@@ -361,6 +380,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	log.Debug("download SST",
 		zap.Stringer("sstMeta", &sstMeta),
+		zap.Stringer("file", file),
 		zap.Stringer("region", regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse

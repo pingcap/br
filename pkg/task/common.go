@@ -45,10 +45,12 @@ const (
 	flagDatabase = "db"
 	flagTable    = "table"
 
-	flagRateLimit     = "ratelimit"
-	flagRateLimitUnit = "ratelimit-unit"
-	flagConcurrency   = "concurrency"
-	flagChecksum      = "checksum"
+	flagRateLimit        = "ratelimit"
+	flagRateLimitUnit    = "ratelimit-unit"
+	flagConcurrency      = "concurrency"
+	flagChecksum         = "checksum"
+	flagRemoveTiFlash    = "remove-tiflash"
+	flagCheckRequirement = "check-requirements"
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -91,8 +93,10 @@ type Config struct {
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
-	CaseSensitive bool         `json:"case-sensitive" toml:"case-sensitive"`
-	Filter        filter.Rules `json:"black-white-list" toml:"black-white-list"`
+	RemoveTiFlash     bool         `json:"remove-tiflash" toml:"remove-tiflash"`
+	CaseSensitive     bool         `json:"case-sensitive" toml:"case-sensitive"`
+	CheckRequirements bool         `json:"check-requirements" toml:"check-requirements"`
+	Filter            filter.Rules `json:"black-white-list" toml:"black-white-list"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -106,6 +110,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+	flags.Bool(flagRemoveTiFlash, true,
+		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
 
 	// Default concurrency is different for backup and restore.
 	// Leave it 0 and let them adjust the value.
@@ -115,6 +121,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
+
+	flags.Bool(flagCheckRequirement, true,
+		"Whether start version check before execute command")
 
 	storage.DefineFlags(flags)
 }
@@ -188,6 +197,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
 		db := escapeFilterName(dbFlag.Value.String())
 		if len(db) == 0 {
@@ -203,6 +217,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 			cfg.Filter.DoDBs = []string{db}
 		}
 	}
+	checkRequirements, err := flags.GetBool(flagCheckRequirement)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CheckRequirements = checkRequirements
 
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
@@ -217,6 +236,7 @@ func newMgr(
 	pds []string,
 	tlsConfig TLSConfig,
 	storeBehavior conn.StoreBehavior,
+	checkRequirements bool,
 ) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
@@ -243,7 +263,7 @@ func newMgr(
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior)
+	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior, checkRequirements)
 }
 
 // GetStorage gets the storage backend from the config.

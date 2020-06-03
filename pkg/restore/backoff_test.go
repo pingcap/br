@@ -8,6 +8,7 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/util/testleak"
+	"go.uber.org/multierr"
 
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
@@ -30,6 +31,25 @@ func (s *testBackofferSuite) TearDownSuite(c *C) {
 	testleak.AfterTest(c)()
 }
 
+func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
+	var counter int
+	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	err := utils.WithRetry(context.Background(), func() error {
+		defer func() { counter++ }()
+		switch counter {
+		case 0:
+			return restore.ErrGRPC
+		case 1:
+			return restore.ErrEpochNotMatch
+		case 2:
+			return nil
+		}
+		return nil
+	}, backoffer)
+	c.Assert(counter, Equals, 3)
+	c.Assert(err, IsNil)
+}
+
 func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 	var counter int
 	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
@@ -41,12 +61,19 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 		case 1:
 			return restore.ErrEpochNotMatch
 		case 2:
+			return restore.ErrDownloadFailed
+		case 3:
 			return restore.ErrRangeIsEmpty
 		}
 		return nil
 	}, backoffer)
-	c.Assert(counter, Equals, 3)
-	c.Assert(err, Equals, restore.ErrRangeIsEmpty)
+	c.Assert(counter, Equals, 4)
+	c.Assert(multierr.Errors(err), DeepEquals, []error{
+		restore.ErrGRPC,
+		restore.ErrEpochNotMatch,
+		restore.ErrDownloadFailed,
+		restore.ErrRangeIsEmpty,
+	})
 }
 
 func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
@@ -57,5 +84,16 @@ func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 		return restore.ErrEpochNotMatch
 	}, backoffer)
 	c.Assert(counter, Equals, 10)
-	c.Assert(err, Equals, restore.ErrEpochNotMatch)
+	c.Assert(multierr.Errors(err), DeepEquals, []error{
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+		restore.ErrEpochNotMatch,
+	})
 }

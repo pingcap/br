@@ -156,6 +156,7 @@ func NewMgr(
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
 	storeBehavior StoreBehavior,
+	checkRequirements bool,
 ) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
@@ -178,7 +179,6 @@ func NewMgr(
 		}
 		processedAddrs = append(processedAddrs, addr)
 		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-		// TODO need check cluster version >= 3.1 when br release
 		if failure == nil {
 			break
 		}
@@ -191,11 +191,17 @@ func NewMgr(
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
 	}
-	pdClient, err := pd.NewClient(
-		addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
+	pdClient, err := pd.NewClientWithContext(
+		ctx, addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
+	}
+	if checkRequirements {
+		err = utils.CheckClusterVersion(ctx, pdClient)
+		if err != nil {
+			return nil, err
+		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
@@ -315,9 +321,13 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	keepAliveTimeout := 3
 	bfConf := backoff.DefaultConfig
 	bfConf.MaxDelay = time.Second * 3
+	addr := store.GetPeerAddress()
+	if addr == "" {
+		addr = store.GetAddress()
+	}
 	conn, err := grpc.DialContext(
 		ctx,
-		store.GetAddress(),
+		addr,
 		opt,
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{

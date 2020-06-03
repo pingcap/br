@@ -82,6 +82,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	err = cfg.Config.ParseFromFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
@@ -99,7 +103,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -171,8 +175,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// nothing to restore, maybe only ddl changes in incremental restore
-	if len(files) == 0 {
-		log.Info("all files are filtered out from the backup archive, nothing to restore")
+	if len(dbs) == 0 && len(tables) == 0 {
+		log.Info("nothing to restore, all databases and tables are filtered out")
 		// even nothing to restore, we show a success message since there is no failure.
 		summary.SetSuccessStatus(true)
 		return nil
@@ -189,19 +193,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return err
 	}
-	placementRules, err := client.GetPlacementRules(cfg.PD)
-	if err != nil {
-		return err
+	if len(files) == 0 {
+		log.Info("no files, empty databases and tables are restored")
+		summary.SetSuccessStatus(true)
+		return nil
 	}
-
-	err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_ = client.RecoverTiFlashReplica(tables)
-	}()
 
 	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
 	if err != nil {
@@ -249,19 +245,31 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := int(cfg.Concurrency)
-	if batchSize < defaultRestoreConcurrency {
-		batchSize = defaultRestoreConcurrency
-	}
-	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
+	batchSize := utils.ClampInt(int(cfg.Concurrency), defaultRestoreConcurrency, maxRestoreBatchSizeLimit)
 
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	rejectStoreMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		rejectStoreMap[store.GetId()] = true
+	if cfg.RemoveTiFlash {
+		placementRules, err := client.GetPlacementRules(cfg.PD)
+		if err != nil {
+			return err
+		}
+
+		err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			_ = client.RecoverTiFlashReplica(tables)
+		}()
+
+		tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for _, store := range tiflashStores {
+			rejectStoreMap[store.GetId()] = true
+		}
 	}
 
 	for {
@@ -340,6 +348,9 @@ func filterRestoreFiles(
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
+	}
+	if len(dbs) == 0 && len(tables) != 0 {
+		err = errors.New("invalid backup, contain tables but no databases")
 	}
 	return
 }
@@ -525,7 +536,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}

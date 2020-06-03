@@ -100,7 +100,7 @@ func (c *pdClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store,
 }
 
 func (c *pdClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, error) {
-	region, leader, err := c.client.GetRegion(ctx, key)
+	region, err := c.client.GetRegion(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -108,13 +108,13 @@ func (c *pdClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, erro
 		return nil, nil
 	}
 	return &RegionInfo{
-		Region: region,
-		Leader: leader,
+		Region: region.Meta,
+		Leader: region.Leader,
 	}, nil
 }
 
 func (c *pdClient) GetRegionByID(ctx context.Context, regionID uint64) (*RegionInfo, error) {
-	region, leader, err := c.client.GetRegionByID(ctx, regionID)
+	region, err := c.client.GetRegionByID(ctx, regionID)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +122,8 @@ func (c *pdClient) GetRegionByID(ctx context.Context, regionID uint64) (*RegionI
 		return nil, nil
 	}
 	return &RegionInfo{
-		Region: region,
-		Leader: leader,
+		Region: region.Meta,
+		Leader: region.Leader,
 	}, nil
 }
 

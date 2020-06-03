@@ -90,7 +90,7 @@ func Init(cmd *cobra.Command) (err error) {
 		if len(conf.File.Filename) != 0 {
 			atomic.StoreUint64(&hasLogFile, 1)
 			summary.InitCollector(true)
-			cmd.Printf("Detial BR log in %s\n", conf.File.Filename)
+			cmd.Printf("Detail BR log in %s\n", conf.File.Filename)
 		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {

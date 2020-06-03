@@ -106,16 +106,52 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			zap.Error(err))
 		return errors.Trace(err)
 	}
-	alterAutoIncIDSQL := fmt.Sprintf(
-		"alter table %s.%s auto_increment = %d",
-		utils.EncloseName(table.Db.Name.O),
-		utils.EncloseName(table.Info.Name.O),
-		table.Info.AutoIncID)
 
-	err = db.se.Execute(ctx, alterAutoIncIDSQL)
+	var restoreMetaSQL string
+	if table.Info.IsSequence() {
+		setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
+			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.Info.Name.O))
+		if table.Info.Sequence.Cycle {
+			increment := table.Info.Sequence.Increment
+			// TiDB sequence's behaviour is designed to keep the same pace
+			// among all nodes within the same cluster. so we need restore round.
+			// Here is a hack way to trigger sequence cycle round > 0 according to
+			// https://github.com/pingcap/br/pull/242#issuecomment-631307978
+			// TODO use sql to set cycle round
+			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
+				utils.EncloseName(table.Db.Name.O),
+				utils.EncloseName(table.Info.Name.O))
+			if increment < 0 {
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+			} else {
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+			}
+			// trigger cycle round > 0
+			restoreMetaSQL += nextSeqSQL
+			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+		} else {
+			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+		}
+	} else {
+		var alterAutoIncIDFormat string
+		switch {
+		case table.Info.IsView():
+			return nil
+		default:
+			alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
+		}
+		restoreMetaSQL = fmt.Sprintf(
+			alterAutoIncIDFormat,
+			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.Info.Name.O),
+			table.Info.AutoIncID)
+	}
+
+	err = db.se.Execute(ctx, restoreMetaSQL)
 	if err != nil {
-		log.Error("alter AutoIncID failed",
-			zap.String("query", alterAutoIncIDSQL),
+		log.Error("restore meta sql failed",
+			zap.String("query", restoreMetaSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
