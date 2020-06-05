@@ -28,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -65,8 +66,15 @@ type Client struct {
 	isOnline        bool
 	noSchema        bool
 	hasSpeedLimited bool
+	// Those fields should be removed after we have FULLY supportted TiFlash.
+	// we place this field here to make a 'good' memory align, but mainly make golang-ci happy :)
+	tiFlashRecordUpdated bool
 
 	restoreStores []uint64
+
+	// tables that has TiFlash and those TiFlash have been removed, should be written to disk.
+	// Those fields should be removed after we have FULLY supportted TiFlash.
+	tablesRemovedTiFlash []*backup.Schema
 
 	storage storage.ExternalStorage
 	backend *backup.StorageBackend
@@ -414,61 +422,27 @@ func (rc *Client) GoCreateTables(
 	return outCh
 }
 
-// RemoveTiFlashReplica removes all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore.
-func (rc *Client) RemoveTiFlashReplica(
-	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
-	schemas := make([]*backup.Schema, 0, len(tables))
-	var updateReplica bool
-	// must use new table id to search placement rules
-	// here newTables and tables must have same order
-	for i, table := range tables {
-		if rule := utils.SearchPlacementRule(newTables[i].ID, placementRules, placement.Learner); rule != nil {
-			table.TiFlashReplicas = rule.Count
-			updateReplica = true
-		}
-		tableData, err := json.Marshal(newTables[i])
-		if err != nil {
-			return errors.Trace(err)
-		}
-		dbData, err := json.Marshal(table.Db)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		schemas = append(schemas, &backup.Schema{
-			Db:              dbData,
-			Table:           tableData,
-			Crc64Xor:        table.Crc64Xor,
-			TotalKvs:        table.TotalKvs,
-			TotalBytes:      table.TotalBytes,
-			TiflashReplicas: uint32(table.TiFlashReplicas),
-		})
+// makeTiFlashOfTableRecord make a 'record' repsenting TiFlash of a table that has been removed.
+// We doesn't record table ID here because when restore TiFlash replicas,
+// we use `ALTER TABLE db.tbl SET TIFLASH_REPLICA = xxx` DDL, instead of use some internal TiDB API.
+func makeTiFlashOfTableRecord(table *utils.Table, replica int) (*backup.Schema, error) {
+	tableData, err := json.Marshal(table.Info)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-
-	if updateReplica {
-		// Update backup meta
-		rc.backupMeta.Schemas = schemas
-		backupMetaData, err := proto.Marshal(rc.backupMeta)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		backendURL := storage.FormatBackendURL(rc.backend)
-		log.Info("update backup meta", zap.Stringer("path", &backendURL))
-		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
-		if err != nil {
-			return errors.Trace(err)
-		}
+	dbData, err := json.Marshal(table.Db)
+	if err != nil {
+		return nil, errors.Trace(err)
 	}
-
-	for _, table := range tables {
-		if table.TiFlashReplicas > 0 {
-			err := rc.db.AlterTiflashReplica(rc.ctx, table, 0)
-			if err != nil {
-				return errors.Trace(err)
-			}
-		}
+	result := &backup.Schema{
+		Db:              dbData,
+		Table:           tableData,
+		Crc64Xor:        table.Crc64Xor,
+		TotalKvs:        table.TotalKvs,
+		TotalBytes:      table.TotalBytes,
+		TiflashReplicas: uint32(replica),
 	}
-	return nil
+	return result, nil
 }
 
 // RemoveTiFlashOfTable removes TiFlash replica of some table,
@@ -478,7 +452,11 @@ func (rc *Client) RemoveTiFlashReplica(
 func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
 	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
 		if rule.Count > 0 {
-			err := rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0)
+			err := multierr.Combine(
+				rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0),
+				rc.removeTiFlashOf(table.OldTable, rule.Count),
+				rc.flushTiFlashRecord(),
+			)
 			if err != nil {
 				return 0, errors.Trace(err)
 			}
@@ -486,6 +464,39 @@ func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule
 		}
 	}
 	return 0, nil
+}
+
+func (rc *Client) removeTiFlashOf(table *utils.Table, replica int) error {
+	tableRecord, err := makeTiFlashOfTableRecord(table, replica)
+	if err != nil {
+		return err
+	}
+	rc.tablesRemovedTiFlash = append(rc.tablesRemovedTiFlash, tableRecord)
+	rc.tiFlashRecordUpdated = true
+	return nil
+}
+
+func (rc *Client) flushTiFlashRecord() error {
+	// Today nothing to do :D
+	if !rc.tiFlashRecordUpdated {
+		return nil
+	}
+
+	// should we make a deep copy here?
+	// currently, write things directly to backup meta is OK since there seems nobody uses it.
+	// But would it be better if we don't do it?
+	rc.backupMeta.Schemas = rc.tablesRemovedTiFlash
+	backupMetaData, err := proto.Marshal(rc.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	backendURL := storage.FormatBackendURL(rc.backend)
+	log.Info("update backup meta", zap.Stringer("path", &backendURL))
+	err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 // RecoverTiFlashOfTable recovers TiFlash replica of some table.
