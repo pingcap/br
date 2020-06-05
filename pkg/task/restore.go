@@ -83,6 +83,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	err = cfg.Config.ParseFromFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
@@ -234,11 +238,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// Restore sst files in batch.
-	batchSize := int(cfg.Concurrency)
-	if batchSize < defaultRestoreConcurrency {
-		batchSize = defaultRestoreConcurrency
-	}
-	batchSize = utils.MinInt(batchSize, maxRestoreBatchSizeLimit)
+	batchSize := utils.ClampInt(int(cfg.Concurrency), defaultRestoreConcurrency, maxRestoreBatchSizeLimit)
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(
