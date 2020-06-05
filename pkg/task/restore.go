@@ -265,7 +265,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
 	} else {
 		// when user skip checksum, just collect tables, and drop them.
-		finish = dropToBlackhole(ctx, afterRestoreStream, errCh)
+		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)
 	}
 
 	select {
@@ -274,7 +274,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	case <-finish:
 	}
 
-	// If any error happened, return now, don't execute checksum.
+	// If any error happened, return now.
 	if err != nil {
 		return err
 	}
@@ -289,6 +289,7 @@ func dropToBlackhole(
 	ctx context.Context,
 	tableStream <-chan restore.CreatedTable,
 	errCh chan<- error,
+	updateCh glue.Progress,
 ) <-chan struct{} {
 	outCh := make(chan struct{}, 1)
 	go func() {
@@ -304,6 +305,7 @@ func dropToBlackhole(
 				if !ok {
 					return
 				}
+				updateCh.Inc()
 				log.Info("skipping checksum of table because user config",
 					zap.Stringer("database", tbl.OldTable.Db.Name),
 					zap.Stringer("table", tbl.Table.Name),
