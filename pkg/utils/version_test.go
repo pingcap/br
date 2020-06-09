@@ -105,4 +105,6 @@ func (s *versionSuite) TestCompareVersion(c *check.C) {
 	c.Assert(semver.New("4.0.0-beta.3").Compare(*semver.New("4.0.0-rc.2")), check.Equals, -1)
 	c.Assert(semver.New("4.0.0-rc.1").Compare(*semver.New("4.0.0")), check.Equals, -1)
 	c.Assert(semver.New("4.0.0-beta.1").Compare(*semver.New("4.0.0")), check.Equals, -1)
+	c.Assert(semver.New(removeVAndHash("4.0.0-rc-35-g31dae220")).Compare(*semver.New("4.0.0-rc.2")), check.Equals, -1)
+	c.Assert(semver.New(removeVAndHash("4.0.0-9-g30f0b014")).Compare(*semver.New("4.0.0-rc.1")), check.Equals, 1)
 }
