@@ -20,7 +20,7 @@ random_values() {
 import random
 import string
 for ignored in range($count):
-    print(''.join(random.choices(string.ascii_letters, k=$length)))" | 
+    print(''.join(random.choice(string.ascii_letters) for _ in range($length)))" | 
     awk '{print "(1" $1 "1)"}' | 
     tr "\n1" ",'" | 
     sed 's/,$//'
@@ -34,15 +34,27 @@ create_and_insert() {
     echo $stmt | mysql -uroot -h127.0.0.1 -P4000
 }
 
+check_size() {
+    table_name=$1
+    record_count=$2
+
+    count=`run_sql 'select count(*) from $DB.$table_name' | awk '/count/{print $2}'`
+
+    if [ $count -ne $record_count ]; then
+        echo "check size failed: $count vs $record_count"
+    fi
+}
+
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 
 run_sql "CREATE DATABASE $DB;"
 
-create_and_insert t1 10000
-create_and_insert t2 10086
-create_and_insert t3 10010
+record_counts=(10000 10010 10086)
+for i in $record_counts; do
+    create_and_insert "t$i" $i
+done
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
 
@@ -58,3 +70,7 @@ echo "restore start..."
 GO_FAILPOINTS="github.com/pingcap/br/pkg/task/small-batch-size=return(2)" \
 run_br restore full -s "local://$backup_dir" --pd $PD_ADDR --ratelimit 1024
 
+for i in $record_counts; do
+    check_size "t$i" $i
+done
+check_size $TABLE 10000
