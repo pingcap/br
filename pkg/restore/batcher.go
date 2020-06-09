@@ -21,10 +21,22 @@ type Batcher struct {
 	cachedTablesMu *sync.Mutex
 	rewriteRules   *RewriteRules
 
-	// joiner is for joining the background batch sender.
-	joiner             chan<- struct{}
-	sendErr            chan<- error
-	outCh              chan<- CreatedTable
+	// autoCommitJoiner is for joining the background batch sender.
+	autoCommitJoiner chan<- struct{}
+	// workerJoiner is also for joining the background batch sender.
+	workerJoiner chan<- struct{}
+	// workerIsDone is for waiting for worker done: that is, after we send a
+	// signal to workerJoiner, we must give it enough time to get things done.
+	// Then, it should notify us by this waitgroup.
+	// Use waitgroup instead of a trivial channel for farther extention.
+	everythingIsDone *sync.WaitGroup
+	// sendErr is for output error information.
+	sendErr chan<- error
+	// sendCh is for communiate with sendWorker.
+	sendCh chan<- struct{}
+	// outCh is for output the restored table, so it can be sent to do something like checksum.
+	outCh chan<- CreatedTable
+
 	sender             BatchSender
 	manager            ContextManager
 	batchSizeThreshold int
@@ -40,53 +52,95 @@ func (b *Batcher) Len() int {
 // this batcher will work background, send batches per second, or batch size reaches limit.
 // and it will emit full-restored tables to the output channel returned.
 func NewBatcher(
+	ctx context.Context,
 	sender BatchSender,
 	manager ContextManager,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
+	workerJoiner := make(chan struct{})
+	sendChan := make(chan struct{}, 2)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
 		sendErr:            errCh,
 		outCh:              output,
 		sender:             sender,
 		manager:            manager,
+		sendCh:             sendChan,
+		workerJoiner:       workerJoiner,
 		cachedTablesMu:     new(sync.Mutex),
+		everythingIsDone:   new(sync.WaitGroup),
 		batchSizeThreshold: 1,
 	}
+	b.everythingIsDone.Add(1)
+	go b.sendWorker(ctx, sendChan, workerJoiner)
 	return b, output
 }
 
 // EnableAutoCommit enables the batcher commit batch periodicity even batcher size isn't big enough.
 // we make this function for disable AutoCommit in some case.
 func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
-	if b.joiner != nil {
-		log.Warn("enable auto commit on a batcher that is enabled auto commit, nothing will happen")
-		log.Info("if desire, please disable auto commit firstly")
+	if b.autoCommitJoiner != nil {
+		log.Warn("enable auto commit on a batcher that auto commit is enabled, nothing will happen")
+		log.Info("if desire(e.g. change the peroid of auto commit), please disable auto commit firstly")
 	}
 	joiner := make(chan struct{})
-	go b.workLoop(ctx, joiner, delay)
-	b.joiner = joiner
+	go b.autoCommitWorker(ctx, joiner, delay)
+	b.autoCommitJoiner = joiner
 }
 
 // DisableAutoCommit blocks the current goroutine until the worker can gracefully stop,
 // and then disable auto commit.
-func (b *Batcher) DisableAutoCommit(ctx context.Context) {
+func (b *Batcher) DisableAutoCommit() {
 	b.joinWorker()
-	b.joiner = nil
+	b.autoCommitJoiner = nil
+}
+
+func (b *Batcher) waitUntilSendDone() {
+	b.workerJoiner <- struct{}{}
+	b.everythingIsDone.Wait()
 }
 
 // joinWorker blocks the current goroutine until the worker can gracefully stop.
 // return immediately when auto commit disabled.
 func (b *Batcher) joinWorker() {
-	if b.joiner != nil {
+	if b.autoCommitJoiner != nil {
 		log.Debug("gracefully stoping worker goroutine")
-		b.joiner <- struct{}{}
+		b.autoCommitJoiner <- struct{}{}
 		log.Debug("gracefully stopped worker goroutine")
 	}
 }
 
-func (b *Batcher) workLoop(ctx context.Context, joiner <-chan struct{}, delay time.Duration) {
+// sendWorker is the 'worker' that send all ranges to TiKV.
+func (b *Batcher) sendWorker(ctx context.Context, send <-chan struct{}, joiner <-chan struct{}) {
+	doSend := func() {
+		if b.Len() > 0 {
+			tbls, err := b.Send(ctx)
+			if err != nil {
+				b.sendErr <- err
+				return
+			}
+			for _, t := range tbls {
+				b.outCh <- t
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-send:
+			doSend()
+		case <-joiner:
+			for b.Len() > 0 {
+				doSend()
+			}
+			b.everythingIsDone.Done()
+			return
+		}
+	}
+}
+
+func (b *Batcher) autoCommitWorker(ctx context.Context, joiner <-chan struct{}, delay time.Duration) {
 	tick := time.NewTicker(delay)
 	defer tick.Stop()
 	for {
@@ -100,21 +154,14 @@ func (b *Batcher) workLoop(ctx context.Context, joiner <-chan struct{}, delay ti
 		case <-tick.C:
 			if b.Len() > 0 {
 				log.Info("sending batch because time limit exceed", zap.Int("size", b.Len()))
-				b.asyncSend(ctx)
+				b.asyncSend()
 			}
 		}
 	}
 }
 
-func (b *Batcher) asyncSend(ctx context.Context) {
-	tbls, err := b.Send(ctx)
-	if err != nil {
-		b.sendErr <- err
-		return
-	}
-	for _, t := range tbls {
-		b.outCh <- t
-	}
+func (b *Batcher) asyncSend() {
+	b.sendCh <- struct{}{}
 }
 
 type drainResult struct {
@@ -234,15 +281,15 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	return drainResult.BlankTablesAfterSend, nil
 }
 
-func (b *Batcher) sendIfFull(ctx context.Context) {
+func (b *Batcher) sendIfFull() {
 	for b.Len() >= b.batchSizeThreshold {
 		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
-		b.asyncSend(ctx)
+		b.asyncSend()
 	}
 }
 
 // Add adds a task to the Batcher.
-func (b *Batcher) Add(ctx context.Context, tbs TableWithRange) {
+func (b *Batcher) Add(tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
 		zap.Stringer("table", tbs.Table.Name),
@@ -257,16 +304,21 @@ func (b *Batcher) Add(ctx context.Context, tbs TableWithRange) {
 	atomic.AddInt32(&b.size, int32(len(tbs.Range)))
 	b.cachedTablesMu.Unlock()
 
-	b.sendIfFull(ctx)
+	b.sendIfFull()
 }
 
 // Close closes the batcher, sending all pending requests, close updateCh.
-func (b *Batcher) Close(ctx context.Context) {
+func (b *Batcher) Close() {
 	log.Info("sending batch lastly on close.", zap.Int("size", b.Len()))
-	for b.Len() > 0 {
-		b.asyncSend(ctx)
-	}
-	b.DisableAutoCommit(ctx)
+	b.DisableAutoCommit()
+	b.waitUntilSendDone()
 	close(b.outCh)
 	b.sender.Close()
+}
+
+// SetThreshold sets the threshold that how big the batch size reaching need to send batch.
+// note this function isn't goroutine safe yet,
+// just set threshold before anything starts(e.g. EnableAutoCommit), please.
+func (b *Batcher) SetThreshold(newThreshold int) {
+	b.batchSizeThreshold = newThreshold
 }

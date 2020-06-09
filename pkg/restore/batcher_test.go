@@ -170,10 +170,11 @@ func join(nested [][]rtree.Range) (plain []rtree.Range) {
 
 // TestBasic tests basic workflow of batcher.
 func (*testBatcherSuite) TestBasic(c *C) {
+	ctx := context.Background()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
 	manager := newMockManager()
-	batcher, _ := restore.NewBatcher(sender, manager, errCh)
+	batcher, _ := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(2)
 
 	tableRanges := [][]rtree.Range{
@@ -186,12 +187,11 @@ func (*testBatcherSuite) TestBasic(c *C) {
 	for i, ranges := range tableRanges {
 		simpleTables = append(simpleTables, fakeTableWithRange(int64(i), ranges))
 	}
-	ctx := context.Background()
 	for _, tbl := range simpleTables {
-		batcher.Add(ctx, tbl)
+		batcher.Add(tbl)
 	}
 
-	batcher.Close(ctx)
+	batcher.Close()
 	rngs := sender.Ranges()
 
 	c.Assert(join(tableRanges), DeepEquals, rngs)
@@ -203,16 +203,16 @@ func (*testBatcherSuite) TestBasic(c *C) {
 }
 
 func (*testBatcherSuite) TestAutoSend(c *C) {
+	ctx := context.Background()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
 	manager := newMockManager()
-	batcher, _ := restore.NewBatcher(sender, manager, errCh)
+	batcher, _ := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(1024)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{fakeRange("caa", "cab"), fakeRange("cac", "cad")})
 
-	ctx := context.Background()
-	batcher.Add(ctx, simpleTable)
+	batcher.Add(simpleTable)
 	c.Assert(batcher.Len(), Greater, 0)
 
 	// enable auto commit.
@@ -222,7 +222,7 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 	c.Assert(sender.RangeLen(), Greater, 0)
 	c.Assert(batcher.Len(), Equals, 0)
 
-	batcher.Close(ctx)
+	batcher.Close()
 
 	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
@@ -234,10 +234,11 @@ func (*testBatcherSuite) TestAutoSend(c *C) {
 }
 
 func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
+	ctx := context.Background()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
 	manager := newMockManager()
-	batcher, _ := restore.NewBatcher(sender, manager, errCh)
+	batcher, _ := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(2)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
@@ -246,11 +247,10 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	ctx := context.TODO()
-	batcher.Add(ctx, simpleTable)
+	batcher.Add(simpleTable)
 	c.Assert(sender.BatchCount(), Equals, 4)
 
-	batcher.Close(ctx)
+	batcher.Close()
 
 	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
@@ -283,22 +283,22 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 		tables = append(tables, table)
 	}
 
-	ctx := context.TODO()
+	ctx := context.Background()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
 	manager := newMockManager()
-	batcher, _ := restore.NewBatcher(sender, manager, errCh)
+	batcher, _ := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(2)
 
-	batcher.Add(ctx, tables[0])
+	batcher.Add(tables[0])
 	c.Assert(sender.RangeLen(), Equals, 0)
-	batcher.Add(ctx, tables[1])
+	batcher.Add(tables[1])
 	c.Assert(sender.HasRewriteRuleOfKey("a"), IsTrue)
 	c.Assert(sender.HasRewriteRuleOfKey("b"), IsTrue)
 	c.Assert(manager.Has(tables[1]), IsTrue)
 	c.Assert(sender.RangeLen(), Equals, 2)
-	batcher.Add(ctx, tables[2])
-	batcher.Close(ctx)
+	batcher.Add(tables[2])
+	batcher.Close()
 	c.Assert(sender.HasRewriteRuleOfKey("c"), IsTrue)
 	c.Assert(sender.Ranges(), DeepEquals, join(tableRanges))
 
@@ -310,10 +310,11 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 }
 
 func (*testBatcherSuite) TestBatcherLen(c *C) {
+	ctx := context.Background()
 	errCh := make(chan error, 8)
 	sender := newDrySender()
 	manager := newMockManager()
-	batcher, _ := restore.NewBatcher(sender, manager, errCh)
+	batcher, _ := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(15)
 
 	simpleTable := fakeTableWithRange(1, []rtree.Range{
@@ -328,16 +329,15 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
-	ctx := context.TODO()
-	batcher.Add(ctx, simpleTable)
+	batcher.Add(simpleTable)
 	c.Assert(batcher.Len(), Equals, 8)
 	c.Assert(manager.Has(simpleTable), IsFalse)
 	c.Assert(manager.Has(simpleTable2), IsFalse)
-	batcher.Add(ctx, simpleTable2)
+	batcher.Add(simpleTable2)
 	c.Assert(batcher.Len(), Equals, 1)
 	c.Assert(manager.Has(simpleTable2), IsTrue)
 	c.Assert(manager.Has(simpleTable), IsFalse)
-	batcher.Close(ctx)
+	batcher.Close()
 	c.Assert(batcher.Len(), Equals, 0)
 
 	select {

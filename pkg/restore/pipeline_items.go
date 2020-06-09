@@ -116,13 +116,6 @@ type TableWithRange struct {
 	Range []rtree.Range
 }
 
-// SetThreshold sets the threshold that how big the batch size reaching need to send batch.
-// note this function isn't goroutine safe yet,
-// just set threshold before anything starts(e.g. EnableAutoCommit), please.
-func (b *Batcher) SetThreshold(newThreshold int) {
-	b.batchSizeThreshold = newThreshold
-}
-
 // Exhaust drains all remaining errors in the channel, into a slice of errors.
 func Exhaust(ec <-chan error) []error {
 	out := make([]error, 0, len(ec))
@@ -155,8 +148,6 @@ type tikvSender struct {
 func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (BatchSender, error) {
 	tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
 	if err != nil {
-		// After TiFlash support restore, we can remove this panic.
-		// The origin of this panic is at RunRestore, and its semantic is nearing panic, don't worry about it.
 		log.Error("failed to get and remove TiFlash replicas", zap.Error(errors.Trace(err)))
 		return nil, err
 	}

@@ -251,7 +251,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	manager := restore.NewBRContextManager(client)
-	batcher, afterRestoreStream := restore.NewBatcher(sender, manager, errCh)
+	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
 	go restoreTableStream(ctx, rangeStream, placementRules, client, batcher, errCh)
@@ -575,7 +575,7 @@ func restoreTableStream(
 	oldTables := []*utils.Table{}
 	defer func() {
 		// when things done, we must clean pending requests.
-		batcher.Close(ctx)
+		batcher.Close()
 		log.Info("doing postwork",
 			zap.Int("table count", len(oldTables)),
 		)
@@ -603,7 +603,7 @@ func restoreTableStream(
 			t.OldTable.TiFlashReplicas = tiFlashRep
 			oldTables = append(oldTables, t.OldTable)
 
-			batcher.Add(ctx, t)
+			batcher.Add(t)
 		}
 	}
 }
