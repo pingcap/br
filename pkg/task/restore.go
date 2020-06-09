@@ -148,6 +148,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	files, tables, dbs := filterRestoreFiles(client, cfg)
+	if len(dbs) == 0 && len(tables) != 0 {
+		return errors.New("invalid backup, contain tables but no databases")
+	}
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -339,9 +342,6 @@ func filterRestoreFiles(
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
-	}
-	if len(dbs) == 0 && len(tables) != 0 {
-		err = errors.New("invalid backup, contain tables but no databases")
 	}
 	return
 }
