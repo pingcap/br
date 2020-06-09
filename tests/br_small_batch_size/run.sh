@@ -16,10 +16,14 @@
 random_values() {
     length=$1
     count=$2
-    python -c "import random; import string; [print(''.join(random.choices(string.ascii_letters, k=$length))) for _ in range($count) ]" | 
-        awk '{print "(1" $1 "1)"}' |
-        tr "\n1" ",'" |
-        sed 's/,$//'
+    python -c "
+import random
+import string
+for ignored in range($count):
+    print(''.join(random.choices(string.ascii_letters, k=$length)))" | 
+    awk '{print "(1" $1 "1)"}' | 
+    tr "\n1" ",'" | 
+    sed 's/,$//'
 }
 
 create_and_insert() {
