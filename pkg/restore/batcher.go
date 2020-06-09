@@ -4,7 +4,6 @@ package restore
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +12,19 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/rtree"
+)
+
+// SendType is the 'type' of a send.
+// when we make a 'send' command to worker, we may want to flush all penging ranges(when auto commit enabled),
+// or, we just want to clean overflowing ranges(when just adding a table to batcher).
+type SendType int
+
+const (
+	// SendUntilLessThanBatch will make the batcher send batch until
+	// its remaining range is less than its batchSizeThreshold.
+	SendUntilLessThanBatch SendType = iota
+	// SendAll will make the batcher send all pending ranges.
+	SendAll
 )
 
 // Batcher collects ranges to restore and send batching split/ingest request.
@@ -28,12 +40,12 @@ type Batcher struct {
 	// workerIsDone is for waiting for worker done: that is, after we send a
 	// signal to workerJoiner, we must give it enough time to get things done.
 	// Then, it should notify us by this waitgroup.
-	// Use waitgroup instead of a trivial channel for farther extention.
+	// Use waitgroup instead of a trivial channel for farther extension.
 	everythingIsDone *sync.WaitGroup
 	// sendErr is for output error information.
 	sendErr chan<- error
 	// sendCh is for communiate with sendWorker.
-	sendCh chan<- struct{}
+	sendCh chan<- SendType
 	// outCh is for output the restored table, so it can be sent to do something like checksum.
 	outCh chan<- CreatedTable
 
@@ -59,7 +71,7 @@ func NewBatcher(
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
 	workerJoiner := make(chan struct{})
-	sendChan := make(chan struct{}, 2)
+	sendChan := make(chan SendType, 2)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
 		sendErr:            errCh,
@@ -98,6 +110,7 @@ func (b *Batcher) DisableAutoCommit() {
 
 func (b *Batcher) waitUntilSendDone() {
 	b.workerJoiner <- struct{}{}
+	close(b.workerJoiner)
 	b.everythingIsDone.Wait()
 }
 
@@ -107,14 +120,15 @@ func (b *Batcher) joinWorker() {
 	if b.autoCommitJoiner != nil {
 		log.Debug("gracefully stoping worker goroutine")
 		b.autoCommitJoiner <- struct{}{}
+		close(b.autoCommitJoiner)
 		log.Debug("gracefully stopped worker goroutine")
 	}
 }
 
 // sendWorker is the 'worker' that send all ranges to TiKV.
-func (b *Batcher) sendWorker(ctx context.Context, send <-chan struct{}, joiner <-chan struct{}) {
-	doSend := func() {
-		if b.Len() > 0 {
+func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType, joiner <-chan struct{}) {
+	sendUntil := func(lessOrEqual int) {
+		for b.Len() > lessOrEqual {
 			tbls, err := b.Send(ctx)
 			if err != nil {
 				b.sendErr <- err
@@ -128,12 +142,15 @@ func (b *Batcher) sendWorker(ctx context.Context, send <-chan struct{}, joiner <
 
 	for {
 		select {
-		case <-send:
-			doSend()
-		case <-joiner:
-			for b.Len() > 0 {
-				doSend()
+		case sendType := <-send:
+			switch sendType {
+			case SendUntilLessThanBatch:
+				sendUntil(b.batchSizeThreshold)
+			case SendAll:
+				sendUntil(0)
 			}
+		case <-joiner:
+			sendUntil(0)
 			b.everythingIsDone.Done()
 			return
 		}
@@ -154,14 +171,14 @@ func (b *Batcher) autoCommitWorker(ctx context.Context, joiner <-chan struct{}, 
 		case <-tick.C:
 			if b.Len() > 0 {
 				log.Info("sending batch because time limit exceed", zap.Int("size", b.Len()))
-				b.asyncSend()
+				b.asyncSend(SendAll)
 			}
 		}
 	}
 }
 
-func (b *Batcher) asyncSend() {
-	b.sendCh <- struct{}{}
+func (b *Batcher) asyncSend(t SendType) {
+	b.sendCh <- t
 }
 
 type drainResult struct {
@@ -240,23 +257,12 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
-	tableNames := make([]string, 0, len(tbs))
-	for _, t := range tbs {
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	totalKV := uint64(0)
-	totalSize := uint64(0)
-	for _, r := range ranges {
-		for _, f := range r.Files {
-			totalKV += f.GetTotalKvs()
-			totalSize += f.GetTotalBytes()
-		}
-	}
+
 	log.Debug("do batch send",
-		zap.Strings("tables", tableNames),
-		zap.Int("ranges", len(ranges)),
-		zap.Uint64("total kv", totalKV),
-		zap.Uint64("total size", totalSize),
+		append(
+			DebugRanges(ranges),
+			DebugTables(tbs),
+		)...,
 	)
 
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
@@ -268,13 +274,9 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
 		return nil, err
 	}
-	blankTableNames := make([]string, 0, len(tbs))
-	for _, t := range drainResult.BlankTablesAfterSend {
-		blankTableNames = append(blankTableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	if len(blankTableNames) > 0 {
+	if len(drainResult.BlankTablesAfterSend) > 0 {
 		log.Debug("table fully restored",
-			zap.Strings("tables", blankTableNames),
+			DebugTables(drainResult.BlankTablesAfterSend),
 			zap.Int("ranges", len(ranges)),
 		)
 	}
@@ -282,9 +284,9 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 }
 
 func (b *Batcher) sendIfFull() {
-	for b.Len() >= b.batchSizeThreshold {
+	if b.Len() >= b.batchSizeThreshold {
 		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
-		b.asyncSend()
+		b.asyncSend(SendUntilLessThanBatch)
 	}
 }
 
@@ -313,6 +315,7 @@ func (b *Batcher) Close() {
 	b.DisableAutoCommit()
 	b.waitUntilSendDone()
 	close(b.outCh)
+	close(b.sendCh)
 	b.sender.Close()
 }
 

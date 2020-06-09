@@ -39,6 +39,7 @@ func (d *drySender) RestoreBatch(
 ) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	log.Info("fake restore range", restore.DebugRanges(ranges)...)
 	d.nBatch++
 	d.rewriteRules.Append(*rewriteRules)
 	d.ranges = append(d.ranges, ranges...)
@@ -46,6 +47,10 @@ func (d *drySender) RestoreBatch(
 }
 
 func (d *drySender) Close() {}
+
+func waitForSend() {
+	time.Sleep(10 * time.Millisecond)
+}
 
 func (d *drySender) Ranges() []rtree.Range {
 	return d.ranges
@@ -248,9 +253,8 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
 	batcher.Add(simpleTable)
-	c.Assert(sender.BatchCount(), Equals, 4)
-
 	batcher.Close()
+	c.Assert(sender.BatchCount(), Equals, 4)
 
 	rngs := sender.Ranges()
 	c.Assert(rngs, DeepEquals, simpleTable.Range)
@@ -291,12 +295,16 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 	batcher.SetThreshold(2)
 
 	batcher.Add(tables[0])
+	waitForSend()
 	c.Assert(sender.RangeLen(), Equals, 0)
+
 	batcher.Add(tables[1])
+	waitForSend()
 	c.Assert(sender.HasRewriteRuleOfKey("a"), IsTrue)
 	c.Assert(sender.HasRewriteRuleOfKey("b"), IsTrue)
 	c.Assert(manager.Has(tables[1]), IsTrue)
 	c.Assert(sender.RangeLen(), Equals, 2)
+
 	batcher.Add(tables[2])
 	batcher.Close()
 	c.Assert(sender.HasRewriteRuleOfKey("c"), IsTrue)
@@ -330,10 +338,13 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("can", "cao"), fakeRange("cap", "caq")})
 
 	batcher.Add(simpleTable)
+	waitForSend()
 	c.Assert(batcher.Len(), Equals, 8)
 	c.Assert(manager.Has(simpleTable), IsFalse)
 	c.Assert(manager.Has(simpleTable2), IsFalse)
+
 	batcher.Add(simpleTable2)
+	waitForSend()
 	c.Assert(batcher.Len(), Equals, 1)
 	c.Assert(manager.Has(simpleTable2), IsTrue)
 	c.Assert(manager.Has(simpleTable), IsFalse)

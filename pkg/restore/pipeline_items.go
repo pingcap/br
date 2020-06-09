@@ -180,18 +180,12 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rew
 	if err := b.client.RestoreFiles(files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
 		return err
 	}
-	totalKV := uint64(0)
-	totalSize := uint64(0)
-	for _, f := range files {
-		totalKV += f.GetTotalKvs()
-		totalSize += f.GetTotalBytes()
-	}
 
 	log.Debug("send batch done",
-		zap.Int("ranges", len(ranges)),
-		zap.Int("file count", len(files)),
-		zap.Uint64("total kv", totalKV),
-		zap.Uint64("total size", totalSize),
+		append(
+			DebugRanges(ranges),
+			zap.Int("file count", len(files)),
+		)...,
 	)
 
 	return nil

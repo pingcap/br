@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
@@ -536,4 +538,31 @@ func waitForRemoveRejectStores(
 	}
 
 	return false
+}
+
+// DebugTables make zap field of table for debuging, including table names.
+func DebugTables(tables []CreatedTable) zapcore.Field {
+	tableNames := make([]string, 0, len(tables))
+	for _, t := range tables {
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	return zap.Strings("tables", tableNames)
+}
+
+// DebugRanges make zap fields for debuging, which contains kv, size and count of ranges.
+func DebugRanges(ranges []rtree.Range) []zapcore.Field {
+	totalKV := uint64(0)
+	totalSize := uint64(0)
+	for _, r := range ranges {
+		for _, f := range r.Files {
+			totalKV += f.GetTotalKvs()
+			totalSize += f.GetTotalBytes()
+		}
+	}
+
+	return []zap.Field{
+		zap.Int("ranges", len(ranges)),
+		zap.Uint64("total kv", totalKV),
+		zap.Uint64("total size", totalSize),
+	}
 }
