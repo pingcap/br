@@ -33,13 +33,13 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh2 := progress2.UpdateCh()
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(p, Matches, ".*50.*")
+	c.Assert(p, Matches, `.*"P":"50\.00%".*`)
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(p, Matches, ".*100.*")
+	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
 	updateCh2 <- struct{}{}
 	p = <-pCh2
-	c.Assert(p, Matches, ".*100.*")
+	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
 
 	pCh4 := make(chan string, 4)
 	progress4 := NewProgressPrinter("test", 4, false)
@@ -49,11 +49,11 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh4 := progress4.UpdateCh()
 	updateCh4 <- struct{}{}
 	p = <-pCh4
-	c.Assert(p, Matches, ".*25.*")
+	c.Assert(p, Matches, `.*"P":"25\.00%".*`)
 	updateCh4 <- struct{}{}
 	close(updateCh4)
 	p = <-pCh4
-	c.Assert(p, Matches, ".*100.*")
+	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
 
 	pCh8 := make(chan string, 8)
 	progress8 := NewProgressPrinter("test", 8, false)
@@ -65,10 +65,10 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	updateCh8 <- struct{}{}
 	<-pCh8
 	p = <-pCh8
-	c.Assert(p, Matches, ".*25.*")
+	c.Assert(p, Matches, `.*"P":"25\.00%".*`)
 
 	// Cancel should stop progress at the current position.
 	cancel()
 	p = <-pCh8
-	c.Assert(p, Matches, ".*25.*")
+	c.Assert(p, Matches, `.*"P":"25\.00%".*`)
 }

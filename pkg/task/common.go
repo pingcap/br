@@ -50,6 +50,7 @@ const (
 	flagChecksum         = "checksum"
 	flagFilter           = "filter"
 	flagCaseSensitive    = "case-sensitive"
+	flagRemoveTiFlash    = "remove-tiflash"
 	flagCheckRequirement = "check-requirements"
 )
 
@@ -105,7 +106,8 @@ type Config struct {
 	Filter filter.MySQLReplicationRules
 
 	TableFilter       filter.Filter `json:"-" toml:"-"`
-	CaseSensitive     bool          `json:"case-sensitive" toml:"case-sensitive"`
+	RemoveTiFlash     bool          `json:"remove-tiflash" toml:"remove-tiflash"`
+	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -119,6 +121,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
+	flags.Bool(flagRemoveTiFlash, true,
+		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
 
 	// Default concurrency is different for backup and restore.
 	// Leave it 0 and let them adjust the value.
@@ -210,6 +214,11 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
+
+	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
