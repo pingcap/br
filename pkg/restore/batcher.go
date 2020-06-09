@@ -197,9 +197,19 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	for _, t := range tbs {
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
 	}
+	totalKV := uint64(0)
+	totalSize := uint64(0)
+	for _, r := range ranges {
+		for _, f := range r.Files {
+			totalKV += f.GetTotalKvs()
+			totalSize += f.GetTotalBytes()
+		}
+	}
 	log.Debug("do batch send",
 		zap.Strings("tables", tableNames),
 		zap.Int("ranges", len(ranges)),
+		zap.Uint64("total kv", totalKV),
+		zap.Uint64("total size", totalSize),
 	)
 
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
@@ -210,6 +220,16 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	}
 	if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
 		return nil, err
+	}
+	blankTableNames := make([]string, 0, len(tbs))
+	for _, t := range drainResult.BlankTablesAfterSend {
+		blankTableNames = append(blankTableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	if len(blankTableNames) > 0 {
+		log.Debug("table fully restored",
+			zap.Strings("tables", blankTableNames),
+			zap.Int("ranges", len(ranges)),
+		)
 	}
 	return drainResult.BlankTablesAfterSend, nil
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
@@ -219,14 +220,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	shouldRestorePostWork := true
-	restorePostWork := func() {
-		if shouldRestorePostWork {
-			shouldRestorePostWork = false
-			restorePostWork(ctx, client, mgr, clusterCfg)
-		}
-	}
-	defer restorePostWork()
+	defer restorePostWork(ctx, client, mgr, clusterCfg)
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -239,6 +233,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Restore sst files in batch.
 	batchSize := utils.ClampInt(int(cfg.Concurrency), defaultRestoreConcurrency, maxRestoreBatchSizeLimit)
+	failpoint.Inject("small-batch-size", func(v failpoint.Value) {
+		log.Info("failpoint small batch size is on", zap.Int("size", v.(int)))
+		batchSize = v.(int)
+	})
 
 	// Redirect to log if there is no log file to avoid unreadable output.
 	updateCh := g.StartProgress(
