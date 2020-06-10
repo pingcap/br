@@ -66,10 +66,11 @@ var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
 var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
 
 func removeVAndHash(v string) string {
-	hash := regexp.MustCompile("-[0-9]+-g[0-9a-f]{8,}")
+	hash := regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 	if hash.Match([]byte(v)) {
 		v = hash.ReplaceAllLiteralString(v, "")
 	}
+	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
 }
 
