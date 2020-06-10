@@ -160,9 +160,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
-	if err != nil {
-		return err
-	}
 
 	// pre-set TiDB config for restore
 	enableTiDBConfig()
