@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/types"
@@ -109,10 +108,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
-	if err != nil {
-		return err
-	}
 	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
 	if err != nil {
 		return err
@@ -135,7 +130,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	g.Record("BackupTS", backupTS)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)
+		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
 	if err != nil {
 		return err
 	}
