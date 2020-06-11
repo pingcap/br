@@ -10,7 +10,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -148,9 +147,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.New("cannot do transactional restore from raw kv data")
 	}
 
-	files, tables, dbs, err := filterRestoreFiles(client, cfg)
-	if err != nil {
-		return err
+	files, tables, dbs := filterRestoreFiles(client, cfg)
+	if len(dbs) == 0 && len(tables) != 0 {
+		return errors.New("invalid backup, contain tables but no databases")
 	}
 
 	var newTS uint64
@@ -161,9 +160,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
-	if err != nil {
-		return err
-	}
 
 	// pre-set TiDB config for restore
 	enableTiDBConfig()
@@ -328,16 +324,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database, err error) {
-	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
+) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
-			if !tableFilter.Match(&filter.Table{Schema: db.Info.Name.O, Name: table.Info.Name.O}) {
+			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
 				continue
 			}
 
@@ -348,9 +339,6 @@ func filterRestoreFiles(
 			files = append(files, table.Files...)
 			tables = append(tables, table)
 		}
-	}
-	if len(dbs) == 0 && len(tables) != 0 {
-		err = errors.New("invalid backup, contain tables but no databases")
 	}
 	return
 }
@@ -593,8 +581,6 @@ func enableTiDBConfig() {
 	// and we can handle alter drop pk/add pk DDLs with no impact
 	conf.AlterPrimaryKey = true
 
-	// set this to true for some auto random DDL execute normally during incremental restore
-	conf.Experimental.AllowAutoRandom = true
 	conf.Experimental.AllowsExpressionIndex = true
 
 	config.StoreGlobalConfig(conf)

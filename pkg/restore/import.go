@@ -387,7 +387,7 @@ func (importer *FileImporter) downloadSST(
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
-			return nil, errors.Annotatef(ErrGRPC, "%s", err)
+			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
 			return nil, errors.Annotate(ErrDownloadFailed, resp.GetError().GetMessage())
@@ -441,7 +441,7 @@ func (importer *FileImporter) downloadRawKVSST(
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
 		if err != nil {
-			return nil, errors.Annotatef(ErrGRPC, "%s", err)
+			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
 			return nil, errors.Annotate(ErrDownloadFailed, resp.GetError().GetMessage())
