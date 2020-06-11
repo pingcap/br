@@ -122,15 +122,16 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
 				utils.EncloseName(table.Db.Name.O),
 				utils.EncloseName(table.Info.Name.O))
+			var setValSQL string
 			if increment < 0 {
-				restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
 			} else {
-				restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
 			}
-			err = db.se.Execute(ctx, restoreMetaSQL)
+			err = db.se.Execute(ctx, setValSQL)
 			if err != nil {
 				log.Error("restore meta sql failed",
-					zap.String("query", restoreMetaSQL),
+					zap.String("query", setValSQL),
 					zap.Stringer("db", table.Db.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
@@ -141,16 +142,14 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			err = db.se.Execute(ctx, nextSeqSQL)
 			if err != nil {
 				log.Error("restore meta sql failed",
-					zap.String("query", restoreMetaSQL),
+					zap.String("query", nextSeqSQL),
 					zap.Stringer("db", table.Db.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
 				return errors.Trace(err)
 			}
-			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
-		} else {
-			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 		}
+		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 	} else {
 		var alterAutoIncIDFormat string
 		switch {
