@@ -25,6 +25,7 @@ var (
 	BRGitHash        = "None"
 	BRGitBranch      = "None"
 	goVersion        = runtime.Version()
+	VersionHash      = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 )
 
 // LogBRInfo logs version information about BR.
@@ -55,8 +56,7 @@ var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
 var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
 
 func removeVAndHash(v string) string {
-	hash := regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
-	v = hash.ReplaceAllLiteralString(v, "")
+	v = VersionHash.ReplaceAllLiteralString(v, "")
 	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
 }
