@@ -141,15 +141,23 @@ type tikvSender struct {
 }
 
 // NewTiKVSender make a sender that send restore requests to TiKV.
-func NewTiKVSender(ctx context.Context, cli *Client, updateCh glue.Progress) (BatchSender, error) {
-	tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
-	if err != nil {
-		log.Error("failed to get and remove TiFlash replicas", zap.Error(errors.Trace(err)))
-		return nil, err
-	}
+func NewTiKVSender(
+	ctx context.Context,
+	cli *Client,
+	updateCh glue.Progress,
+	// TODO remove this field after we support TiFlash.
+	removeTiFlash bool,
+) (BatchSender, error) {
 	rejectStoreMap := make(map[uint64]bool)
-	for _, store := range tiflashStores {
-		rejectStoreMap[store.GetId()] = true
+	if removeTiFlash {
+		tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
+		if err != nil {
+			log.Error("failed to get and remove TiFlash replicas", zap.Error(errors.Trace(err)))
+			return nil, err
+		}
+		for _, store := range tiflashStores {
+			rejectStoreMap[store.GetId()] = true
+		}
 	}
 
 	return &tikvSender{

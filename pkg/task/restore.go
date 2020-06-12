@@ -242,7 +242,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		int64(rangeSize+len(files)+len(tables)),
 		!cfg.LogProgress)
 	defer updateCh.Close()
-	sender, err := restore.NewTiKVSender(ctx, client, updateCh)
+	sender, err := restore.NewTiKVSender(ctx, client, updateCh, cfg.RemoveTiFlash)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
-	go restoreTableStream(ctx, rangeStream, placementRules, client, batcher, errCh)
+	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, placementRules, client, batcher, errCh)
 
 	var finish <-chan struct{}
 	// Checksum
@@ -556,6 +556,8 @@ func enableTiDBConfig() {
 func restoreTableStream(
 	ctx context.Context,
 	inputCh <-chan restore.TableWithRange,
+	// TODO: remove this field and rules field after we support TiFlash
+	removeTiFlashReplica bool,
 	rules []placement.Rule,
 	client *restore.Client,
 	batcher *restore.Batcher,
@@ -584,13 +586,15 @@ func restoreTableStream(
 			if !ok {
 				return
 			}
-			tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
-			if err != nil {
-				log.Error("failed on remove TiFlash replicas", zap.Error(err))
-				errCh <- err
-				return
+			if removeTiFlashReplica {
+				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
+				if err != nil {
+					log.Error("failed on remove TiFlash replicas", zap.Error(err))
+					errCh <- err
+					return
+				}
+				t.OldTable.TiFlashReplicas = tiFlashRep
 			}
-			t.OldTable.TiFlashReplicas = tiFlashRep
 			oldTables = append(oldTables, t.OldTable)
 
 			batcher.Add(t)
