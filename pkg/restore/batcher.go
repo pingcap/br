@@ -25,6 +25,8 @@ const (
 	SendUntilLessThanBatch SendType = iota
 	// SendAll will make the batcher send all pending ranges.
 	SendAll
+	// SendAllThenClose will make the batcher send all pending ranges and then close itself.
+	SendAllThenClose
 )
 
 // Batcher collects ranges to restore and send batching split/ingest request.
@@ -35,8 +37,6 @@ type Batcher struct {
 
 	// autoCommitJoiner is for joining the background batch sender.
 	autoCommitJoiner chan<- struct{}
-	// workerJoiner is also for joining the background batch sender.
-	workerJoiner chan<- struct{}
 	// workerIsDone is for waiting for worker done: that is, after we send a
 	// signal to workerJoiner, we must give it enough time to get things done.
 	// Then, it should notify us by this waitgroup.
@@ -70,7 +70,6 @@ func NewBatcher(
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
 	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
-	workerJoiner := make(chan struct{})
 	sendChan := make(chan SendType, 2)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
@@ -79,13 +78,12 @@ func NewBatcher(
 		sender:             sender,
 		manager:            manager,
 		sendCh:             sendChan,
-		workerJoiner:       workerJoiner,
 		cachedTablesMu:     new(sync.Mutex),
 		everythingIsDone:   new(sync.WaitGroup),
 		batchSizeThreshold: 1,
 	}
 	b.everythingIsDone.Add(1)
-	go b.sendWorker(ctx, sendChan, workerJoiner)
+	go b.sendWorker(ctx, sendChan)
 	return b, output
 }
 
@@ -109,8 +107,7 @@ func (b *Batcher) DisableAutoCommit() {
 }
 
 func (b *Batcher) waitUntilSendDone() {
-	b.workerJoiner <- struct{}{}
-	close(b.workerJoiner)
+	b.sendCh <- SendAllThenClose
 	b.everythingIsDone.Wait()
 }
 
@@ -126,7 +123,7 @@ func (b *Batcher) joinWorker() {
 }
 
 // sendWorker is the 'worker' that send all ranges to TiKV.
-func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType, joiner <-chan struct{}) {
+func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 	sendUntil := func(lessOrEqual int) {
 		for b.Len() > lessOrEqual {
 			tbls, err := b.Send(ctx)
@@ -140,16 +137,13 @@ func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType, joiner <
 		}
 	}
 
-	for {
-		select {
-		case sendType := <-send:
-			switch sendType {
-			case SendUntilLessThanBatch:
-				sendUntil(b.batchSizeThreshold)
-			case SendAll:
-				sendUntil(0)
-			}
-		case <-joiner:
+	for sendType := range send {
+		switch sendType {
+		case SendUntilLessThanBatch:
+			sendUntil(b.batchSizeThreshold)
+		case SendAll:
+			sendUntil(0)
+		case SendAllThenClose:
 			sendUntil(0)
 			b.everythingIsDone.Done()
 			return
@@ -170,7 +164,7 @@ func (b *Batcher) autoCommitWorker(ctx context.Context, joiner <-chan struct{}, 
 			return
 		case <-tick.C:
 			if b.Len() > 0 {
-				log.Info("sending batch because time limit exceed", zap.Int("size", b.Len()))
+				log.Debug("sending batch because time limit exceed", zap.Int("size", b.Len()))
 				b.asyncSend(SendAll)
 			}
 		}
@@ -178,7 +172,10 @@ func (b *Batcher) autoCommitWorker(ctx context.Context, joiner <-chan struct{}, 
 }
 
 func (b *Batcher) asyncSend(t SendType) {
-	b.sendCh <- t
+	// add a check here so we won't replica sending.
+	if len(b.sendCh) == 0 {
+		b.sendCh <- t
+	}
 }
 
 type drainResult struct {
@@ -285,7 +282,7 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 
 func (b *Batcher) sendIfFull() {
 	if b.Len() >= b.batchSizeThreshold {
-		log.Info("sending batch because batcher is full", zap.Int("size", b.Len()))
+		log.Debug("sending batch because batcher is full", zap.Int("size", b.Len()))
 		b.asyncSend(SendUntilLessThanBatch)
 	}
 }
