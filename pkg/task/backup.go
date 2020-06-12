@@ -36,7 +36,7 @@ const (
 	flagGCTTL = "gcttl"
 
 	defaultBackupConcurrency = 4
-	defaultBackupMaxConcurrency = 128
+	maxBackupConcurrency     = 1024
 )
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -97,8 +97,8 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
-	if cfg.Config.Concurrency > defaultBackupMaxConcurrency {
-		cfg.Config.Concurrency = defaultBackupMaxConcurrency
+	if cfg.Config.Concurrency > maxBackupConcurrency {
+		cfg.Config.Concurrency = maxBackupConcurrency
 	}
 	return nil
 }
