@@ -430,6 +430,7 @@ func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers
 }
 
 // restorePostWork executes some post work after restore.
+// TODO: aggregate all lifetime manage methods into batcher's context manager field.
 func restorePostWork(
 	ctx context.Context, client *restore.Client, mgr *conn.Mgr, clusterCfg clusterConfig,
 ) {
@@ -466,6 +467,9 @@ func restorePostWork(
 	}
 	if err := mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
 		log.Warn("fail to update PD schedule config")
+	}
+	if err := client.ResetRestoreLabels(ctx); err != nil {
+		log.Warn("reset store labels failed", zap.Error(err))
 	}
 }
 

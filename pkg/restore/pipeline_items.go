@@ -80,11 +80,6 @@ func splitPostWork(ctx context.Context, client *Client, tables []*model.TableInf
 		log.Warn("reset placement rules failed", zap.Error(err))
 		return
 	}
-
-	err = client.ResetRestoreLabels(ctx)
-	if err != nil {
-		log.Warn("reset store labels failed", zap.Error(err))
-	}
 }
 
 func splitPrepareWork(ctx context.Context, client *Client, tables []*model.TableInfo) error {
