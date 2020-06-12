@@ -452,6 +452,7 @@ func makeTiFlashOfTableRecord(table *utils.Table, replica int) (*backup.Schema, 
 func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
 	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
 		if rule.Count > 0 {
+			log.Info("remove TiFlash of table", zap.Int64("table ID", table.Table.ID), zap.Int("count", rule.Count))
 			err := multierr.Combine(
 				rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0),
 				rc.removeTiFlashOf(table.OldTable, rule.Count),

@@ -11,7 +11,6 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
 	"go.uber.org/multierr"
@@ -196,11 +195,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		// don't return immediately, wait all pipeline done.
 	}
 
-	placementRules, err := client.GetPlacementRules(cfg.PD)
-	if err != nil {
-		return err
-	}
-
 	tableFileMap := restore.MapTableToFiles(files)
 	log.Debug("mapped table to files", zap.Any("result map", tableFileMap))
 
@@ -250,7 +244,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
-	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, placementRules, client, batcher, errCh)
+	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, cfg.PD, client, batcher, errCh)
 
 	var finish <-chan struct{}
 	// Checksum
@@ -558,7 +552,7 @@ func restoreTableStream(
 	inputCh <-chan restore.TableWithRange,
 	// TODO: remove this field and rules field after we support TiFlash
 	removeTiFlashReplica bool,
-	rules []placement.Rule,
+	pdAddr []string,
 	client *restore.Client,
 	batcher *restore.Batcher,
 	errCh chan<- error,
@@ -587,6 +581,13 @@ func restoreTableStream(
 				return
 			}
 			if removeTiFlashReplica {
+				rules, err := client.GetPlacementRules(pdAddr)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				log.Debug("get rules", zap.Any("rules", rules))
+				log.Debug("try to remove tiflash of table", zap.Stringer("table name", t.Table.Name))
 				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
 				if err != nil {
 					log.Error("failed on remove TiFlash replicas", zap.Error(err))
