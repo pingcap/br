@@ -36,6 +36,7 @@ const (
 	flagGCTTL = "gcttl"
 
 	defaultBackupConcurrency = 4
+	defaultBackupMaxConcurrency = 128
 )
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -96,6 +97,9 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
+	if cfg.Config.Concurrency > defaultBackupMaxConcurrency {
+		cfg.Config.Concurrency = defaultBackupMaxConcurrency
+	}
 	return nil
 }
 
@@ -145,9 +149,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	ddlJobs := make([]*model.Job, 0)
 	if cfg.LastBackupTS > 0 {
-		if backupTS < cfg.LastBackupTS {
-			log.Error("LastBackupTS is larger than current TS")
-			return errors.New("LastBackupTS is larger than current TS")
+		if backupTS <= cfg.LastBackupTS {
+			log.Error("LastBackupTS is larger or equal to current TS")
+			return errors.New("LastBackupTS is larger or equal to current TS")
 		}
 		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
