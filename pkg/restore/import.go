@@ -256,7 +256,7 @@ func (importer *FileImporter) Import(
 					switch e {
 					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
 						// Skip this region
-						log.Error("download file skipped",
+						log.Warn("download file skipped",
 							zap.Stringer("file", file),
 							zap.Stringer("region", info.Region),
 							zap.Binary("startKey", startKey),
