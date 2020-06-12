@@ -748,20 +748,19 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
+		wg := new(sync.WaitGroup)
 		defer func() {
 			log.Info("all checksum ended")
 			wg.Wait()
 			outCh <- struct{}{}
 			close(outCh)
 		}()
-		wg := new(sync.WaitGroup)
 		for {
 			select {
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 			case tbl, ok := <-tableStream:
 				if !ok {
-					wg.Wait()
 					return
 				}
 				wg.Add(1)

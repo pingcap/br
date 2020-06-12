@@ -258,10 +258,10 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
 
-	log.Debug("do batch send",
+	log.Info("restore batch start",
 		append(
-			DebugRanges(ranges),
-			DebugTables(tbs),
+			ZapRanges(ranges),
+			ZapTables(tbs),
 		)...,
 	)
 
@@ -276,7 +276,7 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	}
 	if len(drainResult.BlankTablesAfterSend) > 0 {
 		log.Debug("table fully restored",
-			DebugTables(drainResult.BlankTablesAfterSend),
+			ZapTables(drainResult.BlankTablesAfterSend),
 			zap.Int("ranges", len(ranges)),
 		)
 	}

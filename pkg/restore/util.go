@@ -540,8 +540,8 @@ func waitForRemoveRejectStores(
 	return false
 }
 
-// DebugTables make zap field of table for debuging, including table names.
-func DebugTables(tables []CreatedTable) zapcore.Field {
+// ZapTables make zap field of table for debuging, including table names.
+func ZapTables(tables []CreatedTable) zapcore.Field {
 	tableNames := make([]string, 0, len(tables))
 	for _, t := range tables {
 		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
@@ -549,8 +549,8 @@ func DebugTables(tables []CreatedTable) zapcore.Field {
 	return zap.Strings("tables", tableNames)
 }
 
-// DebugRanges make zap fields for debuging, which contains kv, size and count of ranges.
-func DebugRanges(ranges []rtree.Range) []zapcore.Field {
+// ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
+func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 	totalKV := uint64(0)
 	totalSize := uint64(0)
 	for _, r := range ranges {

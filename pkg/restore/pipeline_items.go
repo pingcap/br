@@ -53,7 +53,7 @@ func (manager *brContextManager) Enter(ctx context.Context, tables []CreatedTabl
 	placementRuleTables := make([]*model.TableInfo, 0, len(tables))
 
 	for _, tbl := range tables {
-		if manager.hasTable[tbl.Table.ID] {
+		if !manager.hasTable[tbl.Table.ID] {
 			placementRuleTables = append(placementRuleTables, tbl.Table)
 		}
 		manager.hasTable[tbl.Table.ID] = true
@@ -70,6 +70,7 @@ func (manager *brContextManager) Leave(ctx context.Context, tables []CreatedTabl
 	}
 
 	splitPostWork(ctx, manager.client, placementRuleTables)
+	log.Info("restore table done", ZapTables(tables))
 	return nil
 }
 
@@ -181,9 +182,9 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rew
 		return err
 	}
 
-	log.Debug("send batch done",
+	log.Info("restore batch done",
 		append(
-			DebugRanges(ranges),
+			ZapRanges(ranges),
 			zap.Int("file count", len(files)),
 		)...,
 	)

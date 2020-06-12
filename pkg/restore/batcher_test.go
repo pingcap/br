@@ -39,7 +39,7 @@ func (d *drySender) RestoreBatch(
 ) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	log.Info("fake restore range", restore.DebugRanges(ranges)...)
+	log.Info("fake restore range", restore.ZapRanges(ranges)...)
 	d.nBatch++
 	d.rewriteRules.Append(*rewriteRules)
 	d.ranges = append(d.ranges, ranges...)
