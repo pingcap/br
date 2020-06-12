@@ -239,7 +239,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		ctx,
 		cmdName,
 		// Split/Scatter + Download/Ingest + Checksum
-		int64(restore.EstimateRangeSize(files)+len(files)+len(tables)),
+		int64(rangeSize+len(files)+len(tables)),
 		!cfg.LogProgress)
 	defer updateCh.Close()
 	sender, err := restore.NewTiKVSender(ctx, client, updateCh)

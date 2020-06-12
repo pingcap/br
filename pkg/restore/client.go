@@ -750,6 +750,7 @@ func (rc *Client) GoValidateChecksum(
 	go func() {
 		defer func() {
 			log.Info("all checksum ended")
+			wg.Wait()
 			outCh <- struct{}{}
 			close(outCh)
 		}()
