@@ -8,6 +8,8 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -25,8 +27,6 @@ var (
 	// ErrRangeIsEmpty is the error raised when download failed with "range is
 	// empty". This error cannot be retried.
 	ErrRangeIsEmpty = errors.NewNoStackError("range is empty")
-	// ErrGRPC indicates any gRPC communication error. This error can be retried.
-	ErrGRPC = errors.NewNoStackError("gRPC error")
 	// ErrDownloadFailed indicates a generic download error, expected to be
 	// retryable.
 	ErrDownloadFailed = errors.NewNoStackError("download sst failed")
@@ -73,7 +73,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case ErrGRPC, ErrEpochNotMatch, ErrDownloadFailed, ErrIngestFailed:
+	case ErrEpochNotMatch, ErrDownloadFailed, ErrIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	case ErrRangeIsEmpty, ErrRewriteRuleNotFound:
@@ -81,10 +81,16 @@ func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 		bo.delayTime = 0
 		bo.attempt = 0
 	default:
-		// Unexcepted error
-		bo.delayTime = 0
-		bo.attempt = 0
-		log.Warn("unexcepted error, stop to retry", zap.Error(err))
+		switch status.Code(err) {
+		case codes.Unavailable, codes.Aborted:
+			bo.delayTime = 2 * bo.delayTime
+			bo.attempt--
+		default:
+			// Unexcepted error
+			bo.delayTime = 0
+			bo.attempt = 0
+			log.Warn("unexcepted error, stop to retry", zap.Error(err))
+		}
 	}
 	if bo.delayTime > bo.maxDelayTime {
 		return bo.maxDelayTime
