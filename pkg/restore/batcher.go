@@ -15,7 +15,7 @@ import (
 )
 
 // SendType is the 'type' of a send.
-// when we make a 'send' command to worker, we may want to flush all penging ranges(when auto commit enabled),
+// when we make a 'send' command to worker, we may want to flush all pending ranges (when auto commit enabled),
 // or, we just want to clean overflowing ranges(when just adding a table to batcher).
 type SendType int
 
@@ -37,10 +37,10 @@ type Batcher struct {
 
 	// autoCommitJoiner is for joining the background batch sender.
 	autoCommitJoiner chan<- struct{}
-	// workerIsDone is for waiting for worker done: that is, after we send a
-	// signal to workerJoiner, we must give it enough time to get things done.
+	// everythingIsDone is for waiting for worker done: that is, after we send a
+	// signal to autoCommitJoiner, we must give it enough time to get things done.
 	// Then, it should notify us by this waitgroup.
-	// Use waitgroup instead of a trivial channel for farther extension.
+	// Use waitgroup instead of a trivial channel for further extension.
 	everythingIsDone *sync.WaitGroup
 	// sendErr is for output error information.
 	sendErr chan<- error
@@ -87,7 +87,7 @@ func NewBatcher(
 	return b, output
 }
 
-// EnableAutoCommit enables the batcher commit batch periodicity even batcher size isn't big enough.
+// EnableAutoCommit enables the batcher commit batch periodically even batcher size isn't big enough.
 // we make this function for disable AutoCommit in some case.
 func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
 	if b.autoCommitJoiner != nil {
@@ -115,7 +115,7 @@ func (b *Batcher) waitUntilSendDone() {
 // return immediately when auto commit disabled.
 func (b *Batcher) joinWorker() {
 	if b.autoCommitJoiner != nil {
-		log.Debug("gracefully stoping worker goroutine")
+		log.Debug("gracefully stopping worker goroutine")
 		b.autoCommitJoiner <- struct{}{}
 		close(b.autoCommitJoiner)
 		log.Debug("gracefully stopped worker goroutine")
@@ -219,8 +219,8 @@ func (b *Batcher) drainRanges() drainResult {
 			var drained []rtree.Range
 			drained, b.cachedTables[offset].Range = thisTableRanges[:drainSize], thisTableRanges[drainSize:]
 			log.Debug("draining partial table to batch",
+				zap.Stringer("db", thisTable.OldTable.Db.Name),
 				zap.Stringer("table", thisTable.Table.Name),
-				zap.Stringer("database", thisTable.OldTable.Db.Name),
 				zap.Int("size", thisTableLen),
 				zap.Int("drained", drainSize),
 			)
@@ -237,8 +237,8 @@ func (b *Batcher) drainRanges() drainResult {
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
+			zap.Stringer("db", thisTable.OldTable.Db.Name),
 			zap.Stringer("table", thisTable.Table.Name),
-			zap.Stringer("database", thisTable.OldTable.Db.Name),
 			zap.Int("size", thisTableLen),
 		)
 	}
@@ -291,8 +291,8 @@ func (b *Batcher) sendIfFull() {
 func (b *Batcher) Add(tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
+		zap.Stringer("db", tbs.OldTable.Db.Name),
 		zap.Stringer("table", tbs.Table.Name),
-		zap.Stringer("database", tbs.OldTable.Db.Name),
 		zap.Int64("old id", tbs.OldTable.Info.ID),
 		zap.Int64("new id", tbs.Table.ID),
 		zap.Int("table size", len(tbs.Range)),
@@ -308,7 +308,7 @@ func (b *Batcher) Add(tbs TableWithRange) {
 
 // Close closes the batcher, sending all pending requests, close updateCh.
 func (b *Batcher) Close() {
-	log.Info("sending batch lastly on close.", zap.Int("size", b.Len()))
+	log.Info("sending batch lastly on close", zap.Int("size", b.Len()))
 	b.DisableAutoCommit()
 	b.waitUntilSendDone()
 	close(b.outCh)

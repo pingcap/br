@@ -121,7 +121,7 @@ func Exhaust(ec <-chan error) []error {
 			out = append(out, err)
 		default:
 			// errCh will NEVER be closed(ya see, it has multi sender-part),
-			// so we just consume the current backlog of this cannel, then return.
+			// so we just consume the current backlog of this channel, then return.
 			return out
 		}
 	}
@@ -152,7 +152,7 @@ func NewTiKVSender(
 	if removeTiFlash {
 		tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
 		if err != nil {
-			log.Error("failed to get and remove TiFlash replicas", zap.Error(errors.Trace(err)))
+			log.Error("failed to get and remove TiFlash replicas", zap.Error(err))
 			return nil, err
 		}
 		for _, store := range tiflashStores {

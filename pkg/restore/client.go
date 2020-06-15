@@ -397,8 +397,8 @@ func (rc *Client) GoCreateTables(
 		if err != nil {
 			log.Error("create table failed",
 				zap.Error(err),
-				zap.Stringer("table", t.Info.Name),
-				zap.Stringer("database", t.Db.Name))
+				zap.Stringer("db", t.Db.Name),
+				zap.Stringer("table", t.Info.Name))
 			return err
 		}
 		log.Debug("table created and send to next",
