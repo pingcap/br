@@ -14,14 +14,14 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/failpoint v0.0.0-20200506114213-c17f16071c53
+	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
 	github.com/pingcap/kvproto v0.0.0-20200518112156-d4aeb467de29
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
-	github.com/pingcap/parser v0.0.0-20200518090819-ec1e13b948b1
+	github.com/pingcap/parser v0.0.0-20200609110328-c65941b9fbb3
 	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200520083007-2c251bd8f181
-	github.com/pingcap/tidb v1.1.0-beta.0.20200521154755-134e691d6f5f
-	github.com/pingcap/tidb-tools v4.0.0-rc.2.0.20200521050818-6dd445d83fe0+incompatible
-	github.com/pingcap/tipb v0.0.0-20200417094153-7316d94df1ee
+	github.com/pingcap/tidb v1.1.0-beta.0.20200610060912-f12cdc42010f
+	github.com/pingcap/tidb-tools v4.0.0+incompatible
+	github.com/pingcap/tipb v0.0.0-20200604070248-508f03b0b342
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
@@ -31,7 +31,6 @@ require (
 	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/tools v0.0.0-20200521211927-2b542361a4fc // indirect
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
