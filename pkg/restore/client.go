@@ -739,20 +739,17 @@ func (rc *Client) GoValidateChecksum(
 	errCh chan<- error,
 	updateCh glue.Progress,
 ) <-chan struct{} {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("restore checksum", elapsed)
-	}()
-
 	log.Info("Start to validate checksum")
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
+		start := time.Now()
 		wg := new(sync.WaitGroup)
 		defer func() {
 			log.Info("all checksum ended")
 			wg.Wait()
+			elapsed := time.Since(start)
+			summary.CollectDuration("restore checksum", elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
