@@ -272,7 +272,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	return nil
 }
 
-// dropToBlackhole drop all incoming tables into black hole.
+// dropToBlackhole drop all incoming tables into black hole,
+// i.e. don't execute checksum, just increase the process anyhow.
 func dropToBlackhole(
 	ctx context.Context,
 	tableStream <-chan restore.CreatedTable,
@@ -289,15 +290,11 @@ func dropToBlackhole(
 			case <-ctx.Done():
 				errCh <- ctx.Err()
 				return
-			case tbl, ok := <-tableStream:
+			case _, ok := <-tableStream:
 				if !ok {
 					return
 				}
 				updateCh.Inc()
-				log.Info("skipping checksum of table because user config",
-					zap.Stringer("database", tbl.OldTable.Db.Name),
-					zap.Stringer("table", tbl.Table.Name),
-				)
 			}
 		}
 	}()

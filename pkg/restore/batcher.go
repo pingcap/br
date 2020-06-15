@@ -60,7 +60,9 @@ func (b *Batcher) Len() int {
 	return int(atomic.LoadInt32(&b.size))
 }
 
-// NewBatcher creates a new batcher by client and updateCh.
+// NewBatcher creates a new batcher by a sender and a context manager.
+// the former defines how the 'restore' a batch(i.e. send, or 'push down' the task to where).
+// the context manager defines the 'lifetime' of restoring tables(i.e. how to enter 'restore' mode, and how to exit).
 // this batcher will work background, send batches per second, or batch size reaches limit.
 // and it will emit full-restored tables to the output channel returned.
 func NewBatcher(
@@ -91,8 +93,9 @@ func NewBatcher(
 // we make this function for disable AutoCommit in some case.
 func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
 	if b.autoCommitJoiner != nil {
-		log.Warn("enable auto commit on a batcher that auto commit is enabled, nothing will happen")
-		log.Info("if desire(e.g. change the peroid of auto commit), please disable auto commit firstly")
+		// IMO, making two auto commit goroutine wouldn't be a good idea.
+		// If desire(e.g. change the peroid of auto commit), please disable auto commit firstly.
+		log.L().DPanic("enabling auto commit on a batcher that auto commit has been enabled, which isn't allowed")
 	}
 	joiner := make(chan struct{})
 	go b.autoCommitWorker(ctx, joiner, delay)
@@ -196,6 +199,24 @@ func newDrainResult() drainResult {
 	}
 }
 
+// drainRanges 'drains' ranges from current tables.
+// for example, let a '-' character be a range, assume we have:
+// |---|-----|-------|
+// |t1 |t2   |t3     |
+// after we run drainRanges() with batchSizeThreshold = 6, let '*' be the ranges will be sent this batch :
+// |***|***--|-------|
+// |t1 |t2   |-------|
+//
+// drainRanges() will return:
+// TablesToSend: [t1, t2] (so we can make them enter restore mode)
+// BlankTableAfterSend: [t1] (so we can make them leave restore mode after restoring this batch)
+// RewriteRules: rewrite rules for [t1, t2] (so we can restore them)
+// Ranges: those stared ranges (so we can restore them)
+//
+// then, it will leaving the batcher's cachedTables like this:
+// |--|-------|
+// |t2|t3     |
+// as you can see, all restored ranges would be removed.
 func (b *Batcher) drainRanges() drainResult {
 	result := newDrainResult()
 
@@ -255,6 +276,23 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
 
+	defer func() {
+		if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
+			log.Error("encountering error when leaving recover mode, we can go on but some regions may stick on restore mode",
+				append(
+					ZapRanges(ranges),
+					ZapTables(tbs),
+					zap.Error(err))...,
+			)
+		}
+		if len(drainResult.BlankTablesAfterSend) > 0 {
+			log.Debug("table fully restored",
+				ZapTables(drainResult.BlankTablesAfterSend),
+				zap.Int("ranges", len(ranges)),
+			)
+		}
+	}()
+
 	log.Info("restore batch start",
 		append(
 			ZapRanges(ranges),
@@ -267,15 +305,6 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	}
 	if err := b.sender.RestoreBatch(ctx, ranges, drainResult.RewriteRules); err != nil {
 		return nil, err
-	}
-	if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
-		return nil, err
-	}
-	if len(drainResult.BlankTablesAfterSend) > 0 {
-		log.Debug("table fully restored",
-			ZapTables(drainResult.BlankTablesAfterSend),
-			zap.Int("ranges", len(ranges)),
-		)
 	}
 	return drainResult.BlankTablesAfterSend, nil
 }
