@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -26,6 +27,7 @@ var (
 	BRGitHash        = "None"
 	BRGitBranch      = "None"
 	goVersion        = runtime.Version()
+	VersionHash      = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 )
 
 // LogBRInfo logs version information about BR.
@@ -64,13 +66,15 @@ var minTiKVVersion *semver.Version = semver.New("3.1.0-beta.2")
 var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
 var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
 
-func removeV(v string) string {
+func removeVAndHash(v string) string {
+	v = VersionHash.ReplaceAllLiteralString(v, "")
+	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
 }
 
 // CheckClusterVersion check TiKV version.
 func CheckClusterVersion(ctx context.Context, client pd.Client) error {
-	BRVersion, err := semver.NewVersion(removeV(BRReleaseVersion))
+	BRVersion, err := semver.NewVersion(removeVAndHash(BRReleaseVersion))
 	if err != nil {
 		return err
 	}
@@ -79,19 +83,19 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		return err
 	}
 	for _, s := range stores {
-		tikvVersion, err := semver.NewVersion(removeV(s.Version))
+		tikvVersion, err := semver.NewVersion(removeVAndHash(s.Version))
 		if err != nil {
 			return err
 		}
 
 		if tikvVersion.Compare(*minTiKVVersion) < 0 {
 			return errors.Errorf("TiKV node %s version %s don't support BR, please upgrade cluster to %s",
-				s.Address, removeV(s.Version), BRReleaseVersion)
+				s.Address, removeVAndHash(s.Version), BRReleaseVersion)
 		}
 
 		if tikvVersion.Major != BRVersion.Major {
 			return errors.Errorf("TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
-				s.Address, removeV(s.Version), BRReleaseVersion)
+				s.Address, removeVAndHash(s.Version), BRReleaseVersion)
 		}
 
 		// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
@@ -100,19 +104,19 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		if tikvVersion.Major == 3 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
 				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, removeV(s.Version), BRReleaseVersion)
+					s.Address, removeVAndHash(s.Version), BRReleaseVersion)
 			}
 		}
 
 		if tikvVersion.Major == 4 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
 				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, removeV(s.Version), BRReleaseVersion)
+					s.Address, removeVAndHash(s.Version), BRReleaseVersion)
 			}
 		}
 
 		if tikvVersion.Compare(*BRVersion) > 0 {
-			log.Warn(fmt.Sprintf("BR version is too old, please consider use version %s of BR", removeV(s.Version)))
+			log.Warn(fmt.Sprintf("BR version is too old, please consider use version %s of BR", removeVAndHash(s.Version)))
 			break
 		}
 	}
