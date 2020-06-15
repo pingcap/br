@@ -276,6 +276,16 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
 
+	log.Info("restore batch start",
+		append(
+			ZapRanges(ranges),
+			ZapTables(tbs),
+		)...,
+	)
+
+	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
+		return nil, err
+	}
 	defer func() {
 		if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
 			log.Error("encountering error when leaving recover mode, we can go on but some regions may stick on restore mode",
@@ -293,16 +303,6 @@ func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
 		}
 	}()
 
-	log.Info("restore batch start",
-		append(
-			ZapRanges(ranges),
-			ZapTables(tbs),
-		)...,
-	)
-
-	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
-		return nil, err
-	}
 	if err := b.sender.RestoreBatch(ctx, ranges, drainResult.RewriteRules); err != nil {
 		return nil, err
 	}
