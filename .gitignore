@@ -10,3 +10,4 @@ coverage.txt
 docker/data/
 docker/logs/
 *.swp
+.DS_Store
