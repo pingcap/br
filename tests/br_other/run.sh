@@ -24,8 +24,10 @@ run_sql "CREATE TABLE $DB.usertable1 ( \
   PRIMARY KEY (YCSB_KEY) \
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
 
-run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"
-run_sql "INSERT INTO $DB.usertable1 VALUES (\"aa\", \"b\");"
+for i in `seq 1 100`
+do
+run_sql "INSERT INTO $DB.usertable1 VALUES (\"a$i\", \"b\");"
+done
 
 # backup full
 echo "backup start..."
@@ -50,6 +52,30 @@ run_br validate checksum -s "local://$TEST_DIR/$DB" || corrupted=1
 if [ "$corrupted" -ne "1" ];then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
+fi
+
+# backup full with ratelimit = 1 to make sure this backup task won't finish quickly
+echo "backup start to test lock file"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 --ratelimit-unit 1 --concurrency 4 > /dev/null 2>&1 &
+# record last backup pid
+_pid=$!
+
+backup_fail=0
+echo "another backup start expect to fail due to last backup add a lockfile"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
+if [ "$backup_fail" -ne "1" ];then
+    echo "TEST: [$TEST_NAME] test backup lock file failed!"
+    exit 1
+fi
+
+if ps -p $_pid > /dev/null
+then
+   echo "$_pid is running"
+   # kill last backup progress
+   kill -9 $_pid
+else
+   echo "TEST: [$TEST_NAME] test backup lock file failed! the last backup finished"
+   exit 1
 fi
 
 run_sql "DROP DATABASE $DB;"
