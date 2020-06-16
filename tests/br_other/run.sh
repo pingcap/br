@@ -20,13 +20,13 @@ run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
   YCSB_KEY varchar(64) NOT NULL, \
-  FIELD0 varchar(1) DEFAULT NULL, \
+  FIELD0 varchar(10) DEFAULT NULL, \
   PRIMARY KEY (YCSB_KEY) \
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
 
 for i in `seq 1 100`
 do
-run_sql "INSERT INTO $DB.usertable1 VALUES (\"a$i\", \"b\");"
+run_sql "INSERT INTO $DB.usertable1 VALUES (\"a$i\", \"bbbbbbbbbb\");"
 done
 
 # backup full
