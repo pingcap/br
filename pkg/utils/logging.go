@@ -22,22 +22,22 @@ func (file zapMarshalFileMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) erro
 	enc.AddString("name", file.GetName())
 	enc.AddString("CF", file.GetCf())
 	enc.AddString("sha256", hex.EncodeToString(file.GetSha256()))
-	enc.AddString("start key", WrapKey(file.GetStartKey()).String())
-	enc.AddString("end key", WrapKey(file.GetEndKey()).String())
-	enc.AddUint64("start version", file.GetStartVersion())
-	enc.AddUint64("end version", file.GetEndVersion())
-	enc.AddUint64("total kvs", file.GetTotalKvs())
-	enc.AddUint64("total bytes", file.GetTotalBytes())
-	enc.AddUint64("CRC64 xor", file.GetCrc64Xor())
+	enc.AddString("startKey", WrapKey(file.GetStartKey()).String())
+	enc.AddString("endKey", WrapKey(file.GetEndKey()).String())
+	enc.AddUint64("startVersion", file.GetStartVersion())
+	enc.AddUint64("endVersion", file.GetEndVersion())
+	enc.AddUint64("totalKvs", file.GetTotalKvs())
+	enc.AddUint64("totalBytes", file.GetTotalBytes())
+	enc.AddUint64("CRC64Xor", file.GetCrc64Xor())
 	return nil
 }
 
 type zapMarshalRewriteRuleMixIn struct{ *import_sstpb.RewriteRule }
 
 func (rewriteRule zapMarshalRewriteRuleMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	enc.AddString("old key prefix", hex.EncodeToString(rewriteRule.GetOldKeyPrefix()))
-	enc.AddString("new key prefix", hex.EncodeToString(rewriteRule.GetNewKeyPrefix()))
-	enc.AddUint64("new timestamp", rewriteRule.GetNewTimestamp())
+	enc.AddString("oldKeyPrefix", hex.EncodeToString(rewriteRule.GetOldKeyPrefix()))
+	enc.AddString("newKeyPrefix", hex.EncodeToString(rewriteRule.GetNewKeyPrefix()))
+	enc.AddUint64("newTimestamp", rewriteRule.GetNewTimestamp())
 	return nil
 }
 
@@ -49,8 +49,8 @@ func (region zapMarshalRegionMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) 
 		peers = append(peers, peer.String())
 	}
 	enc.AddUint64("ID", region.Id)
-	enc.AddString("start key", WrapKey(region.GetStartKey()).String())
-	enc.AddString("end key", WrapKey(region.GetEndKey()).String())
+	enc.AddString("startKey", WrapKey(region.GetStartKey()).String())
+	enc.AddString("endKey", WrapKey(region.GetEndKey()).String())
 	enc.AddString("epoch", region.GetRegionEpoch().String())
 	enc.AddString("peers", strings.Join(peers, ","))
 	return nil
@@ -60,13 +60,13 @@ type zapMarshalSSTMetaMixIn struct{ *import_sstpb.SSTMeta }
 
 func (sstMeta zapMarshalSSTMetaMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	enc.AddString("CF", sstMeta.GetCfName())
-	enc.AddBool("end key exclusive", sstMeta.EndKeyExclusive)
+	enc.AddBool("endKeyExclusive", sstMeta.EndKeyExclusive)
 	enc.AddUint32("CRC32", sstMeta.Crc32)
 	enc.AddUint64("length", sstMeta.Length)
-	enc.AddUint64("region ID", sstMeta.RegionId)
-	enc.AddString("region Epoch", sstMeta.RegionEpoch.String())
-	enc.AddString("range start", WrapKey(sstMeta.GetRange().GetStart()).String())
-	enc.AddString("range end", WrapKey(sstMeta.GetRange().GetEnd()).String())
+	enc.AddUint64("regionID", sstMeta.RegionId)
+	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
+	enc.AddString("rangeStart", WrapKey(sstMeta.GetRange().GetStart()).String())
+	enc.AddString("rangeEnd", WrapKey(sstMeta.GetRange().GetEnd()).String())
 
 	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
 	if err != nil {
@@ -90,14 +90,14 @@ func WrapKey(key []byte) fmt.Stringer {
 	return kv.Key(key)
 }
 
-// WrapKeys wrap keys as a ArrayMarshaler that can print proper upper hex format.
+// WrapKeys wrap keys as an ArrayMarshaler that can print proper upper hex format.
 func WrapKeys(keys [][]byte) zapcore.ArrayMarshaler {
 	return zapArrayMarshalKeysMixIn(keys)
 }
 
 // ZapRewriteRule make the zap fields for a rewrite rule.
 func ZapRewriteRule(rewriteRule *import_sstpb.RewriteRule) zapcore.Field {
-	return zap.Object("rewrite rule", zapMarshalRewriteRuleMixIn{rewriteRule})
+	return zap.Object("rewriteRule", zapMarshalRewriteRuleMixIn{rewriteRule})
 }
 
 // ZapRegion make the zap fields for a region.
@@ -112,5 +112,5 @@ func ZapFile(file *backup.File) zapcore.Field {
 
 // ZapSSTMeta make the zap fields for a SST meta.
 func ZapSSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
-	return zap.Object("sst meta", zapMarshalSSTMetaMixIn{sstMeta})
+	return zap.Object("sstMeta", zapMarshalSSTMetaMixIn{sstMeta})
 }
