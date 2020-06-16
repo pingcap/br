@@ -619,6 +619,7 @@ func (rc *Client) RestoreFiles(
 			return err
 		}
 	}
+	wg.Wait()
 	return nil
 }
 
