@@ -163,7 +163,7 @@ func buildTableRequest(
 	return builder.SetTableRanges(tableID, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		SetConcurrency(variable.DefExecutorConcurrency).
 		Build()
 }
 
@@ -195,7 +195,7 @@ func buildIndexRequest(
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		SetConcurrency(variable.DefExecutorConcurrency).
 		Build()
 }
 
