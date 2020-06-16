@@ -7,10 +7,11 @@ import (
 	"fmt"
 
 	"github.com/google/btree"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Range represents a backup response.

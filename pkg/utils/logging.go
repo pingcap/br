@@ -103,6 +103,7 @@ func ZapFile(file *backup.File) zapcore.Field {
 	return zap.Object("file", zapMarshalFileMixIn{file})
 }
 
+// ZapSSTMeta make the zap fields for a SST meta.
 func ZapSSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
 	return zap.Object("sst meta", zapMarshalSSTMetaMixIn{sstMeta})
 }
