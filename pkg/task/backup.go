@@ -34,7 +34,7 @@ const (
 	flagLastBackupTS  = "lastbackupts"
 
 	defaultBackupConcurrency = 4
-	maxBackupConcurrency     = 1024
+	maxBackupConcurrency     = 256
 )
 
 // BackupConfig is the configuration specific for backup tasks.
