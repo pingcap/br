@@ -40,6 +40,32 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	c.Assert(string(sstMeta.GetRange().GetEnd()), Equals, "t2\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")
 }
 
+func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
+	filesOfTable1 := []*backup.File{
+		{Name: "table1-1.sst",
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(1)},
+		{Name: "table1-2.sst",
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(1)},
+		{Name: "table1-3.sst",
+			StartKey: tablecodec.EncodeTablePrefix(1),
+			EndKey:   tablecodec.EncodeTablePrefix(1)}}
+	filesOfTable2 := []*backup.File{
+		{Name: "table2-1.sst",
+			StartKey: tablecodec.EncodeTablePrefix(2),
+			EndKey:   tablecodec.EncodeTablePrefix(2)},
+		{Name: "table2-2.sst",
+			StartKey: tablecodec.EncodeTablePrefix(2),
+			EndKey:   tablecodec.EncodeTablePrefix(2)},
+	}
+
+	result := restore.MapTableToFiles(append(filesOfTable2, filesOfTable1...))
+
+	c.Assert(result[1], DeepEquals, filesOfTable1)
+	c.Assert(result[2], DeepEquals, filesOfTable2)
+}
+
 func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 	rules := &restore.RewriteRules{
 		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
@@ -94,7 +120,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		}},
 		rules,
 	)
-	c.Assert(err, ErrorMatches, "table ids dont match")
+	c.Assert(err, ErrorMatches, "table ids mismatch")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
