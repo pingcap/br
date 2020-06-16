@@ -27,26 +27,26 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.String("key", utils.EncodeKey(rg.StartKey)))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.StartKey)))
 				} else {
 					log.Debug(
 						"rewrite start key",
-						zap.String("key", utils.EncodeKey(rg.StartKey)),
+						zap.Stringer("key", utils.WrapKey(rg.StartKey)),
 						utils.ZapRewriteRule(rule))
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.String("key", utils.EncodeKey(rg.EndKey)))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.EndKey)))
 				} else {
 					log.Debug(
 						"rewrite end key",
-						zap.String("key", utils.EncodeKey(rg.EndKey)),
+						zap.Stringer("key", utils.WrapKey(rg.EndKey)),
 						utils.ZapRewriteRule(rule))
 				}
 			} else {
 				log.Warn("table id does not match",
-					zap.String("startKey", utils.EncodeKey(rg.StartKey)),
-					zap.String("endKey", utils.EncodeKey(rg.EndKey)),
+					zap.Stringer("startKey", utils.WrapKey(rg.StartKey)),
+					zap.Stringer("endKey", utils.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.New("table id does not match")

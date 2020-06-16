@@ -451,8 +451,8 @@ func (bc *Client) BackupRange(
 		}
 	}()
 	log.Info("backup started",
-		zap.String("StartKey", utils.EncodeKey(startKey)),
-		zap.String("EndKey", utils.EncodeKey(endKey)),
+		zap.Stringer("StartKey", utils.WrapKey(startKey)),
+		zap.Stringer("EndKey", utils.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
 	ctx, cancel := context.WithCancel(ctx)
@@ -494,8 +494,8 @@ func (bc *Client) BackupRange(
 		bc.backupMeta.RawRanges = append(bc.backupMeta.RawRanges,
 			&kvproto.RawRange{StartKey: startKey, EndKey: endKey, Cf: req.Cf})
 		log.Info("backup raw ranges",
-			zap.String("startKey", utils.EncodeKey(startKey)),
-			zap.String("endKey", utils.EncodeKey(endKey)),
+			zap.Stringer("startKey", utils.WrapKey(startKey)),
+			zap.Stringer("endKey", utils.WrapKey(endKey)),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -531,10 +531,10 @@ func (bc *Client) findRegionLeader(
 		}
 		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.String("Key", utils.EncodeKey(key)))
+				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", utils.WrapKey(key)))
 			return region.Leader, nil
 		}
-		log.Warn("no region found", zap.String("Key", utils.EncodeKey(key)))
+		log.Warn("no region found", zap.Stringer("Key", utils.WrapKey(key)))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
@@ -618,8 +618,8 @@ func (bc *Client) fineGrainedBackup(
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
-					zap.String("StartKey", utils.EncodeKey(resp.StartKey)),
-					zap.String("EndKey", utils.EncodeKey(resp.EndKey)),
+					zap.Stringer("StartKey", utils.WrapKey(resp.StartKey)),
+					zap.Stringer("EndKey", utils.WrapKey(resp.EndKey)),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -770,8 +770,8 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 ) error {
 	log.Info("try backup",
-		zap.String("StartKey", utils.EncodeKey(req.StartKey)),
-		zap.String("EndKey", utils.EncodeKey(req.EndKey)),
+		zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
+		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
 		zap.Uint64("storeID", storeID),
 	)
 	ctx, cancel := context.WithCancel(ctx)
@@ -793,8 +793,8 @@ func SendBackup(
 		}
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
-			zap.String("StartKey", utils.EncodeKey(resp.GetStartKey())),
-			zap.String("EndKey", utils.EncodeKey(req.GetEndKey())))
+			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
+			zap.Stringer("EndKey", utils.WrapKey(req.GetEndKey())))
 		err = respFn(resp)
 		if err != nil {
 			return err

@@ -100,8 +100,8 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.String("startKey", utils.EncodeKey(file.GetStartKey())),
-						zap.String("endKey", utils.EncodeKey(file.GetEndKey())),
+						zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
+						zap.Stringer("endKey", utils.WrapKey(file.GetEndKey())),
 					)
 
 					var data []byte

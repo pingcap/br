@@ -134,8 +134,8 @@ func (rangeTree *RangeTree) Update(rg Range) {
 	// Range has backuped, overwrite overlapping range.
 	for _, item := range overlaps {
 		log.Info("delete overlapping range",
-			zap.String("StartKey", utils.EncodeKey(item.StartKey)),
-			zap.String("EndKey", utils.EncodeKey(item.EndKey)),
+			zap.Stringer("StartKey", utils.WrapKey(item.StartKey)),
+			zap.Stringer("EndKey", utils.WrapKey(item.EndKey)),
 		)
 		rangeTree.Delete(item)
 	}

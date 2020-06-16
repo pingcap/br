@@ -120,14 +120,14 @@ func GetSSTMetaFromFile(
 
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Fatal("range start exceed range end",
-			zap.String("start", utils.EncodeKey(rangeStart)),
-			zap.String("end", utils.EncodeKey(rangeEnd)))
+			zap.Stringer("start", utils.WrapKey(rangeStart)),
+			zap.Stringer("end", utils.WrapKey(rangeEnd)))
 	}
 
 	log.Debug("get sstMeta",
 		utils.ZapFile(file),
-		zap.String("rangeStart", utils.EncodeKey(rangeStart)),
-		zap.String("rangeEnd", utils.EncodeKey(rangeEnd)))
+		zap.Stringer("rangeStart", utils.WrapKey(rangeStart)),
+		zap.Stringer("rangeEnd", utils.WrapKey(rangeEnd)))
 
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
@@ -185,14 +185,14 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 		if tableID != tableEndID {
 			log.Panic("key range spread between many files.",
 				zap.String("file name", file.Name),
-				zap.String("start key", utils.EncodeKey(file.GetStartKey())),
-				zap.String("end key", utils.EncodeKey(file.GetEndKey())))
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
 		}
 		if tableID == 0 {
 			log.Panic("invalid table key of file",
 				zap.String("file name", file.Name),
-				zap.String("start key", utils.EncodeKey(file.GetStartKey())),
-				zap.String("end key", utils.EncodeKey(file.GetEndKey())))
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
 		}
 		result[tableID] = append(result[tableID], file)
 	}
@@ -288,8 +288,8 @@ func AttachFilesToRanges(
 		})
 		if rg == nil {
 			log.Fatal("range not found",
-				zap.String("startKey", utils.EncodeKey(f.GetStartKey())),
-				zap.String("endKey", utils.EncodeKey(f.GetEndKey())))
+				zap.Stringer("startKey", utils.WrapKey(f.GetStartKey())),
+				zap.Stringer("endKey", utils.WrapKey(f.GetEndKey())))
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)
@@ -424,7 +424,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				zap.String("startKey", utils.EncodeKey(file.GetStartKey())),
+				zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.New("cannot find rewrite rule for start key")
@@ -439,8 +439,8 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.String("startKey", utils.EncodeKey(startKey)),
-			zap.String("endKey", utils.EncodeKey(endKey)))
+			zap.Stringer("startKey", utils.WrapKey(startKey)),
+			zap.Stringer("endKey", utils.WrapKey(endKey)))
 		err = errors.New("illegal table id")
 	}
 	return

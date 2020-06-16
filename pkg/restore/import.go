@@ -204,8 +204,8 @@ func (importer *FileImporter) Import(
 	}
 	log.Debug("rewrite file keys",
 		utils.ZapFile(file),
-		zap.String("startKey", utils.EncodeKey(startKey)),
-		zap.String("endKey", utils.EncodeKey(endKey)))
+		zap.Stringer("startKey", utils.WrapKey(startKey)),
+		zap.Stringer("endKey", utils.WrapKey(endKey)))
 
 	needReject := len(rejectStoreMap) > 0
 
@@ -259,8 +259,8 @@ func (importer *FileImporter) Import(
 						log.Error("download file skipped",
 							utils.ZapFile(file),
 							utils.ZapRegion(info.Region),
-							zap.String("startKey", utils.EncodeKey(startKey)),
-							zap.String("endKey", utils.EncodeKey(endKey)),
+							zap.Stringer("startKey", utils.WrapKey(startKey)),
+							zap.Stringer("endKey", utils.WrapKey(endKey)),
 							zap.Error(e))
 						continue regionLoop
 					}
@@ -268,8 +268,8 @@ func (importer *FileImporter) Import(
 				log.Error("download file failed",
 					utils.ZapFile(file),
 					utils.ZapRegion(info.Region),
-					zap.String("startKey", utils.EncodeKey(startKey)),
-					zap.String("endKey", utils.EncodeKey(endKey)),
+					zap.Stringer("startKey", utils.WrapKey(startKey)),
+					zap.Stringer("endKey", utils.WrapKey(endKey)),
 					zap.Error(errDownload))
 				return errDownload
 			}
