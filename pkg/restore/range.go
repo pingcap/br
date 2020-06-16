@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // SortRanges checks if the range overlapped and sort them.
@@ -26,26 +27,26 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Binary("key", rg.StartKey))
+					log.Warn("cannot find rewrite rule", zap.String("key", utils.EncodeKey(rg.StartKey)))
 				} else {
 					log.Debug(
 						"rewrite start key",
-						zap.Binary("key", rg.StartKey),
-						zap.Stringer("rule", rule))
+						zap.String("key", utils.EncodeKey(rg.StartKey)),
+						utils.ZapRewriteRule(rule))
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Binary("key", rg.EndKey))
+					log.Warn("cannot find rewrite rule", zap.String("key", utils.EncodeKey(rg.EndKey)))
 				} else {
 					log.Debug(
 						"rewrite end key",
-						zap.Binary("key", rg.EndKey),
-						zap.Stringer("rule", rule))
+						zap.String("key", utils.EncodeKey(rg.EndKey)),
+						utils.ZapRewriteRule(rule))
 				}
 			} else {
 				log.Warn("table id does not match",
-					zap.Binary("startKey", rg.StartKey),
-					zap.Binary("endKey", rg.EndKey),
+					zap.String("startKey", utils.EncodeKey(rg.StartKey)),
+					zap.String("endKey", utils.EncodeKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.New("table id does not match")

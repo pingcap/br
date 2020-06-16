@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/btree"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -132,8 +133,8 @@ func (rangeTree *RangeTree) Update(rg Range) {
 	// Range has backuped, overwrite overlapping range.
 	for _, item := range overlaps {
 		log.Info("delete overlapping range",
-			zap.Binary("StartKey", item.StartKey),
-			zap.Binary("EndKey", item.EndKey),
+			zap.String("StartKey", utils.EncodeKey(item.StartKey)),
+			zap.String("EndKey", utils.EncodeKey(item.EndKey)),
 		)
 		rangeTree.Delete(item)
 	}
