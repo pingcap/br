@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"time"
 
@@ -19,10 +20,12 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var recordPrefixSep = []byte("_r")
@@ -117,14 +120,14 @@ func GetSSTMetaFromFile(
 
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Fatal("range start exceed range end",
-			zap.Binary("start", rangeStart),
-			zap.Binary("end", rangeEnd))
+			zap.Stringer("start", utils.WrapKey(rangeStart)),
+			zap.Stringer("end", utils.WrapKey(rangeEnd)))
 	}
 
 	log.Debug("get sstMeta",
-		zap.Stringer("file", file),
-		zap.Binary("rangeStart", rangeStart),
-		zap.Binary("rangeEnd", rangeEnd))
+		utils.ZapFile(file),
+		zap.Stringer("rangeStart", utils.WrapKey(rangeStart)),
+		zap.Stringer("rangeEnd", utils.WrapKey(rangeEnd)))
 
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
@@ -138,6 +141,17 @@ func GetSSTMetaFromFile(
 	}
 }
 
+// EstimateRangeSize estimates the total range count by file.
+func EstimateRangeSize(files []*backup.File) int {
+	result := 0
+	for _, f := range files {
+		if strings.HasSuffix(f.GetName(), "_write.sst") {
+			result++
+		}
+	}
+	return result
+}
+
 // ValidateFileRanges checks and returns the ranges of the files.
 func ValidateFileRanges(
 	files []*backup.File,
@@ -149,27 +163,111 @@ func ValidateFileRanges(
 	for _, file := range files {
 		// We skips all default cf files because we don't range overlap.
 		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
-			err := ValidateFileRewriteRule(file, rewriteRules)
+			rng, err := validateAndGetFileRange(file, rewriteRules)
 			if err != nil {
 				return nil, err
 			}
-			startID := tablecodec.DecodeTableID(file.GetStartKey())
-			endID := tablecodec.DecodeTableID(file.GetEndKey())
-			if startID != endID {
-				log.Error("table ids dont match",
-					zap.Int64("startID", startID),
-					zap.Int64("endID", endID),
-					zap.Stringer("file", file))
-				return nil, errors.New("table ids dont match")
-			}
-			ranges = append(ranges, rtree.Range{
-				StartKey: file.GetStartKey(),
-				EndKey:   file.GetEndKey(),
-			})
+			ranges = append(ranges, rng)
 			fileAppended[file.GetName()] = true
 		}
 	}
 	return ranges, nil
+}
+
+// MapTableToFiles makes a map that mapping table ID to its backup files.
+// aware that one file can and only can hold one table.
+func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
+	result := map[int64][]*backup.File{}
+	for _, file := range files {
+		tableID := tablecodec.DecodeTableID(file.GetStartKey())
+		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
+		if tableID != tableEndID {
+			log.Panic("key range spread between many files.",
+				zap.String("file name", file.Name),
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
+		}
+		if tableID == 0 {
+			log.Panic("invalid table key of file",
+				zap.String("file name", file.Name),
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
+		}
+		result[tableID] = append(result[tableID], file)
+	}
+	return result
+}
+
+// GoValidateFileRanges validate files by a stream of tables and yields tables with range.
+func GoValidateFileRanges(
+	ctx context.Context,
+	tableStream <-chan CreatedTable,
+	fileOfTable map[int64][]*backup.File,
+	errCh chan<- error,
+) <-chan TableWithRange {
+	// Could we have a smaller outCh size?
+	outCh := make(chan TableWithRange, len(fileOfTable))
+	go func() {
+		defer close(outCh)
+		defer log.Info("all range generated")
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			case t, ok := <-tableStream:
+				if !ok {
+					return
+				}
+				files := fileOfTable[t.OldTable.Info.ID]
+				if partitions := t.OldTable.Info.Partition; partitions != nil {
+					log.Debug("table partition",
+						zap.Stringer("database", t.OldTable.Db.Name),
+						zap.Stringer("table", t.Table.Name),
+						zap.Any("partition info", partitions),
+					)
+					for _, partition := range partitions.Definitions {
+						files = append(files, fileOfTable[partition.ID]...)
+					}
+				}
+				ranges, err := ValidateFileRanges(files, t.RewriteRule)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				tableWithRange := TableWithRange{
+					CreatedTable: t,
+					Range:        AttachFilesToRanges(files, ranges),
+				}
+				log.Debug("sending range info",
+					zap.Stringer("table", t.Table.Name),
+					zap.Int("files", len(files)),
+					zap.Int("range size", len(ranges)),
+					zap.Int("output channel size", len(outCh)))
+				outCh <- tableWithRange
+			}
+		}
+	}()
+	return outCh
+}
+
+// validateAndGetFileRange validates a file, if success, return the key range of this file.
+func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Range, error) {
+	err := ValidateFileRewriteRule(file, rules)
+	if err != nil {
+		return rtree.Range{}, err
+	}
+	startID := tablecodec.DecodeTableID(file.GetStartKey())
+	endID := tablecodec.DecodeTableID(file.GetEndKey())
+	if startID != endID {
+		log.Error("table ids mismatch",
+			zap.Int64("startID", startID),
+			zap.Int64("endID", endID),
+			utils.ZapFile(file))
+		return rtree.Range{}, errors.New("table ids mismatch")
+	}
+	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
+	return r, nil
 }
 
 // AttachFilesToRanges attach files to ranges.
@@ -189,8 +287,8 @@ func AttachFilesToRanges(
 		})
 		if rg == nil {
 			log.Fatal("range not found",
-				zap.Binary("startKey", f.GetStartKey()),
-				zap.Binary("endKey", f.GetEndKey()))
+				zap.Stringer("startKey", utils.WrapKey(f.GetStartKey())),
+				zap.Stringer("endKey", utils.WrapKey(f.GetEndKey())))
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)
@@ -213,7 +311,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file start key",
 			zap.Int64("tableID", tableID),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("cannot find rewrite rule")
 	}
@@ -224,7 +322,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file end key",
 			zap.Int64("tableID", tableID),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("cannot find rewrite rule")
 	}
@@ -238,7 +336,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("endTableID", endTableID),
 			zap.Stringer("startRule", startRule),
 			zap.Stringer("endRule", endRule),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("unexpected rewrite rules")
 	}
@@ -325,7 +423,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				zap.Binary("startKey", file.GetStartKey()),
+				zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.New("cannot find rewrite rule for start key")
@@ -340,8 +438,8 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Binary("startKey", startKey),
-			zap.Binary("endKey", endKey))
+			zap.Stringer("startKey", utils.WrapKey(startKey)),
+			zap.Stringer("endKey", utils.WrapKey(endKey)))
 		err = errors.New("illegal table id")
 	}
 	return
@@ -406,7 +504,7 @@ func hasRejectStorePeer(
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 10 {
-		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+		log.Warn("get region info", utils.ZapRegion(regionInfo.Region))
 	}
 	return false, nil
 }
@@ -424,7 +522,7 @@ func waitForRemoveRejectStores(
 		ok, err := hasRejectStorePeer(ctx1, client, regionID, rejectStores)
 		if err != nil {
 			log.Warn("wait for rejecting store failed",
-				zap.Stringer("region", regionInfo.Region),
+				utils.ZapRegion(regionInfo.Region),
 				zap.Error(err))
 			return false
 		}
@@ -440,4 +538,31 @@ func waitForRemoveRejectStores(
 	}
 
 	return false
+}
+
+// ZapTables make zap field of table for debuging, including table names.
+func ZapTables(tables []CreatedTable) zapcore.Field {
+	tableNames := make([]string, 0, len(tables))
+	for _, t := range tables {
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+	}
+	return zap.Strings("tables", tableNames)
+}
+
+// ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
+func ZapRanges(ranges []rtree.Range) []zapcore.Field {
+	totalKV := uint64(0)
+	totalSize := uint64(0)
+	for _, r := range ranges {
+		for _, f := range r.Files {
+			totalKV += f.GetTotalKvs()
+			totalSize += f.GetTotalBytes()
+		}
+	}
+
+	return []zap.Field{
+		zap.Int("ranges", len(ranges)),
+		zap.Uint64("total kv", totalKV),
+		zap.Uint64("total size", totalSize),
+	}
 }

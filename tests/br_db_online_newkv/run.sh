@@ -66,6 +66,7 @@ sleep 5
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --online
 
+# TODO we should check whether the restore RPCs are send to the new TiKV.
 table_count=$(run_sql "use $DB; show tables;" | grep "Tables_in" | wc -l)
 if [ "$table_count" -ne "2" ];then
     echo "TEST: [$TEST_NAME] failed!"
