@@ -29,6 +29,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -66,8 +67,15 @@ type Client struct {
 	isOnline        bool
 	noSchema        bool
 	hasSpeedLimited bool
+	// Those fields should be removed after we have FULLY supportted TiFlash.
+	// we place this field here to make a 'good' memory align, but mainly make golang-ci happy :)
+	tiFlashRecordUpdated bool
 
 	restoreStores []uint64
+
+	// tables that has TiFlash and those TiFlash have been removed, should be written to disk.
+	// Those fields should be removed after we have FULLY supportted TiFlash.
+	tablesRemovedTiFlash []*backup.Schema
 
 	storage storage.ExternalStorage
 	backend *backup.StorageBackend
@@ -324,93 +332,196 @@ func (rc *Client) CreateTables(
 		Data:  make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
-	for _, table := range tables {
-		if rc.IsSkipCreateSQL() {
-			log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
-		} else {
-			err := rc.db.CreateTable(rc.ctx, table)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-		newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
-		if err != nil {
-			return nil, nil, err
-		}
-		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
+	errCh := make(chan error, 1)
+	tbMapping := map[string]int{}
+	for i, t := range tables {
+		tbMapping[t.Info.Name.String()] = i
+	}
+	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, errCh)
+	for et := range dataCh {
+		rules := et.RewriteRule
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
-		newTables = append(newTables, newTableInfo)
+		newTables = append(newTables, et.Table)
+	}
+	// Let's ensure that it won't break the original order.
+	sort.Slice(newTables, func(i, j int) bool {
+		return tbMapping[newTables[i].Name.String()] < tbMapping[newTables[j].Name.String()]
+	})
+
+	select {
+	case err, ok := <-errCh:
+		if ok {
+			return nil, nil, err
+		}
+	default:
 	}
 	return rewriteRules, newTables, nil
 }
 
-// RemoveTiFlashReplica removes all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
-func (rc *Client) RemoveTiFlashReplica(
-	tables []*utils.Table, newTables []*model.TableInfo, placementRules []placement.Rule) error {
-	schemas := make([]*backup.Schema, 0, len(tables))
-	var updateReplica bool
-	// must use new table id to search placement rules
-	// here newTables and tables must have same order
-	for i, table := range tables {
-		if rule := utils.SearchPlacementRule(newTables[i].ID, placementRules, placement.Learner); rule != nil {
-			table.TiFlashReplicas = rule.Count
-			updateReplica = true
-		}
-		tableData, err := json.Marshal(newTables[i])
+func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint64) (CreatedTable, error) {
+	if rc.IsSkipCreateSQL() {
+		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
+	} else {
+		err := rc.db.CreateTable(rc.ctx, table)
 		if err != nil {
-			return errors.Trace(err)
-		}
-		dbData, err := json.Marshal(table.Db)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		schemas = append(schemas, &backup.Schema{
-			Db:              dbData,
-			Table:           tableData,
-			Crc64Xor:        table.Crc64Xor,
-			TotalKvs:        table.TotalKvs,
-			TotalBytes:      table.TotalBytes,
-			TiflashReplicas: uint32(table.TiFlashReplicas),
-		})
-	}
-
-	if updateReplica {
-		// Update backup meta
-		rc.backupMeta.Schemas = schemas
-		backupMetaData, err := proto.Marshal(rc.backupMeta)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		backendURL := storage.FormatBackendURL(rc.backend)
-		log.Info("update backup meta", zap.Stringer("path", &backendURL))
-		err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
-		if err != nil {
-			return errors.Trace(err)
+			return CreatedTable{}, err
 		}
 	}
+	newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
+	if err != nil {
+		return CreatedTable{}, err
+	}
+	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
+	et := CreatedTable{
+		RewriteRule: rules,
+		Table:       newTableInfo,
+		OldTable:    table,
+	}
+	return et, nil
+}
 
-	for _, table := range tables {
-		if table.TiFlashReplicas > 0 {
-			err := rc.db.AlterTiflashReplica(rc.ctx, table, 0)
-			if err != nil {
-				return errors.Trace(err)
+// GoCreateTables create tables, and generate their information.
+func (rc *Client) GoCreateTables(
+	ctx context.Context,
+	dom *domain.Domain,
+	tables []*utils.Table,
+	newTS uint64,
+	errCh chan<- error,
+) <-chan CreatedTable {
+	// Could we have a smaller size of tables?
+	outCh := make(chan CreatedTable, len(tables))
+	createOneTable := func(t *utils.Table) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		rt, err := rc.createTable(dom, t, newTS)
+		if err != nil {
+			log.Error("create table failed",
+				zap.Error(err),
+				zap.Stringer("db", t.Db.Name),
+				zap.Stringer("table", t.Info.Name))
+			return err
+		}
+		log.Debug("table created and send to next",
+			zap.Int("output chan size", len(outCh)),
+			zap.Stringer("table", t.Info.Name),
+			zap.Stringer("database", t.Db.Name))
+		outCh <- rt
+		return nil
+	}
+	go func() {
+		defer close(outCh)
+		defer log.Info("all tables created")
+
+		for _, table := range tables {
+			if err := createOneTable(table); err != nil {
+				errCh <- err
+				return
 			}
+		}
+	}()
+	return outCh
+}
+
+// makeTiFlashOfTableRecord make a 'record' repsenting TiFlash of a table that has been removed.
+// We doesn't record table ID here because when restore TiFlash replicas,
+// we use `ALTER TABLE db.tbl SET TIFLASH_REPLICA = xxx` DDL, instead of use some internal TiDB API.
+func makeTiFlashOfTableRecord(table *utils.Table, replica int) (*backup.Schema, error) {
+	tableData, err := json.Marshal(table.Info)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	dbData, err := json.Marshal(table.Db)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	result := &backup.Schema{
+		Db:              dbData,
+		Table:           tableData,
+		Crc64Xor:        table.Crc64Xor,
+		TotalKvs:        table.TotalKvs,
+		TotalBytes:      table.TotalBytes,
+		TiflashReplicas: uint32(replica),
+	}
+	return result, nil
+}
+
+// RemoveTiFlashOfTable removes TiFlash replica of some table,
+// returns the removed count of TiFlash nodes.
+// TODO: save the removed TiFlash information into disk.
+// TODO: remove this after tiflash supports restore.
+func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
+	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
+		if rule.Count > 0 {
+			log.Info("remove TiFlash of table", zap.Int64("table ID", table.Table.ID), zap.Int("count", rule.Count))
+			err := multierr.Combine(
+				rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0),
+				rc.removeTiFlashOf(table.OldTable, rule.Count),
+				rc.flushTiFlashRecord(),
+			)
+			if err != nil {
+				return 0, errors.Trace(err)
+			}
+			return rule.Count, nil
+		}
+	}
+	return 0, nil
+}
+
+func (rc *Client) removeTiFlashOf(table *utils.Table, replica int) error {
+	tableRecord, err := makeTiFlashOfTableRecord(table, replica)
+	if err != nil {
+		return err
+	}
+	rc.tablesRemovedTiFlash = append(rc.tablesRemovedTiFlash, tableRecord)
+	rc.tiFlashRecordUpdated = true
+	return nil
+}
+
+func (rc *Client) flushTiFlashRecord() error {
+	// Today nothing to do :D
+	if !rc.tiFlashRecordUpdated {
+		return nil
+	}
+
+	// should we make a deep copy here?
+	// currently, write things directly to backup meta is OK since there seems nobody uses it.
+	// But would it be better if we don't do it?
+	rc.backupMeta.Schemas = rc.tablesRemovedTiFlash
+	backupMetaData, err := proto.Marshal(rc.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	backendURL := storage.FormatBackendURL(rc.backend)
+	log.Info("update backup meta", zap.Stringer("path", &backendURL))
+	err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+// RecoverTiFlashOfTable recovers TiFlash replica of some table.
+// TODO: remove this after tiflash supports restore.
+func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
+	if table.TiFlashReplicas > 0 {
+		err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+		if err != nil {
+			return errors.Trace(err)
 		}
 	}
 	return nil
 }
 
 // RecoverTiFlashReplica recovers all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore
+// TODO: remove this after tiflash supports restore.
 func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
 	for _, table := range tables {
-		if table.TiFlashReplicas > 0 {
-			err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
-			if err != nil {
-				return errors.Trace(err)
-			}
+		if err := rc.RecoverTiFlashOfTable(table); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -508,6 +619,7 @@ func (rc *Client) RestoreFiles(
 			return err
 		}
 	}
+	wg.Wait()
 	return nil
 }
 
@@ -624,89 +736,94 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 	return nil
 }
 
-//ValidateChecksum validate checksum after restore
-func (rc *Client) ValidateChecksum(
+// GoValidateChecksum forks a goroutine to validate checksum after restore.
+// it returns a channel fires a struct{} when all things get done.
+func (rc *Client) GoValidateChecksum(
 	ctx context.Context,
+	tableStream <-chan CreatedTable,
 	kvClient kv.Client,
-	tables []*utils.Table,
-	newTables []*model.TableInfo,
+	errCh chan<- error,
 	updateCh glue.Progress,
-) error {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("restore checksum", elapsed)
-	}()
-
+) <-chan struct{} {
 	log.Info("Start to validate checksum")
-	wg := new(sync.WaitGroup)
-	errCh := make(chan error)
+	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		for i, t := range tables {
-			table := t
-			newTable := newTables[i]
-			wg.Add(1)
-			workers.Apply(func() {
-				defer wg.Done()
-
-				if table.NoChecksum() {
-					log.Info("table doesn't have checksum, skipping checksum",
-						zap.Stringer("db", table.Db.Name),
-						zap.Stringer("table", table.Info.Name))
+		start := time.Now()
+		wg := new(sync.WaitGroup)
+		defer func() {
+			log.Info("all checksum ended")
+			wg.Wait()
+			elapsed := time.Since(start)
+			summary.CollectDuration("restore checksum", elapsed)
+			outCh <- struct{}{}
+			close(outCh)
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+			case tbl, ok := <-tableStream:
+				if !ok {
+					return
+				}
+				wg.Add(1)
+				workers.Apply(func() {
+					err := rc.execChecksum(ctx, tbl, kvClient)
+					if err != nil {
+						errCh <- err
+					}
 					updateCh.Inc()
-					return
-				}
-
-				startTS, err := rc.GetTS(ctx)
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-				exe, err := checksum.NewExecutorBuilder(newTable, startTS).
-					SetOldTable(table).
-					Build()
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-				checksumResp, err := exe.Execute(ctx, kvClient, func() {
-					// TODO: update progress here.
+					wg.Done()
 				})
-				if err != nil {
-					errCh <- errors.Trace(err)
-					return
-				}
-
-				if checksumResp.Checksum != table.Crc64Xor ||
-					checksumResp.TotalKvs != table.TotalKvs ||
-					checksumResp.TotalBytes != table.TotalBytes {
-					log.Error("failed in validate checksum",
-						zap.String("database", table.Db.Name.L),
-						zap.String("table", table.Info.Name.L),
-						zap.Uint64("origin tidb crc64", table.Crc64Xor),
-						zap.Uint64("calculated crc64", checksumResp.Checksum),
-						zap.Uint64("origin tidb total kvs", table.TotalKvs),
-						zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
-						zap.Uint64("origin tidb total bytes", table.TotalBytes),
-						zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
-					)
-					errCh <- errors.New("failed to validate checksum")
-					return
-				}
-
-				updateCh.Inc()
-			})
+			}
 		}
-		wg.Wait()
-		close(errCh)
 	}()
-	for err := range errCh {
-		if err != nil {
-			return err
-		}
+	return outCh
+}
+
+func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+	if tbl.OldTable.NoChecksum() {
+		log.Warn("table has no checksum, skipping checksum",
+			zap.Stringer("table", tbl.OldTable.Info.Name),
+			zap.Stringer("database", tbl.OldTable.Db.Name),
+		)
+		return nil
 	}
-	log.Info("validate checksum passed!!")
+
+	startTS, err := rc.GetTS(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	exe, err := checksum.NewExecutorBuilder(tbl.Table, startTS).
+		SetOldTable(tbl.OldTable).
+		Build()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	checksumResp, err := exe.Execute(ctx, kvClient, func() {
+		// TODO: update progress here.
+	})
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	table := tbl.OldTable
+	if checksumResp.Checksum != table.Crc64Xor ||
+		checksumResp.TotalKvs != table.TotalKvs ||
+		checksumResp.TotalBytes != table.TotalBytes {
+		log.Error("failed in validate checksum",
+			zap.String("database", table.Db.Name.L),
+			zap.String("table", table.Info.Name.L),
+			zap.Uint64("origin tidb crc64", table.Crc64Xor),
+			zap.Uint64("calculated crc64", checksumResp.Checksum),
+			zap.Uint64("origin tidb total kvs", table.TotalKvs),
+			zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
+			zap.Uint64("origin tidb total bytes", table.TotalBytes),
+			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+		)
+		return errors.New("failed to validate checksum")
+	}
 	return nil
 }
 
