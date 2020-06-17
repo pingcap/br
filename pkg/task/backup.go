@@ -125,6 +125,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
 		return err
 	}
+	err = client.SetLockFile(ctx)
+	if err != nil {
+		return err
+	}
 	client.SetGCTTL(cfg.GCTTL)
 
 	backupTS, err := client.GetTS(ctx, cfg.TimeAgo, cfg.BackupTS)
