@@ -4,6 +4,7 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"time"
 
@@ -45,11 +46,11 @@ func (pp *ProgressPrinter) goPrintProgress(
 	ctx context.Context,
 	testWriter io.Writer, // Only for tests
 ) {
-	var bar *pb.ProgressBar
+	bar := pb.New64(pp.total)
 	if pp.redirectLog || testWriter != nil {
-		tmpl := `{{percent .}}`
-		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
-		bar.SetRefreshRate(time.Second * 10)
+		tmpl := `{"P":"{{percent .}}","C":"{{counters . }}","E":"{{etime .}}","R":"{{rtime .}}","S":"{{speed .}}"}`
+		bar.SetTemplateString(tmpl)
+		bar.SetRefreshRate(2 * time.Minute)
 		bar.Set(pb.Static, false)       // Do not update automatically
 		bar.Set(pb.ReturnSymbol, false) // Do not append '\r'
 		bar.Set(pb.Terminal, false)     // Do not use terminal width
@@ -58,11 +59,12 @@ func (pp *ProgressPrinter) goPrintProgress(
 		bar.SetWriter(&wrappedWriter{name: pp.name})
 	} else {
 		tmpl := `{{string . "barName" | green}} {{ bar . "<" "-" (cycle . "-" "\\" "|" "/" ) "." ">"}} {{percent .}}`
-		bar = pb.ProgressBarTemplate(tmpl).Start64(pp.total)
+		bar.SetTemplateString(tmpl)
 		bar.Set("barName", pp.name)
 	}
 	if testWriter != nil {
 		bar.SetWriter(testWriter)
+		bar.SetRefreshRate(10 * time.Millisecond)
 	}
 	bar.Start()
 
@@ -99,7 +101,23 @@ type wrappedWriter struct {
 }
 
 func (ww *wrappedWriter) Write(p []byte) (int, error) {
-	log.Info(ww.name, zap.String("progress", string(p)))
+	var info struct {
+		P string
+		C string
+		E string
+		R string
+		S string
+	}
+	if err := json.Unmarshal(p, &info); err != nil {
+		return 0, err
+	}
+	log.Info("progress",
+		zap.String("step", ww.name),
+		zap.String("progress", info.P),
+		zap.String("count", info.C),
+		zap.String("speed", info.S),
+		zap.String("elapsed", info.E),
+		zap.String("remaining", info.R))
 	return len(p), nil
 }
 
