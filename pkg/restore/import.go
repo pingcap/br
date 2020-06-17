@@ -185,7 +185,7 @@ func (importer *FileImporter) Import(
 	rejectStoreMap map[uint64]bool,
 	rewriteRules *RewriteRules,
 ) error {
-	log.Debug("import file", zap.Stringer("file", file))
+	log.Debug("import file", utils.ZapFile(file))
 	// Rewrite the start key and end key of file to scan regions
 	var startKey, endKey []byte
 	var err error
@@ -203,9 +203,9 @@ func (importer *FileImporter) Import(
 		return err
 	}
 	log.Debug("rewrite file keys",
-		zap.Stringer("file", file),
-		zap.Binary("startKey", startKey),
-		zap.Binary("endKey", endKey))
+		utils.ZapFile(file),
+		zap.Stringer("startKey", utils.WrapKey(startKey)),
+		zap.Stringer("endKey", utils.WrapKey(endKey)))
 
 	needReject := len(rejectStoreMap) > 0
 
@@ -226,7 +226,7 @@ func (importer *FileImporter) Import(
 			for _, region := range regionInfos {
 				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
 					log.Error("waiting for removing rejected stores failed",
-						zap.Stringer("region", region.Region))
+						utils.ZapRegion(region.Region))
 					return errors.New("waiting for removing rejected stores failed")
 				}
 			}
@@ -235,7 +235,7 @@ func (importer *FileImporter) Import(
 			needReject = false
 		}
 
-		log.Debug("scan regions", zap.Stringer("file", file), zap.Int("count", len(regionInfos)))
+		log.Debug("scan regions", utils.ZapFile(file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
 	regionLoop:
 		for _, regionInfo := range regionInfos {
@@ -256,20 +256,20 @@ func (importer *FileImporter) Import(
 					switch e {
 					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
 						// Skip this region
-						log.Error("download file skipped",
-							zap.Stringer("file", file),
-							zap.Stringer("region", info.Region),
-							zap.Binary("startKey", startKey),
-							zap.Binary("endKey", endKey),
+						log.Warn("download file skipped",
+							utils.ZapFile(file),
+							utils.ZapRegion(info.Region),
+							zap.Stringer("startKey", utils.WrapKey(startKey)),
+							zap.Stringer("endKey", utils.WrapKey(endKey)),
 							zap.Error(e))
 						continue regionLoop
 					}
 				}
 				log.Error("download file failed",
-					zap.Stringer("file", file),
-					zap.Stringer("region", info.Region),
-					zap.Binary("startKey", startKey),
-					zap.Binary("endKey", endKey),
+					utils.ZapFile(file),
+					utils.ZapRegion(info.Region),
+					zap.Stringer("startKey", utils.WrapKey(startKey)),
+					zap.Stringer("endKey", utils.WrapKey(endKey)),
 					zap.Error(errDownload))
 				return errDownload
 			}
@@ -300,7 +300,7 @@ func (importer *FileImporter) Import(
 						}
 					}
 					log.Debug("ingest sst returns not leader error, retry it",
-						zap.Stringer("region", info.Region),
+						utils.ZapRegion(info.Region),
 						zap.Stringer("newLeader", newInfo.Leader))
 
 					if !checkRegionEpoch(newInfo, info) {
@@ -326,9 +326,9 @@ func (importer *FileImporter) Import(
 
 			if errIngest != nil {
 				log.Error("ingest file failed",
-					zap.Stringer("file", file),
+					utils.ZapFile(file),
 					zap.Stringer("range", downloadMeta.GetRange()),
-					zap.Stringer("region", info.Region),
+					utils.ZapRegion(info.Region),
 					zap.Error(errIngest))
 				return errIngest
 			}
@@ -379,9 +379,9 @@ func (importer *FileImporter) downloadSST(
 		RewriteRule:    rule,
 	}
 	log.Debug("download SST",
-		zap.Stringer("sstMeta", &sstMeta),
-		zap.Stringer("file", file),
-		zap.Stringer("region", regionInfo.Region),
+		utils.ZapSSTMeta(&sstMeta),
+		utils.ZapFile(file),
+		utils.ZapRegion(regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
@@ -434,8 +434,8 @@ func (importer *FileImporter) downloadRawKVSST(
 		IsRawKv:        true,
 	}
 	log.Debug("download SST",
-		zap.Stringer("sstMeta", &sstMeta),
-		zap.Stringer("region", regionInfo.Region),
+		utils.ZapSSTMeta(&sstMeta),
+		utils.ZapRegion(regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
@@ -472,7 +472,7 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("ingest SST", zap.Stringer("sstMeta", sstMeta), zap.Reflect("leader", leader))
+	log.Debug("ingest SST", utils.ZapSSTMeta(sstMeta), zap.Reflect("leader", leader))
 	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
 	if err != nil {
 		return nil, errors.Trace(err)

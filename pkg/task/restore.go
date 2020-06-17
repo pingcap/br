@@ -5,19 +5,20 @@ package task
 import (
 	"context"
 	"math"
+	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -185,36 +186,23 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	rewriteRules, newTables, err := client.CreateTables(mgr.GetDomain(), tables, newTS)
-	if err != nil {
-		return err
-	}
+	// We make bigger errCh so we won't block on multi-part failed.
+	errCh := make(chan error, 32)
+	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, errCh)
 	if len(files) == 0 {
 		log.Info("no files, empty databases and tables are restored")
 		summary.SetSuccessStatus(true)
-		return nil
+		// don't return immediately, wait all pipeline done.
 	}
 
-	ranges, err := restore.ValidateFileRanges(files, rewriteRules)
-	if err != nil {
-		return err
-	}
-	summary.CollectInt("restore ranges", len(ranges))
+	tableFileMap := restore.MapTableToFiles(files)
+	log.Debug("mapped table to files", zap.Any("result map", tableFileMap))
 
-	if err = splitPrepareWork(ctx, client, newTables); err != nil {
-		return err
-	}
-	defer splitPostWork(ctx, client, newTables)
+	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
 
-	ranges = restore.AttachFilesToRanges(files, ranges)
-
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := g.StartProgress(
-		ctx,
-		cmdName,
-		// Split/Scatter + Download/Ingest
-		int64(len(ranges)+len(files)),
-		!cfg.LogProgress)
+	rangeSize := restore.EstimateRangeSize(files)
+	summary.CollectInt("restore ranges", rangeSize)
+	log.Info("range and file prepared", zap.Int("file count", len(files)), zap.Int("range count", rangeSize))
 
 	clusterCfg, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
@@ -222,14 +210,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	shouldRestorePostWork := true
-	restorePostWork := func() {
-		if shouldRestorePostWork {
-			shouldRestorePostWork = false
-			restorePostWork(ctx, client, mgr, clusterCfg)
-		}
-	}
-	defer restorePostWork()
+	defer restorePostWork(ctx, client, mgr, clusterCfg)
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -242,83 +223,82 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// Restore sst files in batch.
 	batchSize := utils.ClampInt(int(cfg.Concurrency), defaultRestoreConcurrency, maxRestoreBatchSizeLimit)
+	failpoint.Inject("small-batch-size", func(v failpoint.Value) {
+		log.Info("failpoint small batch size is on", zap.Int("size", v.(int)))
+		batchSize = v.(int)
+	})
 
-	rejectStoreMap := make(map[uint64]bool)
-	if cfg.RemoveTiFlash {
-		placementRules, err := client.GetPlacementRules(cfg.PD)
-		if err != nil {
-			return err
-		}
-
-		err = client.RemoveTiFlashReplica(tables, newTables, placementRules)
-		if err != nil {
-			return err
-		}
-
-		defer func() {
-			_ = client.RecoverTiFlashReplica(tables)
-		}()
-
-		tiflashStores, err := conn.GetAllTiKVStores(ctx, client.GetPDClient(), conn.TiFlashOnly)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		for _, store := range tiflashStores {
-			rejectStoreMap[store.GetId()] = true
-		}
+	// Redirect to log if there is no log file to avoid unreadable output.
+	updateCh := g.StartProgress(
+		ctx,
+		cmdName,
+		// Split/Scatter + Download/Ingest + Checksum
+		int64(rangeSize+len(files)+len(tables)),
+		!cfg.LogProgress)
+	defer updateCh.Close()
+	sender, err := restore.NewTiKVSender(ctx, client, updateCh, cfg.RemoveTiFlash)
+	if err != nil {
+		return err
 	}
+	manager := restore.NewBRContextManager(client)
+	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
+	batcher.SetThreshold(batchSize)
+	batcher.EnableAutoCommit(ctx, time.Second)
+	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, cfg.PD, client, batcher, errCh)
 
-	for {
-		if len(ranges) == 0 {
-			break
-		}
-		batchSize = utils.MinInt(batchSize, len(ranges))
-		var rangeBatch []rtree.Range
-		ranges, rangeBatch = ranges[batchSize:], ranges[0:batchSize:batchSize]
-
-		// Split regions by the given rangeBatch.
-		err = restore.SplitRanges(ctx, client, rangeBatch, rewriteRules, updateCh)
-		if err != nil {
-			log.Error("split regions failed", zap.Error(err))
-			// If any error happened, return now, don't execute checksum.
-			return err
-		}
-
-		// Collect related files in the given rangeBatch.
-		fileBatch := make([]*backup.File, 0, 2*len(rangeBatch))
-		for _, rg := range rangeBatch {
-			fileBatch = append(fileBatch, rg.Files...)
-		}
-
-		// After split, we can restore backup files.
-		err = client.RestoreFiles(fileBatch, rewriteRules, rejectStoreMap, updateCh)
-		if err != nil {
-			// If any error happened, return now, don't execute checksum.
-			return err
-		}
-	}
-
-	// Restore has finished.
-	updateCh.Close()
-
-	// Restore TiKV/PD config before validating checksum.
-	restorePostWork()
-
+	var finish <-chan struct{}
 	// Checksum
 	if cfg.Checksum {
-		updateCh = g.StartProgress(
-			ctx, "Checksum", int64(len(newTables)), !cfg.LogProgress)
-		err = client.ValidateChecksum(
-			ctx, mgr.GetTiKV().GetClient(), tables, newTables, updateCh)
-		if err != nil {
-			return err
-		}
-		updateCh.Close()
+		finish = client.GoValidateChecksum(
+			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+	} else {
+		// when user skip checksum, just collect tables, and drop them.
+		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)
+	}
+
+	select {
+	case err = <-errCh:
+		err = multierr.Append(err, multierr.Combine(restore.Exhaust(errCh)...))
+	case <-finish:
+	}
+
+	// If any error happened, return now.
+	if err != nil {
+		return err
 	}
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
+}
+
+// dropToBlackhole drop all incoming tables into black hole,
+// i.e. don't execute checksum, just increase the process anyhow.
+func dropToBlackhole(
+	ctx context.Context,
+	tableStream <-chan restore.CreatedTable,
+	errCh chan<- error,
+	updateCh glue.Progress,
+) <-chan struct{} {
+	outCh := make(chan struct{}, 1)
+	go func() {
+		defer func() {
+			outCh <- struct{}{}
+		}()
+		for {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			case _, ok := <-tableStream:
+				if !ok {
+					return
+				}
+				updateCh.Inc()
+			}
+		}
+	}()
+	return outCh
 }
 
 func filterRestoreFiles(
@@ -441,6 +421,7 @@ func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers
 }
 
 // restorePostWork executes some post work after restore.
+// TODO: aggregate all lifetime manage methods into batcher's context manager field.
 func restorePostWork(
 	ctx context.Context, client *restore.Client, mgr *conn.Mgr, clusterCfg clusterConfig,
 ) {
@@ -478,6 +459,9 @@ func restorePostWork(
 	if err := mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
 		log.Warn("fail to update PD schedule config")
 	}
+	if err := client.ResetRestoreLabels(ctx); err != nil {
+		log.Warn("reset store labels failed", zap.Error(err))
+	}
 }
 
 func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers []string) error {
@@ -488,34 +472,6 @@ func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers 
 		}
 	}
 	return nil
-}
-
-func splitPrepareWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) error {
-	err := client.SetupPlacementRules(ctx, tables)
-	if err != nil {
-		log.Error("setup placement rules failed", zap.Error(err))
-		return errors.Trace(err)
-	}
-
-	err = client.WaitPlacementSchedule(ctx, tables)
-	if err != nil {
-		log.Error("wait placement schedule failed", zap.Error(err))
-		return errors.Trace(err)
-	}
-	return nil
-}
-
-func splitPostWork(ctx context.Context, client *restore.Client, tables []*model.TableInfo) {
-	err := client.ResetPlacementRules(ctx, tables)
-	if err != nil {
-		log.Warn("reset placement rules failed", zap.Error(err))
-		return
-	}
-
-	err = client.ResetRestoreLabels(ctx)
-	if err != nil {
-		log.Warn("reset store labels failed", zap.Error(err))
-	}
 }
 
 // RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
@@ -584,4 +540,62 @@ func enableTiDBConfig() {
 	conf.Experimental.AllowsExpressionIndex = true
 
 	config.StoreGlobalConfig(conf)
+}
+
+// restoreTableStream blocks current goroutine and restore a stream of tables,
+// by send tables to batcher.
+func restoreTableStream(
+	ctx context.Context,
+	inputCh <-chan restore.TableWithRange,
+	// TODO: remove this field and rules field after we support TiFlash
+	removeTiFlashReplica bool,
+	pdAddr []string,
+	client *restore.Client,
+	batcher *restore.Batcher,
+	errCh chan<- error,
+) {
+	// We cache old tables so that we can 'batch' recover TiFlash and tables.
+	oldTables := []*utils.Table{}
+	defer func() {
+		// when things done, we must clean pending requests.
+		batcher.Close()
+		log.Info("doing postwork",
+			zap.Int("table count", len(oldTables)),
+		)
+		if err := client.RecoverTiFlashReplica(oldTables); err != nil {
+			log.Error("failed on recover TiFlash replicas", zap.Error(err))
+			errCh <- err
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			errCh <- ctx.Err()
+			return
+		case t, ok := <-inputCh:
+			if !ok {
+				return
+			}
+			if removeTiFlashReplica {
+				rules, err := client.GetPlacementRules(pdAddr)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				log.Debug("get rules", zap.Any("rules", rules))
+				log.Debug("try to remove tiflash of table", zap.Stringer("table name", t.Table.Name))
+				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
+				if err != nil {
+					log.Error("failed on remove TiFlash replicas", zap.Error(err))
+					errCh <- err
+					return
+				}
+				t.OldTable.TiFlashReplicas = tiFlashRep
+			}
+			oldTables = append(oldTables, t.OldTable)
+
+			batcher.Add(t)
+		}
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // SortRanges checks if the range overlapped and sort them.
@@ -26,26 +27,26 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Binary("key", rg.StartKey))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.StartKey)))
 				} else {
 					log.Debug(
 						"rewrite start key",
-						zap.Binary("key", rg.StartKey),
-						zap.Stringer("rule", rule))
+						zap.Stringer("key", utils.WrapKey(rg.StartKey)),
+						utils.ZapRewriteRule(rule))
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Binary("key", rg.EndKey))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.EndKey)))
 				} else {
 					log.Debug(
 						"rewrite end key",
-						zap.Binary("key", rg.EndKey),
-						zap.Stringer("rule", rule))
+						zap.Stringer("key", utils.WrapKey(rg.EndKey)),
+						utils.ZapRewriteRule(rule))
 				}
 			} else {
 				log.Warn("table id does not match",
-					zap.Binary("startKey", rg.StartKey),
-					zap.Binary("endKey", rg.EndKey),
+					zap.Stringer("startKey", utils.WrapKey(rg.StartKey)),
+					zap.Stringer("endKey", utils.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.New("table id does not match")
@@ -77,4 +78,18 @@ func (region *RegionInfo) ContainsInterior(key []byte) bool {
 type RewriteRules struct {
 	Table []*import_sstpb.RewriteRule
 	Data  []*import_sstpb.RewriteRule
+}
+
+// Append append its argument to this rewrite rules.
+func (r *RewriteRules) Append(other RewriteRules) {
+	r.Data = append(r.Data, other.Data...)
+	r.Table = append(r.Table, other.Table...)
+}
+
+// EmptyRewriteRule make a new, empty rewrite rule.
+func EmptyRewriteRule() *RewriteRules {
+	return &RewriteRules{
+		Table: []*import_sstpb.RewriteRule{},
+		Data:  []*import_sstpb.RewriteRule{},
+	}
 }
