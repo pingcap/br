@@ -10,6 +10,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Range represents a backup response.
@@ -132,8 +134,8 @@ func (rangeTree *RangeTree) Update(rg Range) {
 	// Range has backuped, overwrite overlapping range.
 	for _, item := range overlaps {
 		log.Info("delete overlapping range",
-			zap.Binary("StartKey", item.StartKey),
-			zap.Binary("EndKey", item.EndKey),
+			zap.Stringer("StartKey", utils.WrapKey(item.StartKey)),
+			zap.Stringer("EndKey", utils.WrapKey(item.EndKey)),
 		)
 		rangeTree.Delete(item)
 	}

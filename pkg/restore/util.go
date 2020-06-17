@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var recordPrefixSep = []byte("_r")
@@ -119,14 +120,14 @@ func GetSSTMetaFromFile(
 
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Fatal("range start exceed range end",
-			zap.Binary("start", rangeStart),
-			zap.Binary("end", rangeEnd))
+			zap.Stringer("start", utils.WrapKey(rangeStart)),
+			zap.Stringer("end", utils.WrapKey(rangeEnd)))
 	}
 
 	log.Debug("get sstMeta",
-		zap.Stringer("file", file),
-		zap.Binary("rangeStart", rangeStart),
-		zap.Binary("rangeEnd", rangeEnd))
+		utils.ZapFile(file),
+		zap.Stringer("rangeStart", utils.WrapKey(rangeStart)),
+		zap.Stringer("rangeEnd", utils.WrapKey(rangeEnd)))
 
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
@@ -184,14 +185,14 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 		if tableID != tableEndID {
 			log.Panic("key range spread between many files.",
 				zap.String("file name", file.Name),
-				zap.Binary("start key", file.GetStartKey()),
-				zap.Binary("end key", file.GetEndKey()))
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
 		}
 		if tableID == 0 {
 			log.Panic("invalid table key of file",
 				zap.String("file name", file.Name),
-				zap.Binary("start key", file.GetStartKey()),
-				zap.Binary("end key", file.GetEndKey()))
+				zap.Stringer("start key", utils.WrapKey(file.GetStartKey())),
+				zap.Stringer("end key", utils.WrapKey(file.GetEndKey())))
 		}
 		result[tableID] = append(result[tableID], file)
 	}
@@ -263,7 +264,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 		log.Error("table ids mismatch",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Stringer("file", file))
+			utils.ZapFile(file))
 		return rtree.Range{}, errors.New("table ids mismatch")
 	}
 	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
@@ -287,8 +288,8 @@ func AttachFilesToRanges(
 		})
 		if rg == nil {
 			log.Fatal("range not found",
-				zap.Binary("startKey", f.GetStartKey()),
-				zap.Binary("endKey", f.GetEndKey()))
+				zap.Stringer("startKey", utils.WrapKey(f.GetStartKey())),
+				zap.Stringer("endKey", utils.WrapKey(f.GetEndKey())))
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)
@@ -311,7 +312,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file start key",
 			zap.Int64("tableID", tableID),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("cannot find rewrite rule")
 	}
@@ -322,7 +323,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file end key",
 			zap.Int64("tableID", tableID),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("cannot find rewrite rule")
 	}
@@ -336,7 +337,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("endTableID", endTableID),
 			zap.Stringer("startRule", startRule),
 			zap.Stringer("endRule", endRule),
-			zap.Stringer("file", file),
+			utils.ZapFile(file),
 		)
 		return errors.Errorf("unexpected rewrite rules")
 	}
@@ -423,7 +424,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				zap.Binary("startKey", file.GetStartKey()),
+				zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.New("cannot find rewrite rule for start key")
@@ -438,8 +439,8 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Binary("startKey", startKey),
-			zap.Binary("endKey", endKey))
+			zap.Stringer("startKey", utils.WrapKey(startKey)),
+			zap.Stringer("endKey", utils.WrapKey(endKey)))
 		err = errors.New("illegal table id")
 	}
 	return
@@ -504,7 +505,7 @@ func hasRejectStorePeer(
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 10 {
-		log.Warn("get region info", zap.Stringer("region", regionInfo.Region))
+		log.Warn("get region info", utils.ZapRegion(regionInfo.Region))
 	}
 	return false, nil
 }
@@ -522,7 +523,7 @@ func waitForRemoveRejectStores(
 		ok, err := hasRejectStorePeer(ctx1, client, regionID, rejectStores)
 		if err != nil {
 			log.Warn("wait for rejecting store failed",
-				zap.Stringer("region", regionInfo.Region),
+				utils.ZapRegion(regionInfo.Region),
 				zap.Error(err))
 			return false
 		}
