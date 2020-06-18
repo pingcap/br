@@ -20,14 +20,15 @@ data-dir = "$TEST_DIR/tiflash/data"
 eof
 
 cat > tests/config/tiflash.toml <<eof
+
 default_profile = "default"
 display_name = "TiFlash"
-http_port = 8125
+http_port = 8123
 listen_host = "0.0.0.0"
 mark_cache_size = 5368709120
 path = "$TEST_DIR/tiflash/data"
-tcp_port = 9002
-tmp_path = "/tmp/tiflash"
+tcp_port = 9000
+tmp_path = "$TEST_DIR/tiflash-tmp"
 
 [application]
 runAsDaemon = true
@@ -35,33 +36,46 @@ runAsDaemon = true
 [flash]
 service_addr = "127.0.0.1:3930"
 tidb_status_addr = "127.0.0.1:10080"
-
-[flash.proxy]
-config = "$PWD/tests/config/tiflash-learner.toml"
-log-file = "$TEST_DIR/tiflash-proxy.log"
-
 [flash.flash_cluster]
 cluster_manager_path = "$PWD/bin/flash_cluster_manager"
-log = "$TEST_DIR/tiflash-manager.log"
+log = "$TEST_DIR/tiflash_cluster_manager.log"
 master_ttl = 60
 refresh_interval = 20
 update_rule_interval = 5
+[flash.proxy]
+config = "$PWD/tests/config/tiflash-learner.toml"
+log-file = "$TEST_DIR/tiflash_proxy.log"
 
 [logger]
 count = 20
-level = "trace"
-log = "$TEST_DIR/tiflash-stdout.log"
-errorlog = "$TEST_DIR/tiflash-stderr.log"
+errorlog = "$TEST_DIR/tiflash_error.log"
+level = "debug"
+log = "$TEST_DIR/tiflash.log"
 size = "1000M"
-
-[raft]
-pd_addr = "127.0.0.1:2379"
 
 [profiles]
 [profiles.default]
 load_balancing = "random"
 max_memory_usage = 10000000000
 use_uncompressed_cache = 0
+[profiles.readonly]
+readonly = 1
+
+[quotas]
+[quotas.default]
+[quotas.default.interval]
+duration = 3600
+errors = 0
+execution_time = 0
+queries = 0
+read_rows = 0
+result_rows = 0
+
+[raft]
+pd_addr = "127.0.0.1:2379"
+
+[status]
+metrics_port = 8234
 
 [users]
 [users.default]
@@ -76,14 +90,4 @@ profile = "readonly"
 quota = "default"
 [users.readonly.networks]
 ip = "::/0"
-
-[quotas]
-[quotas.default]
-[quotas.default.interval]
-duration = 3600
-errors = 0
-execution_time = 0
-queries = 0
-read_rows = 0
-result_rows = 0
 eof
