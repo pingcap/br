@@ -60,6 +60,9 @@ run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 -
 # record last backup pid
 _pid=$!
 
+# give the former backup some time to write down lock file.
+sleep 2
+
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
