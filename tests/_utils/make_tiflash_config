@@ -34,7 +34,7 @@ runAsDaemon = true
 
 [flash]
 service_addr = "127.0.0.1:3930"
-tidb_status_addr = "127.0.0.1:10086"
+tidb_status_addr = "127.0.0.1:10080"
 
 [flash.proxy]
 config = "$PWD/tests/config/tiflash-learner.toml"
