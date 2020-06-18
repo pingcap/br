@@ -64,7 +64,7 @@ start_services() {
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to start PD'
-          exit 1
+          return 1
        fi
        sleep 3
     done
@@ -86,7 +86,7 @@ start_services() {
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to initialize TiKV cluster'
-          exit 1
+          return 1
        fi
        sleep 5
     done
@@ -106,7 +106,7 @@ start_services() {
         i=$((i+1))
         if [ "$i" -gt 50 ]; then
             echo 'Failed to start TiDB'
-            exit 1
+            return 1
         fi
         sleep 3
     done
@@ -120,7 +120,7 @@ start_services() {
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
-            exit 1
+            return 1
         fi
         sleep 3
     done
@@ -136,7 +136,7 @@ start_tiflash() {
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo "failed to start tiflash"
-            exit 1
+            return 1
         fi
         echo "TiFlash seems doesn't started, retrying..."
         sleep 3
