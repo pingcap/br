@@ -28,6 +28,7 @@ while ! start_services; do
         exit 1
     fi
     echo "service seems cannot be started up, retrying after $(( $retry * 30 )) seconds..."
+    retry=$(( $retry + 1 ))
     sleep $(( $retry * 30 ))
 done
 
