@@ -23,6 +23,7 @@ rm -f "$TEST_DIR"/*.log
 trap stop_services EXIT
 retry=0
 while ! start_services; do
+    stop_services
     if [ $retry -gt 3 ]; then
         echo "failed to start service after $retry times, aborting..."
         exit 1
