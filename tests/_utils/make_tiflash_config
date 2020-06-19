@@ -3,10 +3,12 @@
 cat > tests/config/tiflash-learner.toml <<eof
 [rocksdb]
 wal-dir = ""
+
 [security]
 ca-path = ""
 cert-path = ""
 key-path = ""
+
 [server]
 addr = "0.0.0.0:20170"
 advertise-addr = "127.0.0.1:20170"
@@ -26,11 +28,14 @@ path = "$TEST_DIR/tiflash/data"
 capacity = "10485760"
 tcp_port = 9002
 tmp_path = "/tmp/tiflash"
+
 [application]
 runAsDaemon = true
+
 [flash]
 service_addr = "127.0.0.1:3930"
 tidb_status_addr = "127.0.0.1:10080"
+
 [flash.proxy]
 config = "$PWD/tests/config/tiflash-learner.toml"
 log-file = "$TEST_DIR/tiflash-proxy.log"
@@ -40,19 +45,23 @@ log = "$TEST_DIR/tiflash-manager.log"
 master_ttl = 60
 refresh_interval = 20
 update_rule_interval = 5
+
 [logger]
 count = 20
 level = "trace"
 log = "$TEST_DIR/tiflash-stdout.log"
 errorlog = "$TEST_DIR/tiflash-stderr.log"
 size = "1000M"
+
 [raft]
 pd_addr = "127.0.0.1:2379"
+
 [profiles]
 [profiles.default]
 load_balancing = "random"
 max_memory_usage = 10000000000
 use_uncompressed_cache = 0
+
 [users]
 [users.default]
 password = ""
@@ -66,6 +75,7 @@ profile = "readonly"
 quota = "default"
 [users.readonly.networks]
 ip = "::/0"
+
 [quotas]
 [quotas.default]
 [quotas.default.interval]
