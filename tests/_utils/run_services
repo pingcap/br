@@ -26,7 +26,8 @@ TIDB_STATUS_ADDR="127.0.0.1:10080"
 TIKV_ADDR="127.0.0.1:2016"
 TIKV_STATUS_ADDR="127.0.0.1:2018"
 TIKV_COUNT=3
-TIFLASH_STATUS="127.0.0.1:8123"
+TIFLASH_STATUS="127.0.0.1:17000"
+TIFLASH_HTTP="127.0.0.1:8125"
 
 stop_services() {
     killall -9 tikv-server || true
@@ -134,7 +135,7 @@ start_tiflash() {
     echo "TiFlash started..."
 
     i=0
-    while ! curl -sf http://$TIFLASH_STATUS 1>/dev/null 2>&1; do
+    while ! curl -sf http://$TIFLASH_HTTP 1>/dev/null 2>&1; do
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo "failed to start tiflash"
