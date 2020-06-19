@@ -38,19 +38,19 @@ service_addr = "127.0.0.1:3930"
 tidb_status_addr = "127.0.0.1:10080"
 [flash.flash_cluster]
 cluster_manager_path = "$PWD/bin/flash_cluster_manager"
-log = "$TEST_DIR/tiflash_cluster_manager.log"
+log = "$TEST_DIR/tiflash-manager.log"
 master_ttl = 60
 refresh_interval = 20
 update_rule_interval = 5
 [flash.proxy]
 config = "$PWD/tests/config/tiflash-learner.toml"
-log-file = "$TEST_DIR/tiflash_proxy.log"
+log-file = "$TEST_DIR/tiflash-proxy.log"
 
 [logger]
 count = 20
-errorlog = "$TEST_DIR/tiflash_error.log"
+errorlog = "$TEST_DIR/tiflash-stderr.log"
 level = "debug"
-log = "$TEST_DIR/tiflash.log"
+log = "$TEST_DIR/tiflash-stdout.log"
 size = "1000M"
 
 [profiles]
