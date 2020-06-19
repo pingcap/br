@@ -40,6 +40,19 @@ stop_services() {
 
 
 start_services() {
+    max_retry=3
+    for i in $(seq 1 $max_retry); do
+        if start_services_impl $@; then
+            return 0
+        fi
+        echo "Failed to start services, but let retry it after $(( $i * 30 )) seconds"
+        sleep $(( $i * 30 ))
+    done
+    echo "Failed to start services after retry $max_retry times."
+    return 1
+}
+
+start_services_impl() {
     stop_services
     source tests/_utils/make_tiflash_config
 
