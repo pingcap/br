@@ -31,11 +31,10 @@ run_sql "$stmt"
 
 i=0
 while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
-
     i=$(( i + 1 ))
     echo "Waiting for TiFlash synchronizing [$i]."
     if [ $i -gt 20 ]; then
-        echo "Failed to sync data to tiflash. But we shall go on."
+        echo "Failed to sync data to tiflash."
         exit 1
     fi
     sleep 5
