@@ -41,12 +41,12 @@ stop_services() {
 
 start_services() {
     max_retry=3
-    for i in $(seq 1 $max_retry); do
+    for retry_time in $(seq 1 $max_retry); do
         if start_services_impl $@; then
             return 0
         fi
-        echo "Failed to start services, but let retry it after $(( $i * 30 )) seconds"
-        sleep $(( $i * 30 ))
+        echo "Failed to start services, but let retry it after $(( $retry_time * 30 )) seconds"
+        sleep $(( $retry_time * 30 ))
     done
     echo "Failed to start services after retry $max_retry times."
     return 1
