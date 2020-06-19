@@ -36,12 +36,7 @@ while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "P
     echo "Waiting for TiFlash synchronizing [$i]."
     if [ $i -gt 20 ]; then
         echo "Failed to sync data to tiflash. But we shall go on."
-        # FIXME: current version of tiflash will report 
-        # 'Exception: all tidb status addr ['127.0.0.1:10080'] can not be used'
-        # Even TiDB DO started a status at that port(see _uilts/run_services#L97)
-        # ...and we config rightly(see _utils/make_tiflash_config#L37)
-        # exit 1
-        break
+        exit 1
     fi
     sleep 5
 done

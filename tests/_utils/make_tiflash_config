@@ -29,6 +29,7 @@ mark_cache_size = 5368709120
 path = "$TEST_DIR/tiflash/data"
 tcp_port = 9000
 tmp_path = "$TEST_DIR/tiflash-tmp"
+capacity = "10737418240"
 
 [application]
 runAsDaemon = true
