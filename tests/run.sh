@@ -21,17 +21,7 @@ mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log
 
 trap stop_services EXIT
-retry=0
-while ! start_services; do
-    stop_services
-    if [ $retry -gt 3 ]; then
-        echo "failed to start service after $retry times, aborting..."
-        exit 1
-    fi
-    echo "service seems cannot be started up, retrying after $(( $retry * 30 )) seconds..."
-    retry=$(( $retry + 1 ))
-    sleep $(( $retry * 30 ))
-done
+start_services
 
 if [ "${1-}" = '--debug' ]; then
     echo 'You may now debug from another terminal. Press [ENTER] to continue.'
