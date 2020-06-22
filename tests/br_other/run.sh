@@ -65,12 +65,23 @@ _pid=$!
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
 start_pprof=$(cat $BACKGROUND_LOG | grep 'dynamic pprof started, you can enable pprof by' | grep -oP 'kill -s 10 [0-9]+' | head -n1)
-echo "executing $start_pprof"
-$start_pprof
 
-# give the former backup some time to write down lock file (and start pprof server).
-sleep 3
-curl "http://localhost:6060/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
+# try ports from 6060.
+# add a for loop here to prevent there are some program other listening 6060.
+for i in $(seq 3); do
+    echo "executing $start_pprof"
+    $start_pprof
+
+    # give the former backup some time to write down lock file (and start pprof server).
+    sleep 1
+    if curl -I "http://localhost:6060/debug/pprof/trace?seconds=1" 2>&1 > /dev/null;then 
+        break
+    fi
+    if [ $i -eq 3 ]; then
+        echo "failed to start pprof service after $i tries."
+        exit 1
+    fi
+done 
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
