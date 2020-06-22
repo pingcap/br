@@ -100,8 +100,8 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.Binary("startKey", file.GetStartKey()),
-						zap.Binary("endKey", file.GetEndKey()),
+						zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
+						zap.Stringer("endKey", utils.WrapKey(file.GetEndKey())),
 					)
 
 					var data []byte
@@ -179,7 +179,7 @@ func newBackupMetaCommand() *cobra.Command {
 					log.Error(
 						"file ranges overlapped",
 						zap.Stringer("out", out),
-						zap.Stringer("file", file),
+						utils.ZapFile(file),
 					)
 				}
 			}

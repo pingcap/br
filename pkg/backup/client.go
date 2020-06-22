@@ -18,7 +18,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/tidb-tools/pkg/table-filter"
+	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -122,6 +122,13 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	return backupTS, nil
 }
 
+// SetLockFile set write lock file.
+func (bc *Client) SetLockFile(ctx context.Context) error {
+	return bc.storage.Write(ctx, utils.LockFile,
+		[]byte("DO NOT DELETE\n"+
+			"This file exists to remind other backup jobs won't use this path"))
+}
+
 // SetGCTTL set gcTTL for client.
 func (bc *Client) SetGCTTL(ttl int64) {
 	bc.gcTTL = ttl
@@ -146,6 +153,13 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 	}
 	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
+	}
+	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
+	if err != nil {
+		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
+	}
+	if exist {
+		return errors.New("backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
@@ -451,8 +465,8 @@ func (bc *Client) BackupRange(
 		}
 	}()
 	log.Info("backup started",
-		zap.Binary("StartKey", startKey),
-		zap.Binary("EndKey", endKey),
+		zap.Stringer("StartKey", utils.WrapKey(startKey)),
+		zap.Stringer("EndKey", utils.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
 	ctx, cancel := context.WithCancel(ctx)
@@ -494,8 +508,8 @@ func (bc *Client) BackupRange(
 		bc.backupMeta.RawRanges = append(bc.backupMeta.RawRanges,
 			&kvproto.RawRange{StartKey: startKey, EndKey: endKey, Cf: req.Cf})
 		log.Info("backup raw ranges",
-			zap.ByteString("startKey", startKey),
-			zap.ByteString("endKey", endKey),
+			zap.Stringer("startKey", utils.WrapKey(startKey)),
+			zap.Stringer("endKey", utils.WrapKey(endKey)),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -531,10 +545,10 @@ func (bc *Client) findRegionLeader(
 		}
 		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.Binary("Key", key))
+				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", utils.WrapKey(key)))
 			return region.Leader, nil
 		}
-		log.Warn("no region found", zap.Binary("Key", key))
+		log.Warn("no region found", zap.Stringer("Key", utils.WrapKey(key)))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
@@ -618,8 +632,8 @@ func (bc *Client) fineGrainedBackup(
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
-					zap.Binary("StartKey", resp.StartKey),
-					zap.Binary("EndKey", resp.EndKey),
+					zap.Stringer("StartKey", utils.WrapKey(resp.StartKey)),
+					zap.Stringer("EndKey", utils.WrapKey(resp.EndKey)),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -770,8 +784,8 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 ) error {
 	log.Info("try backup",
-		zap.Binary("StartKey", req.StartKey),
-		zap.Binary("EndKey", req.EndKey),
+		zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
+		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
 		zap.Uint64("storeID", storeID),
 	)
 	ctx, cancel := context.WithCancel(ctx)
@@ -793,8 +807,8 @@ func SendBackup(
 		}
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
-			zap.Any("StartKey", resp.GetStartKey()),
-			zap.Any("EndKey", resp.GetEndKey()))
+			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
+			zap.Stringer("EndKey", utils.WrapKey(req.GetEndKey())))
 		err = respFn(resp)
 		if err != nil {
 			return err
