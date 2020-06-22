@@ -23,7 +23,7 @@ var (
 	signalChan = make(chan os.Signal, 1)
 )
 
-// StartDynamicPProfListener starts the listener that will enable pprof when received `startPProfSignal`
+// StartDynamicPProfListener starts the listener that will enable pprof when received `startPProfSignal`.
 func StartDynamicPProfListener() {
 	signal.Notify(signalChan, startPProfSignal)
 	go onSignalStartPProf(signalChan)

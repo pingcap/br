@@ -57,22 +57,30 @@ fi
 # backup full with ratelimit = 1 to make sure this backup task won't finish quickly
 echo "backup start to test lock file"
 BACKGROUND_LOG=$TEST_DIR/bg.log
+rm -f $BACKGROUND_LOG
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 --ratelimit-unit 1 --concurrency 4 > $BACKGROUND_LOG 2>&1 &
 # record last backup pid
 _pid=$!
 
+# let's test the dynamic pprof at the same time :D
+# use its port firstly :evil:
+nc -l -p 6060 &
+nc_pid=$!
+
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
-
-# let's test the dynamic pprof at the same time :D
 start_pprof=$(cat $BACKGROUND_LOG | grep 'dynamic pprof started, you can enable pprof by' | grep -oP 'kill -s 10 [0-9]+' | head -n1)
 echo "executing $start_pprof"
+# this will fail
+$start_pprof
+sleep 1
+# and this should start pprof at :6061
 $start_pprof
 
 # give the former backup some time to write down lock file (and start pprof server).
 sleep 2
-curl "http://localhost:6060/debug/pprof/trace?seconds=5" 2>&1 > /dev/null
-
+curl "http://localhost:6061/debug/pprof/trace?seconds=5" 2>&1 > /dev/null
+kill -9 $nc_pid || true
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
