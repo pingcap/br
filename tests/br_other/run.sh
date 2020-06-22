@@ -69,9 +69,8 @@ echo "executing $start_pprof"
 $start_pprof
 
 # give the former backup some time to write down lock file (and start pprof server).
-sleep 2
-curl "http://localhost:6060/debug/pprof/trace?seconds=5" 2>&1 > /dev/null
-kill -9 $nc_pid || true
+sleep 3
+curl "http://localhost:6060/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
