@@ -19,9 +19,9 @@ require (
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
 	github.com/pingcap/parser v0.0.0-20200609110328-c65941b9fbb3
 	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200520083007-2c251bd8f181
-	github.com/pingcap/tidb v1.1.0-beta.0.20200610060912-f12cdc42010f
+	github.com/pingcap/tidb v1.1.0-beta.0.20200622093932-c98514e7516e
 	github.com/pingcap/tidb-tools v4.0.0+incompatible
-	github.com/pingcap/tipb v0.0.0-20200604070248-508f03b0b342
+	github.com/pingcap/tipb v0.0.0-20200615034523-dcfcea0b5965
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
