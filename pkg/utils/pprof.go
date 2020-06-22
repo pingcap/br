@@ -29,7 +29,10 @@ func StartPProfListener(statusAddr string) {
 	go func() {
 		_ = pprof.Handler
 		if len(statusAddr) != 0 {
+			mu.Lock()
 			log.Info("start pprof", zap.String("addr", statusAddr))
+			startedPProf = statusAddr
+			mu.Unlock()
 			if e := http.ListenAndServe(statusAddr, nil); e != nil {
 				log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(e))
 				// Make CI happy.
@@ -38,7 +41,6 @@ func StartPProfListener(statusAddr string) {
 					"you can retry and we will select a new port.")
 				return
 			}
-			startedPProf = statusAddr
 		}
 	}()
 }
