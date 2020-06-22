@@ -31,8 +31,11 @@ func StartPProfListener(statusAddr string) {
 		if len(statusAddr) != 0 {
 			log.Info("start pprof", zap.String("addr", statusAddr))
 			if e := http.ListenAndServe(statusAddr, nil); e != nil {
-				log.Warn("fail to start pprof, if port is in used and you are starting pprof by signal, please retry to select a new port",
-					zap.String("addr", statusAddr), zap.Error(e))
+				log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(e))
+				// Make CI happy.
+				log.Info("hint: " +
+					"if the port is already used, and you are starting pprof by signal, " +
+					"you can retry and we will select a new port.")
 				return
 			}
 			startedPProf = statusAddr
