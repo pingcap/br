@@ -64,7 +64,8 @@ _pid=$!
 
 # let's test the dynamic pprof at the same time :D
 # use its port firstly :evil:
-nc -l -p 6060 &
+# CI enviorment doesn't have nc, so we use SimpleHTTPServer here
+python -m SimpleHTTPServer 6060 &
 nc_pid=$!
 
 # give the former backup some time to write down lock file (and initialize signal listener).
