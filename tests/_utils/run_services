@@ -27,6 +27,7 @@ TIKV_ADDR="127.0.0.1:2016"
 TIKV_STATUS_ADDR="127.0.0.1:2018"
 TIKV_COUNT=3
 TIFLASH_STATUS="127.0.0.1:17000"
+TIFLASH_HTTP="127.0.0.1:8125"
 
 stop_services() {
     killall -9 tikv-server || true
@@ -39,6 +40,19 @@ stop_services() {
 
 
 start_services() {
+    max_retry=3
+    for retry_time in $(seq 1 $max_retry); do
+        if start_services_impl $@; then
+            return 0
+        fi
+        echo "Failed to start services, but let retry it after $(( $retry_time * 30 )) seconds"
+        sleep $(( $retry_time * 30 ))
+    done
+    echo "Failed to start services after retry $max_retry times."
+    return 1
+}
+
+start_services_impl() {
     stop_services
     source tests/_utils/make_tiflash_config
 
@@ -64,7 +78,7 @@ start_services() {
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to start PD'
-          exit 1
+          return 1
        fi
        sleep 3
     done
@@ -86,7 +100,7 @@ start_services() {
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to initialize TiKV cluster'
-          exit 1
+          return 1
        fi
        sleep 5
     done
@@ -106,13 +120,15 @@ start_services() {
         i=$((i+1))
         if [ "$i" -gt 50 ]; then
             echo 'Failed to start TiDB'
-            exit 1
+            return 1
         fi
         sleep 3
     done
 
     if [[ ! $@ =~ "--no-tiflash" ]]; then
-        start_tiflash
+        if ! start_tiflash; then
+            return 1
+        fi
     fi
 
     i=0
@@ -120,7 +136,7 @@ start_services() {
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
-            exit 1
+            return 1
         fi
         sleep 3
     done
@@ -132,11 +148,11 @@ start_tiflash() {
     echo "TiFlash started..."
 
     i=0
-    while ! curl -sf http://$TIFLASH_STATUS/metrics 1>/dev/null 2>&1; do
+    while ! curl -sf http://$TIFLASH_HTTP 1>/dev/null 2>&1; do
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo "failed to start tiflash"
-            exit 1
+            return 1
         fi
         echo "TiFlash seems doesn't started, retrying..."
         sleep 3
