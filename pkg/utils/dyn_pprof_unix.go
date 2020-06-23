@@ -35,7 +35,7 @@ func onSignalStartPProf(signals <-chan os.Signal) {
 	for sig := range signals {
 		if sig == startPProfSignal {
 			log.Info("signal received, starting pprof...", zap.Stringer("signal", sig))
-			StartPProfListener("0.0.0.0:")
+			StartPProfListener("0.0.0.0:0")
 		}
 	}
 }
