@@ -33,13 +33,13 @@ func StartPProfListener(statusAddr string) {
 		_ = pprof.Handler
 		if len(statusAddr) != 0 {
 			mu.Lock()
-			log.Info("start pprof", zap.String("addr", statusAddr))
 			failpoint.Inject("determined-pprof-port", func(v failpoint.Value) {
 				port := v.(int)
 				statusAddr = fmt.Sprintf(":%d", port)
 				log.Info("injecting failpoint, pprof will start at determined port", zap.Int("port", port))
 			})
 			listener, err := net.Listen("tcp", statusAddr)
+			log.Info("bind pprof to addr", zap.String("addr", listener.Addr().String()))
 			if err != nil {
 				log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(err))
 			}
