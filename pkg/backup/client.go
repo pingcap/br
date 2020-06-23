@@ -859,6 +859,11 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	return true, nil
 }
 
+// ArchiveSize returns the total size of the archive (before encryption).
+func (bc *Client) ArchiveSize() uint64 {
+	return utils.ArchiveSize(&bc.backupMeta)
+}
+
 // CollectFileInfo collects ungrouped file summary information, like kv count and size.
 func (bc *Client) CollectFileInfo() {
 	for _, file := range bc.backupMeta.Files {

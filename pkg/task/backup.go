@@ -140,6 +140,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
+	g.Record("BackupTS", backupTS)
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)
@@ -231,6 +232,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
+
+	g.Record("Size", client.ArchiveSize())
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
