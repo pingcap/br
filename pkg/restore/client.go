@@ -431,7 +431,8 @@ func (rc *Client) GoCreateTables(
 		startWork = func(t *utils.Table, done func()) {
 			workers.ApplyWithID(func(id uint64) {
 				defer done()
-				vctx := context.WithValue(ctx, SessionInContext, sessionPool[id])
+				selectedSession := int(id) % len(sessionPool)
+				vctx := context.WithValue(ctx, SessionInContext, sessionPool[selectedSession])
 				if err := createOneTable(vctx, t); err != nil {
 					errCh <- err
 					return
