@@ -3,10 +3,13 @@
 package utils
 
 import (
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"sync"
 
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -31,14 +34,22 @@ func StartPProfListener(statusAddr string) {
 		if len(statusAddr) != 0 {
 			mu.Lock()
 			log.Info("start pprof", zap.String("addr", statusAddr))
-			startedPProf = statusAddr
+			failpoint.Inject("determined-pprof-port", func(v failpoint.Value) {
+				port := v.(int)
+				statusAddr = fmt.Sprintf(":%d", port)
+				log.Info("injecting failpoint, pprof will start at determined port", zap.Int("port", port))
+			})
+			listener, err := net.Listen("tcp", statusAddr)
+			if err != nil {
+				log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(err))
+			}
+			startedPProf = listener.Addr().String()
 			mu.Unlock()
-			if e := http.ListenAndServe(statusAddr, nil); e != nil {
-				log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(e))
-				// Make CI happy.
-				log.Info("hint: " +
-					"if the port is already used, and you are starting pprof by signal, " +
-					"you can retry and we will select a new port.")
+			if e := http.Serve(listener, nil); e != nil {
+				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
+				mu.Lock()
+				startedPProf = ""
+				mu.Unlock()
 				return
 			}
 		}
