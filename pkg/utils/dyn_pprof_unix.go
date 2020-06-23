@@ -15,7 +15,6 @@ import (
 
 const (
 	startPProfSignal = syscall.SIGUSR1
-	listenAddrFormat = "0.0.0.0:%d"
 )
 
 var (
