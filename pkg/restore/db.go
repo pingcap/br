@@ -27,7 +27,7 @@ const SessionInContext DBContextKey = iota
 // If you want share it between goroutines,
 // please put the `SessionInContext` value at each goroutine.
 type DB struct {
-	globalSession glue.Session
+	se glue.Session
 }
 
 func makeSession(g glue.Glue, store kv.Storage) (glue.Session, error) {
@@ -51,18 +51,18 @@ func (db *DB) contextualSession(ctx context.Context) glue.Session {
 	if session, ok := ctx.Value(SessionInContext).(glue.Session); ok {
 		return session
 	}
-	return db.globalSession
+	return db.se
 }
 
 // NewDB returns a new DB.
 func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	se, err := makeSession(g, store)
-	if err != nil {
+	if err != nil || se == nil {
 		return nil, err
 	}
 
 	return &DB{
-		globalSession: se,
+		se: se,
 	}, nil
 }
 
@@ -257,7 +257,7 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 
 // Close closes the connection.
 func (db *DB) Close() {
-	db.globalSession.Close()
+	db.se.Close()
 }
 
 // FilterDDLJobs filters ddl jobs.
