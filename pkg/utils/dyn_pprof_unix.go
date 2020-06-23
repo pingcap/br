@@ -19,7 +19,6 @@ const (
 )
 
 var (
-	pprofPort  = 6060
 	signalChan = make(chan os.Signal, 1)
 )
 
@@ -36,9 +35,7 @@ func onSignalStartPProf(signals <-chan os.Signal) {
 	for sig := range signals {
 		if sig == startPProfSignal {
 			log.Info("signal received, starting pprof...", zap.Stringer("signal", sig))
-			StartPProfListener(fmt.Sprintf(listenAddrFormat, pprofPort))
-			// We use different port each time so that we won't stick on a port that already has been used.
-			pprofPort++
+			StartPProfListener("0.0.0.0:")
 		}
 	}
 }
