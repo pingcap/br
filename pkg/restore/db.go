@@ -17,13 +17,20 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
+// DBContextKey is the key type of the context value this file uses.
+type DBContextKey int
+
+// SessionInContext can get the value of current contextual ID from context.
+const SessionInContext DBContextKey = iota
+
 // DB is a TiDB instance, not thread-safe.
+// If you want share it between goroutines,
+// please put the `SessionInContext` value at each goroutine.
 type DB struct {
-	se glue.Session
+	globalSession glue.Session
 }
 
-// NewDB returns a new DB.
-func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
+func makeSession(g glue.Glue, store kv.Storage) (glue.Session, error) {
 	se, err := g.CreateSession(store)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -37,8 +44,25 @@ func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	return se, nil
+}
+
+func (db *DB) contextualSession(ctx context.Context) glue.Session {
+	if session, ok := ctx.Value(SessionInContext).(glue.Session); ok {
+		return session
+	}
+	return db.globalSession
+}
+
+// NewDB returns a new DB.
+func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
+	se, err := makeSession(g, store)
+	if err != nil {
+		return nil, err
+	}
+
 	return &DB{
-		se: se,
+		globalSession: se,
 	}, nil
 }
 
@@ -49,13 +73,13 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	dbInfo := ddlJob.BinlogInfo.DBInfo
 	switch ddlJob.Type {
 	case model.ActionCreateSchema:
-		err = db.se.CreateDatabase(ctx, dbInfo)
+		err = db.contextualSession(ctx).CreateDatabase(ctx, dbInfo)
 		if err != nil {
 			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
 		}
 		return errors.Trace(err)
 	case model.ActionCreateTable:
-		err = db.se.CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
+		err = db.contextualSession(ctx).CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
 		if err != nil {
 			log.Error("create table failed",
 				zap.Stringer("db", dbInfo.Name),
@@ -67,7 +91,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 	if tableInfo != nil {
 		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
-		err = db.se.Execute(ctx, switchDbSQL)
+		err = db.contextualSession(ctx).Execute(ctx, switchDbSQL)
 		if err != nil {
 			log.Error("switch db failed",
 				zap.String("query", switchDbSQL),
@@ -76,7 +100,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 			return errors.Trace(err)
 		}
 	}
-	err = db.se.Execute(ctx, ddlJob.Query)
+	err = db.contextualSession(ctx).Execute(ctx, ddlJob.Query)
 	if err != nil {
 		log.Error("execute ddl query failed",
 			zap.String("query", ddlJob.Query),
@@ -89,7 +113,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 // CreateDatabase executes a CREATE DATABASE SQL.
 func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
-	err := db.se.CreateDatabase(ctx, schema)
+	err := db.contextualSession(ctx).CreateDatabase(ctx, schema)
 	if err != nil {
 		log.Error("create database failed", zap.Stringer("db", schema.Name), zap.Error(err))
 	}
@@ -98,7 +122,7 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	err := db.se.CreateTable(ctx, table.Db.Name, table.Info)
+	err := db.contextualSession(ctx).CreateTable(ctx, table.Db.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
 			zap.Stringer("db", table.Db.Name),
@@ -128,7 +152,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			} else {
 				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
 			}
-			err = db.se.Execute(ctx, setValSQL)
+			err = db.contextualSession(ctx).Execute(ctx, setValSQL)
 			if err != nil {
 				log.Error("restore meta sql failed",
 					zap.String("query", setValSQL),
@@ -139,7 +163,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			}
 
 			// trigger cycle round > 0
-			err = db.se.Execute(ctx, nextSeqSQL)
+			err = db.contextualSession(ctx).Execute(ctx, nextSeqSQL)
 			if err != nil {
 				log.Error("restore meta sql failed",
 					zap.String("query", nextSeqSQL),
@@ -165,7 +189,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			table.Info.AutoIncID)
 	}
 
-	err = db.se.Execute(ctx, restoreMetaSQL)
+	err = db.contextualSession(ctx).Execute(ctx, restoreMetaSQL)
 	if err != nil {
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
@@ -185,7 +209,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoRandID)
 
-		err = db.se.Execute(ctx, alterAutoRandIDSQL)
+		err = db.contextualSession(ctx).Execute(ctx, alterAutoRandIDSQL)
 		if err != nil {
 			log.Error("alter AutoRandID failed",
 				zap.String("query", alterAutoRandIDSQL),
@@ -201,7 +225,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 // AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
 	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
-	err := db.se.Execute(ctx, switchDbSQL)
+	err := db.contextualSession(ctx).Execute(ctx, switchDbSQL)
 	if err != nil {
 		log.Error("switch db failed",
 			zap.String("SQL", switchDbSQL),
@@ -214,7 +238,7 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 		utils.EncloseName(table.Info.Name.O),
 		count,
 	)
-	err = db.se.Execute(ctx, alterTiFlashSQL)
+	err = db.contextualSession(ctx).Execute(ctx, alterTiFlashSQL)
 	if err != nil {
 		log.Error("alter tiflash replica failed",
 			zap.String("query", alterTiFlashSQL),
@@ -233,7 +257,7 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 
 // Close closes the connection.
 func (db *DB) Close() {
-	db.se.Close()
+	db.globalSession.Close()
 }
 
 // FilterDDLJobs filters ddl jobs.

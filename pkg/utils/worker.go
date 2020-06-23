@@ -20,6 +20,7 @@ type Worker struct {
 }
 
 type taskFunc func()
+type identifiedTaskFunc func(uint64)
 
 // NewWorkerPool returns a WorkPool.
 func NewWorkerPool(limit uint, name string) *WorkerPool {
@@ -36,6 +37,11 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 
 // Apply executes a task.
 func (pool *WorkerPool) Apply(fn taskFunc) {
+	pool.ApplyWithID(func(_ uint64) { fn() })
+}
+
+// ApplyWithID execute a task and provides it with the worker ID.
+func (pool *WorkerPool) ApplyWithID(fn identifiedTaskFunc) {
 	var worker *Worker
 	select {
 	case worker = <-pool.workers:
@@ -44,7 +50,7 @@ func (pool *WorkerPool) Apply(fn taskFunc) {
 		worker = <-pool.workers
 	}
 	go func() {
-		fn()
+		fn(worker.ID)
 		pool.recycle(worker)
 	}()
 }

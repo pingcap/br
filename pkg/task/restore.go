@@ -188,7 +188,19 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// We make bigger errCh so we won't block on multi-part failed.
 	errCh := make(chan error, 32)
-	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, errCh)
+	sessionPool := make([]glue.Session, 0, cfg.Concurrency)
+	for i := uint32(0); i < cfg.Concurrency; i++ {
+		session, e := g.CreateSession(mgr.GetTiKV())
+		if e != nil {
+			log.Warn("create session pool failed, we will send DDLs only by created sessions",
+				zap.Error(e),
+				zap.Int("sessionCount", len(sessionPool)),
+			)
+			break
+		}
+		sessionPool = append(sessionPool, session)
+	}
+	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, sessionPool, errCh)
 	if len(files) == 0 {
 		log.Info("no files, empty databases and tables are restored")
 		summary.SetSuccessStatus(true)

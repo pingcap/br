@@ -333,7 +333,7 @@ func (rc *Client) CreateTables(
 	for i, t := range tables {
 		tbMapping[t.Info.Name.String()] = i
 	}
-	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, errCh)
+	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, nil, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
 		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
@@ -355,11 +355,19 @@ func (rc *Client) CreateTables(
 	return rewriteRules, newTables, nil
 }
 
-func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint64) (CreatedTable, error) {
+func (rc *Client) createTable(
+	ctx context.Context,
+	dom *domain.Domain,
+	table *utils.Table,
+	newTS uint64,
+) (CreatedTable, error) {
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
 	} else {
-		err := rc.db.CreateTable(rc.ctx, table)
+		// don't use rc.ctx here...
+		// remove the ctx field of Client would be a great work,
+		// we just take a small step here :<
+		err := rc.db.CreateTable(ctx, table)
 		if err != nil {
 			return CreatedTable{}, err
 		}
@@ -378,22 +386,25 @@ func (rc *Client) createTable(dom *domain.Domain, table *utils.Table, newTS uint
 }
 
 // GoCreateTables create tables, and generate their information.
+// this function will use workers as the same number of sessionPool,
+// leave sessionPool nil to send DDLs sequential.
 func (rc *Client) GoCreateTables(
 	ctx context.Context,
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
+	sessionPool []glue.Session,
 	errCh chan<- error,
 ) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	outCh := make(chan CreatedTable, len(tables))
-	createOneTable := func(t *utils.Table) error {
+	createOneTable := func(ctx context.Context, t *utils.Table) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		rt, err := rc.createTable(dom, t, newTS)
+		rt, err := rc.createTable(ctx, dom, t, newTS)
 		if err != nil {
 			log.Error("create table failed",
 				zap.Error(err),
@@ -408,16 +419,45 @@ func (rc *Client) GoCreateTables(
 		outCh <- rt
 		return nil
 	}
+	startWork := func(t *utils.Table, done func()) {
+		defer done()
+		if err := createOneTable(ctx, t); err != nil {
+			errCh <- err
+			return
+		}
+	}
+	if len(sessionPool) > 0 {
+		workers := utils.NewWorkerPool(uint(len(sessionPool)), "DDL workers")
+		startWork = func(t *utils.Table, done func()) {
+			workers.ApplyWithID(func(id uint64) {
+				defer done()
+				vctx := context.WithValue(ctx, SessionInContext, sessionPool[id])
+				if err := createOneTable(vctx, t); err != nil {
+					errCh <- err
+					return
+				}
+			})
+		}
+	}
+
 	go func() {
+		wg := new(sync.WaitGroup)
 		defer close(outCh)
 		defer log.Info("all tables created")
+		defer func() {
+			if len(sessionPool) > 0 {
+				for _, se := range sessionPool {
+					se.Close()
+				}
+			}
+		}()
 
 		for _, table := range tables {
-			if err := createOneTable(table); err != nil {
-				errCh <- err
-				return
-			}
+			tbl := table
+			wg.Add(1)
+			startWork(tbl, wg.Done)
 		}
+		wg.Wait()
 	}()
 	return outCh
 }
