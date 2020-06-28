@@ -710,9 +710,8 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt,
 			grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:                time.Duration(keepAlive) * time.Second,
-				Timeout:             time.Duration(keepAliveTimeout) * time.Second,
-				PermitWithoutStream: true,
+				Time:    time.Duration(keepAlive) * time.Second,
+				Timeout: time.Duration(keepAliveTimeout) * time.Second,
 			}),
 		)
 		cancel()
