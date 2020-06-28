@@ -339,9 +339,8 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 			MinConnectTimeout: 5 * time.Second,
 		}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                time.Duration(keepAlive) * time.Second,
-			Timeout:             time.Duration(keepAliveTimeout) * time.Second,
-			PermitWithoutStream: true,
+			Time:    time.Duration(keepAlive) * time.Second,
+			Timeout: time.Duration(keepAliveTimeout) * time.Second,
 		}),
 	)
 	cancel()
