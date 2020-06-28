@@ -7,7 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/cmd"
 )
@@ -27,6 +29,7 @@ func main() {
 	go func() {
 		sig := <-sc
 		fmt.Printf("\nGot signal [%v] to exit.\n", sig)
+		log.Warn("received signal to exit", zap.Stringer("signal", sig))
 		switch sig {
 		case syscall.SIGTERM:
 			cancel()
