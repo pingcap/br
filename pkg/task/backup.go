@@ -137,10 +137,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	g.Record("BackupTS", backupTS)
 
-	isIncrementalBackup := false
-	if cfg.LastBackupTS > 0 {
-		isIncrementalBackup = true
-	}
+	isIncrementalBackup := cfg.LastBackupTS > 0
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
