@@ -37,11 +37,12 @@ func StartPProfListener(statusAddr string) {
 		log.Info("injecting failpoint, pprof will start at determined port", zap.Int("port", port))
 	})
 	listener, err := net.Listen("tcp", statusAddr)
-	log.Info("bind pprof to addr", zap.Stringer("addr", listener.Addr()))
-	_, _ = fmt.Fprintf(os.Stderr, "bind pprof to addr %s\n", listener.Addr().String())
 	if err != nil {
 		log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(err))
+		return
 	}
+	log.Info("bound pprof to addr", zap.Stringer("addr", listener.Addr()))
+	_, _ = fmt.Fprintf(os.Stderr, "bound pprof to addr %s\n", listener.Addr().String())
 	startedPProf = listener.Addr().String()
 
 	go func() {
