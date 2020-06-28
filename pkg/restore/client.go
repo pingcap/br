@@ -398,7 +398,7 @@ func (rc *Client) GoCreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-	sessionPool []*DB,
+	dbPool []*DB,
 	errCh chan<- error,
 ) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
@@ -431,13 +431,13 @@ func (rc *Client) GoCreateTables(
 			return
 		}
 	}
-	if len(sessionPool) > 0 {
-		workers := utils.NewWorkerPool(uint(len(sessionPool)), "DDL workers")
+	if len(dbPool) > 0 {
+		workers := utils.NewWorkerPool(uint(len(dbPool)), "DDL workers")
 		startWork = func(t *utils.Table, done func()) {
 			workers.ApplyWithID(func(id uint64) {
 				defer done()
-				selectedSession := int(id) % len(sessionPool)
-				if err := createOneTable(sessionPool[selectedSession], t); err != nil {
+				selectedDB := int(id) % len(dbPool)
+				if err := createOneTable(dbPool[selectedDB], t); err != nil {
 					errCh <- err
 					return
 				}
@@ -450,9 +450,9 @@ func (rc *Client) GoCreateTables(
 		defer close(outCh)
 		defer log.Info("all tables created")
 		defer func() {
-			if len(sessionPool) > 0 {
-				for _, se := range sessionPool {
-					se.Close()
+			if len(dbPool) > 0 {
+				for _, db := range dbPool {
+					db.Close()
 				}
 			}
 		}()

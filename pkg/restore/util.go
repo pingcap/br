@@ -142,8 +142,8 @@ func GetSSTMetaFromFile(
 	}
 }
 
-// MakeSessionPool makes a session pool with specficated size by sessionFactory.
-func MakeSessionPool(size uint, sessionFactory func() (*DB, error)) ([]*DB, error) {
+// MakeDBPool makes a session pool with specficated size by sessionFactory.
+func MakeDBPool(size uint, sessionFactory func() (*DB, error)) ([]*DB, error) {
 	sessionPool := make([]*DB, 0, size)
 	for i := uint(0); i < size; i++ {
 		session, e := sessionFactory()
