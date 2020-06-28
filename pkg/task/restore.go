@@ -30,6 +30,7 @@ const (
 
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256
+	defaultDDLConcurrency     = 16
 )
 
 var (
@@ -188,9 +189,22 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// We make bigger errCh so we won't block on multi-part failed.
 	errCh := make(chan error, 32)
-	sessionPool := make([]glue.Session, 0, cfg.Concurrency)
+	// Maybe allow user modify the DDL concurrency isn't necessary,
+	// because executing DDL is really I/O bound (or, algorithm bound?),
+	// and we cost most of time at waiting DDL jobs be enqueued.
+	// So these jobs won't be faster or slower when machine become faster or slower,
+	// hence make it a fixed value would be fine.
+	sessionPool, err := restore.MakeSessionPool(defaultDDLConcurrency, func() (*restore.DB, error) {
+		return restore.NewDB(g, mgr.GetTiKV())
+	})
+	if err != nil {
+		log.Warn("create session pool failed, we will send DDLs only by created sessions",
+			zap.Error(err),
+			zap.Int("sessionCount", len(sessionPool)),
+		)
+	}
 	for i := uint32(0); i < cfg.Concurrency; i++ {
-		session, e := g.CreateSession(mgr.GetTiKV())
+		session, e := restore.NewDB(g, mgr.GetTiKV())
 		if e != nil {
 			log.Warn("create session pool failed, we will send DDLs only by created sessions",
 				zap.Error(e),

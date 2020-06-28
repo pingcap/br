@@ -357,17 +357,22 @@ func (rc *Client) CreateTables(
 
 func (rc *Client) createTable(
 	ctx context.Context,
+	db *DB,
 	dom *domain.Domain,
 	table *utils.Table,
 	newTS uint64,
 ) (CreatedTable, error) {
+	if db == nil {
+		db = rc.db
+	}
+
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
 	} else {
 		// don't use rc.ctx here...
 		// remove the ctx field of Client would be a great work,
 		// we just take a small step here :<
-		err := rc.db.CreateTable(ctx, table)
+		err := db.CreateTable(ctx, table)
 		if err != nil {
 			return CreatedTable{}, err
 		}
@@ -393,18 +398,18 @@ func (rc *Client) GoCreateTables(
 	dom *domain.Domain,
 	tables []*utils.Table,
 	newTS uint64,
-	sessionPool []glue.Session,
+	sessionPool []*DB,
 	errCh chan<- error,
 ) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	outCh := make(chan CreatedTable, len(tables))
-	createOneTable := func(ctx context.Context, t *utils.Table) error {
+	createOneTable := func(db *DB, t *utils.Table) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		rt, err := rc.createTable(ctx, dom, t, newTS)
+		rt, err := rc.createTable(ctx, db, dom, t, newTS)
 		if err != nil {
 			log.Error("create table failed",
 				zap.Error(err),
@@ -421,7 +426,7 @@ func (rc *Client) GoCreateTables(
 	}
 	startWork := func(t *utils.Table, done func()) {
 		defer done()
-		if err := createOneTable(ctx, t); err != nil {
+		if err := createOneTable(nil, t); err != nil {
 			errCh <- err
 			return
 		}
@@ -432,8 +437,7 @@ func (rc *Client) GoCreateTables(
 			workers.ApplyWithID(func(id uint64) {
 				defer done()
 				selectedSession := int(id) % len(sessionPool)
-				vctx := context.WithValue(ctx, SessionInContext, sessionPool[selectedSession])
-				if err := createOneTable(vctx, t); err != nil {
+				if err := createOneTable(sessionPool[selectedSession], t); err != nil {
 					errCh <- err
 					return
 				}

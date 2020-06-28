@@ -17,20 +17,13 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-// DBContextKey is the key type of the context value this file uses.
-type DBContextKey int
-
-// SessionInContext can get the value of current contextual ID from context.
-const SessionInContext DBContextKey = iota
-
 // DB is a TiDB instance, not thread-safe.
-// If you want share it between goroutines,
-// please put the `SessionInContext` value at each goroutine.
 type DB struct {
 	se glue.Session
 }
 
-func makeSession(g glue.Glue, store kv.Storage) (glue.Session, error) {
+// NewDB returns a new DB.
+func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
 	se, err := g.CreateSession(store)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -44,23 +37,6 @@ func makeSession(g glue.Glue, store kv.Storage) (glue.Session, error) {
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return se, nil
-}
-
-func (db *DB) contextualSession(ctx context.Context) glue.Session {
-	if session, ok := ctx.Value(SessionInContext).(glue.Session); ok {
-		return session
-	}
-	return db.se
-}
-
-// NewDB returns a new DB.
-func NewDB(g glue.Glue, store kv.Storage) (*DB, error) {
-	se, err := makeSession(g, store)
-	if err != nil || se == nil {
-		return nil, err
-	}
-
 	return &DB{
 		se: se,
 	}, nil
@@ -73,13 +49,13 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	dbInfo := ddlJob.BinlogInfo.DBInfo
 	switch ddlJob.Type {
 	case model.ActionCreateSchema:
-		err = db.contextualSession(ctx).CreateDatabase(ctx, dbInfo)
+		err = db.se.CreateDatabase(ctx, dbInfo)
 		if err != nil {
 			log.Error("create database failed", zap.Stringer("db", dbInfo.Name), zap.Error(err))
 		}
 		return errors.Trace(err)
 	case model.ActionCreateTable:
-		err = db.contextualSession(ctx).CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
+		err = db.se.CreateTable(ctx, model.NewCIStr(ddlJob.SchemaName), tableInfo)
 		if err != nil {
 			log.Error("create table failed",
 				zap.Stringer("db", dbInfo.Name),
@@ -91,7 +67,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 	if tableInfo != nil {
 		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
-		err = db.contextualSession(ctx).Execute(ctx, switchDbSQL)
+		err = db.se.Execute(ctx, switchDbSQL)
 		if err != nil {
 			log.Error("switch db failed",
 				zap.String("query", switchDbSQL),
@@ -100,7 +76,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 			return errors.Trace(err)
 		}
 	}
-	err = db.contextualSession(ctx).Execute(ctx, ddlJob.Query)
+	err = db.se.Execute(ctx, ddlJob.Query)
 	if err != nil {
 		log.Error("execute ddl query failed",
 			zap.String("query", ddlJob.Query),
@@ -113,7 +89,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 
 // CreateDatabase executes a CREATE DATABASE SQL.
 func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
-	err := db.contextualSession(ctx).CreateDatabase(ctx, schema)
+	err := db.se.CreateDatabase(ctx, schema)
 	if err != nil {
 		log.Error("create database failed", zap.Stringer("db", schema.Name), zap.Error(err))
 	}
@@ -122,7 +98,7 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	err := db.contextualSession(ctx).CreateTable(ctx, table.Db.Name, table.Info)
+	err := db.se.CreateTable(ctx, table.Db.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
 			zap.Stringer("db", table.Db.Name),
@@ -146,34 +122,17 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
 				utils.EncloseName(table.Db.Name.O),
 				utils.EncloseName(table.Info.Name.O))
-			var setValSQL string
 			if increment < 0 {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
 			} else {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
 			}
-			err = db.contextualSession(ctx).Execute(ctx, setValSQL)
-			if err != nil {
-				log.Error("restore meta sql failed",
-					zap.String("query", setValSQL),
-					zap.Stringer("db", table.Db.Name),
-					zap.Stringer("table", table.Info.Name),
-					zap.Error(err))
-				return errors.Trace(err)
-			}
-
 			// trigger cycle round > 0
-			err = db.contextualSession(ctx).Execute(ctx, nextSeqSQL)
-			if err != nil {
-				log.Error("restore meta sql failed",
-					zap.String("query", nextSeqSQL),
-					zap.Stringer("db", table.Db.Name),
-					zap.Stringer("table", table.Info.Name),
-					zap.Error(err))
-				return errors.Trace(err)
-			}
+			restoreMetaSQL += nextSeqSQL
+			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+		} else {
+			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 		}
-		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 	} else {
 		var alterAutoIncIDFormat string
 		switch {
@@ -189,14 +148,13 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			table.Info.AutoIncID)
 	}
 
-	err = db.contextualSession(ctx).Execute(ctx, restoreMetaSQL)
+	err = db.se.Execute(ctx, restoreMetaSQL)
 	if err != nil {
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
-		return errors.Trace(err)
 	}
 	if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
 		// this table has auto random id, we need rebase it
@@ -209,7 +167,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoRandID)
 
-		err = db.contextualSession(ctx).Execute(ctx, alterAutoRandIDSQL)
+		err = db.se.Execute(ctx, alterAutoRandIDSQL)
 		if err != nil {
 			log.Error("alter AutoRandID failed",
 				zap.String("query", alterAutoRandIDSQL),
@@ -225,7 +183,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 // AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
 	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
-	err := db.contextualSession(ctx).Execute(ctx, switchDbSQL)
+	err := db.se.Execute(ctx, switchDbSQL)
 	if err != nil {
 		log.Error("switch db failed",
 			zap.String("SQL", switchDbSQL),
@@ -238,7 +196,7 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 		utils.EncloseName(table.Info.Name.O),
 		count,
 	)
-	err = db.contextualSession(ctx).Execute(ctx, alterTiFlashSQL)
+	err = db.se.Execute(ctx, alterTiFlashSQL)
 	if err != nil {
 		log.Error("alter tiflash replica failed",
 			zap.String("query", alterTiFlashSQL),
