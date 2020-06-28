@@ -24,10 +24,6 @@ var (
 func StartDynamicPProfListener() {
 	signal.Notify(signalChan, startPProfSignal)
 	go onSignalStartPProf(signalChan)
-	log.Debug("dynamic pprof enabled",
-		zap.Stringer("enableBySignal", startPProfSignal),
-		zap.Int("ppid", os.Getppid()),
-	)
 }
 
 func onSignalStartPProf(signals <-chan os.Signal) {
