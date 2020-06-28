@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
-	"github.com/pingcap/tidb/domain"
 	"github.com/spf13/pflag"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -180,9 +179,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return nil
 	}
 
-	dom := mgr.GetDomain()
-	dbs, tables = filterExistsSchema(dom, dbs, tables)
-
 	for _, db := range dbs {
 		err = client.CreateDatabase(db.Info)
 		if err != nil {
@@ -192,7 +188,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// We make bigger errCh so we won't block on multi-part failed.
 	errCh := make(chan error, 32)
-	tableStream := client.GoCreateTables(ctx, dom, tables, newTS, errCh)
+	tableStream := client.GoCreateTables(ctx, mgr.GetDomain(), tables, newTS, errCh)
 	if len(files) == 0 {
 		log.Info("no files, empty databases and tables are restored")
 		summary.SetSuccessStatus(true)
@@ -602,38 +598,4 @@ func restoreTableStream(
 			batcher.Add(t)
 		}
 	}
-}
-
-func filterExistsSchema(
-	dom *domain.Domain,
-	dbs []*utils.Database,
-	tables []*utils.Table) (
-	[]*utils.Database, []*utils.Table) {
-	infoSchema := dom.InfoSchema()
-
-	existsDBs := make([]string, 0, len(dbs))
-	nonExistsDBs := make([]*utils.Database, 0, len(dbs))
-	for _, db := range dbs {
-		if ok := infoSchema.SchemaExists(db.Info.Name); !ok {
-			nonExistsDBs = append(nonExistsDBs, db)
-		} else {
-			existsDBs = append(existsDBs, db.Info.Name.String())
-		}
-	}
-
-	existsTables := make([]string, 0, len(dbs))
-	nonExistsTables := make([]*utils.Table, 0, len(tables))
-	for _, table := range tables {
-		if ok := infoSchema.TableExists(table.Db.Name, table.Info.Name); !ok {
-			nonExistsTables = append(nonExistsTables, table)
-		} else {
-			existsTables = append(existsTables, table.Info.Name.String())
-		}
-	}
-	log.Info("detective exists schemas to skip",
-		zap.Strings("db", existsDBs),
-		zap.Strings("table", existsTables),
-	)
-
-	return nonExistsDBs, nonExistsTables
 }
