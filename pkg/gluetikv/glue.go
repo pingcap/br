@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -51,7 +52,9 @@ func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redi
 }
 
 // Record implements glue.Glue.
-func (Glue) Record(string, uint64) {}
+func (Glue) Record(name string, val uint64) {
+	summary.CollectUint(name, val)
+}
 
 type progress struct {
 	ch chan<- struct{}
