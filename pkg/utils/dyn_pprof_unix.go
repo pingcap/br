@@ -4,7 +4,6 @@
 package utils
 
 import (
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,9 +24,10 @@ var (
 func StartDynamicPProfListener() {
 	signal.Notify(signalChan, startPProfSignal)
 	go onSignalStartPProf(signalChan)
-	log.Info(fmt.Sprintf("dynamic pprof started, you can enable pprof by `kill -s %d %d`)",
-		startPProfSignal,
-		os.Getpid()))
+	log.Debug("dynamic pprof enabled",
+		zap.Stringer("enableBySignal", startPProfSignal),
+		zap.Int("ppid", os.Getppid()),
+	)
 }
 
 func onSignalStartPProf(signals <-chan os.Signal) {
