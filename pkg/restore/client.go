@@ -76,8 +76,9 @@ type Client struct {
 	// Those fields should be removed after we have FULLY supportted TiFlash.
 	tablesRemovedTiFlash []*backup.Schema
 
-	storage storage.ExternalStorage
-	backend *backup.StorageBackend
+	storage  storage.ExternalStorage
+	backend  *backup.StorageBackend
+	switchCh chan struct{}
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -102,6 +103,7 @@ func NewRestoreClient(
 		toolClient: NewSplitClient(pdClient, tlsConf),
 		db:         db,
 		tlsConf:    tlsConf,
+		switchCh:   make(chan struct{}),
 	}, nil
 }
 
@@ -676,12 +678,32 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 }
 
 // SwitchToImportMode switch tikv cluster to import mode.
-func (rc *Client) SwitchToImportMode(ctx context.Context) error {
-	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
+func (rc *Client) SwitchToImportMode(ctx context.Context) {
+	// tikv automatically switch to normal mode in every 10 minutes
+	// so we need ping tikv in every 5 minutes
+	go func() {
+		tick := time.NewTicker(5 * time.Minute)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				log.Info("switch to import mode")
+				err := rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
+				if err != nil {
+					log.Warn("switch to import mode failed", zap.Error(err))
+				}
+			case <-rc.switchCh:
+				return
+			}
+		}
+	}()
 }
 
 // SwitchToNormalMode switch tikv cluster to normal mode.
 func (rc *Client) SwitchToNormalMode(ctx context.Context) error {
+	close(rc.switchCh)
 	return rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Normal)
 }
 
