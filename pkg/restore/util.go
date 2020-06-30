@@ -143,16 +143,16 @@ func GetSSTMetaFromFile(
 }
 
 // MakeDBPool makes a session pool with specficated size by sessionFactory.
-func MakeDBPool(size uint, sessionFactory func() (*DB, error)) ([]*DB, error) {
-	sessionPool := make([]*DB, 0, size)
+func MakeDBPool(size uint, dbFactory func() (*DB, error)) ([]*DB, error) {
+	dbPool := make([]*DB, 0, size)
 	for i := uint(0); i < size; i++ {
-		session, e := sessionFactory()
+		db, e := dbFactory()
 		if e != nil {
-			return nil, e
+			return dbPool, e
 		}
-		sessionPool = append(sessionPool, session)
+		dbPool = append(dbPool, db)
 	}
-	return sessionPool, nil
+	return dbPool, nil
 }
 
 // EstimateRangeSize estimates the total range count by file.
