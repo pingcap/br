@@ -171,6 +171,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) erro
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	bc.backupMeta.Ddls = ddlJobsData
 	backupMetaData, err := proto.Marshal(&bc.backupMeta)
 	if err != nil {
@@ -942,4 +943,33 @@ func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
 		schemas = append(schemas, &schema)
 	}
 	bc.backupMeta.Schemas = schemas
+}
+
+// FilterSchema filter schema that doesn't have backup files
+// this is useful during incremental backup, no files in backup means no files to restore
+// so we can skip some DDL in restore to speed up restoration.
+func (bc *Client) FilterSchema() error {
+	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
+	if err != nil {
+		return err
+	}
+	schemas := make([]*kvproto.Schema, 0, len(bc.backupMeta.Schemas))
+	for _, schema := range bc.backupMeta.Schemas {
+		dbInfo := &model.DBInfo{}
+		err := json.Unmarshal(schema.Db, dbInfo)
+		if err != nil {
+			return err
+		}
+		tblInfo := &model.TableInfo{}
+		err = json.Unmarshal(schema.Table, tblInfo)
+		if err != nil {
+			return err
+		}
+		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
+		if len(tbl.Files) > 0 {
+			schemas = append(schemas, schema)
+		}
+	}
+	bc.backupMeta.Schemas = schemas
+	return nil
 }
