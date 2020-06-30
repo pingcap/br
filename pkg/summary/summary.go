@@ -29,6 +29,11 @@ func CollectInt(name string, t int) {
 	collector.CollectInt(name, t)
 }
 
+// CollectUint collects log uint64 field.
+func CollectUint(name string, t uint64) {
+	collector.CollectUInt(name, t)
+}
+
 // SetSuccessStatus sets final success status.
 func SetSuccessStatus(success bool) {
 	collector.SetSuccessStatus(success)

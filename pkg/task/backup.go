@@ -137,6 +137,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	g.Record("BackupTS", backupTS)
 
+	isIncrementalBackup := cfg.LastBackupTS > 0
+
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
 	if err != nil {
@@ -148,7 +150,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	ddlJobs := make([]*model.Job, 0)
-	if cfg.LastBackupTS > 0 {
+	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
 			return errors.New("LastBackupTS is larger or equal to current TS")
@@ -197,7 +199,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh.Close()
 
 	// Checksum from server, and then fulfill the backup metadata.
-	if cfg.Checksum {
+	if cfg.Checksum && !isIncrementalBackup {
 		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
 		updateCh = g.StartProgress(
 			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
@@ -210,17 +212,26 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		// Checksum has finished
 		updateCh.Close()
 		// collect file information.
-		err = checkChecksums(client, cfg)
+		err = checkChecksums(client)
 		if err != nil {
 			return err
 		}
 	} else {
-		// When user specified not to calculate checksum, don't calculate checksum.
 		// Just... copy schemas from origin.
-		log.Info("Skip fast checksum because user requirement.")
 		client.CopyMetaFrom(backupSchemas)
 		// Anyway, let's collect file info for summary.
 		client.CollectFileInfo()
+		if isIncrementalBackup {
+			// Since we don't support checksum for incremental data, fast checksum should be skipped.
+			log.Info("Skip fast checksum in incremental backup")
+			err = client.FilterSchema()
+			if err != nil {
+				return err
+			}
+		} else {
+			// When user specified not to calculate checksum, don't calculate checksum.
+			log.Info("Skip fast checksum because user requirement.")
+		}
 	}
 
 	err = client.SaveBackupMeta(ctx, ddlJobs)
@@ -237,25 +248,20 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 // checkChecksums checks the checksum of the client, once failed,
 // returning a error with message: "mismatched checksum".
-func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
+func checkChecksums(client *backup.Client) error {
 	checksums, err := client.CollectChecksums()
 	if err != nil {
 		return err
 	}
-	if cfg.LastBackupTS == 0 {
-		var matches bool
-		matches, err = client.ChecksumMatches(checksums)
-		if err != nil {
-			return err
-		}
-		if !matches {
-			log.Error("backup FastChecksum mismatch!")
-			return errors.New("mismatched checksum")
-		}
-		return nil
+	var matches bool
+	matches, err = client.ChecksumMatches(checksums)
+	if err != nil {
+		return err
 	}
-	// Since we don't support checksum for incremental data, fast checksum should be skipped.
-	log.Info("Skip fast checksum in incremental backup")
+	if !matches {
+		log.Error("backup FastChecksum mismatch!")
+		return errors.New("mismatched checksum")
+	}
 	return nil
 }
 
