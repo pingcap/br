@@ -41,9 +41,9 @@ func StartPProfListener(statusAddr string) {
 		log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(err))
 		return
 	}
-	log.Info("bound pprof to addr", zap.Stringer("addr", listener.Addr()))
-	_, _ = fmt.Fprintf(os.Stderr, "bound pprof to addr %s\n", listener.Addr().String())
 	startedPProf = listener.Addr().String()
+	log.Info("bound pprof to addr", zap.String("addr", startedPProf))
+	_, _ = fmt.Fprintf(os.Stderr, "bound pprof to addr %s\n", startedPProf)
 
 	go func() {
 		if e := http.Serve(listener, nil); e != nil {
