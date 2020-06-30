@@ -58,9 +58,18 @@ type Client struct {
 	workerPool   *utils.WorkerPool
 	tlsConf      *tls.Config
 
-	databases       map[string]*utils.Database
-	ddlJobs         []*model.Job
-	backupMeta      *backup.BackupMeta
+	databases  map[string]*utils.Database
+	ddlJobs    []*model.Job
+	backupMeta *backup.BackupMeta
+	// TODO Remove this field or replace it with a []*DB,
+	// since https://github.com/pingcap/br/pull/377 needs more DBs to speed up DDL execution.
+	// And for now, we must inject a pool of DBs to `Client.GoCreateTables`, otherwise there would be a race condition.
+	// Which is dirty: why we need DBs from different sources?
+	// By replace it with a []*DB, we can remove the dirty parameter of `Client.GoCreateTable`,
+	// along with them in some private functions.
+	// Before you do it, you can firstly read discussions at
+	// https://github.com/pingcap/br/pull/377#discussion_r446594501,
+	// this probably isn't as easy and it seems like (however, not hard, too :D)
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
@@ -446,6 +455,7 @@ func (rc *Client) GoCreateTables(
 	}
 
 	go func() {
+		// TODO replace it with an errgroup
 		wg := new(sync.WaitGroup)
 		defer close(outCh)
 		defer log.Info("all tables created")
