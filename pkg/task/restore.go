@@ -352,9 +352,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 	}
 
 	// Switch TiKV cluster to import mode (adjust rocksdb configuration).
-	if err := client.SwitchToImportMode(ctx); err != nil {
-		return clusterConfig{}, nil
-	}
+	client.SwitchToImportMode(ctx)
 
 	// Remove default PD scheduler that may affect restore process.
 	existSchedulers, err := mgr.ListSchedulers(ctx)
