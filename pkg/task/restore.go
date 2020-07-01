@@ -598,7 +598,7 @@ func restoreTableStream(
 					errCh <- err
 					return
 				}
-				log.Debug("get rules", zap.Any("rules", rules))
+				log.Debug("get rules", zap.Any("rules", rules), zap.Strings("pd", pdAddr))
 				log.Debug("try to remove tiflash of table", zap.Stringer("table name", t.Table.Name))
 				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
 				if err != nil {
