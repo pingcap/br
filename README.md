@@ -21,7 +21,9 @@
 
 [English Document](https://docs.pingcap.com/tidb/v4.0/backup-and-restore-tool)
 
-[SQL Statements](https://docs.pingcap.com/tidb/v4.0/sql-statement-backup)
+[Backup SQL Statement](https://docs.pingcap.com/tidb/v4.0/sql-statement-backup)
+
+[Restore SQL Statement](https://docs.pingcap.com/tidb/v4.0/sql-statement-restore)
 
 ## Building
 
