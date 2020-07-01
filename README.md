@@ -17,9 +17,11 @@
 
 ## Documentation
 
-[Chinese Document](https://pingcap.com/docs-cn/dev/how-to/maintain/backup-and-restore/br/)
+[Chinese Document](https://docs.pingcap.com/zh/tidb/v4.0/backup-and-restore-tool)
 
-[English Document](https://pingcap.com/docs/dev/how-to/maintain/backup-and-restore/br/)
+[English Document](https://docs.pingcap.com/tidb/v4.0/backup-and-restore-tool)
+
+[SQL Statements](https://docs.pingcap.com/tidb/v4.0/sql-statement-backup)
 
 ## Building
 
