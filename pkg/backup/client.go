@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -384,10 +385,12 @@ func (bc *Client) BackupRanges(
 	concurrency uint,
 	updateCh glue.Progress,
 ) error {
+	var successCount int32
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Backup Ranges", zap.Duration("take", elapsed))
+		summary.CollectSuccessUnit("backup ranges", int(atomic.LoadInt32(&successCount)), elapsed)
 	}()
 
 	errCh := make(chan error)
@@ -399,7 +402,11 @@ func (bc *Client) BackupRanges(
 		for _, r := range ranges {
 			sk, ek := r.StartKey, r.EndKey
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				return bc.BackupRange(ectx, sk, ek, req, updateCh)
+				err := bc.BackupRange(ectx, sk, ek, req, updateCh)
+				if err == nil {
+					atomic.AddInt32(&successCount, 1)
+				}
+				return err
 			})
 		}
 		if err := eg.Wait(); err != nil {
@@ -467,8 +474,6 @@ func (bc *Client) BackupRange(
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else {
-			summary.CollectSuccessUnit(key, 1, elapsed)
 		}
 	}()
 	log.Info("backup started",
