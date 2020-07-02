@@ -188,10 +188,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		StartVersion: cfg.LastBackupTS,
 		EndVersion:   backupTS,
 		RateLimit:    cfg.RateLimit,
-		Concurrency:  cfg.Concurrency,
+		Concurrency:  defaultBackupConcurrency,
 	}
-	err = client.BackupRanges(
-		ctx, ranges, req, updateCh)
+	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
 	if err != nil {
 		return err
 	}

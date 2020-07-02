@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -380,6 +381,7 @@ func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []rtree.Range,
 	req kvproto.BackupRequest,
+	concurrency uint,
 	updateCh glue.Progress,
 ) error {
 	start := time.Now()
@@ -392,13 +394,17 @@ func (bc *Client) BackupRanges(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
+		workerPool := utils.NewWorkerPool(concurrency, "Ranges")
+		eg, ectx := errgroup.WithContext(ctx)
 		for _, r := range ranges {
-			err := bc.BackupRange(
-				ctx, r.StartKey, r.EndKey, req, updateCh)
-			if err != nil {
-				errCh <- err
-				return
-			}
+			sk, ek := r.StartKey, r.EndKey
+			workerPool.ApplyOnErrorGroup(eg, func() error {
+				return bc.BackupRange(ectx, sk, ek, req, updateCh)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			errCh <- err
+			return
 		}
 		close(errCh)
 	}()
