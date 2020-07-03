@@ -35,6 +35,8 @@ type LogCollector interface {
 
 	CollectInt(name string, t int)
 
+	CollectUInt(name string, t uint64)
+
 	SetSuccessStatus(success bool)
 
 	Summary(name string)
@@ -73,6 +75,7 @@ type logCollector struct {
 	failureReasons   map[string]error
 	durations        map[string]time.Duration
 	ints             map[string]int
+	uints            map[string]uint64
 	successStatus    bool
 
 	log logFunc
@@ -87,6 +90,7 @@ func newLogCollector(log logFunc) LogCollector {
 		failureReasons:   make(map[string]error),
 		durations:        make(map[string]time.Duration),
 		ints:             make(map[string]int),
+		uints:            make(map[string]uint64),
 		log:              log,
 	}
 }
@@ -131,6 +135,12 @@ func (tc *logCollector) CollectInt(name string, t int) {
 	tc.ints[name] += t
 }
 
+func (tc *logCollector) CollectUInt(name string, t uint64) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.uints[name] += t
+}
+
 func (tc *logCollector) SetSuccessStatus(success bool) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
@@ -163,6 +173,9 @@ func (tc *logCollector) Summary(name string) {
 	}
 	for key, val := range tc.ints {
 		logFields = append(logFields, zap.Int(key, val))
+	}
+	for key, val := range tc.uints {
+		logFields = append(logFields, zap.Uint64(key, val))
 	}
 
 	if len(tc.failureReasons) != 0 || !tc.successStatus {
