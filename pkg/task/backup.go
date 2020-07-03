@@ -29,9 +29,9 @@ import (
 )
 
 const (
-	flagBackupTimeago = "timeago"
-	flagBackupTS      = "backupts"
-	flagLastBackupTS  = "lastbackupts"
+	flagBackupTimeago   = "timeago"
+	flagBackupTS        = "backupts"
+	flagLastBackupTS    = "lastbackupts"
 	flagCompressionType = "compression-type"
 
 	flagGCTTL = "gcttl"
@@ -43,10 +43,10 @@ const (
 type BackupConfig struct {
 	Config
 
-	TimeAgo      time.Duration `json:"time-ago" toml:"time-ago"`
-	BackupTS     uint64        `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL        int64         `json:"gc-ttl" toml:"gc-ttl"`
+	TimeAgo         time.Duration                         `json:"time-ago" toml:"time-ago"`
+	BackupTS        uint64                                `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS    uint64                                `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL           int64                                 `json:"gc-ttl" toml:"gc-ttl"`
 	CompressionType kvproto.BackupRequest_CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
@@ -93,7 +93,11 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.GCTTL = gcTTL
 
-	compressionType, err := parseCompressionType(flagCompressionType)
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -190,10 +194,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
-		StartVersion: cfg.LastBackupTS,
-		EndVersion:   backupTS,
-		RateLimit:    cfg.RateLimit,
-		Concurrency:  cfg.Concurrency,
+		StartVersion:    cfg.LastBackupTS,
+		EndVersion:      backupTS,
+		RateLimit:       cfg.RateLimit,
+		Concurrency:     cfg.Concurrency,
 		CompressionType: cfg.CompressionType,
 	}
 	err = client.BackupRanges(

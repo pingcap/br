@@ -81,7 +81,11 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 
-	compressionType, err := parseCompressionType(flagCompressionType)
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
