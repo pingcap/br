@@ -4,8 +4,6 @@ package cmd
 
 import (
 	"context"
-	"net/http"
-	"net/http/pprof"
 	"os"
 	"path/filepath"
 	"sync"
@@ -16,7 +14,6 @@ import (
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/summary"
@@ -126,16 +123,11 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		go func() {
-			// Make sure pprof is registered.
-			_ = pprof.Handler
-			if len(statusAddr) != 0 {
-				log.Info("start pprof", zap.String("addr", statusAddr))
-				if e := http.ListenAndServe(statusAddr, nil); e != nil {
-					log.Warn("fail to start pprof", zap.String("addr", statusAddr), zap.Error(e))
-				}
-			}
-		}()
+		if statusAddr != "" {
+			utils.StartPProfListener(statusAddr)
+		} else {
+			utils.StartDynamicPProfListener()
+		}
 	})
 	return err
 }

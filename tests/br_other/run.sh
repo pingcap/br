@@ -56,12 +56,21 @@ fi
 
 # backup full with ratelimit = 1 to make sure this backup task won't finish quickly
 echo "backup start to test lock file"
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 --ratelimit-unit 1 --concurrency 4 > /dev/null 2>&1 &
+PPROF_PORT=6080
+GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
 # record last backup pid
 _pid=$!
 
-# give the former backup some time to write down lock file.
-sleep 2
+# give the former backup some time to write down lock file (and initialize signal listener).
+sleep 1
+pkill -10 -P $_pid
+echo "starting pprof..."
+
+# give the former backup some time to write down lock file (and start pprof server).
+sleep 1
+curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
+echo "pprof started..."
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
