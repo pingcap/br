@@ -32,6 +32,7 @@ const (
 	flagBackupTimeago = "timeago"
 	flagBackupTS      = "backupts"
 	flagLastBackupTS  = "lastbackupts"
+	flagCompressionType = "compression-type"
 
 	flagGCTTL = "gcttl"
 
@@ -46,6 +47,7 @@ type BackupConfig struct {
 	BackupTS     uint64        `json:"backup-ts" toml:"backup-ts"`
 	LastBackupTS uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
 	GCTTL        int64         `json:"gc-ttl" toml:"gc-ttl"`
+	CompressionType kvproto.BackupRequest_CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -60,6 +62,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
+	flags.String(flagCompressionType, "", "backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -90,12 +93,19 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.GCTTL = gcTTL
 
+	compressionType, err := parseCompressionType(flagCompressionType)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CompressionType = compressionType
+
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
+
 	return nil
 }
 
@@ -184,6 +194,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		EndVersion:   backupTS,
 		RateLimit:    cfg.RateLimit,
 		Concurrency:  cfg.Concurrency,
+		CompressionType: cfg.CompressionType,
 	}
 	err = client.BackupRanges(
 		ctx, ranges, req, updateCh)
@@ -278,4 +289,21 @@ func parseTSString(ts string) (uint64, error) {
 		return 0, errors.Trace(err)
 	}
 	return variable.GoTimeToTS(t1), nil
+}
+
+func parseCompressionType(s string) (kvproto.BackupRequest_CompressionType, error) {
+	var ct kvproto.BackupRequest_CompressionType
+	switch s {
+	case "lz4":
+		ct = kvproto.BackupRequest_LZ4
+	case "snappy":
+		ct = kvproto.BackupRequest_SNAPPY
+	case "zstd":
+		ct = kvproto.BackupRequest_ZSTD
+	case "":
+		ct = kvproto.BackupRequest_UNKNOWN
+	default:
+		return kvproto.BackupRequest_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
+	}
+	return ct, nil
 }
