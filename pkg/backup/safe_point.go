@@ -6,7 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
@@ -14,7 +13,8 @@ import (
 )
 
 const (
-	brServiceSafePointID = "br"
+	brServiceSafePointID            = "br"
+	preUpdateServiceSafePointFactor = 5
 	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min
 	DefaultBRGCSafePointTTL = 5 * 60
 )
@@ -63,10 +63,9 @@ func StartServiceSafePointKeeper(
 	pdClient pd.Client,
 	backupTS uint64,
 ) {
-	// At least 1 second gap, or time.NewTicker will blame us.
-	gapSec := time.Duration(utils.MaxInt(int(ttl/5), 1))
-	tick := time.NewTicker(gapSec * time.Second)
-	log.Debug("ServiceSafePointKeeper started", zap.Int("gap", int(gapSec)))
+	gapTime := time.Duration(ttl) * time.Second / preUpdateServiceSafePointFactor
+	// It would be OK since ttl won't be zero, so gapTime should > 0.
+	tick := time.NewTicker(gapTime)
 	go func() {
 		defer tick.Stop()
 		for {
