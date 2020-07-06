@@ -34,6 +34,8 @@ const (
 	FlagLogLevel = "log-level"
 	// FlagLogFile is the name of log-file flag.
 	FlagLogFile = "log-file"
+	// FlagLogFormat is the name of log-format flag.
+	FlagLogFormat = "log-format"
 	// FlagStatusAddr is the name of status-addr flag.
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
@@ -57,6 +59,8 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log level")
 	cmd.PersistentFlags().String(FlagLogFile, timestampLogFileName(),
 		"Set the log file path. If not set, logs will output to temp file")
+	cmd.PersistentFlags().String(FlagLogFormat, "text",
+		"Set the log format")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	task.DefineCommonFlags(cmd.PersistentFlags())
@@ -76,6 +80,10 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 		conf.File.Filename, err = cmd.Flags().GetString(FlagLogFile)
+		if err != nil {
+			return
+		}
+		conf.Format, err = cmd.Flags().GetString(FlagLogFormat)
 		if err != nil {
 			return
 		}
