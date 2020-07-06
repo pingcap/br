@@ -21,6 +21,7 @@ type Worker struct {
 }
 
 type taskFunc func()
+type identifiedTaskFunc func(uint64)
 
 // NewWorkerPool returns a WorkPool.
 func NewWorkerPool(limit uint, name string) *WorkerPool {
@@ -41,6 +42,15 @@ func (pool *WorkerPool) Apply(fn taskFunc) {
 	go func() {
 		defer pool.recycle(worker)
 		fn()
+	}()
+}
+
+// ApplyWithID execute a task and provides it with the worker ID.
+func (pool *WorkerPool) ApplyWithID(fn identifiedTaskFunc) {
+	worker := pool.apply()
+	go func() {
+		defer pool.recycle(worker)
+		fn(worker.ID)
 	}()
 }
 
