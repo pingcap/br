@@ -126,6 +126,17 @@ func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
 	}
 }
 
+// CopyMeta copies schema metadata directly from pending backupSchemas, without calculating checksum.
+// use this when user skip the checksum generating.
+func (pending *Schemas) CopyMeta() []*backup.Schema {
+	schemas := make([]*backup.Schema, 0, len(pending.schemas))
+	for _, v := range pending.schemas {
+		schema := v
+		schemas = append(schemas, &schema)
+	}
+	return schemas
+}
+
 // Len returns the number of schemas.
 func (pending *Schemas) Len() int {
 	return len(pending.schemas)

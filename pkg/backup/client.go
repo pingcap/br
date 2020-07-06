@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -65,9 +66,8 @@ type Client struct {
 	mgr       ClientMgr
 	clusterID uint64
 
-	backupMeta kvproto.BackupMeta
-	storage    storage.ExternalStorage
-	backend    *kvproto.StorageBackend
+	storage storage.ExternalStorage
+	backend *kvproto.StorageBackend
 
 	gcTTL int64
 }
@@ -165,22 +165,35 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 	return nil
 }
 
-// SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(ctx context.Context, ddlJobs []*model.Job) error {
-	ddlJobsData, err := json.Marshal(ddlJobs)
+// BuildBackupMeta constructs the backup meta file from its components.
+func BuildBackupMeta(
+	req *kvproto.BackupRequest,
+	files []*kvproto.File,
+	rawRanges []*kvproto.RawRange,
+	ddlJobs []*model.Job,
+) (backupMeta kvproto.BackupMeta, err error) {
+	backupMeta.StartVersion = req.StartVersion
+	backupMeta.EndVersion = req.EndVersion
+	backupMeta.IsRawKv = req.IsRawKv
+	backupMeta.RawRanges = rawRanges
+	backupMeta.Files = files
+	backupMeta.Ddls, err = json.Marshal(ddlJobs)
 	if err != nil {
-		return errors.Trace(err)
+		err = errors.Trace(err)
+		return
 	}
+	return
+}
 
-	bc.backupMeta.Ddls = ddlJobsData
-	backupMetaData, err := proto.Marshal(&bc.backupMeta)
+// SaveBackupMeta saves the current backup meta at the given path.
+func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.BackupMeta) error {
+	backupMetaData, err := proto.Marshal(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Debug("backup meta",
-		zap.Reflect("meta", bc.backupMeta))
+	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
-	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("jobs", len(ddlJobs)))
+	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
@@ -380,25 +393,44 @@ func (bc *Client) BackupRanges(
 	ctx context.Context,
 	ranges []rtree.Range,
 	req kvproto.BackupRequest,
+	concurrency uint,
 	updateCh glue.Progress,
-) error {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		log.Info("Backup Ranges", zap.Duration("take", elapsed))
-	}()
-
+) ([]*kvproto.File, error) {
 	errCh := make(chan error)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	// we collect all files in a single goroutine to avoid thread safety issues.
+	filesCh := make(chan []*kvproto.File, concurrency)
+	allFiles := make([]*kvproto.File, 0, len(ranges))
 	go func() {
+		init := time.Now()
+		start, cur := init, init
+		for files := range filesCh {
+			cur, start = start, time.Now()
+			allFiles = append(allFiles, files...)
+			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
+		}
+		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+	}()
+
+	go func() {
+		defer close(filesCh)
+		workerPool := utils.NewWorkerPool(concurrency, "Ranges")
+		eg, ectx := errgroup.WithContext(ctx)
 		for _, r := range ranges {
-			err := bc.BackupRange(
-				ctx, r.StartKey, r.EndKey, req, updateCh)
-			if err != nil {
-				errCh <- err
-				return
-			}
+			sk, ek := r.StartKey, r.EndKey
+			workerPool.ApplyOnErrorGroup(eg, func() error {
+				files, err := bc.BackupRange(ectx, sk, ek, req, updateCh)
+				if err == nil {
+					filesCh <- files
+				}
+				return err
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			errCh <- err
+			return
 		}
 		close(errCh)
 	}()
@@ -421,16 +453,16 @@ func (bc *Client) BackupRanges(
 		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
 		if err != nil {
 			log.Error("update GC safePoint with TTL failed", zap.Error(err))
-			return err
+			return nil, err
 		}
 		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
 			log.Error("check GC safePoint failed", zap.Error(err))
-			return err
+			return nil, err
 		}
 		if finished {
 			// Return error (if there is any) before finishing backup.
-			return err
+			return allFiles, err
 		}
 		select {
 		case err, ok := <-errCh:
@@ -440,7 +472,7 @@ func (bc *Client) BackupRanges(
 				finished = true
 			}
 			if err != nil {
-				return err
+				return nil, err
 			}
 		case <-t.C:
 		}
@@ -448,12 +480,13 @@ func (bc *Client) BackupRanges(
 }
 
 // BackupRange make a backup of the given key range.
+// Returns an array of files backed up.
 func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req kvproto.BackupRequest,
 	updateCh glue.Progress,
-) (err error) {
+) (files []*kvproto.File, err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -461,8 +494,6 @@ func (bc *Client) BackupRange(
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else {
-			summary.CollectSuccessUnit(key, 1, elapsed)
 		}
 	}()
 	log.Info("backup started",
@@ -476,7 +507,7 @@ func (bc *Client) BackupRange(
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 
 	req.ClusterId = bc.clusterID
@@ -489,7 +520,7 @@ func (bc *Client) BackupRange(
 	var results rtree.RangeTree
 	results, err = push.pushBackup(req, allStores, updateCh)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
@@ -499,15 +530,10 @@ func (bc *Client) BackupRange(
 		ctx, startKey, endKey, req.StartVersion,
 		req.EndVersion, req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	bc.backupMeta.StartVersion = req.StartVersion
-	bc.backupMeta.EndVersion = req.EndVersion
-	bc.backupMeta.IsRawKv = req.IsRawKv
 	if req.IsRawKv {
-		bc.backupMeta.RawRanges = append(bc.backupMeta.RawRanges,
-			&kvproto.RawRange{StartKey: startKey, EndKey: endKey, Cf: req.Cf})
 		log.Info("backup raw ranges",
 			zap.Stringer("startKey", utils.WrapKey(startKey)),
 			zap.Stringer("endKey", utils.WrapKey(endKey)),
@@ -520,14 +546,15 @@ func (bc *Client) BackupRange(
 
 	results.Ascend(func(i btree.Item) bool {
 		r := i.(*rtree.Range)
-		bc.backupMeta.Files = append(bc.backupMeta.Files, r.Files...)
+		files = append(files, r.Files...)
 		return true
 	})
 
 	// Check if there are duplicated files.
 	checkDupFiles(&results)
+	collectFileInfo(files)
 
-	return nil
+	return files, nil
 }
 
 func (bc *Client) findRegionLeader(
@@ -819,12 +846,12 @@ func SendBackup(
 }
 
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
-	if len(local) != len(bc.backupMeta.Schemas) {
+func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) (bool, error) {
+	if len(local) != len(backupMeta.Schemas) {
 		return false, nil
 	}
 
-	for i, schema := range bc.backupMeta.Schemas {
+	for i, schema := range backupMeta.Schemas {
 		localChecksum := local[i]
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
@@ -860,14 +887,9 @@ func (bc *Client) ChecksumMatches(local []Checksum) (bool, error) {
 	return true, nil
 }
 
-// ArchiveSize returns the total size of the archive (before encryption).
-func (bc *Client) ArchiveSize() uint64 {
-	return utils.ArchiveSize(&bc.backupMeta)
-}
-
-// CollectFileInfo collects ungrouped file summary information, like kv count and size.
-func (bc *Client) CollectFileInfo() {
-	for _, file := range bc.backupMeta.Files {
+// collectFileInfo collects ungrouped file summary information, like kv count and size.
+func collectFileInfo(files []*kvproto.File) {
+	for _, file := range files {
 		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 	}
@@ -875,20 +897,20 @@ func (bc *Client) CollectFileInfo() {
 
 // CollectChecksums check data integrity by xor all(sst_checksum) per table
 // it returns the checksum of all local files.
-func (bc *Client) CollectChecksums() ([]Checksum, error) {
+func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
 		summary.CollectDuration("backup fast checksum", elapsed)
 	}()
 
-	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
+	dbs, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
 		return nil, err
 	}
 
-	checksums := make([]Checksum, 0, len(bc.backupMeta.Schemas))
-	for _, schema := range bc.backupMeta.Schemas {
+	checksums := make([]Checksum, 0, len(backupMeta.Schemas))
+	for _, schema := range backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
@@ -924,37 +946,16 @@ func (bc *Client) CollectChecksums() ([]Checksum, error) {
 	return checksums, nil
 }
 
-// CompleteMeta wait response of admin checksum from TiDB to complete backup meta.
-func (bc *Client) CompleteMeta(backupSchemas *Schemas) error {
-	schemas, err := backupSchemas.FinishTableChecksum()
-	if err != nil {
-		return err
-	}
-	bc.backupMeta.Schemas = schemas
-	return nil
-}
-
-// CopyMetaFrom copies schema metadata directly from pending backupSchemas, without calculating checksum.
-// use this when user skip the checksum generating.
-func (bc *Client) CopyMetaFrom(backupSchemas *Schemas) {
-	schemas := make([]*kvproto.Schema, 0, len(backupSchemas.schemas))
-	for _, v := range backupSchemas.schemas {
-		schema := v
-		schemas = append(schemas, &schema)
-	}
-	bc.backupMeta.Schemas = schemas
-}
-
-// FilterSchema filter schema that doesn't have backup files
+// FilterSchema filter in-place schemas that doesn't have backup files
 // this is useful during incremental backup, no files in backup means no files to restore
 // so we can skip some DDL in restore to speed up restoration.
-func (bc *Client) FilterSchema() error {
-	dbs, err := utils.LoadBackupTables(&bc.backupMeta)
+func FilterSchema(backupMeta *kvproto.BackupMeta) error {
+	dbs, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
 		return err
 	}
-	schemas := make([]*kvproto.Schema, 0, len(bc.backupMeta.Schemas))
-	for _, schema := range bc.backupMeta.Schemas {
+	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
+	for _, schema := range backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
@@ -970,6 +971,6 @@ func (bc *Client) FilterSchema() error {
 			schemas = append(schemas, schema)
 		}
 	}
-	bc.backupMeta.Schemas = schemas
+	backupMeta.Schemas = schemas
 	return nil
 }
