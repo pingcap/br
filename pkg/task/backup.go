@@ -136,6 +136,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return err
 	}
 	g.Record("BackupTS", backupTS)
+	backup.StartServiceSafePointKeeper(ctx, client.GetGCTTL(), mgr.GetPDClient(), backupTS)
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 

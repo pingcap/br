@@ -4,7 +4,9 @@ package backup
 
 import (
 	"context"
+	"time"
 
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
@@ -51,4 +53,33 @@ func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, ttl int64, 
 	_, err := pdClient.UpdateServiceGCSafePoint(ctx,
 		brServiceSafePointID, ttl, backupTS-1)
 	return err
+}
+
+// StartServiceSafePointKeeper will run UpdateServiceSafePoint periodicity
+// hence keeping service safepoint won't lose.
+func StartServiceSafePointKeeper(
+	ctx context.Context,
+	ttl int64,
+	pdClient pd.Client,
+	backupTS uint64,
+) {
+	// At least 1 second gap, or time.NewTicker will blame us.
+	gapSec := time.Duration(utils.MaxInt(int(ttl/5), 1))
+	tick := time.NewTicker(gapSec * time.Second)
+	log.Debug("ServiceSafePointKeeper started", zap.Int("gap", int(gapSec)))
+	go func() {
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if err := UpdateServiceSafePoint(ctx, pdClient, ttl, backupTS); err != nil {
+					log.Error("failed to update service safe point, backup may fail if gc triggered",
+						zap.Error(err),
+					)
+				}
+			}
+		}
+	}()
 }

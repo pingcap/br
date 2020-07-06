@@ -418,12 +418,7 @@ func (bc *Client) BackupRanges(
 
 	finished := false
 	for {
-		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
-		if err != nil {
-			log.Error("update GC safePoint with TTL failed", zap.Error(err))
-			return err
-		}
-		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+		err := CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 		if err != nil {
 			log.Error("check GC safePoint failed", zap.Error(err))
 			return err
