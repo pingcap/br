@@ -439,15 +439,6 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
-	backupTS := req.EndVersion
-	// use lastBackupTS as safePoint if exists
-	if req.StartVersion > 0 {
-		backupTS = req.StartVersion
-	}
-
-	log.Info("current backup safePoint job",
-		zap.Uint64("backupTS", backupTS))
-
 	for err := range errCh {
 		if err != nil {
 			return nil, err

@@ -85,6 +85,7 @@ func StartServiceSafePointKeeper(
 	checkTick := time.NewTicker(checkGCSafePointGapTime)
 	go func() {
 		defer updateTick.Stop()
+		defer checkTick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
