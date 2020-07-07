@@ -448,18 +448,13 @@ func (bc *Client) BackupRanges(
 	log.Info("current backup safePoint job",
 		zap.Uint64("backupTS", backupTS))
 
-	for {
-		select {
-		case err, ok := <-errCh:
-			if !ok {
-				return nil
-			}
-			if err != nil {
-				return nil, err
-			}
-		case <-t.C:
+	for err := range errCh {
+		if err != nil {
+			return nil, err
 		}
 	}
+
+	return allFiles, nil
 }
 
 // BackupRange make a backup of the given key range.
