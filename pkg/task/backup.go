@@ -14,7 +14,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb-tools/pkg/filter"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/types"
@@ -37,6 +36,7 @@ const (
 	flagGCTTL = "gcttl"
 
 	defaultBackupConcurrency = 4
+	maxBackupConcurrency     = 256
 )
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -109,7 +109,9 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
-
+	if cfg.Config.Concurrency > maxBackupConcurrency {
+		cfg.Config.Concurrency = maxBackupConcurrency
+	}
 	return nil
 }
 
@@ -120,10 +122,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	defer cancel()
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
-	if err != nil {
-		return err
-	}
-	tableFilter, err := filter.New(cfg.CaseSensitive, &cfg.Filter)
 	if err != nil {
 		return err
 	}
@@ -140,6 +138,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
 		return err
 	}
+	err = client.SetLockFile(ctx)
+	if err != nil {
+		return err
+	}
 	client.SetGCTTL(cfg.GCTTL)
 
 	backupTS, err := client.GetTS(ctx, cfg.TimeAgo, cfg.BackupTS)
@@ -148,21 +150,35 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	g.Record("BackupTS", backupTS)
 
+	isIncrementalBackup := cfg.LastBackupTS > 0
+
+	req := kvproto.BackupRequest{
+		StartVersion:    cfg.LastBackupTS,
+		EndVersion:      backupTS,
+		RateLimit:       cfg.RateLimit,
+		Concurrency:     defaultBackupConcurrency,
+		CompressionType: cfg.CompressionType,
+	}
+
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), tableFilter, backupTS)
+		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
 	if err != nil {
 		return err
 	}
 	// nothing to backup
 	if ranges == nil {
-		return client.SaveBackupMeta(ctx, nil)
+		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
+		if err2 != nil {
+			return err2
+		}
+		return client.SaveBackupMeta(ctx, &backupMeta)
 	}
 
 	ddlJobs := make([]*model.Job, 0)
-	if cfg.LastBackupTS > 0 {
-		if backupTS < cfg.LastBackupTS {
-			log.Error("LastBackupTS is larger than current TS")
-			return errors.New("LastBackupTS is larger than current TS")
+	if isIncrementalBackup {
+		if backupTS <= cfg.LastBackupTS {
+			log.Error("LastBackupTS is larger or equal to current TS")
+			return errors.New("LastBackupTS is larger or equal to current TS")
 		}
 		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
@@ -193,54 +209,58 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
-	req := kvproto.BackupRequest{
-		StartVersion:    cfg.LastBackupTS,
-		EndVersion:      backupTS,
-		RateLimit:       cfg.RateLimit,
-		Concurrency:     cfg.Concurrency,
-		CompressionType: cfg.CompressionType,
-	}
-	err = client.BackupRanges(
-		ctx, ranges, req, updateCh)
+	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
 	if err != nil {
 		return err
 	}
 	// Backup has finished
 	updateCh.Close()
 
+	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
+	if err != nil {
+		return err
+	}
+
 	// Checksum from server, and then fulfill the backup metadata.
-	if cfg.Checksum {
+	if cfg.Checksum && !isIncrementalBackup {
 		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
 		updateCh = g.StartProgress(
 			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
 		backupSchemas.Start(
 			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
-		err = client.CompleteMeta(backupSchemas)
+		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
 		if err != nil {
 			return err
 		}
 		// Checksum has finished
 		updateCh.Close()
 		// collect file information.
-		err = checkChecksums(client, cfg)
+		err = checkChecksums(&backupMeta)
 		if err != nil {
 			return err
 		}
 	} else {
-		// When user specified not to calculate checksum, don't calculate checksum.
 		// Just... copy schemas from origin.
-		log.Info("Skip fast checksum because user requirement.")
-		client.CopyMetaFrom(backupSchemas)
-		// Anyway, let's collect file info for summary.
-		client.CollectFileInfo()
+		backupMeta.Schemas = backupSchemas.CopyMeta()
+		if isIncrementalBackup {
+			// Since we don't support checksum for incremental data, fast checksum should be skipped.
+			log.Info("Skip fast checksum in incremental backup")
+			err = backup.FilterSchema(&backupMeta)
+			if err != nil {
+				return err
+			}
+		} else {
+			// When user specified not to calculate checksum, don't calculate checksum.
+			log.Info("Skip fast checksum because user requirement.")
+		}
 	}
 
-	err = client.SaveBackupMeta(ctx, ddlJobs)
+	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
 		return err
 	}
 
-	g.Record("Size", client.ArchiveSize())
+	g.Record("Size", utils.ArchiveSize(&backupMeta))
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
@@ -249,25 +269,20 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 // checkChecksums checks the checksum of the client, once failed,
 // returning a error with message: "mismatched checksum".
-func checkChecksums(client *backup.Client, cfg *BackupConfig) error {
-	checksums, err := client.CollectChecksums()
+func checkChecksums(backupMeta *kvproto.BackupMeta) error {
+	checksums, err := backup.CollectChecksums(backupMeta)
 	if err != nil {
 		return err
 	}
-	if cfg.LastBackupTS == 0 {
-		var matches bool
-		matches, err = client.ChecksumMatches(checksums)
-		if err != nil {
-			return err
-		}
-		if !matches {
-			log.Error("backup FastChecksum mismatch!")
-			return errors.New("mismatched checksum")
-		}
-		return nil
+	var matches bool
+	matches, err = backup.ChecksumMatches(backupMeta, checksums)
+	if err != nil {
+		return err
 	}
-	// Since we don't support checksum for incremental data, fast checksum should be skipped.
-	log.Info("Skip fast checksum in incremental backup")
+	if !matches {
+		log.Error("backup FastChecksum mismatch!")
+		return errors.New("mismatched checksum")
+	}
 	return nil
 }
 

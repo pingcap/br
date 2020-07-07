@@ -12,16 +12,17 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
+	github.com/juju/testing v0.0.0-20200608005635-e4eedbc6f7aa // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
-	github.com/pingcap/failpoint v0.0.0-20200506114213-c17f16071c53
+	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
 	github.com/pingcap/kvproto v0.0.0-20200706115936-1e0910aabe6c
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
-	github.com/pingcap/parser v0.0.0-20200518090819-ec1e13b948b1
+	github.com/pingcap/parser v0.0.0-20200609110328-c65941b9fbb3
 	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200520083007-2c251bd8f181
-	github.com/pingcap/tidb v1.1.0-beta.0.20200521154755-134e691d6f5f
-	github.com/pingcap/tidb-tools v4.0.0-rc.1.0.20200514040632-f76b3e428e19+incompatible
-	github.com/pingcap/tipb v0.0.0-20200417094153-7316d94df1ee
+	github.com/pingcap/tidb v1.1.0-beta.0.20200622093932-c98514e7516e
+	github.com/pingcap/tidb-tools v4.0.0+incompatible
+	github.com/pingcap/tipb v0.0.0-20200615034523-dcfcea0b5965
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
@@ -31,7 +32,7 @@ require (
 	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/tools v0.0.0-20200521211927-2b542361a4fc // indirect
+	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
