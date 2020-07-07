@@ -43,11 +43,11 @@ const (
 type BackupConfig struct {
 	Config
 
-	TimeAgo         time.Duration                         `json:"time-ago" toml:"time-ago"`
-	BackupTS        uint64                                `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS    uint64                                `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL           int64                                 `json:"gc-ttl" toml:"gc-ttl"`
-	CompressionType kvproto.BackupRequest_CompressionType `json:"compression-type" toml:"compression-type"`
+	TimeAgo         time.Duration           `json:"time-ago" toml:"time-ago"`
+	BackupTS        uint64                  `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS    uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL           int64                   `json:"gc-ttl" toml:"gc-ttl"`
+	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -295,19 +295,19 @@ func parseTSString(ts string) (uint64, error) {
 	return variable.GoTimeToTS(t1), nil
 }
 
-func parseCompressionType(s string) (kvproto.BackupRequest_CompressionType, error) {
-	var ct kvproto.BackupRequest_CompressionType
+func parseCompressionType(s string) (kvproto.CompressionType, error) {
+	var ct kvproto.CompressionType
 	switch s {
 	case "lz4":
-		ct = kvproto.BackupRequest_LZ4
+		ct = kvproto.CompressionType_LZ4
 	case "snappy":
-		ct = kvproto.BackupRequest_SNAPPY
+		ct = kvproto.CompressionType_SNAPPY
 	case "zstd":
-		ct = kvproto.BackupRequest_ZSTD
+		ct = kvproto.CompressionType_ZSTD
 	case "":
-		ct = kvproto.BackupRequest_UNKNOWN
+		ct = kvproto.CompressionType_UNKNOWN
 	default:
-		return kvproto.BackupRequest_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
+		return kvproto.CompressionType_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
 	}
 	return ct, nil
 }

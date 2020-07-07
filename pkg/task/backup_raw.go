@@ -31,10 +31,10 @@ const (
 type RawKvConfig struct {
 	Config
 
-	StartKey        []byte                                `json:"start-key" toml:"start-key"`
-	EndKey          []byte                                `json:"end-key" toml:"end-key"`
-	CF              string                                `json:"cf" toml:"cf"`
-	CompressionType kvproto.BackupRequest_CompressionType `json:"compression-type" toml:"compression-type"`
+	StartKey        []byte                  `json:"start-key" toml:"start-key"`
+	EndKey          []byte                  `json:"end-key" toml:"end-key"`
+	CF              string                  `json:"cf" toml:"cf"`
+	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
 // DefineRawBackupFlags defines common flags for the backup command.
