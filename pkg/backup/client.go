@@ -416,23 +416,11 @@ func (bc *Client) BackupRanges(
 	log.Info("current backup safePoint job",
 		zap.Uint64("backupTS", backupTS))
 
-	finished := false
 	for {
-		err := CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
-		if err != nil {
-			log.Error("check GC safePoint failed", zap.Error(err))
-			return err
-		}
-		if finished {
-			// Return error (if there is any) before finishing backup.
-			return err
-		}
 		select {
 		case err, ok := <-errCh:
 			if !ok {
-				// Before finish backup, we have to make sure
-				// the backup ts does not fall behind with GC safepoint.
-				finished = true
+				return nil
 			}
 			if err != nil {
 				return err

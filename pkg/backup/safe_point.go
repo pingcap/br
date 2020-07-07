@@ -14,7 +14,8 @@ import (
 
 const (
 	brServiceSafePointID            = "br"
-	preUpdateServiceSafePointFactor = 5
+	preUpdateServiceSafePointFactor = 3
+	checkGCSafePointGapTime         = 5 * time.Second
 	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min
 	DefaultBRGCSafePointTTL = 5 * 60
 )
@@ -63,21 +64,38 @@ func StartServiceSafePointKeeper(
 	pdClient pd.Client,
 	backupTS uint64,
 ) {
-	gapTime := time.Duration(ttl) * time.Second / preUpdateServiceSafePointFactor
-	// It would be OK since ttl won't be zero, so gapTime should > 0.
-	tick := time.NewTicker(gapTime)
+	// It would be OK since ttl won't be zero, so gapTime should > `0.
+	updateGapTime := time.Duration(ttl) * time.Second / preUpdateServiceSafePointFactor
+	update := func(ctx context.Context) {
+		if err := UpdateServiceSafePoint(ctx, pdClient, ttl, backupTS); err != nil {
+			log.Error("failed to update service safe point, backup may fail if gc triggered",
+				zap.Error(err),
+			)
+		}
+	}
+	check := func(ctx context.Context) {
+		if err := CheckGCSafePoint(ctx, pdClient, backupTS); err != nil {
+			log.Panic("cannot pass gc safe point check, aborting",
+				zap.Error(err),
+				zap.Uint64("backupTS", backupTS),
+			)
+		}
+	}
+	updateTick := time.NewTicker(updateGapTime)
+	checkTick := time.NewTicker(checkGCSafePointGapTime)
 	go func() {
-		defer tick.Stop()
+		defer updateTick.Stop()
 		for {
 			select {
 			case <-ctx.Done():
+				// Before finish backup, we have to make sure
+				// the backup ts does not fall behind with GC safepoint.
+				check(context.TODO())
 				return
-			case <-tick.C:
-				if err := UpdateServiceSafePoint(ctx, pdClient, ttl, backupTS); err != nil {
-					log.Error("failed to update service safe point, backup may fail if gc triggered",
-						zap.Error(err),
-					)
-				}
+			case <-updateTick.C:
+				update(ctx)
+			case <-checkTick.C:
+				check(ctx)
 			}
 		}
 	}()
