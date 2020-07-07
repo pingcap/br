@@ -403,6 +403,7 @@ func (bc *Client) BackupRanges(
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
 	allFiles := make([]*kvproto.File, 0, len(ranges))
+	allFilesCollected := make(chan struct{}, 1)
 	go func() {
 		init := time.Now()
 		start, cur := init, init
@@ -412,6 +413,7 @@ func (bc *Client) BackupRanges(
 			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
 		}
 		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+		allFilesCollected <- struct{}{}
 	}()
 
 	go func() {
@@ -445,6 +447,7 @@ func (bc *Client) BackupRanges(
 		}
 	}
 
+	<-allFilesCollected
 	return allFiles, nil
 }
 
