@@ -409,7 +409,7 @@ func (bc *Client) BackupRanges(
 		for files := range filesCh {
 			cur, start = start, time.Now()
 			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
+			summary.CollectSuccessUnit("backup ranges", 1, start.Sub(cur))
 		}
 		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
 	}()
