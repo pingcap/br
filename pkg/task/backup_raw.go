@@ -47,7 +47,7 @@ func DefineRawBackupFlags(command *cobra.Command) {
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 }
 
-// ParseFromFlags parses the backup-related flags from the flag set.
+// ParseFromFlags parses the raw kv backup&restore common flags from the flag set.
 func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
@@ -80,6 +80,15 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
+	}
+	return nil
+}
+
+// ParseBackupConfigFromFlags parses the backup-related flags from the flag set.
+func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
+	err := cfg.ParseFromFlags(flags)
+	if err != nil {
+		return err
 	}
 
 	compressionStr, err := flags.GetString(flagCompressionType)
