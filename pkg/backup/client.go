@@ -120,7 +120,14 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	return backupTS, nil
 }
 
-// SetStorage set ExternalStorage for client
+// SetLockFile set write lock file.
+func (bc *Client) SetLockFile(ctx context.Context) error {
+	return bc.storage.Write(ctx, utils.LockFile,
+		[]byte("DO NOT DELETE\n"+
+			"This file exists to remind other backup jobs won't use this path"))
+}
+
+// SetStorage set ExternalStorage for client.
 func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBackend, sendCreds bool) error {
 	var err error
 	bc.storage, err = storage.Create(ctx, backend, sendCreds)
@@ -134,6 +141,13 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 	}
 	if exist {
 		return errors.New("backup meta exists, may be some backup files in the path already")
+	}
+	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
+	if err != nil {
+		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
+	}
+	if exist {
+		return errors.New("backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
