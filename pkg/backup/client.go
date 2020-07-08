@@ -403,6 +403,7 @@ func (bc *Client) BackupRanges(
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
 	allFiles := make([]*kvproto.File, 0, len(ranges))
+	allFilesCollected := make(chan struct{}, 1)
 	go func() {
 		init := time.Now()
 		start, cur := init, init
@@ -412,6 +413,7 @@ func (bc *Client) BackupRanges(
 			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
 		}
 		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+		allFilesCollected <- struct{}{}
 	}()
 
 	go func() {
@@ -439,43 +441,17 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
-	backupTS := req.EndVersion
-	// use lastBackupTS as safePoint if exists
-	if req.StartVersion > 0 {
-		backupTS = req.StartVersion
+	for err := range errCh {
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	log.Info("current backup safePoint job",
-		zap.Uint64("backupTS", backupTS))
-
-	finished := false
-	for {
-		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
-		if err != nil {
-			log.Error("update GC safePoint with TTL failed", zap.Error(err))
-			return nil, err
-		}
-		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
-		if err != nil {
-			log.Error("check GC safePoint failed", zap.Error(err))
-			return nil, err
-		}
-		if finished {
-			// Return error (if there is any) before finishing backup.
-			return allFiles, err
-		}
-		select {
-		case err, ok := <-errCh:
-			if !ok {
-				// Before finish backup, we have to make sure
-				// the backup ts does not fall behind with GC safepoint.
-				finished = true
-			}
-			if err != nil {
-				return nil, err
-			}
-		case <-t.C:
-		}
+	select {
+	case <-allFilesCollected:
+		return allFiles, nil
+	case <-ctx.Done():
+		return nil, errors.Trace(ctx.Err())
 	}
 }
 
