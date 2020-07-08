@@ -447,8 +447,14 @@ func (bc *Client) BackupRanges(
 		}
 	}
 
-	<-allFilesCollected
-	return allFiles, nil
+	select {
+	case <-allFilesCollected:
+		return allFiles, nil
+	case <-ctx.Done():
+		return nil, errors.Trace(ctx.Err())
+	case err := <-errCh:
+		return nil, errors.Trace(err)
+	}
 }
 
 // BackupRange make a backup of the given key range.
