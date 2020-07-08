@@ -51,4 +51,9 @@ if [ "$table_count" -ne "2" ];then
     exit 1
 fi
 
+# Test BR DDL query string
+echo "testing DDL query..."
+curl 127.0.0.1:10080/ddl/history | grep -E '/\*from(.*)\*/CREATE TABLE'
+curl 127.0.0.1:10080/ddl/history | grep -E '/\*from(.*)\*/CREATE DATABASE'
+
 run_sql "DROP DATABASE $DB;"
