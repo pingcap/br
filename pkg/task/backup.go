@@ -31,7 +31,7 @@ const (
 	flagBackupTimeago   = "timeago"
 	flagBackupTS        = "backupts"
 	flagLastBackupTS    = "lastbackupts"
-	flagCompressionType = "compression-type"
+	flagCompressionType = "compression"
 
 	flagGCTTL = "gcttl"
 
@@ -62,7 +62,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
-	flags.String(flagCompressionType, "", "backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
+	flags.String(flagCompressionType, "lz4",
+		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -319,8 +320,6 @@ func parseCompressionType(s string) (kvproto.CompressionType, error) {
 		ct = kvproto.CompressionType_SNAPPY
 	case "zstd":
 		ct = kvproto.CompressionType_ZSTD
-	case "":
-		ct = kvproto.CompressionType_UNKNOWN
 	default:
 		return kvproto.CompressionType_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
 	}
