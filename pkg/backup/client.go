@@ -405,13 +405,13 @@ func (bc *Client) BackupRanges(
 	allFiles := make([]*kvproto.File, 0, len(ranges))
 	go func() {
 		init := time.Now()
-		start, cur := init, init
+		currentBackupStart, lastBackupStart := init, init
 		for files := range filesCh {
-			cur, start = start, time.Now()
+			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
 			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, start.Sub(cur))
+			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
 		}
-		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
 	}()
 
 	go func() {
