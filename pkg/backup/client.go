@@ -815,7 +815,7 @@ func SendBackup(
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
 			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-			zap.Stringer("EndKey", utils.WrapKey(req.GetEndKey())))
+			zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
 		err = respFn(resp)
 		if err != nil {
 			return err
