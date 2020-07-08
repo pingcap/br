@@ -452,8 +452,6 @@ func (bc *Client) BackupRanges(
 		return allFiles, nil
 	case <-ctx.Done():
 		return nil, errors.Trace(ctx.Err())
-	case err := <-errCh:
-		return nil, errors.Trace(err)
 	}
 }
 
