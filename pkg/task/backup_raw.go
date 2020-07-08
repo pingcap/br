@@ -128,8 +128,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		IsRawKv:      true,
 		Cf:           cfg.CF,
 	}
-
-	err = client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
+	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
 	if err != nil {
 		return err
 	}
@@ -137,12 +136,17 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh.Close()
 
 	// Checksum
-	err = client.SaveBackupMeta(ctx, nil)
+	rawRanges := []*kvproto.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
+	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil)
+	if err != nil {
+		return err
+	}
+	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
 		return err
 	}
 
-	g.Record("Size", client.ArchiveSize())
+	g.Record("Size", utils.ArchiveSize(&backupMeta))
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
