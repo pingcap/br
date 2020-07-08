@@ -17,9 +17,10 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 
+	"github.com/pingcap/errors"
+
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/gluetikv"
-	"github.com/pingcap/errors"
 )
 
 const (
@@ -89,7 +90,11 @@ func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 // CreateDatabase implements glue.Session.
 func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
-	gs.se.SetValue(sessionctx.QueryString, gs.showCreateDatabase(schema))
+	query, err := gs.showCreateDatabase(schema)
+	if err != nil {
+		return err
+	}
+	gs.se.SetValue(sessionctx.QueryString, query)
 	schema = schema.Clone()
 	if len(schema.Charset) == 0 {
 		schema.Charset = mysql.DefaultCharset
@@ -138,21 +143,25 @@ func (gs *tidbSession) showCreateTable(tbl *model.TableInfo, dbName model.CIStr)
 	table := tbl.Clone()
 	table.AutoIncID = 0
 	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateTable))
-	// this can never fail.
 	alloc, err := gs.allocatorFor(tbl, dbName)
 	if err != nil {
 		return "", err
 	}
+	// this can never fail.
 	_, _ = result.WriteString(brComment)
-	executor.ConstructResultOfShowCreateTable(gs.se, tbl, alloc, result)
+	if err := executor.ConstructResultOfShowCreateTable(gs.se, tbl, alloc, result); err != nil {
+		return "", err
+	}
 	return result.String(), nil
 }
 
 // showCreateDatabase shows the result of SHOW CREATE DATABASE from a dbInfo.
-func (gs *tidbSession) showCreateDatabase(db *model.DBInfo) string {
-	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateTable))
+func (gs *tidbSession) showCreateDatabase(db *model.DBInfo) (string, error) {
+	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateDatabase))
 	// this can never fail.
 	_, _ = result.WriteString(brComment)
-	executor.ConstructResultOfShowCreateDatabase(gs.se, db, true, result)
-	return result.String()
+	if err := executor.ConstructResultOfShowCreateDatabase(gs.se, db, true, result); err != nil {
+		return "", err
+	}
+	return result.String(), nil
 }
