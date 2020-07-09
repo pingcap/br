@@ -465,7 +465,7 @@ func (rc *Client) createTablesWithDBPool(ctx context.Context,
 	for _, t := range tables {
 		table := t
 		workers.ApplyWithIDInErrorGroup(eg, func(id uint64) error {
-			db := dbPool[id]
+			db := dbPool[id%uint64(len(dbPool))]
 			return createOneTable(ectx, db, table)
 		})
 	}
