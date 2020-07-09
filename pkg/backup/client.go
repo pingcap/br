@@ -403,16 +403,18 @@ func (bc *Client) BackupRanges(
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
 	allFiles := make([]*kvproto.File, 0, len(ranges))
+	allFilesCollected := make(chan struct{}, 1)
 	go func() {
 		init := time.Now()
+		// nolint:ineffassign
 		lastBackupStart, currentBackupStart := init, init
 		for files := range filesCh {
 			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
 			allFiles = append(allFiles, files...)
 			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
 		}
-		_ = lastBackupStart
 		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
+		allFilesCollected <- struct{}{}
 	}()
 
 	go func() {
@@ -440,43 +442,17 @@ func (bc *Client) BackupRanges(
 	t := time.NewTicker(time.Second * 5)
 	defer t.Stop()
 
-	backupTS := req.EndVersion
-	// use lastBackupTS as safePoint if exists
-	if req.StartVersion > 0 {
-		backupTS = req.StartVersion
+	for err := range errCh {
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	log.Info("current backup safePoint job",
-		zap.Uint64("backupTS", backupTS))
-
-	finished := false
-	for {
-		err := UpdateServiceSafePoint(ctx, bc.mgr.GetPDClient(), bc.GetGCTTL(), backupTS)
-		if err != nil {
-			log.Error("update GC safePoint with TTL failed", zap.Error(err))
-			return nil, err
-		}
-		err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
-		if err != nil {
-			log.Error("check GC safePoint failed", zap.Error(err))
-			return nil, err
-		}
-		if finished {
-			// Return error (if there is any) before finishing backup.
-			return allFiles, err
-		}
-		select {
-		case err, ok := <-errCh:
-			if !ok {
-				// Before finish backup, we have to make sure
-				// the backup ts does not fall behind with GC safepoint.
-				finished = true
-			}
-			if err != nil {
-				return nil, err
-			}
-		case <-t.C:
-		}
+	select {
+	case <-allFilesCollected:
+		return allFiles, nil
+	case <-ctx.Done():
+		return nil, errors.Trace(ctx.Err())
 	}
 }
 
@@ -528,8 +504,8 @@ func (bc *Client) BackupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey, req.StartVersion,
-		req.EndVersion, req.RateLimit, req.Concurrency, results, updateCh)
+		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType,
+		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
 		return nil, err
 	}
@@ -589,6 +565,7 @@ func (bc *Client) fineGrainedBackup(
 	startKey, endKey []byte,
 	lastBackupTS uint64,
 	backupTS uint64,
+	compressType kvproto.CompressionType,
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
@@ -619,7 +596,7 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -753,6 +730,7 @@ func (bc *Client) handleFineGrained(
 	rg rtree.Range,
 	lastBackupTS uint64,
 	backupTS uint64,
+	compressType kvproto.CompressionType,
 	rateLimit uint64,
 	concurrency uint32,
 	respCh chan<- *kvproto.BackupResponse,
@@ -765,14 +743,15 @@ func (bc *Client) handleFineGrained(
 	max := 0
 
 	req := kvproto.BackupRequest{
-		ClusterId:      bc.clusterID,
-		StartKey:       rg.StartKey, // TODO: the range may cross region.
-		EndKey:         rg.EndKey,
-		StartVersion:   lastBackupTS,
-		EndVersion:     backupTS,
-		StorageBackend: bc.backend,
-		RateLimit:      rateLimit,
-		Concurrency:    concurrency,
+		ClusterId:       bc.clusterID,
+		StartKey:        rg.StartKey, // TODO: the range may cross region.
+		EndKey:          rg.EndKey,
+		StartVersion:    lastBackupTS,
+		EndVersion:      backupTS,
+		StorageBackend:  bc.backend,
+		RateLimit:       rateLimit,
+		Concurrency:     concurrency,
+		CompressionType: compressType,
 	}
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
@@ -837,7 +816,7 @@ func SendBackup(
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
 			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-			zap.Stringer("EndKey", utils.WrapKey(req.GetEndKey())))
+			zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
 		err = respFn(resp)
 		if err != nil {
 			return err
