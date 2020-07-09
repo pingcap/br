@@ -73,6 +73,6 @@ if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
     exit 1
 fi
 
-run_database "DROP DATABASE $DB"
+run_sql "DROP DATABASE $DB"
 
 echo "TEST $TEST_NAME passed!"
