@@ -79,6 +79,8 @@ if $fail; then
     exit 1
 fi
 
+run_sql "DROP DATABASE $DB"
+
 echo "TEST $TEST_NAME passed."
 
 
