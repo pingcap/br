@@ -30,7 +30,7 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 
 func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
-	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+	if err := cfg.ParseBackupConfigFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
 		return err
 	}
