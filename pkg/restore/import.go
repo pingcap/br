@@ -142,26 +142,19 @@ type FileImporter struct {
 	isRawKvMode bool
 	rawStartKey []byte
 	rawEndKey   []byte
-
-	ctx    context.Context
-	cancel context.CancelFunc
 }
 
 // NewFileImporter returns a new file importClient.
 func NewFileImporter(
-	ctx context.Context,
 	metaClient SplitClient,
 	importClient ImporterClient,
 	backend *backup.StorageBackend,
 	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
-	ctx, cancel := context.WithCancel(ctx)
 	return FileImporter{
 		metaClient:   metaClient,
 		backend:      backend,
-		ctx:          ctx,
-		cancel:       cancel,
 		importClient: importClient,
 		isRawKvMode:  isRawKvMode,
 		rateLimit:    rateLimit,
@@ -181,6 +174,7 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 // Import tries to import a file.
 // All rules must contain encoded keys.
 func (importer *FileImporter) Import(
+	ctx context.Context,
 	file *backup.File,
 	rejectStoreMap map[uint64]bool,
 	rewriteRules *RewriteRules,
@@ -209,12 +203,12 @@ func (importer *FileImporter) Import(
 
 	needReject := len(rejectStoreMap) > 0
 
-	err = utils.WithRetry(importer.ctx, func() error {
-		ctx, cancel := context.WithTimeout(importer.ctx, importScanRegionTime)
+	err = utils.WithRetry(ctx, func() error {
+		cctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, errScanRegion := PaginateScanRegion(
-			ctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+			cctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
@@ -224,7 +218,7 @@ func (importer *FileImporter) Import(
 			startTime := time.Now()
 			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
 			for _, region := range regionInfos {
-				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
+				if !waitForRemoveRejectStores(cctx, importer.metaClient, region, rejectStoreMap) {
 					log.Error("waiting for removing rejected stores failed",
 						utils.ZapRegion(region.Region))
 					return errors.New("waiting for removing rejected stores failed")
@@ -242,12 +236,12 @@ func (importer *FileImporter) Import(
 			info := regionInfo
 			// Try to download file.
 			var downloadMeta *import_sstpb.SSTMeta
-			errDownload := utils.WithRetry(importer.ctx, func() error {
+			errDownload := utils.WithRetry(cctx, func() error {
 				var e error
 				if importer.isRawKvMode {
-					downloadMeta, e = importer.downloadRawKVSST(info, file)
+					downloadMeta, e = importer.downloadRawKVSST(cctx, info, file)
 				} else {
-					downloadMeta, e = importer.downloadSST(info, file, rewriteRules)
+					downloadMeta, e = importer.downloadSST(cctx, info, file, rewriteRules)
 				}
 				return e
 			}, newDownloadSSTBackoffer())
@@ -274,7 +268,7 @@ func (importer *FileImporter) Import(
 				return errDownload
 			}
 
-			ingestResp, errIngest := importer.ingestSST(downloadMeta, info)
+			ingestResp, errIngest := importer.ingestSST(cctx, downloadMeta, info)
 		ingestRetry:
 			for errIngest == nil {
 				errPb := ingestResp.GetError()
@@ -294,7 +288,7 @@ func (importer *FileImporter) Import(
 					} else {
 						// Slow path, get region from PD
 						newInfo, errIngest = importer.metaClient.GetRegion(
-							importer.ctx, info.Region.GetStartKey())
+							cctx, info.Region.GetStartKey())
 						if errIngest != nil {
 							break ingestRetry
 						}
@@ -307,7 +301,7 @@ func (importer *FileImporter) Import(
 						errIngest = errors.AddStack(ErrEpochNotMatch)
 						break ingestRetry
 					}
-					ingestResp, errIngest = importer.ingestSST(downloadMeta, newInfo)
+					ingestResp, errIngest = importer.ingestSST(cctx, downloadMeta, newInfo)
 				case errPb.EpochNotMatch != nil:
 					// TODO handle epoch not match error
 					//      1. retry download if needed
@@ -340,15 +334,16 @@ func (importer *FileImporter) Import(
 	return err
 }
 
-func (importer *FileImporter) setDownloadSpeedLimit(storeID uint64) error {
+func (importer *FileImporter) setDownloadSpeedLimit(ctx context.Context, storeID uint64) error {
 	req := &import_sstpb.SetDownloadSpeedLimitRequest{
 		SpeedLimit: importer.rateLimit,
 	}
-	_, err := importer.importClient.SetDownloadSpeedLimit(importer.ctx, storeID, req)
+	_, err := importer.importClient.SetDownloadSpeedLimit(ctx, storeID, req)
 	return err
 }
 
 func (importer *FileImporter) downloadSST(
+	ctx context.Context,
 	regionInfo *RegionInfo,
 	file *backup.File,
 	rewriteRules *RewriteRules,
@@ -385,7 +380,7 @@ func (importer *FileImporter) downloadSST(
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
-		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		resp, err = importer.importClient.DownloadSST(ctx, peer.GetStoreId(), req)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -402,6 +397,7 @@ func (importer *FileImporter) downloadSST(
 }
 
 func (importer *FileImporter) downloadRawKVSST(
+	ctx context.Context,
 	regionInfo *RegionInfo,
 	file *backup.File,
 ) (*import_sstpb.SSTMeta, error) {
@@ -439,7 +435,7 @@ func (importer *FileImporter) downloadRawKVSST(
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
-		resp, err = importer.importClient.DownloadSST(importer.ctx, peer.GetStoreId(), req)
+		resp, err = importer.importClient.DownloadSST(ctx, peer.GetStoreId(), req)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -456,6 +452,7 @@ func (importer *FileImporter) downloadRawKVSST(
 }
 
 func (importer *FileImporter) ingestSST(
+	ctx context.Context,
 	sstMeta *import_sstpb.SSTMeta,
 	regionInfo *RegionInfo,
 ) (*import_sstpb.IngestResponse, error) {
@@ -473,7 +470,7 @@ func (importer *FileImporter) ingestSST(
 		Sst:     sstMeta,
 	}
 	log.Debug("ingest SST", utils.ZapSSTMeta(sstMeta), zap.Reflect("leader", leader))
-	resp, err := importer.importClient.IngestSST(importer.ctx, leader.GetStoreId(), req)
+	resp, err := importer.importClient.IngestSST(ctx, leader.GetStoreId(), req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
