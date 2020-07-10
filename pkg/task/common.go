@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
@@ -15,7 +14,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/tidb-tools/pkg/filter"
+	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -49,6 +48,8 @@ const (
 	flagRateLimitUnit    = "ratelimit-unit"
 	flagConcurrency      = "concurrency"
 	flagChecksum         = "checksum"
+	flagFilter           = "filter"
+	flagCaseSensitive    = "case-sensitive"
 	flagRemoveTiFlash    = "remove-tiflash"
 	flagCheckRequirement = "check-requirements"
 )
@@ -93,10 +94,20 @@ type Config struct {
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
-	RemoveTiFlash     bool         `json:"remove-tiflash" toml:"remove-tiflash"`
-	CaseSensitive     bool         `json:"case-sensitive" toml:"case-sensitive"`
-	CheckRequirements bool         `json:"check-requirements" toml:"check-requirements"`
-	Filter            filter.Rules `json:"black-white-list" toml:"black-white-list"`
+	// CaseSensitive should not be used.
+	//
+	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
+	// should be removed after TiDB upgrades the BR dependency.
+	CaseSensitive bool
+	// Filter should not be used, use TableFilter instead.
+	//
+	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
+	// should be removed after TiDB upgrades the BR dependency.
+	Filter filter.MySQLReplicationRules
+
+	TableFilter       filter.Filter `json:"-" toml:"-"`
+	RemoveTiFlash     bool          `json:"remove-tiflash" toml:"remove-tiflash"`
+	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -128,17 +139,24 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	storage.DefineFlags(flags)
 }
 
-// DefineDatabaseFlags defines the required --db flag.
+// DefineDatabaseFlags defines the required --db flag for `db` subcommand.
 func DefineDatabaseFlags(command *cobra.Command) {
 	command.Flags().String(flagDatabase, "", "database name")
 	_ = command.MarkFlagRequired(flagDatabase)
 }
 
-// DefineTableFlags defines the required --db and --table flags.
+// DefineTableFlags defines the required --db and --table flags for `table` subcommand.
 func DefineTableFlags(command *cobra.Command) {
 	DefineDatabaseFlags(command)
 	command.Flags().StringP(flagTable, "t", "", "table name")
 	_ = command.MarkFlagRequired(flagTable)
+}
+
+// DefineFilterFlags defines the --filter and --case-sensitive flags for `full` subcommand.
+func DefineFilterFlags(command *cobra.Command) {
+	flags := command.Flags()
+	flags.StringArrayP(flagFilter, "f", []string{"*.*"}, "select tables to process")
+	flags.Bool(flagCaseSensitive, false, "whether the table names used in --filter should be case-sensitive")
 }
 
 // ParseFromFlags parses the TLS config from the flag set.
@@ -202,20 +220,39 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 
-	if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
-		db := escapeFilterName(dbFlag.Value.String())
+	var caseSensitive bool
+	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
+		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
+		if err != nil {
+			return err
+		}
+		cfg.TableFilter = f
+		caseSensitive, err = flags.GetBool(flagCaseSensitive)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	} else if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
+		db := dbFlag.Value.String()
 		if len(db) == 0 {
 			return errors.New("empty database name is not allowed")
 		}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
-			tbl := escapeFilterName(tblFlag.Value.String())
+			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
 				return errors.New("empty table name is not allowed")
 			}
-			cfg.Filter.DoTables = []*filter.Table{{Schema: db, Name: tbl}}
+			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
+				Schema: db,
+				Name:   tbl,
+			})
 		} else {
-			cfg.Filter.DoDBs = []string{db}
+			cfg.TableFilter = filter.NewSchemasFilter(db)
 		}
+	} else {
+		cfg.TableFilter, _ = filter.Parse([]string{"*.*"})
+	}
+	if !caseSensitive {
+		cfg.TableFilter = filter.CaseInsensitive(cfg.TableFilter)
 	}
 	checkRequirements, err := flags.GetBool(flagCheckRequirement)
 	if err != nil {
@@ -301,13 +338,6 @@ func ReadBackupMeta(
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}
 	return u, s, backupMeta, nil
-}
-
-func escapeFilterName(name string) string {
-	if !strings.HasPrefix(name, "~") {
-		return name
-	}
-	return "~^" + regexp.QuoteMeta(name) + "$"
 }
 
 // flagToZapField checks whether this flag can be logged,

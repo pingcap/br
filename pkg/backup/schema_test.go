@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/tidb-tools/pkg/filter"
+	"github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
@@ -57,9 +57,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 
 	// Table t1 is not exist.
-	testFilter, err := filter.New(false, &filter.Rules{
-		DoTables: []*filter.Table{{Schema: "test", Name: "t1"}},
-	})
+	testFilter, err := filter.Parse([]string{"test.t1"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64)
@@ -67,9 +65,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(backupSchemas, IsNil)
 
 	// Database is not exist.
-	fooFilter, err := filter.New(false, &filter.Rules{
-		DoTables: []*filter.Table{{Schema: "foo", Name: "t1"}},
-	})
+	fooFilter, err := filter.Parse([]string{"foo.t1"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64)
@@ -77,7 +73,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(backupSchemas, IsNil)
 
 	// Empty database.
-	noFilter, err := filter.New(false, &filter.Rules{})
+	noFilter, err := filter.Parse([]string{"*.*"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64)
