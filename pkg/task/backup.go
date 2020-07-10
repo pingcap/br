@@ -32,6 +32,7 @@ const (
 	flagBackupTS         = "backupts"
 	flagLastBackupTS     = "lastbackupts"
 	flagCompressionType  = "compression"
+	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
 
 	flagGCTTL = "gcttl"
@@ -49,6 +50,7 @@ type BackupConfig struct {
 	LastBackupTS     uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
 	GCTTL            int64                   `json:"gc-ttl" toml:"gc-ttl"`
 	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
 	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
 }
 
@@ -66,6 +68,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 	flags.String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
+	flags.Int32(flagCompressionLevel, 0, "compression level used for sst file compression")
 
 	flags.Bool(flagRemoveSchedulers, false,
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
@@ -110,6 +113,11 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.CompressionType = compressionType
+	level, err := flags.GetInt32(flagCompressionLevel)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CompressionLevel = level
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -206,11 +214,12 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	req := kvproto.BackupRequest{
-		StartVersion:    cfg.LastBackupTS,
-		EndVersion:      backupTS,
-		RateLimit:       cfg.RateLimit,
-		Concurrency:     defaultBackupConcurrency,
-		CompressionType: cfg.CompressionType,
+		StartVersion:     cfg.LastBackupTS,
+		EndVersion:       backupTS,
+		RateLimit:        cfg.RateLimit,
+		Concurrency:      defaultBackupConcurrency,
+		CompressionType:  cfg.CompressionType,
+		CompressionLevel: cfg.CompressionLevel,
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
