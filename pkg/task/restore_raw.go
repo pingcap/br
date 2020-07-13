@@ -110,11 +110,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Trace(err)
 	}
 
-	removedSchedulers, err := restorePreWork(ctx, client, mgr)
+	restoreSchedulers, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer restorePostWork(ctx, client, mgr, removedSchedulers)
+	defer restorePostWork(ctx, client, mgr, restoreSchedulers)
 
 	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {

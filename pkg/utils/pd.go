@@ -4,6 +4,7 @@ package utils
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,13 @@ import (
 	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/tablecodec"
 )
+
+// UndoFunc is a 'undo' operation of some undoable command.
+// (e.g. RemoveSchedulers)
+type UndoFunc func(context.Context) error
+
+// Nop is the 'zero value' of undo func.
+var Nop UndoFunc = func(context.Context) error { return nil }
 
 const (
 	resetTSURL       = "/pd/api/v1/admin/reset-ts"
