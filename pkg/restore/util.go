@@ -141,6 +141,19 @@ func GetSSTMetaFromFile(
 	}
 }
 
+// MakeDBPool makes a session pool with specficated size by sessionFactory.
+func MakeDBPool(size uint, dbFactory func() (*DB, error)) ([]*DB, error) {
+	dbPool := make([]*DB, 0, size)
+	for i := uint(0); i < size; i++ {
+		db, e := dbFactory()
+		if e != nil {
+			return dbPool, e
+		}
+		dbPool = append(dbPool, db)
+	}
+	return dbPool, nil
+}
+
 // EstimateRangeSize estimates the total range count by file.
 func EstimateRangeSize(files []*backup.File) int {
 	result := 0

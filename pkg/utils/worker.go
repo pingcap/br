@@ -21,7 +21,7 @@ type Worker struct {
 }
 
 type taskFunc func()
-type identifiedTaskFunc func(id uint64)
+type identifiedTaskFunc func(uint64)
 
 // NewWorkerPool returns a WorkPool.
 func NewWorkerPool(limit uint, name string) *WorkerPool {
