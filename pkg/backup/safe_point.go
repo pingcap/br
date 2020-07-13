@@ -4,8 +4,10 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
@@ -13,12 +15,15 @@ import (
 )
 
 const (
-	brServiceSafePointID            = "br"
+	brServiceSafePointIDFormat      = "br-%s"
 	preUpdateServiceSafePointFactor = 3
 	checkGCSafePointGapTime         = 5 * time.Second
 	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min
 	DefaultBRGCSafePointTTL = 5 * 60
 )
+
+// for each BR, use different safe point ID so they won't conflict.
+var brServiceSafePointID = fmt.Sprintf(brServiceSafePointIDFormat, uuid.New())
 
 // getGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
@@ -51,8 +56,13 @@ func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, ttl int64, 
 		zap.Uint64("safePoint", backupTS),
 		zap.Int64("ttl", ttl))
 
-	_, err := pdClient.UpdateServiceGCSafePoint(ctx,
+	lastSafePoint, err := pdClient.UpdateServiceGCSafePoint(ctx,
 		brServiceSafePointID, ttl, backupTS-1)
+	if lastSafePoint > backupTS-1 {
+		log.Warn("service GC safe point lost, we may fail to back up if GC lifetime isn't long enough",
+			zap.Uint64("lastSafePoint", lastSafePoint),
+		)
+	}
 	return err
 }
 
@@ -83,16 +93,12 @@ func StartServiceSafePointKeeper(
 	}
 	updateTick := time.NewTicker(updateGapTime)
 	checkTick := time.NewTicker(checkGCSafePointGapTime)
+	update(ctx)
 	go func() {
 		defer updateTick.Stop()
 		defer checkTick.Stop()
 		for {
 			select {
-			case <-ctx.Done():
-				// Before finish backup, we have to make sure
-				// the backup ts does not fall behind with GC safepoint.
-				check(context.TODO())
-				return
 			case <-updateTick.C:
 				update(ctx)
 			case <-checkTick.C:
