@@ -20,7 +20,7 @@ import (
 )
 
 // UndoFunc is a 'undo' operation of some undoable command.
-// (e.g. RemoveSchedulers)
+// (e.g. RemoveSchedulers).
 type UndoFunc func(context.Context) error
 
 // Nop is the 'zero value' of undo func.

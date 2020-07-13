@@ -6,8 +6,9 @@ import (
 	"context"
 	"math"
 
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
+
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -83,6 +84,7 @@ func restoreSchedulers(ctx context.Context, mgr *Mgr, clusterCfg clusterConfig) 
 }
 
 // RemoveSchedulers removes the schedulers that may slow down BR speed.
+// TODO make each step returns a function that can restore schedulers it has removed.
 func RemoveSchedulers(ctx context.Context, mgr *Mgr) (utils.UndoFunc, error) {
 	// Remove default PD scheduler that may affect restore process.
 	existSchedulers, err := mgr.ListSchedulers(ctx)

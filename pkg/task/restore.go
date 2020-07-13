@@ -32,27 +32,6 @@ const (
 	defaultDDLConcurrency     = 16
 )
 
-var (
-	schedulers = map[string]struct{}{
-		"balance-leader-scheduler":     {},
-		"balance-hot-region-scheduler": {},
-		"balance-region-scheduler":     {},
-
-		"shuffle-leader-scheduler":     {},
-		"shuffle-region-scheduler":     {},
-		"shuffle-hot-region-scheduler": {},
-	}
-	pdRegionMergeCfg = []string{
-		"max-merge-region-keys",
-		"max-merge-region-size",
-	}
-	pdScheduleLimitCfg = []string{
-		"leader-schedule-limit",
-		"region-schedule-limit",
-		"max-snapshot-count",
-	}
-)
-
 // RestoreConfig is the configuration specific for restore tasks.
 type RestoreConfig struct {
 	Config
@@ -224,7 +203,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	defer restorePostWork(ctx, client, mgr, restoreSchedulers)
+	defer restorePostWork(ctx, client, restoreSchedulers)
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -337,13 +316,6 @@ func filterRestoreFiles(
 	return
 }
 
-type clusterConfig struct {
-	// Enable PD schedulers before restore
-	scheduler []string
-	// Original scheudle configuration
-	scheduleCfg map[string]interface{}
-}
-
 // restorePreWork executes some prepare work before restore.
 // TODO make this function returns a restore post work.
 func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (utils.UndoFunc, error) {
@@ -362,7 +334,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 // restorePostWork executes some post work after restore.
 // TODO: aggregate all lifetime manage methods into batcher's context manager field.
 func restorePostWork(
-	ctx context.Context, client *restore.Client, mgr *conn.Mgr, restoreSchedulers utils.UndoFunc,
+	ctx context.Context, client *restore.Client, restoreSchedulers utils.UndoFunc,
 ) {
 	if client.IsOnline() {
 		return
