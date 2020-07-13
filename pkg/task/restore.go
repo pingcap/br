@@ -25,12 +25,14 @@ import (
 )
 
 const (
-	flagOnline   = "online"
-	flagNoSchema = "no-schema"
+	flagOnline             = "online"
+	flagNoSchema           = "no-schema"
+	flagSwitchModeInterval = "switch-mode-interval"
 
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256
 	defaultDDLConcurrency     = 16
+	defaultSwitchInterval     = 5 * time.Minute
 )
 
 var (
@@ -58,8 +60,9 @@ var (
 type RestoreConfig struct {
 	Config
 
-	Online   bool `json:"online" toml:"online"`
-	NoSchema bool `json:"no-schema" toml:"no-schema"`
+	Online             bool          `json:"online" toml:"online"`
+	NoSchema           bool          `json:"no-schema" toml:"no-schema"`
+	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
@@ -67,6 +70,7 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
 	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
+	flags.Duration(flagSwitchModeInterval, defaultSwitchInterval, " maintain import mode on tikv during restoration")
 
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
@@ -88,6 +92,10 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	err = cfg.Config.ParseFromFlags(flags)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.SwitchModeInterval, err = flags.GetDuration(flagSwitchModeInterval)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -131,6 +139,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if cfg.NoSchema {
 		client.EnableSkipCreateSQL()
 	}
+	client.SetInterval(cfg.SwitchModeInterval)
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
 		return err
