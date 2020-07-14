@@ -99,6 +99,8 @@ func StartServiceSafePointKeeper(
 		defer checkTick.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				log.Info("service safe point keeper exited")
 			case <-updateTick.C:
 				update(ctx)
 			case <-checkTick.C:
