@@ -47,11 +47,6 @@ func NeedAutoID(tblInfo *model.TableInfo) bool {
 	return hasRowID || hasAutoIncID
 }
 
-// NeedRebaseAutoID checks whether the table need to rebase its autoid.
-func (tbl *Table) NeedRebaseAutoID() bool {
-	return NeedAutoID(tbl.Info)
-}
-
 // Database wraps the schema and tables of a database.
 type Database struct {
 	Info   *model.DBInfo

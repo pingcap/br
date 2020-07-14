@@ -164,7 +164,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.Db.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoIncID)
-		if table.NeedRebaseAutoID() {
+		if utils.NeedAutoID(table.Info) {
 			err = db.se.Execute(ctx, restoreMetaSQL)
 		}
 	}
