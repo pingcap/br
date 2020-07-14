@@ -40,6 +40,7 @@ func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
 
+// NeedRebaseAutoID checks whether the table need to rebase its autoid.
 func (tbl *Table) NeedRebaseAutoID() bool {
 	tblInfo := tbl.Info
 	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle
