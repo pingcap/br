@@ -158,11 +158,13 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		default:
 			alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
 		}
-		restoreMetaSQL = fmt.Sprintf(
-			alterAutoIncIDFormat,
-			utils.EncloseName(table.Db.Name.O),
-			utils.EncloseName(table.Info.Name.O),
-			table.Info.AutoIncID)
+		if table.NeedRebaseAutoID() {
+			restoreMetaSQL = fmt.Sprintf(
+				alterAutoIncIDFormat,
+				utils.EncloseName(table.Db.Name.O),
+				utils.EncloseName(table.Info.Name.O),
+				table.Info.AutoIncID)
+		}
 	}
 
 	err = db.se.Execute(ctx, restoreMetaSQL)

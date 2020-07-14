@@ -40,6 +40,13 @@ func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
 
+func (tbl *Table) NeedRebaseAutoID() bool {
+	tblInfo := tbl.Info
+	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle
+	hasAutoIncID := tblInfo.GetAutoIncrementColInfo() != nil
+	return hasRowID || hasAutoIncID
+}
+
 // Database wraps the schema and tables of a database.
 type Database struct {
 	Info   *model.DBInfo
