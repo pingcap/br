@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
@@ -22,8 +23,12 @@ const (
 	DefaultBRGCSafePointTTL = 5 * 60
 )
 
-// for each BR, use different safe point ID so they won't conflict.
-var brServiceSafePointID = fmt.Sprintf(brServiceSafePointIDFormat, uuid.New())
+// BRServiceSafePoint is metadata of service safe point from a BR 'instance'.
+type BRServiceSafePoint struct {
+	ID       string
+	TTL      int64
+	BackupTS uint64
+}
 
 // getGCSafePoint returns the current gc safe point.
 // TODO: Some cluster may not enable distributed GC.
@@ -33,6 +38,11 @@ func getGCSafePoint(ctx context.Context, pdClient pd.Client) (uint64, error) {
 		return 0, err
 	}
 	return safePoint, nil
+}
+
+// MakeSafePointID makes a unique safe point ID, for reduce name conflict.
+func MakeSafePointID() string {
+	return fmt.Sprintf(brServiceSafePointIDFormat, uuid.New())
 }
 
 // CheckGCSafePoint checks whether the ts is older than GC safepoint.
@@ -50,15 +60,15 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 	return nil
 }
 
-// UpdateServiceSafePoint register backupTS to PD, to lock down backupTS as safePoint with ttl seconds.
-func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, ttl int64, backupTS uint64) error {
-	log.Debug("update PD safePoint limit with ttl",
-		zap.Uint64("safePoint", backupTS),
-		zap.Int64("ttl", ttl))
+// UpdateServiceSafePoint register BackupTS to PD, to lock down BackupTS as safePoint with TTL seconds.
+func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, sp BRServiceSafePoint) error {
+	log.Debug("update PD safePoint limit with TTL",
+		zap.Uint64("safePoint", sp.BackupTS),
+		zap.Int64("TTL", sp.TTL))
 
 	lastSafePoint, err := pdClient.UpdateServiceGCSafePoint(ctx,
-		brServiceSafePointID, ttl, backupTS-1)
-	if lastSafePoint > backupTS-1 {
+		sp.ID, sp.TTL, sp.BackupTS-1)
+	if lastSafePoint > sp.BackupTS-1 {
 		log.Warn("service GC safe point lost, we may fail to back up if GC lifetime isn't long enough",
 			zap.Uint64("lastSafePoint", lastSafePoint),
 		)
@@ -70,24 +80,23 @@ func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, ttl int64, 
 // hence keeping service safepoint won't lose.
 func StartServiceSafePointKeeper(
 	ctx context.Context,
-	ttl int64,
 	pdClient pd.Client,
-	backupTS uint64,
+	sp BRServiceSafePoint,
 ) {
-	// It would be OK since ttl won't be zero, so gapTime should > `0.
-	updateGapTime := time.Duration(ttl) * time.Second / preUpdateServiceSafePointFactor
+	// It would be OK since TTL won't be zero, so gapTime should > `0.
+	updateGapTime := time.Duration(sp.TTL) * time.Second / preUpdateServiceSafePointFactor
 	update := func(ctx context.Context) {
-		if err := UpdateServiceSafePoint(ctx, pdClient, ttl, backupTS); err != nil {
+		if err := UpdateServiceSafePoint(ctx, pdClient, sp); err != nil {
 			log.Error("failed to update service safe point, backup may fail if gc triggered",
 				zap.Error(err),
 			)
 		}
 	}
 	check := func(ctx context.Context) {
-		if err := CheckGCSafePoint(ctx, pdClient, backupTS); err != nil {
+		if err := CheckGCSafePoint(ctx, pdClient, sp.BackupTS); err != nil {
 			log.Panic("cannot pass gc safe point check, aborting",
 				zap.Error(err),
-				zap.Uint64("backupTS", backupTS),
+				zap.Uint64("backupTS", sp.BackupTS),
 			)
 		}
 	}
