@@ -40,12 +40,16 @@ func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
 
-// NeedRebaseAutoID checks whether the table need to rebase its autoid.
-func (tbl *Table) NeedRebaseAutoID() bool {
-	tblInfo := tbl.Info
+// NeedAutoID checks whether the table needs backing up with an autoid.
+func NeedAutoID(tblInfo *model.TableInfo) bool {
 	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle
 	hasAutoIncID := tblInfo.GetAutoIncrementColInfo() != nil
 	return hasRowID || hasAutoIncID
+}
+
+// NeedRebaseAutoID checks whether the table need to rebase its autoid.
+func (tbl *Table) NeedRebaseAutoID() bool {
+	return NeedAutoID(tbl.Info)
 }
 
 // Database wraps the schema and tables of a database.
