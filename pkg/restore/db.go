@@ -150,6 +150,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			}
 		}
 		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+		err = db.se.Execute(ctx, restoreMetaSQL)
 	} else {
 		var alterAutoIncIDFormat string
 		switch {
@@ -163,9 +164,11 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.Db.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoIncID)
+		if utils.NeedAutoID(table.Info) {
+			err = db.se.Execute(ctx, restoreMetaSQL)
+		}
 	}
 
-	err = db.se.Execute(ctx, restoreMetaSQL)
 	if err != nil {
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
