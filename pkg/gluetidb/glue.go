@@ -5,9 +5,11 @@ package gluetidb
 import (
 	"context"
 
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -16,6 +18,15 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/gluetikv"
 )
+
+// New makes a new tidb glue.
+func New() Glue {
+	log.Debug("enabling no register config")
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.SkipRegisterToDashboard = true
+	})
+	return Glue{}
+}
 
 // Glue is an implementation of glue.Glue using a new TiDB session.
 type Glue struct {
