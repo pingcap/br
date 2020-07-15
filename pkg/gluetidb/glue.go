@@ -3,6 +3,7 @@
 package gluetidb
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/pingcap/log"
@@ -12,11 +13,20 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/sessionctx"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/gluetikv"
+)
+
+const (
+	defaultCapOfCreateTable    = 512
+	defaultCapOfCreateDatabase = 64
+	brComment                  = `/*from(br)*/`
 )
 
 // New makes a new tidb glue.
@@ -48,7 +58,10 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &tidbSession{se: se}, nil
+	tiSession := &tidbSession{
+		se: se,
+	}
+	return tiSession, nil
 }
 
 // Open implements glue.Glue.
@@ -80,6 +93,11 @@ func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 // CreateDatabase implements glue.Session.
 func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
+	query, err := gs.showCreateDatabase(schema)
+	if err != nil {
+		return err
+	}
+	gs.se.SetValue(sessionctx.QueryString, query)
 	schema = schema.Clone()
 	if len(schema.Charset) == 0 {
 		schema.Charset = mysql.DefaultCharset
@@ -90,7 +108,11 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 // CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
-
+	query, err := gs.showCreateTable(table)
+	if err != nil {
+		return err
+	}
+	gs.se.SetValue(sessionctx.QueryString, query)
 	// Clone() does not clone partitions yet :(
 	table = table.Clone()
 	if table.Partition != nil {
@@ -98,11 +120,34 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		newPartition.Definitions = append([]model.PartitionDefinition{}, table.Partition.Definitions...)
 		table.Partition = &newPartition
 	}
-
 	return d.CreateTableWithInfo(gs.se, dbName, table, ddl.OnExistIgnore, true)
 }
 
 // Close implements glue.Session.
 func (gs *tidbSession) Close() {
 	gs.se.Close()
+}
+
+// showCreateTable shows the result of SHOW CREATE TABLE from a TableInfo.
+func (gs *tidbSession) showCreateTable(tbl *model.TableInfo) (string, error) {
+	table := tbl.Clone()
+	table.AutoIncID = 0
+	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateTable))
+	// this can never fail.
+	_, _ = result.WriteString(brComment)
+	if err := executor.ConstructResultOfShowCreateTable(gs.se, tbl, autoid.Allocators{}, result); err != nil {
+		return "", err
+	}
+	return result.String(), nil
+}
+
+// showCreateDatabase shows the result of SHOW CREATE DATABASE from a dbInfo.
+func (gs *tidbSession) showCreateDatabase(db *model.DBInfo) (string, error) {
+	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateDatabase))
+	// this can never fail.
+	_, _ = result.WriteString(brComment)
+	if err := executor.ConstructResultOfShowCreateDatabase(gs.se, db, true, result); err != nil {
+		return "", err
+	}
+	return result.String(), nil
 }
