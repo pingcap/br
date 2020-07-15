@@ -50,8 +50,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	// Test SQL Mode
 	tk.MustExec("create table `\"t\"` (" +
 		"a int not null," +
-		"time timestamp not null default '0000-00-00 00:00:00'," +
-		"primary key (a));",
+		"time timestamp not null default '0000-00-00 00:00:00');",
 	)
 	tk.MustExec("insert into `\"t\"` values (10, '0000-00-00 00:00:00');")
 	// Query the current AutoIncID
