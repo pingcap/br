@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -44,14 +45,17 @@ const (
 	flagDatabase = "db"
 	flagTable    = "table"
 
-	flagRateLimit        = "ratelimit"
-	flagRateLimitUnit    = "ratelimit-unit"
-	flagConcurrency      = "concurrency"
-	flagChecksum         = "checksum"
-	flagFilter           = "filter"
-	flagCaseSensitive    = "case-sensitive"
-	flagRemoveTiFlash    = "remove-tiflash"
-	flagCheckRequirement = "check-requirements"
+	flagRateLimit          = "ratelimit"
+	flagRateLimitUnit      = "ratelimit-unit"
+	flagConcurrency        = "concurrency"
+	flagChecksum           = "checksum"
+	flagFilter             = "filter"
+	flagCaseSensitive      = "case-sensitive"
+	flagRemoveTiFlash      = "remove-tiflash"
+	flagCheckRequirement   = "check-requirements"
+	flagSwitchModeInterval = "switch-mode-interval"
+
+	defaultSwitchInterval = 5 * time.Minute
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -105,9 +109,10 @@ type Config struct {
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter       filter.Filter `json:"-" toml:"-"`
-	RemoveTiFlash     bool          `json:"remove-tiflash" toml:"remove-tiflash"`
-	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
+	TableFilter        filter.Filter `json:"-" toml:"-"`
+	RemoveTiFlash      bool          `json:"remove-tiflash" toml:"remove-tiflash"`
+	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
+	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -135,6 +140,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Bool(flagCheckRequirement, true,
 		"Whether start version check before execute command")
+	flags.Duration(flagSwitchModeInterval, defaultSwitchInterval, "maintain import mode on TiKV during restore")
 
 	storage.DefineFlags(flags)
 }
@@ -259,6 +265,15 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.CheckRequirements = checkRequirements
+
+	cfg.SwitchModeInterval, err = flags.GetDuration(flagSwitchModeInterval)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if cfg.SwitchModeInterval <= 0 {
+		return errors.Errorf("--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
+	}
 
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
