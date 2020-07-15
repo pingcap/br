@@ -22,6 +22,7 @@ import (
 // New makes a new tidb glue.
 func New() Glue {
 	log.Debug("enabling no register config")
+	// TODO use config.UpdateGlobalConfig here if TiDB merge it to 4.0
 	conf := *config.GetGlobalConfig()
 	conf.SkipRegisterToDashboard = true
 	config.StoreGlobalConfig(&conf)
