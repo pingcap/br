@@ -143,8 +143,8 @@ func (rc *Client) IsOnline() bool {
 	return rc.isOnline
 }
 
-// SetInterval set switch mode interval for client.
-func (rc *Client) SetInterval(interval time.Duration) {
+// SetSwitchModeInterval set switch mode interval for client.
+func (rc *Client) SetSwitchModeInterval(interval time.Duration) {
 	rc.switchModeInterval = interval
 }
 
