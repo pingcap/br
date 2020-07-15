@@ -22,9 +22,9 @@ import (
 // New makes a new tidb glue.
 func New() Glue {
 	log.Debug("enabling no register config")
-	config.UpdateGlobal(func(conf *config.Config) {
-		conf.SkipRegisterToDashboard = true
-	})
+	conf := *config.GetGlobalConfig()
+	conf.SkipRegisterToDashboard = true
+	config.StoreGlobalConfig(&conf)
 	return Glue{}
 }
 
