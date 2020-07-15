@@ -40,7 +40,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	client, err := restore.NewRestoreClient(context.Background(), gluetidb.Glue{}, s.mock.PDClient, s.mock.Storage, nil)
+	client, err := restore.NewRestoreClient(context.Background(), gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
 	c.Assert(err, IsNil)
 
 	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxInt64)
@@ -98,7 +98,7 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	client, err := restore.NewRestoreClient(context.Background(), gluetidb.Glue{}, s.mock.PDClient, s.mock.Storage, nil)
+	client, err := restore.NewRestoreClient(context.Background(), gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
 	c.Assert(err, IsNil)
 
 	c.Assert(client.IsOnline(), IsFalse)

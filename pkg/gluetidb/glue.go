@@ -19,11 +19,13 @@ import (
 	"github.com/pingcap/br/pkg/gluetikv"
 )
 
-func init() {
+// New makes a new tidb glue.
+func New() Glue {
 	log.Debug("enabling no register config")
 	config.UpdateGlobal(func(conf *config.Config) {
 		conf.SkipRegisterToDashboard = true
 	})
+	return Glue{}
 }
 
 // Glue is an implementation of glue.Glue using a new TiDB session.
