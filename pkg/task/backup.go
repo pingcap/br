@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	flagBackupTimeago = "timeago"
-	flagBackupTS      = "backupts"
-	flagLastBackupTS  = "lastbackupts"
+	flagBackupTimeago   = "timeago"
+	flagBackupTS        = "backupts"
+	flagLastBackupTS    = "lastbackupts"
+	flagCompressionType = "compression"
 
 	flagGCTTL = "gcttl"
 
@@ -42,10 +43,11 @@ const (
 type BackupConfig struct {
 	Config
 
-	TimeAgo      time.Duration `json:"time-ago" toml:"time-ago"`
-	BackupTS     uint64        `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL        int64         `json:"gc-ttl" toml:"gc-ttl"`
+	TimeAgo         time.Duration           `json:"time-ago" toml:"time-ago"`
+	BackupTS        uint64                  `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS    uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL           int64                   `json:"gc-ttl" toml:"gc-ttl"`
+	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -60,6 +62,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
+	flags.String(flagCompressionType, "zstd",
+		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -89,6 +93,16 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.GCTTL = gcTTL
+
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CompressionType = compressionType
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -149,10 +163,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
 	req := kvproto.BackupRequest{
-		StartVersion: cfg.LastBackupTS,
-		EndVersion:   backupTS,
-		RateLimit:    cfg.RateLimit,
-		Concurrency:  defaultBackupConcurrency,
+		StartVersion:    cfg.LastBackupTS,
+		EndVersion:      backupTS,
+		RateLimit:       cfg.RateLimit,
+		Concurrency:     defaultBackupConcurrency,
+		CompressionType: cfg.CompressionType,
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
@@ -303,4 +318,19 @@ func parseTSString(ts string) (uint64, error) {
 		return 0, errors.Trace(err)
 	}
 	return variable.GoTimeToTS(t1), nil
+}
+
+func parseCompressionType(s string) (kvproto.CompressionType, error) {
+	var ct kvproto.CompressionType
+	switch s {
+	case "lz4":
+		ct = kvproto.CompressionType_LZ4
+	case "snappy":
+		ct = kvproto.CompressionType_SNAPPY
+	case "zstd":
+		ct = kvproto.CompressionType_ZSTD
+	default:
+		return kvproto.CompressionType_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
+	}
+	return ct, nil
 }

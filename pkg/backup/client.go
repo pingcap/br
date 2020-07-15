@@ -406,13 +406,14 @@ func (bc *Client) BackupRanges(
 	allFilesCollected := make(chan struct{}, 1)
 	go func() {
 		init := time.Now()
-		start, cur := init, init
+		// nolint:ineffassign
+		lastBackupStart, currentBackupStart := init, init
 		for files := range filesCh {
-			cur, start = start, time.Now()
+			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
 			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
+			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
 		}
-		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
 		allFilesCollected <- struct{}{}
 	}()
 
@@ -503,8 +504,8 @@ func (bc *Client) BackupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey, req.StartVersion,
-		req.EndVersion, req.RateLimit, req.Concurrency, results, updateCh)
+		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType,
+		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
 		return nil, err
 	}
@@ -564,6 +565,7 @@ func (bc *Client) fineGrainedBackup(
 	startKey, endKey []byte,
 	lastBackupTS uint64,
 	backupTS uint64,
+	compressType kvproto.CompressionType,
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
@@ -594,7 +596,7 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -728,6 +730,7 @@ func (bc *Client) handleFineGrained(
 	rg rtree.Range,
 	lastBackupTS uint64,
 	backupTS uint64,
+	compressType kvproto.CompressionType,
 	rateLimit uint64,
 	concurrency uint32,
 	respCh chan<- *kvproto.BackupResponse,
@@ -740,14 +743,15 @@ func (bc *Client) handleFineGrained(
 	max := 0
 
 	req := kvproto.BackupRequest{
-		ClusterId:      bc.clusterID,
-		StartKey:       rg.StartKey, // TODO: the range may cross region.
-		EndKey:         rg.EndKey,
-		StartVersion:   lastBackupTS,
-		EndVersion:     backupTS,
-		StorageBackend: bc.backend,
-		RateLimit:      rateLimit,
-		Concurrency:    concurrency,
+		ClusterId:       bc.clusterID,
+		StartKey:        rg.StartKey, // TODO: the range may cross region.
+		EndKey:          rg.EndKey,
+		StartVersion:    lastBackupTS,
+		EndVersion:      backupTS,
+		StorageBackend:  bc.backend,
+		RateLimit:       rateLimit,
+		Concurrency:     concurrency,
+		CompressionType: compressType,
 	}
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
@@ -812,7 +816,7 @@ func SendBackup(
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
 			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-			zap.Stringer("EndKey", utils.WrapKey(req.GetEndKey())))
+			zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
 		err = respFn(resp)
 		if err != nil {
 			return err
