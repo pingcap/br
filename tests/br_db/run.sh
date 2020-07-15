@@ -53,7 +53,7 @@ fi
 
 # Test BR DDL query string
 echo "testing DDL query..."
-curl 127.0.0.1:10080/ddl/history | grep -E '/\*from(.*)\*/CREATE TABLE'
-curl 127.0.0.1:10080/ddl/history | grep -E '/\*from(.*)\*/CREATE DATABASE'
+curl 127.0.0.1:10080/ddl/history | grep -E '/\*from('"'br'"')\*/CREATE TABLE'
+curl 127.0.0.1:10080/ddl/history | grep -E '/\*from('"'br'"')\*/CREATE DATABASE'
 
 run_sql "DROP DATABASE $DB;"
