@@ -26,7 +26,7 @@ import (
 const (
 	defaultCapOfCreateTable    = 512
 	defaultCapOfCreateDatabase = 64
-	brComment                  = `/*from("br")*/`
+	brComment                  = `/*from(br)*/`
 )
 
 // New makes a new tidb glue.
