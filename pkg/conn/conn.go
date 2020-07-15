@@ -203,7 +203,7 @@ func NewMgr(
 			errMsg := "running BR in incompatible version of cluster, " +
 				"error: (%s). " +
 				"if you believe it's OK, use --check-requirements=false to skip."
-			return nil, errors.Errorf(fmt.Sprintf(errMsg, err.Error()))
+			return nil, errors.Errorf(errMsg, err.Error())
 		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
