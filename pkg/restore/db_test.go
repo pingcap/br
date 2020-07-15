@@ -74,7 +74,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(autoIncID, Equals, uint64(globalAutoID))
 	// Alter AutoIncID to the next AutoIncID + 100
 	table.Info.AutoIncID = globalAutoID + 100
-	db, err := restore.NewDB(gluetidb.Glue{}, s.mock.Storage)
+	db, err := restore.NewDB(gluetidb.New(), s.mock.Storage)
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
 	// Test empty collate value
