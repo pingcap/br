@@ -16,9 +16,10 @@ import (
 
 // Range represents a backup response.
 type Range struct {
-	StartKey []byte
-	EndKey   []byte
-	Files    []*backup.File
+	StartKey        []byte
+	EndKey          []byte
+	Files           []*backup.File
+	ApproximateSize uint64
 }
 
 // String formats a range to a string.

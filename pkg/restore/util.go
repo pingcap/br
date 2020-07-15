@@ -280,7 +280,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 			utils.ZapFile(file))
 		return rtree.Range{}, errors.New("table ids mismatch")
 	}
-	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
+	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey(), ApproximateSize: file.TotalBytes}
 	return r, nil
 }
 
