@@ -268,8 +268,8 @@ func BuildBackupRangeAndSchema(
 			switch {
 			case tableInfo.IsSequence():
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
-			case tableInfo.IsView():
-				// no auto ID for views.
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
 			default:
 				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
 			}
@@ -406,13 +406,14 @@ func (bc *Client) BackupRanges(
 	allFilesCollected := make(chan struct{}, 1)
 	go func() {
 		init := time.Now()
-		start, cur := init, init
+		// nolint:ineffassign
+		lastBackupStart, currentBackupStart := init, init
 		for files := range filesCh {
-			cur, start = start, time.Now()
+			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
 			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, cur.Sub(start))
+			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
 		}
-		log.Info("Backup Ranges", zap.Duration("take", cur.Sub(init)))
+		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
 		allFilesCollected <- struct{}{}
 	}()
 
