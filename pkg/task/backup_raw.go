@@ -31,9 +31,10 @@ const (
 type RawKvConfig struct {
 	Config
 
-	StartKey []byte `json:"start-key" toml:"start-key"`
-	EndKey   []byte `json:"end-key" toml:"end-key"`
-	CF       string `json:"cf" toml:"cf"`
+	StartKey        []byte                  `json:"start-key" toml:"start-key"`
+	EndKey          []byte                  `json:"end-key" toml:"end-key"`
+	CF              string                  `json:"cf" toml:"cf"`
+	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
 }
 
 // DefineRawBackupFlags defines common flags for the backup command.
@@ -42,9 +43,11 @@ func DefineRawBackupFlags(command *cobra.Command) {
 	command.Flags().StringP(flagTiKVColumnFamily, "", "default", "backup specify cf, correspond to tikv cf")
 	command.Flags().StringP(flagStartKey, "", "", "backup raw kv start key, key is inclusive")
 	command.Flags().StringP(flagEndKey, "", "", "backup raw kv end key, key is exclusive")
+	command.Flags().String(flagCompressionType, "zstd",
+		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 }
 
-// ParseFromFlags parses the backup-related flags from the flag set.
+// ParseFromFlags parses the raw kv backup&restore common flags from the flag set.
 func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
@@ -78,6 +81,25 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
+	return nil
+}
+
+// ParseBackupConfigFromFlags parses the backup-related flags from the flag set.
+func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
+	err := cfg.ParseFromFlags(flags)
+	if err != nil {
+		return err
+	}
+
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CompressionType = compressionType
 	return nil
 }
 
@@ -121,15 +143,15 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
-		StartVersion: 0,
-		EndVersion:   0,
-		RateLimit:    cfg.RateLimit,
-		Concurrency:  cfg.Concurrency,
-		IsRawKv:      true,
-		Cf:           cfg.CF,
+		StartVersion:    0,
+		EndVersion:      0,
+		RateLimit:       cfg.RateLimit,
+		Concurrency:     cfg.Concurrency,
+		IsRawKv:         true,
+		Cf:              cfg.CF,
+		CompressionType: cfg.CompressionType,
 	}
-
-	err = client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
+	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
 	if err != nil {
 		return err
 	}
@@ -137,12 +159,17 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh.Close()
 
 	// Checksum
-	err = client.SaveBackupMeta(ctx, nil)
+	rawRanges := []*kvproto.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
+	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil)
+	if err != nil {
+		return err
+	}
+	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
 		return err
 	}
 
-	g.Record("Size", client.ArchiveSize())
+	g.Record("Size", utils.ArchiveSize(&backupMeta))
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
