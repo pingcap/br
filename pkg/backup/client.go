@@ -237,7 +237,19 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
+<<<<<<< HEAD
 			globalAutoID, err := idAlloc.NextGlobalAutoID(tableInfo.ID)
+=======
+			var globalAutoID int64
+			switch {
+			case tableInfo.IsSequence():
+				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
+			default:
+				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
+			}
+>>>>>>> 6390453... restore: don't restore auto id if the table doesn't has it. (#420)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
