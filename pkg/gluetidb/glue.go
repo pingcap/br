@@ -17,8 +17,6 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 
-	"github.com/pingcap/errors"
-
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/gluetikv"
 )
@@ -35,9 +33,7 @@ type Glue struct {
 }
 
 type tidbSession struct {
-	se           session.Session
-	allocs       map[int64]autoid.Allocator
-	allocFactory func(dbID int64, allocType uint8, opts ...autoid.AllocOption) autoid.Allocator
+	se session.Session
 }
 
 // GetDomain implements glue.Glue.
@@ -52,11 +48,7 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 		return nil, err
 	}
 	tiSession := &tidbSession{
-		se:     se,
-		allocs: make(map[int64]autoid.Allocator),
-		allocFactory: func(dbID int64, allocType uint8, opts ...autoid.AllocOption) autoid.Allocator {
-			return autoid.NewAllocator(store, dbID, false, allocType, opts...)
-		},
+		se: se,
 	}
 	return tiSession, nil
 }
@@ -105,7 +97,7 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 // CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	d := domain.GetDomain(gs.se).DDL()
-	query, err := gs.showCreateTable(table, dbName)
+	query, err := gs.showCreateTable(table)
 	if err != nil {
 		return err
 	}
@@ -125,31 +117,14 @@ func (gs *tidbSession) Close() {
 	gs.se.Close()
 }
 
-func (gs *tidbSession) allocatorFor(tbl *model.TableInfo, dbName model.CIStr) (autoid.Allocator, error) {
-	db, ok := domain.GetDomain(gs.se).InfoSchema().SchemaByName(dbName)
-	if !ok {
-		return nil, errors.Errorf("failed to get schema of table %s", tbl.Name.String())
-	}
-	if alloc, ok := gs.allocs[db.ID]; ok {
-		return alloc, nil
-	}
-	alloc := gs.allocFactory(db.ID, autoid.AutoIncrementType)
-	gs.allocs[db.ID] = alloc
-	return alloc, nil
-}
-
 // showCreateTable shows the result of SHOW CREATE TABLE from a TableInfo.
-func (gs *tidbSession) showCreateTable(tbl *model.TableInfo, dbName model.CIStr) (string, error) {
+func (gs *tidbSession) showCreateTable(tbl *model.TableInfo) (string, error) {
 	table := tbl.Clone()
 	table.AutoIncID = 0
 	result := bytes.NewBuffer(make([]byte, 0, defaultCapOfCreateTable))
-	alloc, err := gs.allocatorFor(tbl, dbName)
-	if err != nil {
-		return "", err
-	}
 	// this can never fail.
 	_, _ = result.WriteString(brComment)
-	if err := executor.ConstructResultOfShowCreateTable(gs.se, tbl, alloc, result); err != nil {
+	if err := executor.ConstructResultOfShowCreateTable(gs.se, tbl, autoid.Allocators{}, result); err != nil {
 		return "", err
 	}
 	return result.String(), nil
