@@ -22,6 +22,7 @@ import (
 
 const (
 	defaultBatcherOutputChannelSize = 1024
+	splitConcurrency                = 1
 )
 
 // ContextManager is the struct to manage a TiKV 'context' for restore.
@@ -182,7 +183,7 @@ func NewTiKVSender(
 		}
 	}
 	inCh := make(chan DrainResult, 1)
-	midCh := make(chan DrainResult, 4)
+	midCh := make(chan DrainResult, splitConcurrency)
 
 	sender := &tikvSender{
 		client:         cli,
@@ -200,8 +201,7 @@ func NewTiKVSender(
 
 func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult, next chan<- DrainResult) {
 	defer log.Debug("split worker closed")
-	// TODO remove this magic number, allow us create it by config.
-	pool := utils.NewWorkerPool(4, "split & scatter")
+	pool := utils.NewWorkerPool(splitConcurrency, "split & scatter")
 	eg, ectx := errgroup.WithContext(ctx)
 	defer func() {
 		if err := eg.Wait(); err != nil {
