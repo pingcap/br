@@ -109,6 +109,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if cfg.NoSchema {
 		client.EnableSkipCreateSQL()
 	}
+	client.SetSwitchModeInterval(cfg.SwitchModeInterval)
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
 		return err
@@ -324,9 +325,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 	}
 
 	// Switch TiKV cluster to import mode (adjust rocksdb configuration).
-	if err := client.SwitchToImportMode(ctx); err != nil {
-		return utils.Nop, nil
-	}
+	client.SwitchToImportMode(ctx)
 
 	return mgr.RemoveSchedulers(ctx)
 }
