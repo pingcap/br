@@ -78,7 +78,6 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
 		return errors.New("endKey must be greater than startKey")
 	}
-
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {
 		return err
@@ -86,8 +85,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
-	return err
+	return nil
 }
 
 // ParseBackupConfigFromFlags parses the backup-related flags from the flag set.
@@ -106,6 +104,10 @@ func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.CompressionType = compressionType
+	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	return nil
 }
 
