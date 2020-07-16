@@ -555,7 +555,7 @@ func waitForRemoveRejectStores(
 }
 
 // ZapTables make zap field of table for debuging, including table names.
-// TODO make it a lazy stringer
+// TODO make it a lazy stringer.
 func ZapTables(tables []CreatedTable) zapcore.Field {
 	tableNames := make([]string, 0, len(tables))
 	for _, t := range tables {
@@ -565,7 +565,7 @@ func ZapTables(tables []CreatedTable) zapcore.Field {
 }
 
 // ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
-// TODO make it a lazy zap object
+// TODO make it a lazy zap object.
 func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 	totalKV := uint64(0)
 	totalSize := uint64(0)

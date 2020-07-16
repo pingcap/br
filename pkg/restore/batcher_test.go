@@ -30,30 +30,36 @@ type drySender struct {
 	rewriteRules *restore.RewriteRules
 	ranges       []rtree.Range
 	nBatch       int
+
+	outCh chan<- []restore.CreatedTable
+	errCh chan<- error
 }
 
-func (d *drySender) RestoreBatch(
-	_ctx context.Context,
-	ranges []rtree.Range,
-	rewriteRules *restore.RewriteRules,
-) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	log.Info("fake restore range", restore.ZapRanges(ranges)...)
-	d.nBatch++
-	d.rewriteRules.Append(*rewriteRules)
-	d.ranges = append(d.ranges, ranges...)
-	return nil
+func (sender *drySender) PutSink(outCh chan<- []restore.CreatedTable, errCh chan<- error) {
+	sender.outCh = outCh
+	sender.errCh = errCh
 }
 
-func (d *drySender) Close() {}
+func (sender *drySender) RestoreBatch(ranges restore.DrainResult) {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	log.Info("fake restore range", restore.ZapRanges(ranges.Ranges)...)
+	sender.nBatch++
+	sender.rewriteRules.Append(*ranges.RewriteRules)
+	sender.ranges = append(sender.ranges, ranges.Ranges...)
+	sender.outCh <- ranges.BlankTablesAfterSend
+}
+
+func (sender *drySender) Close() {
+	close(sender.outCh)
+}
 
 func waitForSend() {
 	time.Sleep(10 * time.Millisecond)
 }
 
-func (d *drySender) Ranges() []rtree.Range {
-	return d.ranges
+func (sender *drySender) Ranges() []rtree.Range {
+	return sender.ranges
 }
 
 func newDrySender() *drySender {
@@ -109,8 +115,8 @@ func (manager recordCurrentTableManager) Has(tables ...restore.TableWithRange) b
 	return true
 }
 
-func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
-	for _, rule := range d.rewriteRules.Table {
+func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
+	for _, rule := range sender.rewriteRules.Table {
 		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
 			return true
 		}
@@ -118,12 +124,12 @@ func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
 	return false
 }
 
-func (d *drySender) RangeLen() int {
-	return len(d.ranges)
+func (sender *drySender) RangeLen() int {
+	return len(sender.ranges)
 }
 
-func (d *drySender) BatchCount() int {
-	return d.nBatch
+func (sender *drySender) BatchCount() int {
+	return sender.nBatch
 }
 
 var (

@@ -62,8 +62,8 @@ func (b *Batcher) Len() int {
 	return int(atomic.LoadInt32(&b.size))
 }
 
-// contextCleaner is the worker goroutine that cleaning the 'context'.
-// (e.g. make regions leave restore mode)
+// contextCleaner is the worker goroutine that cleaning the 'context'
+// (e.g. make regions leave restore mode).
 func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
 	defer b.everythingIsDone.Done()
 	for {
@@ -217,8 +217,9 @@ type DrainResult struct {
 	Ranges               []rtree.Range
 }
 
+// Files returns all files of this drain result.
 func (result DrainResult) Files() []*backup.File {
-	var files []*backup.File
+	var files = make([]*backup.File, 0, len(result.Ranges)*2)
 	for _, fs := range result.Ranges {
 		files = append(files, fs.Files...)
 	}
