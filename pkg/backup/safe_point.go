@@ -32,6 +32,7 @@ type BRServiceSafePoint struct {
 	BackupTS uint64
 }
 
+// MarshalLogObject implements zapcore.ObjectMarshaler.
 func (sp BRServiceSafePoint) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddString("ID", sp.ID)
 	ttlDuration := time.Duration(sp.TTL) * time.Second
