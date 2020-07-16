@@ -169,7 +169,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
 	if cfg.RemoveSchedulers {
-		restore, e := conn.RemoveSchedulers(ctx, mgr)
+		log.Debug("removing some PD schedulers")
+		restore, e := mgr.RemoveSchedulers(ctx)
 		if e != nil {
 			return err
 		}

@@ -136,7 +136,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
 
 	if cfg.RemoveSchedulers {
-		restore, e := conn.RemoveSchedulers(ctx, mgr)
+		restore, e := mgr.RemoveSchedulers(ctx)
 		if e != nil {
 			return err
 		}

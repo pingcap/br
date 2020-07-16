@@ -328,7 +328,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 		return utils.Nop, nil
 	}
 
-	return conn.RemoveSchedulers(ctx, mgr)
+	return mgr.RemoveSchedulers(ctx)
 }
 
 // restorePostWork executes some post work after restore.

@@ -85,7 +85,7 @@ func restoreSchedulers(ctx context.Context, mgr *Mgr, clusterCfg clusterConfig) 
 
 // RemoveSchedulers removes the schedulers that may slow down BR speed.
 // TODO make each step returns a function that can restore schedulers it has removed.
-func RemoveSchedulers(ctx context.Context, mgr *Mgr) (utils.UndoFunc, error) {
+func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (utils.UndoFunc, error) {
 	// Remove default PD scheduler that may affect restore process.
 	existSchedulers, err := mgr.ListSchedulers(ctx)
 	if err != nil {
