@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/kvproto/pkg/backup"
+
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
@@ -39,8 +41,8 @@ type Batcher struct {
 	autoCommitJoiner chan<- struct{}
 	// everythingIsDone is for waiting for worker done: that is, after we send a
 	// signal to autoCommitJoiner, we must give it enough time to get things done.
-	// Then, it should notify us by this waitgroup.
-	// Use waitgroup instead of a trivial channel for further extension.
+	// Then, it should notify us by this wait group.
+	// Use wait group instead of a trivial channel for further extension.
 	everythingIsDone *sync.WaitGroup
 	// sendErr is for output error information.
 	sendErr chan<- error
@@ -58,6 +60,29 @@ type Batcher struct {
 // Len calculate the current size of this batcher.
 func (b *Batcher) Len() int {
 	return int(atomic.LoadInt32(&b.size))
+}
+
+// contextCleaner is the worker goroutine that cleaning the 'context'.
+// (e.g. make regions leave restore mode)
+func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
+	defer b.everythingIsDone.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case tbls, ok := <-tables:
+			if !ok {
+				return
+			}
+			if err := b.manager.Leave(ctx, tbls); err != nil {
+				b.sendErr <- err
+				return
+			}
+			for _, tbl := range tbls {
+				b.outCh <- tbl
+			}
+		}
+	}
 }
 
 // NewBatcher creates a new batcher by a sender and a context manager.
@@ -84,8 +109,11 @@ func NewBatcher(
 		everythingIsDone:   new(sync.WaitGroup),
 		batchSizeThreshold: 1,
 	}
-	b.everythingIsDone.Add(1)
+	b.everythingIsDone.Add(2)
 	go b.sendWorker(ctx, sendChan)
+	restoredTables := make(chan []CreatedTable, 8)
+	go b.contextCleaner(ctx, restoredTables)
+	sender.PutSink(restoredTables, errCh)
 	return b, output
 }
 
@@ -105,7 +133,7 @@ func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
 // DisableAutoCommit blocks the current goroutine until the worker can gracefully stop,
 // and then disable auto commit.
 func (b *Batcher) DisableAutoCommit() {
-	b.joinWorker()
+	b.joinAutoCommitWorker()
 	b.autoCommitJoiner = nil
 }
 
@@ -114,9 +142,9 @@ func (b *Batcher) waitUntilSendDone() {
 	b.everythingIsDone.Wait()
 }
 
-// joinWorker blocks the current goroutine until the worker can gracefully stop.
+// joinAutoCommitWorker blocks the current goroutine until the worker can gracefully stop.
 // return immediately when auto commit disabled.
-func (b *Batcher) joinWorker() {
+func (b *Batcher) joinAutoCommitWorker() {
 	if b.autoCommitJoiner != nil {
 		log.Debug("gracefully stopping worker goroutine")
 		b.autoCommitJoiner <- struct{}{}
@@ -129,13 +157,10 @@ func (b *Batcher) joinWorker() {
 func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 	sendUntil := func(lessOrEqual int) {
 		for b.Len() > lessOrEqual {
-			tbls, err := b.Send(ctx)
+			err := b.Send(ctx)
 			if err != nil {
 				b.sendErr <- err
 				return
-			}
-			for _, t := range tbls {
-				b.outCh <- t
 			}
 		}
 	}
@@ -148,6 +173,7 @@ func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 			sendUntil(0)
 		case SendAllThenClose:
 			sendUntil(0)
+			b.sender.Close()
 			b.everythingIsDone.Done()
 			return
 		}
@@ -181,7 +207,8 @@ func (b *Batcher) asyncSend(t SendType) {
 	}
 }
 
-type drainResult struct {
+// DrainResult is the collection of some ranges and theirs metadata.
+type DrainResult struct {
 	// TablesToSend are tables that would be send at this batch.
 	TablesToSend []CreatedTable
 	// BlankTablesAfterSend are tables that will be full-restored after this batch send.
@@ -190,8 +217,16 @@ type drainResult struct {
 	Ranges               []rtree.Range
 }
 
-func newDrainResult() drainResult {
-	return drainResult{
+func (result DrainResult) Files() []*backup.File {
+	var files []*backup.File
+	for _, fs := range result.Ranges {
+		files = append(files, fs.Files...)
+	}
+	return files
+}
+
+func newDrainResult() DrainResult {
+	return DrainResult{
 		TablesToSend:         make([]CreatedTable, 0),
 		BlankTablesAfterSend: make([]CreatedTable, 0),
 		RewriteRules:         EmptyRewriteRule(),
@@ -217,7 +252,7 @@ func newDrainResult() drainResult {
 // |--|-------|
 // |t2|t3     |
 // as you can see, all restored ranges would be removed.
-func (b *Batcher) drainRanges() drainResult {
+func (b *Batcher) drainRanges() DrainResult {
 	result := newDrainResult()
 
 	b.cachedTablesMu.Lock()
@@ -271,42 +306,22 @@ func (b *Batcher) drainRanges() drainResult {
 
 // Send sends all pending requests in the batcher.
 // returns tables sent FULLY in the current batch.
-func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
+func (b *Batcher) Send(ctx context.Context) error {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
-
 	log.Info("restore batch start",
 		append(
 			ZapRanges(ranges),
 			ZapTables(tbs),
 		)...,
 	)
-
+	// Leave is called at b.contextCleaner
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
-		return nil, err
+		return err
 	}
-	defer func() {
-		if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
-			log.Error("encountering error when leaving recover mode, we can go on but some regions may stick on restore mode",
-				append(
-					ZapRanges(ranges),
-					ZapTables(tbs),
-					zap.Error(err))...,
-			)
-		}
-		if len(drainResult.BlankTablesAfterSend) > 0 {
-			log.Debug("table fully restored",
-				ZapTables(drainResult.BlankTablesAfterSend),
-				zap.Int("ranges", len(ranges)),
-			)
-		}
-	}()
-
-	if err := b.sender.RestoreBatch(ctx, ranges, drainResult.RewriteRules); err != nil {
-		return nil, err
-	}
-	return drainResult.BlankTablesAfterSend, nil
+	b.sender.RestoreBatch(drainResult)
+	return nil
 }
 
 func (b *Batcher) sendIfFull() {
@@ -342,7 +357,6 @@ func (b *Batcher) Close() {
 	b.waitUntilSendDone()
 	close(b.outCh)
 	close(b.sendCh)
-	b.sender.Close()
 }
 
 // SetThreshold sets the threshold that how big the batch size reaching need to send batch.

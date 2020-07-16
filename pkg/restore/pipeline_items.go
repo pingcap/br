@@ -4,9 +4,12 @@ package restore
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
@@ -129,8 +132,12 @@ func Exhaust(ec <-chan error) []error {
 
 // BatchSender is the abstract of how the batcher send a batch.
 type BatchSender interface {
+	// PutSink sets the sink of this sender, user to this interface promise
+	// call this function at least once before first call to `RestoreBatch`.
+	// TODO abstract the sink type
+	PutSink(outCh chan<- []CreatedTable, errCh chan<- error)
 	// RestoreBatch will send the restore request.
-	RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error
+	RestoreBatch(ranges DrainResult)
 	Close()
 }
 
@@ -138,6 +145,21 @@ type tikvSender struct {
 	client         *Client
 	updateCh       glue.Progress
 	rejectStoreMap map[uint64]bool
+
+	outCh atomic.Value
+	errCh atomic.Value
+	inCh  chan<- DrainResult
+
+	wg *sync.WaitGroup
+}
+
+func (b *tikvSender) PutSink(outCh chan<- []CreatedTable, errCh chan<- error) {
+	b.outCh.Store(outCh)
+	b.errCh.Store(errCh)
+}
+
+func (b *tikvSender) RestoreBatch(ranges DrainResult) {
+	b.inCh <- ranges
 }
 
 // NewTiKVSender make a sender that send restore requests to TiKV.
@@ -159,42 +181,91 @@ func NewTiKVSender(
 			rejectStoreMap[store.GetId()] = true
 		}
 	}
+	inCh := make(chan DrainResult, 1)
+	midCh := make(chan DrainResult, 4)
 
-	return &tikvSender{
+	sender := &tikvSender{
 		client:         cli,
 		updateCh:       updateCh,
 		rejectStoreMap: rejectStoreMap,
-	}, nil
+		inCh:           inCh,
+		wg:             new(sync.WaitGroup),
+	}
+
+	sender.wg.Add(2)
+	go sender.splitWorker(ctx, inCh, midCh)
+	go sender.restoreWorker(ctx, midCh)
+	return sender, nil
 }
 
-func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error {
-	if err := SplitRanges(ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
-		log.Error("failed on split range",
-			zap.Any("ranges", ranges),
-			zap.Error(err),
-		)
-		return err
+func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult, next chan<- DrainResult) {
+	defer log.Debug("split worker closed")
+	// TODO remove this magic number, allow us create it by config.
+	pool := utils.NewWorkerPool(4, "split & scatter")
+	eg, ectx := errgroup.WithContext(ctx)
+	defer func() {
+		if err := eg.Wait(); err != nil {
+			b.errCh.Load().(chan<- error) <- err
+		}
+		b.wg.Done()
+		close(next)
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result, ok := <-ranges:
+			if !ok {
+				return
+			}
+			pool.ApplyOnErrorGroup(eg, func() error {
+				if err := SplitRanges(ectx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
+					log.Error("failed on split range",
+						zap.Any("ranges", ranges),
+						zap.Error(err),
+					)
+					return err
+				}
+				next <- result
+				return nil
+			})
+		}
 	}
+}
 
-	files := []*backup.File{}
-	for _, fs := range ranges {
-		files = append(files, fs.Files...)
+func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResult) {
+	defer func() {
+		log.Debug("restore worker closed")
+		b.wg.Done()
+		close(b.outCh.Load().(chan<- []CreatedTable))
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result, ok := <-ranges:
+			if !ok {
+				return
+			}
+			files := result.Files()
+			if err := b.client.RestoreFiles(files, result.RewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
+				b.errCh.Load().(chan<- error) <- err
+				return
+			}
+
+			log.Info("restore batch done",
+				append(
+					ZapRanges(result.Ranges),
+					zap.Int("file count", len(files)),
+				)...,
+			)
+			b.outCh.Load().(chan<- []CreatedTable) <- result.BlankTablesAfterSend
+		}
 	}
-
-	if err := b.client.RestoreFiles(files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
-		return err
-	}
-
-	log.Info("restore batch done",
-		append(
-			ZapRanges(ranges),
-			zap.Int("file count", len(files)),
-		)...,
-	)
-
-	return nil
 }
 
 func (b *tikvSender) Close() {
-	// don't close update channel here, since we may need it then.
+	close(b.inCh)
+	b.wg.Wait()
+	log.Debug("tikv sender closed")
 }
