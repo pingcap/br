@@ -5,6 +5,8 @@ package backup
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/pd/v4/pkg/tsoutil"
+	"go.uber.org/zap/zapcore"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +30,16 @@ type BRServiceSafePoint struct {
 	ID       string
 	TTL      int64
 	BackupTS uint64
+}
+
+func (sp BRServiceSafePoint) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	encoder.AddString("ID", sp.ID)
+	ttlDuration := time.Duration(sp.TTL) * time.Second
+	encoder.AddString("TTL", ttlDuration.String())
+	backupTime, _ := tsoutil.ParseTS(sp.BackupTS)
+	encoder.AddString("BackupTime", backupTime.String())
+	encoder.AddUint64("BackupTS", sp.BackupTS)
+	return nil
 }
 
 // getGCSafePoint returns the current gc safe point.
@@ -63,14 +75,14 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 // UpdateServiceSafePoint register BackupTS to PD, to lock down BackupTS as safePoint with TTL seconds.
 func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, sp BRServiceSafePoint) error {
 	log.Debug("update PD safePoint limit with TTL",
-		zap.Uint64("safePoint", sp.BackupTS),
-		zap.Int64("TTL", sp.TTL))
+		zap.Object("safePoint", sp))
 
 	lastSafePoint, err := pdClient.UpdateServiceGCSafePoint(ctx,
 		sp.ID, sp.TTL, sp.BackupTS-1)
 	if lastSafePoint > sp.BackupTS-1 {
 		log.Warn("service GC safe point lost, we may fail to back up if GC lifetime isn't long enough",
 			zap.Uint64("lastSafePoint", lastSafePoint),
+			zap.Object("safePoint", sp),
 		)
 	}
 	return err
@@ -96,7 +108,7 @@ func StartServiceSafePointKeeper(
 		if err := CheckGCSafePoint(ctx, pdClient, sp.BackupTS); err != nil {
 			log.Panic("cannot pass gc safe point check, aborting",
 				zap.Error(err),
-				zap.Uint64("backupTS", sp.BackupTS),
+				zap.Object("safePoint", sp),
 			)
 		}
 	}
