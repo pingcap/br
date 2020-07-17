@@ -96,10 +96,10 @@ func (push *pushDown) pushBackup(
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
 				case *backup.Error_KvError:
-					log.Error("backup occur kv error", zap.Reflect("error", v))
+					log.Warn("backup occur kv error", zap.Reflect("error", v))
 
 				case *backup.Error_RegionError:
-					log.Error("backup occur region error",
+					log.Warn("backup occur region error",
 						zap.Reflect("error", v))
 
 				case *backup.Error_ClusterIdError:
