@@ -222,7 +222,7 @@ func (importer *FileImporter) Import(
 		if needReject {
 			// TODO remove when TiFlash support restore
 			startTime := time.Now()
-			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
+			log.Debug("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
 			for _, region := range regionInfos {
 				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
 					log.Error("waiting for removing rejected stores failed",
@@ -230,7 +230,7 @@ func (importer *FileImporter) Import(
 					return errors.New("waiting for removing rejected stores failed")
 				}
 			}
-			log.Info("waiting for removing rejected stores done",
+			log.Debug("waiting for removing rejected stores done",
 				zap.Int("regions", len(regionInfos)), zap.Duration("take", time.Since(startTime)))
 			needReject = false
 		}

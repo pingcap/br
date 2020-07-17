@@ -656,7 +656,12 @@ func (rc *Client) RestoreFiles(
 		fileReplica := file
 		rc.workerPool.Apply(
 			func() {
-				defer wg.Done()
+				fileStart := time.Now()
+				defer func() {
+					log.Info("import file done", utils.ZapFile(fileReplica),
+						zap.Duration("take", time.Since(fileStart)))
+					wg.Done()
+				}()
 				select {
 				case <-rc.ctx.Done():
 					errCh <- rc.ctx.Err()
