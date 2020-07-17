@@ -171,14 +171,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if cfg.RemoveSchedulers {
 		log.Debug("removing some PD schedulers")
 		restore, e := mgr.RemoveSchedulers(ctx)
-		if e != nil {
-			return err
-		}
 		defer func() {
 			if restoreE := restore(ctx); restoreE != nil {
 				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 			}
 		}()
+		if e != nil {
+			return err
+		}
 	}
 
 	req := kvproto.BackupRequest{

@@ -152,12 +152,7 @@ func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (undo utils.UndoFunc, err 
 		limit := int(value.(float64))
 		scheduleLimitCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
 	}
-	err = mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
-	if err != nil {
-		return
-	}
-
-	return
+	return undo, mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
 }
 
 func removePDLeaderScheduler(ctx context.Context, mgr *Mgr, existSchedulers []string) ([]string, error) {
