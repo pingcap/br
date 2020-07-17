@@ -98,6 +98,9 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.ForceSendInterval, err = flags.GetDuration(flagForceSendInterval)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
