@@ -68,7 +68,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 
 	flags.Bool(flagRemoveSchedulers, false,
-		"remove some of PD schedulers to speed up backup, but will make influence to cluster")
+		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.

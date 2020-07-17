@@ -83,13 +83,21 @@ func restoreSchedulers(ctx context.Context, mgr *Mgr, clusterCfg clusterConfig) 
 	return nil
 }
 
+func (mgr *Mgr) makeUndoFunctionByConfig(config clusterConfig) utils.UndoFunc {
+	restore := func(ctx context.Context) error {
+		return restoreSchedulers(ctx, mgr, config)
+	}
+	return restore
+}
+
 // RemoveSchedulers removes the schedulers that may slow down BR speed.
-// TODO make each step returns a function that can restore schedulers it has removed.
-func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (utils.UndoFunc, error) {
+func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (undo utils.UndoFunc, err error) {
+	undo = utils.Nop
+
 	// Remove default PD scheduler that may affect restore process.
 	existSchedulers, err := mgr.ListSchedulers(ctx)
 	if err != nil {
-		return utils.Nop, nil
+		return
 	}
 	needRemoveSchedulers := make([]string, 0, len(existSchedulers))
 	for _, s := range existSchedulers {
@@ -99,18 +107,21 @@ func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (utils.UndoFunc, error) {
 	}
 	scheduler, err := removePDLeaderScheduler(ctx, mgr, needRemoveSchedulers)
 	if err != nil {
-		return utils.Nop, nil
+		return
 	}
+
+	undo = mgr.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler})
 
 	stores, err := mgr.GetPDClient().GetAllStores(ctx)
 	if err != nil {
-		return utils.Nop, err
+		return
 	}
-
 	scheduleCfg, err := mgr.GetPDScheduleConfig(ctx)
 	if err != nil {
-		return utils.Nop, err
+		return
 	}
+
+	undo = mgr.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler, scheduleCfg: scheduleCfg})
 
 	disableMergeCfg := make(map[string]interface{})
 	for _, cfgKey := range pdRegionMergeCfg {
@@ -124,7 +135,7 @@ func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (utils.UndoFunc, error) {
 	}
 	err = mgr.UpdatePDScheduleConfig(ctx, disableMergeCfg)
 	if err != nil {
-		return utils.Nop, err
+		return
 	}
 
 	scheduleLimitCfg := make(map[string]interface{})
@@ -143,17 +154,10 @@ func (mgr *Mgr) RemoveSchedulers(ctx context.Context) (utils.UndoFunc, error) {
 	}
 	err = mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
 	if err != nil {
-		return utils.Nop, err
+		return
 	}
 
-	cluster := clusterConfig{
-		scheduler:   scheduler,
-		scheduleCfg: scheduleCfg,
-	}
-	restore := func(ctx context.Context) error {
-		return restoreSchedulers(ctx, mgr, cluster)
-	}
-	return restore, nil
+	return
 }
 
 func removePDLeaderScheduler(ctx context.Context, mgr *Mgr, existSchedulers []string) ([]string, error) {
