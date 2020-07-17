@@ -5,7 +5,6 @@ package restore
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 
@@ -24,6 +23,31 @@ const (
 	defaultBatcherOutputChannelSize = 1024
 	splitConcurrency                = 1
 )
+
+// TableSink is the 'sink' of restored data by a sender.
+type TableSink interface {
+	EmitTables(tables ...CreatedTable)
+	EmitError(error)
+	Close()
+}
+
+type chanTableSink struct {
+	outCh chan<- []CreatedTable
+	errCh chan<- error
+}
+
+func (sink chanTableSink) EmitTables(tables ...CreatedTable) {
+	sink.outCh <- tables
+}
+
+func (sink chanTableSink) EmitError(err error) {
+	sink.errCh <- err
+}
+
+func (sink chanTableSink) Close() {
+	// ErrCh may has multi sender part, don't close it.
+	close(sink.outCh)
+}
 
 // ContextManager is the struct to manage a TiKV 'context' for restore.
 // Batcher will call Enter when any table should be restore on batch,
@@ -136,7 +160,7 @@ type BatchSender interface {
 	// PutSink sets the sink of this sender, user to this interface promise
 	// call this function at least once before first call to `RestoreBatch`.
 	// TODO abstract the sink type
-	PutSink(outCh chan<- []CreatedTable, errCh chan<- error)
+	PutSink(sink TableSink)
 	// RestoreBatch will send the restore request.
 	RestoreBatch(ranges DrainResult)
 	Close()
@@ -147,16 +171,16 @@ type tikvSender struct {
 	updateCh       glue.Progress
 	rejectStoreMap map[uint64]bool
 
-	outCh atomic.Value
-	errCh atomic.Value
-	inCh  chan<- DrainResult
+	sink TableSink
+	inCh chan<- DrainResult
 
 	wg *sync.WaitGroup
 }
 
-func (b *tikvSender) PutSink(outCh chan<- []CreatedTable, errCh chan<- error) {
-	b.outCh.Store(outCh)
-	b.errCh.Store(errCh)
+func (b *tikvSender) PutSink(sink TableSink) {
+	// don't worry about visibility, since we will call this before first call to
+	// RestoreBatch, which is a sync point.
+	b.sink = sink
 }
 
 func (b *tikvSender) RestoreBatch(ranges DrainResult) {
@@ -205,7 +229,7 @@ func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult,
 	eg, ectx := errgroup.WithContext(ctx)
 	defer func() {
 		if err := eg.Wait(); err != nil {
-			b.errCh.Load().(chan<- error) <- err
+			b.sink.EmitError(err)
 		}
 		b.wg.Done()
 		close(next)
@@ -237,7 +261,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 	defer func() {
 		log.Debug("restore worker closed")
 		b.wg.Done()
-		close(b.outCh.Load().(chan<- []CreatedTable))
+		b.sink.Close()
 	}()
 	for {
 		select {
@@ -249,7 +273,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 			}
 			files := result.Files()
 			if err := b.client.RestoreFiles(files, result.RewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
-				b.errCh.Load().(chan<- error) <- err
+				b.sink.EmitError(err)
 				return
 			}
 
@@ -257,7 +281,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 				ZapRanges(result.Ranges),
 				zap.Int("file count", len(files)),
 			)
-			b.outCh.Load().(chan<- []CreatedTable) <- result.BlankTablesAfterSend
+			b.sink.EmitTables(result.BlankTablesAfterSend...)
 		}
 	}
 }

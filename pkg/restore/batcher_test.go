@@ -31,13 +31,11 @@ type drySender struct {
 	ranges       []rtree.Range
 	nBatch       int
 
-	outCh chan<- []restore.CreatedTable
-	errCh chan<- error
+	sink restore.TableSink
 }
 
-func (sender *drySender) PutSink(outCh chan<- []restore.CreatedTable, errCh chan<- error) {
-	sender.outCh = outCh
-	sender.errCh = errCh
+func (sender *drySender) PutSink(sink restore.TableSink) {
+	sender.sink = sink
 }
 
 func (sender *drySender) RestoreBatch(ranges restore.DrainResult) {
@@ -47,11 +45,11 @@ func (sender *drySender) RestoreBatch(ranges restore.DrainResult) {
 	sender.nBatch++
 	sender.rewriteRules.Append(*ranges.RewriteRules)
 	sender.ranges = append(sender.ranges, ranges.Ranges...)
-	sender.outCh <- ranges.BlankTablesAfterSend
+	sender.sink.EmitTables(ranges.BlankTablesAfterSend...)
 }
 
 func (sender *drySender) Close() {
-	close(sender.outCh)
+	sender.sink.Close()
 }
 
 func waitForSend() {

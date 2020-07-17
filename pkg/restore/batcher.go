@@ -113,7 +113,8 @@ func NewBatcher(
 	go b.sendWorker(ctx, sendChan)
 	restoredTables := make(chan []CreatedTable, 8)
 	go b.contextCleaner(ctx, restoredTables)
-	sender.PutSink(restoredTables, errCh)
+	sink := chanTableSink{restoredTables, errCh}
+	sender.PutSink(sink)
 	return b, output
 }
 
