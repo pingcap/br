@@ -254,10 +254,8 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 			}
 
 			log.Info("restore batch done",
-				append(
-					ZapRanges(result.Ranges),
-					zap.Int("file count", len(files)),
-				)...,
+				ZapRanges(result.Ranges),
+				zap.Int("file count", len(files)),
 			)
 			b.outCh.Load().(chan<- []CreatedTable) <- result.BlankTablesAfterSend
 		}

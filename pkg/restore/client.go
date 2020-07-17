@@ -827,13 +827,10 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		start := time.Now()
 		wg := new(sync.WaitGroup)
 		defer func() {
 			log.Info("all checksum ended")
 			wg.Wait()
-			elapsed := time.Since(start)
-			summary.CollectDuration("restore checksum", elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -861,6 +858,11 @@ func (rc *Client) GoValidateChecksum(
 }
 
 func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		summary.CollectDuration("restore checksum", elapsed)
+	}()
 	if tbl.OldTable.NoChecksum() {
 		log.Warn("table has no checksum, skipping checksum",
 			zap.Stringer("table", tbl.OldTable.Info.Name),

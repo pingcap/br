@@ -555,30 +555,41 @@ func waitForRemoveRejectStores(
 }
 
 // ZapTables make zap field of table for debuging, including table names.
-// TODO make it a lazy stringer.
 func ZapTables(tables []CreatedTable) zapcore.Field {
-	tableNames := make([]string, 0, len(tables))
-	for _, t := range tables {
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
-	}
-	return zap.Strings("tables", tableNames)
+	return zap.Array("tables", tableSliceArrayMixIn(tables))
 }
 
 // ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
 // TODO make it a lazy zap object.
-func ZapRanges(ranges []rtree.Range) []zapcore.Field {
+func ZapRanges(ranges []rtree.Range) zapcore.Field {
+	return zap.Object("rangeInfo", rangesSliceObjectMixin(ranges))
+}
+
+type tableSliceArrayMixIn []CreatedTable
+
+func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	for _, s := range ss {
+		encoder.AppendString(fmt.Sprintf("%s.%s",
+			utils.EncloseName(s.Table.Name.String()),
+			utils.EncloseName(s.OldTable.Db.Name.String())))
+	}
+	return nil
+}
+
+type rangesSliceObjectMixin []rtree.Range
+
+func (rs rangesSliceObjectMixin) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	totalKV := uint64(0)
 	totalSize := uint64(0)
-	for _, r := range ranges {
+	for _, r := range rs {
 		for _, f := range r.Files {
 			totalKV += f.GetTotalKvs()
 			totalSize += f.GetTotalBytes()
 		}
 	}
 
-	return []zap.Field{
-		zap.Int("ranges", len(ranges)),
-		zap.Uint64("total kv", totalKV),
-		zap.Uint64("total size", totalSize),
-	}
+	encoder.AddInt("ranges", len(rs))
+	encoder.AddUint64("total kv", totalKV)
+	encoder.AddUint64("total size", totalSize)
+	return nil
 }

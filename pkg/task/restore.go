@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	flagOnline   = "online"
-	flagNoSchema = "no-schema"
+	flagOnline            = "online"
+	flagNoSchema          = "no-schema"
+	flagForceSendInterval = "force-send-interval"
 
 	defaultRestoreConcurrency = 128
-	maxRestoreBatchSizeLimit  = 256
+	maxRestoreBatchSizeLimit  = 65535
 	defaultDDLConcurrency     = 16
 )
 
@@ -58,8 +59,9 @@ var (
 type RestoreConfig struct {
 	Config
 
-	Online   bool `json:"online" toml:"online"`
-	NoSchema bool `json:"no-schema" toml:"no-schema"`
+	Online            bool          `json:"online" toml:"online"`
+	NoSchema          bool          `json:"no-schema" toml:"no-schema"`
+	ForceSendInterval time.Duration `json:"force-send-interval" toml:"force-send-interval"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
@@ -67,9 +69,13 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
 	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
+	flags.Duration(flagForceSendInterval, time.Second, "send restore request force "+
+		"even we hasn't collected enough ranges as --concurrency requests")
 
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
+	// --concurrency is hidden yet, so we hide this too.
+	_ = flags.MarkHidden(flagForceSendInterval)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -91,6 +97,7 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.ForceSendInterval, err = flags.GetDuration(flagForceSendInterval)
 
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
@@ -259,7 +266,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	manager := restore.NewBRContextManager(client)
 	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
-	batcher.EnableAutoCommit(ctx, time.Second)
+	batcher.EnableAutoCommit(ctx, cfg.ForceSendInterval)
 	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, cfg.PD, client, batcher, errCh)
 
 	var finish <-chan struct{}
