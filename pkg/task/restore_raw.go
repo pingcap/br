@@ -67,6 +67,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if cfg.Online {
 		client.EnableOnline()
 	}
+	client.SetSwitchModeInterval(cfg.SwitchModeInterval)
 
 	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
