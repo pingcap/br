@@ -6,8 +6,6 @@ import (
 	"context"
 	"sync"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -225,12 +223,7 @@ func NewTiKVSender(
 
 func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult, next chan<- DrainResult) {
 	defer log.Debug("split worker closed")
-	pool := utils.NewWorkerPool(splitConcurrency, "split & scatter")
-	eg, ectx := errgroup.WithContext(ctx)
 	defer func() {
-		if err := eg.Wait(); err != nil {
-			b.sink.EmitError(err)
-		}
 		b.wg.Done()
 		close(next)
 	}()
@@ -242,17 +235,15 @@ func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult,
 			if !ok {
 				return
 			}
-			pool.ApplyOnErrorGroup(eg, func() error {
-				if err := SplitRanges(ectx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
-					log.Error("failed on split range",
-						zap.Any("ranges", ranges),
-						zap.Error(err),
-					)
-					return err
-				}
-				next <- result
-				return nil
-			})
+			if err := SplitRanges(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
+				log.Error("failed on split range",
+					zap.Any("ranges", ranges),
+					zap.Error(err),
+				)
+				b.sink.EmitError(err)
+				return
+			}
+			next <- result
 		}
 	}
 }

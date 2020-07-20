@@ -635,7 +635,9 @@ func (rc *Client) RestoreFiles(
 		elapsed := time.Since(start)
 		if err == nil {
 			log.Info("Restore Files",
-				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+				zap.Int("files count", len(files)),
+				zap.Duration("take", elapsed),
+				zap.Object("files", utils.Files(files)))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
