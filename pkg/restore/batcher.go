@@ -65,6 +65,7 @@ func (b *Batcher) Len() int {
 // contextCleaner is the worker goroutine that cleaning the 'context'
 // (e.g. make regions leave restore mode).
 func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
+	defer b.manager.Close(ctx)
 	defer b.everythingIsDone.Done()
 	for {
 		select {
@@ -158,11 +159,7 @@ func (b *Batcher) joinAutoCommitWorker() {
 func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 	sendUntil := func(lessOrEqual int) {
 		for b.Len() > lessOrEqual {
-			err := b.Send(ctx)
-			if err != nil {
-				b.sendErr <- err
-				return
-			}
+			b.Send(ctx)
 		}
 	}
 
@@ -308,7 +305,7 @@ func (b *Batcher) drainRanges() DrainResult {
 
 // Send sends all pending requests in the batcher.
 // returns tables sent FULLY in the current batch.
-func (b *Batcher) Send(ctx context.Context) error {
+func (b *Batcher) Send(ctx context.Context) {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
@@ -318,10 +315,10 @@ func (b *Batcher) Send(ctx context.Context) error {
 	)
 	// Leave is called at b.contextCleaner
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
-		return err
+		b.sendErr <- err
+		return
 	}
 	b.sender.RestoreBatch(drainResult)
-	return nil
 }
 
 func (b *Batcher) sendIfFull() {

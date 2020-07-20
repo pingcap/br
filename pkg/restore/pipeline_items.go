@@ -54,6 +54,9 @@ type ContextManager interface {
 	Enter(ctx context.Context, tables []CreatedTable) error
 	// Leave make some tables 'leave' this context(a.k.a., restore is done, do some post-works).
 	Leave(ctx context.Context, tables []CreatedTable) error
+	// Close closes the context manager, sometimes when the manager is 'killed' and should do some cleanup
+	// it would be call.
+	Close(ctx context.Context)
 }
 
 // NewBRContextManager makes a BR context manager, that is,
@@ -63,7 +66,7 @@ func NewBRContextManager(client *Client) ContextManager {
 	return &brContextManager{
 		client: client,
 
-		hasTable: make(map[int64]bool),
+		hasTable: make(map[int64]CreatedTable),
 	}
 }
 
@@ -71,17 +74,25 @@ type brContextManager struct {
 	client *Client
 
 	// This 'set' of table ID allow us handle each table just once.
-	hasTable map[int64]bool
+	hasTable map[int64]CreatedTable
+}
+
+func (manager *brContextManager) Close(ctx context.Context) {
+	tbls := make([]*model.TableInfo, 0, len(manager.hasTable))
+	for _, tbl := range manager.hasTable {
+		tbls = append(tbls, tbl.Table)
+	}
+	splitPostWork(ctx, manager.client, tbls)
 }
 
 func (manager *brContextManager) Enter(ctx context.Context, tables []CreatedTable) error {
 	placementRuleTables := make([]*model.TableInfo, 0, len(tables))
 
 	for _, tbl := range tables {
-		if !manager.hasTable[tbl.Table.ID] {
+		if _, ok := manager.hasTable[tbl.Table.ID]; !ok {
 			placementRuleTables = append(placementRuleTables, tbl.Table)
 		}
-		manager.hasTable[tbl.Table.ID] = true
+		manager.hasTable[tbl.Table.ID] = tbl
 	}
 
 	return splitPrepareWork(ctx, manager.client, placementRuleTables)
@@ -96,6 +107,9 @@ func (manager *brContextManager) Leave(ctx context.Context, tables []CreatedTabl
 
 	splitPostWork(ctx, manager.client, placementRuleTables)
 	log.Info("restore table done", ZapTables(tables))
+	for _, tbl := range placementRuleTables {
+		delete(manager.hasTable, tbl.ID)
+	}
 	return nil
 }
 

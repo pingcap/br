@@ -70,6 +70,13 @@ func newDrySender() *drySender {
 
 type recordCurrentTableManager map[int64]bool
 
+func (manager recordCurrentTableManager) Close(ctx context.Context) {
+	if len(manager) > 0 {
+		log.Panic("When closing, there are still some tables doesn't be sent",
+			zap.Any("tables", manager))
+	}
+}
+
 func newMockManager() recordCurrentTableManager {
 	return make(recordCurrentTableManager)
 }
@@ -88,7 +95,7 @@ func (manager recordCurrentTableManager) Leave(_ context.Context, tables []resto
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
-		manager[t.Table.ID] = false
+		delete(manager, t.Table.ID)
 	}
 	return nil
 }
