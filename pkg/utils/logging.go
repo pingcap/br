@@ -85,17 +85,18 @@ func (keys zapArrayMarshalKeysMixIn) MarshalLogArray(enc zapcore.ArrayEncoder) e
 	return nil
 }
 
-type Files []*backup.File
+type files []*backup.File
 
-func (files Files) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+func (fs files) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	totalKVs := uint64(0)
 	totalSize := uint64(0)
-	for _, file := range files {
+	for _, file := range fs {
 		totalKVs += file.GetTotalKvs()
 		totalSize += file.GetTotalBytes()
 	}
 	encoder.AddUint64("totalKVs", totalKVs)
 	encoder.AddUint64("totalBytes", totalSize)
+	encoder.AddInt("totalFileCount", len(fs))
 	return nil
 }
 
@@ -130,6 +131,6 @@ func ZapSSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
 }
 
 // ZapFiles make the zap field for a set of file.
-func ZapFiles(files []*backup.File) zapcore.Field {
-	return zap.Object("files", Files(files))
+func ZapFiles(fs []*backup.File) zapcore.Field {
+	return zap.Object("fs", files(fs))
 }
