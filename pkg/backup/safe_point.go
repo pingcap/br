@@ -100,7 +100,7 @@ func StartServiceSafePointKeeper(
 	// It would be OK since TTL won't be zero, so gapTime should > `0.
 	updateGapTime := time.Duration(sp.TTL) * time.Second / preUpdateServiceSafePointFactor
 	update := func(ctx context.Context) {
-		if err := UpdateServiceSafePoint(ctx, pdClient, ttl, backupTS); err != nil {
+		if err := UpdateServiceSafePoint(ctx, pdClient, sp); err != nil {
 			log.Warn("failed to update service safe point, backup may fail if gc triggered",
 				zap.Error(err),
 			)
