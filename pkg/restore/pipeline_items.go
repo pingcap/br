@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultBatcherOutputChannelSize = 1024
-	splitConcurrency                = 1
+	midChBufferSize                 = 8
 )
 
 // TableSink is the 'sink' of restored data by a sender.
@@ -157,7 +157,6 @@ func Exhaust(ec <-chan error) []error {
 type BatchSender interface {
 	// PutSink sets the sink of this sender, user to this interface promise
 	// call this function at least once before first call to `RestoreBatch`.
-	// TODO abstract the sink type
 	PutSink(sink TableSink)
 	// RestoreBatch will send the restore request.
 	RestoreBatch(ranges DrainResult)
@@ -205,7 +204,7 @@ func NewTiKVSender(
 		}
 	}
 	inCh := make(chan DrainResult, 1)
-	midCh := make(chan DrainResult, splitConcurrency)
+	midCh := make(chan DrainResult, midChBufferSize)
 
 	sender := &tikvSender{
 		client:         cli,
