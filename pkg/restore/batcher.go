@@ -96,7 +96,7 @@ func NewBatcher(
 	manager ContextManager,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
-	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
+	output := make(chan CreatedTable, defaultChannelSize)
 	sendChan := make(chan SendType, 2)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
@@ -111,7 +111,7 @@ func NewBatcher(
 	}
 	b.everythingIsDone.Add(2)
 	go b.sendWorker(ctx, sendChan)
-	restoredTables := make(chan []CreatedTable, 8)
+	restoredTables := make(chan []CreatedTable, defaultChannelSize)
 	go b.contextCleaner(ctx, restoredTables)
 	sink := chanTableSink{restoredTables, errCh}
 	sender.PutSink(sink)

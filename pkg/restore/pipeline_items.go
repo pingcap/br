@@ -18,8 +18,7 @@ import (
 )
 
 const (
-	defaultBatcherOutputChannelSize = 1024
-	midChBufferSize                 = 8
+	defaultChannelSize = 1024
 )
 
 // TableSink is the 'sink' of restored data by a sender.
@@ -203,8 +202,8 @@ func NewTiKVSender(
 			rejectStoreMap[store.GetId()] = true
 		}
 	}
-	inCh := make(chan DrainResult, 1)
-	midCh := make(chan DrainResult, midChBufferSize)
+	inCh := make(chan DrainResult, defaultChannelSize)
+	midCh := make(chan DrainResult, defaultChannelSize)
 
 	sender := &tikvSender{
 		client:         cli,
