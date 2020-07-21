@@ -192,7 +192,10 @@ func NewMgr(
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
 	}
 	pdClient, err := pd.NewClientWithContext(
-		ctx, addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
+		ctx, addrs, securityOption,
+		pd.WithGRPCDialOptions(maxCallMsgSize...),
+		pd.WithCustomTimeoutOption(10*time.Second),
+	)
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
