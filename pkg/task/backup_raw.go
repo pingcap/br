@@ -8,8 +8,10 @@ import (
 
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
@@ -31,10 +33,11 @@ const (
 type RawKvConfig struct {
 	Config
 
-	StartKey        []byte                  `json:"start-key" toml:"start-key"`
-	EndKey          []byte                  `json:"end-key" toml:"end-key"`
-	CF              string                  `json:"cf" toml:"cf"`
-	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	StartKey         []byte                  `json:"start-key" toml:"start-key"`
+	EndKey           []byte                  `json:"end-key" toml:"end-key"`
+	CF               string                  `json:"cf" toml:"cf"`
+	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
 }
 
 // DefineRawBackupFlags defines common flags for the backup command.
@@ -45,6 +48,10 @@ func DefineRawBackupFlags(command *cobra.Command) {
 	command.Flags().StringP(flagEndKey, "", "", "backup raw kv end key, key is exclusive")
 	command.Flags().String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
+	command.Flags().Bool(flagRemoveSchedulers, false,
+		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
+	// This flag can impact the online cluster, so hide it in case of abuse.
+	_ = command.Flags().MarkHidden(flagRemoveSchedulers)
 }
 
 // ParseFromFlags parses the raw kv backup&restore common flags from the flag set.
@@ -73,7 +80,6 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
 		return errors.New("endKey must be greater than startKey")
 	}
-
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {
 		return err
@@ -100,6 +106,10 @@ func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.CompressionType = compressionType
+	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	return nil
 }
 
@@ -128,6 +138,18 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	}
 
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
+
+	if cfg.RemoveSchedulers {
+		restore, e := mgr.RemoveSchedulers(ctx)
+		defer func() {
+			if restoreE := restore(ctx); restoreE != nil {
+				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
+			}
+		}()
+		if e != nil {
+			return err
+		}
+	}
 
 	// The number of regions need to backup
 	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
