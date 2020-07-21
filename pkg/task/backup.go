@@ -69,6 +69,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 
 	flags.Bool(flagRemoveSchedulers, false,
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
+	// This flag can impact the online cluster, so hide it in case of abuse.
+	_ = flags.MarkHidden(flagRemoveSchedulers)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.

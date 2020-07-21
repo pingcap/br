@@ -50,6 +50,8 @@ func DefineRawBackupFlags(command *cobra.Command) {
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 	command.Flags().Bool(flagRemoveSchedulers, false,
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
+	// This flag can impact the online cluster, so hide it in case of abuse.
+	_ = command.Flags().MarkHidden(flagRemoveSchedulers)
 }
 
 // ParseFromFlags parses the raw kv backup&restore common flags from the flag set.

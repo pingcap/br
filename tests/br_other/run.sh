@@ -77,7 +77,7 @@ curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock"  --concurrency 4 || backup_fail=1
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
 if [ "$backup_fail" -ne "1" ];then
     echo "TEST: [$TEST_NAME] test backup lock file failed!"
     exit 1
