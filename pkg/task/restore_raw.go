@@ -67,6 +67,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if cfg.Online {
 		client.EnableOnline()
 	}
+	client.SetSwitchModeInterval(cfg.SwitchModeInterval)
 
 	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
@@ -110,11 +111,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Trace(err)
 	}
 
-	removedSchedulers, err := restorePreWork(ctx, client, mgr)
+	restoreSchedulers, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	defer restorePostWork(ctx, client, mgr, removedSchedulers)
+	defer restorePostWork(ctx, client, restoreSchedulers)
 
 	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {
