@@ -4,7 +4,6 @@ package task
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -32,27 +31,6 @@ const (
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 65535
 	defaultDDLConcurrency     = 16
-)
-
-var (
-	schedulers = map[string]struct{}{
-		"balance-leader-scheduler":     {},
-		"balance-hot-region-scheduler": {},
-		"balance-region-scheduler":     {},
-
-		"shuffle-leader-scheduler":     {},
-		"shuffle-region-scheduler":     {},
-		"shuffle-hot-region-scheduler": {},
-	}
-	pdRegionMergeCfg = []string{
-		"max-merge-region-keys",
-		"max-merge-region-size",
-	}
-	pdScheduleLimitCfg = []string{
-		"leader-schedule-limit",
-		"region-schedule-limit",
-		"max-snapshot-count",
-	}
 )
 
 // RestoreConfig is the configuration specific for restore tasks.
@@ -230,13 +208,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	summary.CollectInt("restore ranges", rangeSize)
 	log.Info("range and file prepared", zap.Int("file count", len(files)), zap.Int("range count", rangeSize))
 
-	clusterCfg, err := restorePreWork(ctx, client, mgr)
+	restoreSchedulers, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
 		return err
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
-	defer restorePostWork(ctx, client, mgr, clusterCfg)
+	defer restorePostWork(ctx, client, restoreSchedulers)
 
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
@@ -349,153 +327,33 @@ func filterRestoreFiles(
 	return
 }
 
-type clusterConfig struct {
-	// Enable PD schedulers before restore
-	scheduler []string
-	// Original scheudle configuration
-	scheduleCfg map[string]interface{}
-}
-
 // restorePreWork executes some prepare work before restore.
-func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (clusterConfig, error) {
+// TODO make this function returns a restore post work.
+func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (utils.UndoFunc, error) {
 	if client.IsOnline() {
-		return clusterConfig{}, nil
+		return utils.Nop, nil
 	}
 
 	// Switch TiKV cluster to import mode (adjust rocksdb configuration).
 	client.SwitchToImportMode(ctx)
 
-	// Remove default PD scheduler that may affect restore process.
-	existSchedulers, err := mgr.ListSchedulers(ctx)
-	if err != nil {
-		return clusterConfig{}, nil
-	}
-	needRemoveSchedulers := make([]string, 0, len(existSchedulers))
-	for _, s := range existSchedulers {
-		if _, ok := schedulers[s]; ok {
-			needRemoveSchedulers = append(needRemoveSchedulers, s)
-		}
-	}
-	scheduler, err := removePDLeaderScheduler(ctx, mgr, needRemoveSchedulers)
-	if err != nil {
-		return clusterConfig{}, nil
-	}
-
-	stores, err := mgr.GetPDClient().GetAllStores(ctx)
-	if err != nil {
-		return clusterConfig{}, err
-	}
-
-	scheduleCfg, err := mgr.GetPDScheduleConfig(ctx)
-	if err != nil {
-		return clusterConfig{}, err
-	}
-
-	disableMergeCfg := make(map[string]interface{})
-	for _, cfgKey := range pdRegionMergeCfg {
-		value := scheduleCfg[cfgKey]
-		if value == nil {
-			// Ignore non-exist config.
-			continue
-		}
-		// Disable region merge by setting config to 0.
-		disableMergeCfg[cfgKey] = 0
-	}
-	err = mgr.UpdatePDScheduleConfig(ctx, disableMergeCfg)
-	if err != nil {
-		return clusterConfig{}, err
-	}
-
-	scheduleLimitCfg := make(map[string]interface{})
-	for _, cfgKey := range pdScheduleLimitCfg {
-		value := scheduleCfg[cfgKey]
-		if value == nil {
-			// Ignore non-exist config.
-			continue
-		}
-
-		// Speed update PD scheduler by enlarging scheduling limits.
-		// Multiply limits by store count but no more than 40.
-		// Larger limit may make cluster unstable.
-		limit := int(value.(float64))
-		scheduleLimitCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
-	}
-	err = mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
-	if err != nil {
-		return clusterConfig{}, err
-	}
-
-	cluster := clusterConfig{
-		scheduler:   scheduler,
-		scheduleCfg: scheduleCfg,
-	}
-	return cluster, nil
-}
-
-func removePDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, existSchedulers []string) ([]string, error) {
-	removedSchedulers := make([]string, 0, len(existSchedulers))
-	for _, scheduler := range existSchedulers {
-		err := mgr.RemoveScheduler(ctx, scheduler)
-		if err != nil {
-			return nil, err
-		}
-		removedSchedulers = append(removedSchedulers, scheduler)
-	}
-	return removedSchedulers, nil
+	return mgr.RemoveSchedulers(ctx)
 }
 
 // restorePostWork executes some post work after restore.
 // TODO: aggregate all lifetime manage methods into batcher's context manager field.
 func restorePostWork(
-	ctx context.Context, client *restore.Client, mgr *conn.Mgr, clusterCfg clusterConfig,
+	ctx context.Context, client *restore.Client, restoreSchedulers utils.UndoFunc,
 ) {
 	if client.IsOnline() {
 		return
 	}
 	if err := client.SwitchToNormalMode(ctx); err != nil {
-		log.Warn("fail to switch to normal mode")
+		log.Warn("fail to switch to normal mode", zap.Error(err))
 	}
-	if err := addPDLeaderScheduler(ctx, mgr, clusterCfg.scheduler); err != nil {
-		log.Warn("fail to add PD schedulers")
+	if err := restoreSchedulers(ctx); err != nil {
+		log.Warn("failed to restore PD schedulers", zap.Error(err))
 	}
-	mergeCfg := make(map[string]interface{})
-	for _, cfgKey := range pdRegionMergeCfg {
-		value := clusterCfg.scheduleCfg[cfgKey]
-		if value == nil {
-			// Ignore non-exist config.
-			continue
-		}
-		mergeCfg[cfgKey] = value
-	}
-	if err := mgr.UpdatePDScheduleConfig(ctx, mergeCfg); err != nil {
-		log.Warn("fail to update PD region merge config")
-	}
-
-	scheduleLimitCfg := make(map[string]interface{})
-	for _, cfgKey := range pdScheduleLimitCfg {
-		value := clusterCfg.scheduleCfg[cfgKey]
-		if value == nil {
-			// Ignore non-exist config.
-			continue
-		}
-		scheduleLimitCfg[cfgKey] = value
-	}
-	if err := mgr.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
-		log.Warn("fail to update PD schedule config")
-	}
-	if err := client.ResetRestoreLabels(ctx); err != nil {
-		log.Warn("reset store labels failed", zap.Error(err))
-	}
-}
-
-func addPDLeaderScheduler(ctx context.Context, mgr *conn.Mgr, removedSchedulers []string) error {
-	for _, scheduler := range removedSchedulers {
-		err := mgr.AddScheduler(ctx, scheduler)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
