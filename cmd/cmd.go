@@ -25,7 +25,7 @@ var (
 	initOnce        = sync.Once{}
 	defaultContext  context.Context
 	hasLogFile      uint64
-	tidbGlue        = gluetidb.Glue{}
+	tidbGlue        = gluetidb.New()
 	envLogToTermKey = "BR_LOG_TO_TERM"
 )
 

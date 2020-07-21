@@ -28,10 +28,11 @@ import (
 )
 
 const (
-	flagBackupTimeago   = "timeago"
-	flagBackupTS        = "backupts"
-	flagLastBackupTS    = "lastbackupts"
-	flagCompressionType = "compression"
+	flagBackupTimeago    = "timeago"
+	flagBackupTS         = "backupts"
+	flagLastBackupTS     = "lastbackupts"
+	flagCompressionType  = "compression"
+	flagRemoveSchedulers = "remove-schedulers"
 
 	flagGCTTL = "gcttl"
 
@@ -43,11 +44,12 @@ const (
 type BackupConfig struct {
 	Config
 
-	TimeAgo         time.Duration           `json:"time-ago" toml:"time-ago"`
-	BackupTS        uint64                  `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS    uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL           int64                   `json:"gc-ttl" toml:"gc-ttl"`
-	CompressionType kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	TimeAgo          time.Duration           `json:"time-ago" toml:"time-ago"`
+	BackupTS         uint64                  `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS     uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL            int64                   `json:"gc-ttl" toml:"gc-ttl"`
+	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -64,6 +66,11 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 	flags.String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
+
+	flags.Bool(flagRemoveSchedulers, false,
+		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
+	// This flag can impact the online cluster, so hide it in case of abuse.
+	_ = flags.MarkHidden(flagRemoveSchedulers)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -113,7 +120,8 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if cfg.Config.Concurrency > maxBackupConcurrency {
 		cfg.Config.Concurrency = maxBackupConcurrency
 	}
-	return nil
+	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
+	return err
 }
 
 // RunBackup starts a backup task inside the current goroutine.
@@ -161,6 +169,19 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	backup.StartServiceSafePointKeeper(ctx, client.GetGCTTL(), mgr.GetPDClient(), safePoint)
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
+
+	if cfg.RemoveSchedulers {
+		log.Debug("removing some PD schedulers")
+		restore, e := mgr.RemoveSchedulers(ctx)
+		defer func() {
+			if restoreE := restore(ctx); restoreE != nil {
+				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
+			}
+		}()
+		if e != nil {
+			return err
+		}
+	}
 
 	req := kvproto.BackupRequest{
 		StartVersion:    cfg.LastBackupTS,
