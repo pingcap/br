@@ -58,9 +58,10 @@ fi
 echo "backup start to test lock file"
 PPROF_PORT=6080
 GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
 # record last backup pid
 _pid=$!
+
 
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
@@ -71,6 +72,8 @@ echo "starting pprof..."
 sleep 1
 curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
+
+curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
@@ -83,12 +86,17 @@ fi
 if ps -p $_pid > /dev/null
 then
    echo "$_pid is running"
-   # kill last backup progress
-   kill -9 $_pid
+   # kill last backup progress (Don't send SIGKILL, or we might stuck PD in no scheduler state.)
+   kill $_pid
 else
    echo "TEST: [$TEST_NAME] test backup lock file failed! the last backup finished"
    exit 1
 fi
+
+# make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it. 
+# give enough time to BR so it can gracefully stop.
+sleep 10
+! curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true' 
 
 run_sql "DROP DATABASE $DB;"
 
