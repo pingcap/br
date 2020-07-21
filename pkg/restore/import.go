@@ -204,11 +204,11 @@ func (importer *FileImporter) Import(
 	needReject := len(rejectStoreMap) > 0
 
 	err = utils.WithRetry(ctx, func() error {
-		cctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
+		tctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, errScanRegion := PaginateScanRegion(
-			cctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
@@ -218,7 +218,7 @@ func (importer *FileImporter) Import(
 			startTime := time.Now()
 			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
 			for _, region := range regionInfos {
-				if !waitForRemoveRejectStores(cctx, importer.metaClient, region, rejectStoreMap) {
+				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
 					log.Error("waiting for removing rejected stores failed",
 						utils.ZapRegion(region.Region))
 					return errors.New("waiting for removing rejected stores failed")
@@ -236,12 +236,12 @@ func (importer *FileImporter) Import(
 			info := regionInfo
 			// Try to download file.
 			var downloadMeta *import_sstpb.SSTMeta
-			errDownload := utils.WithRetry(cctx, func() error {
+			errDownload := utils.WithRetry(ctx, func() error {
 				var e error
 				if importer.isRawKvMode {
-					downloadMeta, e = importer.downloadRawKVSST(cctx, info, file)
+					downloadMeta, e = importer.downloadRawKVSST(ctx, info, file)
 				} else {
-					downloadMeta, e = importer.downloadSST(cctx, info, file, rewriteRules)
+					downloadMeta, e = importer.downloadSST(ctx, info, file, rewriteRules)
 				}
 				return e
 			}, newDownloadSSTBackoffer())
@@ -268,7 +268,7 @@ func (importer *FileImporter) Import(
 				return errDownload
 			}
 
-			ingestResp, errIngest := importer.ingestSST(cctx, downloadMeta, info)
+			ingestResp, errIngest := importer.ingestSST(ctx, downloadMeta, info)
 		ingestRetry:
 			for errIngest == nil {
 				errPb := ingestResp.GetError()
@@ -288,7 +288,7 @@ func (importer *FileImporter) Import(
 					} else {
 						// Slow path, get region from PD
 						newInfo, errIngest = importer.metaClient.GetRegion(
-							cctx, info.Region.GetStartKey())
+							ctx, info.Region.GetStartKey())
 						if errIngest != nil {
 							break ingestRetry
 						}
@@ -301,7 +301,7 @@ func (importer *FileImporter) Import(
 						errIngest = errors.AddStack(ErrEpochNotMatch)
 						break ingestRetry
 					}
-					ingestResp, errIngest = importer.ingestSST(cctx, downloadMeta, newInfo)
+					ingestResp, errIngest = importer.ingestSST(ctx, downloadMeta, newInfo)
 				case errPb.EpochNotMatch != nil:
 					// TODO handle epoch not match error
 					//      1. retry download if needed
