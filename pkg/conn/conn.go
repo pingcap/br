@@ -203,7 +203,9 @@ func NewMgr(
 	if checkRequirements {
 		err = utils.CheckClusterVersion(ctx, pdClient)
 		if err != nil {
-			return nil, err
+			errMsg := "running BR in incompatible version of cluster, " +
+				"if you believe it's OK, use --check-requirements=false to skip."
+			return nil, errors.Annotate(err, errMsg)
 		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
