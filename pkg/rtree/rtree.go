@@ -16,15 +16,16 @@ import (
 
 // Range represents a backup response.
 type Range struct {
-	StartKey        []byte
-	EndKey          []byte
-	Files           []*backup.File
-	ApproximateSize uint64
+	StartKey   []byte
+	EndKey     []byte
+	Files      []*backup.File
+	TotalBytes uint64
+	TotalKVs   uint64
 }
 
 // String formats a range to a string.
 func (rg *Range) String() string {
-	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
+	return fmt.Sprintf("[%x %x %d %d]", rg.StartKey, rg.EndKey, rg.TotalKVs, rg.TotalBytes)
 }
 
 // Intersect returns intersect range in the tree.

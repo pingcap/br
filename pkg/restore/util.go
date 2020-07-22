@@ -172,18 +172,31 @@ func ValidateFileRanges(
 	rewriteRules *RewriteRules,
 ) ([]rtree.Range, error) {
 	ranges := make([]rtree.Range, 0, len(files))
-	fileAppended := make(map[string]bool)
+	fileAppended := make(map[string]*backup.File)
 
 	for _, file := range files {
-		// We skips all default cf files because we don't range overlap.
-		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
-			rng, err := validateAndGetFileRange(file, rewriteRules)
-			if err != nil {
-				return nil, err
-			}
-			ranges = append(ranges, rng)
-			fileAppended[file.GetName()] = true
+		// need calculate write + default total_kvs & total_bytes
+		// then split by kvs and file sizes
+		name := strings.ReplaceAll(file.GetName(), "write", "")
+		name = strings.ReplaceAll(name, "default", "")
+		if _, ok := fileAppended[name]; !ok {
+			fileAppended[name] = file
+		} else {
+			fileCopy := fileAppended[name]
+			// We skips all default cf files because we don't range overlap.
+			fileCopy.Name = strings.ReplaceAll(fileCopy.GetName(), "default", "write")
+			fileCopy.TotalBytes += file.TotalBytes
+			fileCopy.TotalKvs += file.TotalKvs
+			fileAppended[name] = fileCopy
 		}
+	}
+
+	for _, file := range fileAppended {
+		rng, err := validateAndGetFileRange(file, rewriteRules)
+		if err != nil {
+			return nil, err
+		}
+		ranges = append(ranges, rng)
 	}
 	return ranges, nil
 }
@@ -280,7 +293,8 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 			utils.ZapFile(file))
 		return rtree.Range{}, errors.New("table ids mismatch")
 	}
-	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey(), ApproximateSize: file.TotalBytes}
+	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey(),
+		TotalBytes: file.TotalBytes, TotalKVs: file.TotalKvs}
 	return r, nil
 }
 

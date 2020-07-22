@@ -40,6 +40,7 @@ const (
 	RejectStoreMaxCheckInterval = 2 * time.Second
 
 	DefaultRegionSize = 96 << 20 // 96M
+	DefaultRegionKVs  = 960000
 )
 
 // RegionSplitter is a executor of region split by rules.
@@ -272,24 +273,37 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
 	curSize := uint64(0)
+	curKVs := uint64(0)
 	lastEndKey := []byte{}
+	lastIndexID := int64(0)
+	isLastRecord := false
 	// No need to split region by every range's endkey
 	// we can split region by range endkey in any of conditions
 	// 1. accumulated ranges logic size >= 96MB.
-	// 2. the last range between record and index.
-	// 3. the last range between different index.
+	// 2. accumulated ranges KV count >= 960000.
+	// 3. the last range between record and index.
+	// 4. the last range between different index.
 	for _, rg := range ranges {
-		curSize += rg.ApproximateSize
-		_, indexID, isRecord, _ := tablecodec.DecodeKeyHead(rg.EndKey)
-		_, LastIndexID, isLastRecord, _ := tablecodec.DecodeKeyHead(lastEndKey)
+		curSize += rg.TotalBytes
+		curKVs += rg.TotalKVs
+		_, indexID, isRecord, err := tablecodec.DecodeKeyHead(rg.EndKey)
+		if err != nil {
+			log.Warn("range key cannot be decoded", zap.Error(err))
+			checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
+			continue
+		}
 		if curSize >= DefaultRegionSize ||
+			curKVs >= DefaultRegionKVs ||
 			lastEndKey == nil ||
 			(isLastRecord && !isRecord) ||
-			(indexID > 0 && indexID != LastIndexID) {
+			(indexID > 0 && indexID != lastIndexID) {
 			checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
 			curSize = 0
+			curKVs = 0
 		}
 		lastEndKey = rg.EndKey
+		isLastRecord = isRecord
+		lastIndexID = indexID
 	}
 	for _, key := range checkKeys {
 		if region := NeedSplit(key, regions); region != nil {
