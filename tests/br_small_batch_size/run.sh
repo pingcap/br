@@ -74,3 +74,5 @@ for i in $record_counts; do
     check_size "t$i" $i
 done
 check_size $TABLE 10000
+
+run_sql "DROP DATABASE $DB"

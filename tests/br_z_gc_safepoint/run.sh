@@ -65,4 +65,4 @@ if [ "$backup_gc_fail" -ne "1" ];then
     exit 1
 fi
 
-run_sql "DROP TABLE $DB.$TABLE;"
+run_sql "DROP DATABASE $DB;"
