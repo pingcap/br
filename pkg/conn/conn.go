@@ -192,7 +192,10 @@ func NewMgr(
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
 	}
 	pdClient, err := pd.NewClientWithContext(
-		ctx, addrs, securityOption, pd.WithGRPCDialOptions(maxCallMsgSize...))
+		ctx, addrs, securityOption,
+		pd.WithGRPCDialOptions(maxCallMsgSize...),
+		pd.WithCustomTimeoutOption(10*time.Second),
+	)
 	if err != nil {
 		log.Error("fail to create pd client", zap.Error(err))
 		return nil, err
@@ -200,7 +203,9 @@ func NewMgr(
 	if checkRequirements {
 		err = utils.CheckClusterVersion(ctx, pdClient)
 		if err != nil {
-			return nil, err
+			errMsg := "running BR in incompatible version of cluster, " +
+				"if you believe it's OK, use --check-requirements=false to skip."
+			return nil, errors.Annotate(err, errMsg)
 		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
