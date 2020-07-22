@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -16,6 +15,7 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/glue"
@@ -35,7 +35,6 @@ type Schemas struct {
 	schemas        map[string]backup.Schema
 	backupSchemaCh chan backup.Schema
 	errCh          chan error
-	wg             *sync.WaitGroup
 }
 
 func newBackupSchemas() *Schemas {
@@ -43,7 +42,6 @@ func newBackupSchemas() *Schemas {
 		schemas:        make(map[string]backup.Schema),
 		backupSchemaCh: make(chan backup.Schema),
 		errCh:          make(chan error),
-		wg:             new(sync.WaitGroup),
 	}
 }
 
@@ -65,28 +63,24 @@ func (pending *Schemas) Start(
 	updateCh glue.Progress,
 ) {
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
+	errg, ectx := errgroup.WithContext(ctx)
 	go func() {
 		startAll := time.Now()
 		for n, s := range pending.schemas {
 			log.Info("table checksum start", zap.String("table", n))
 			name := n
 			schema := s
-			pending.wg.Add(1)
-			workerPool.Apply(func() {
-				defer pending.wg.Done()
-
+			workerPool.ApplyOnErrorGroup(errg, func() error {
 				start := time.Now()
 				table := model.TableInfo{}
 				err := json.Unmarshal(schema.Table, &table)
 				if err != nil {
-					pending.errCh <- err
-					return
+					return err
 				}
 				checksumResp, err := calculateChecksum(
-					ctx, &table, store.GetClient(), backupTS)
+					ectx, &table, store.GetClient(), backupTS)
 				if err != nil {
-					pending.errCh <- err
-					return
+					return err
 				}
 				schema.Crc64Xor = checksumResp.Checksum
 				schema.TotalKvs = checksumResp.TotalKvs
@@ -100,9 +94,12 @@ func (pending *Schemas) Start(
 				pending.backupSchemaCh <- schema
 
 				updateCh.Inc()
+				return nil
 			})
 		}
-		pending.wg.Wait()
+		if err := errg.Wait(); err != nil {
+			pending.errCh <- err
+		}
 		close(pending.backupSchemaCh)
 		log.Info("backup checksum",
 			zap.Duration("take", time.Since(startAll)))
