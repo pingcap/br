@@ -7,15 +7,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pingcap/pd/v4/pkg/tsoutil"
-	"go.uber.org/zap/zapcore"
-
 	"github.com/google/uuid"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/pkg/tsoutil"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const (
