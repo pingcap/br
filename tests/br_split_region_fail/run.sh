@@ -79,6 +79,10 @@ if $fail; then
     exit 1
 fi
 
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i}"
+done
+
 echo "TEST $TEST_NAME passed."
 
 
