@@ -172,7 +172,7 @@ func ValidateFileRanges(
 	rewriteRules *RewriteRules,
 ) ([]rtree.Range, error) {
 	ranges := make([]rtree.Range, 0, len(files))
-	fileAppended := make(map[string]*backup.File)
+	fileAppended := make(map[string]backup.File)
 
 	for _, file := range files {
 		// need calculate write + default total_kvs & total_bytes
@@ -180,7 +180,7 @@ func ValidateFileRanges(
 		name := strings.ReplaceAll(file.GetName(), "write", "")
 		name = strings.ReplaceAll(name, "default", "")
 		if _, ok := fileAppended[name]; !ok {
-			fileAppended[name] = file
+			fileAppended[name] = *file
 		} else {
 			fileCopy := fileAppended[name]
 			// We skips all default cf files because we don't range overlap.
@@ -192,7 +192,8 @@ func ValidateFileRanges(
 	}
 
 	for _, file := range fileAppended {
-		rng, err := validateAndGetFileRange(file, rewriteRules)
+		fileCopy := file
+		rng, err := validateAndGetFileRange(&fileCopy, rewriteRules)
 		if err != nil {
 			return nil, err
 		}
