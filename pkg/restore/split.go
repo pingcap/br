@@ -80,20 +80,22 @@ func (rs *RegionSplitter) Split(
 	}
 	minKey := codec.EncodeBytes([]byte{}, sortedRanges[0].StartKey)
 	maxKey := codec.EncodeBytes([]byte{}, sortedRanges[len(sortedRanges)-1].EndKey)
-	for _, rule := range rewriteRules.Table {
-		if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
-			minKey = rule.GetNewKeyPrefix()
+	if rewriteRules != nil {
+		for _, rule := range rewriteRules.Table {
+			if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
+				minKey = rule.GetNewKeyPrefix()
+			}
+			if bytes.Compare(maxKey, rule.GetNewKeyPrefix()) < 0 {
+				maxKey = rule.GetNewKeyPrefix()
+			}
 		}
-		if bytes.Compare(maxKey, rule.GetNewKeyPrefix()) < 0 {
-			maxKey = rule.GetNewKeyPrefix()
-		}
-	}
-	for _, rule := range rewriteRules.Data {
-		if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
-			minKey = rule.GetNewKeyPrefix()
-		}
-		if bytes.Compare(maxKey, rule.GetNewKeyPrefix()) < 0 {
-			maxKey = rule.GetNewKeyPrefix()
+		for _, rule := range rewriteRules.Data {
+			if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
+				minKey = rule.GetNewKeyPrefix()
+			}
+			if bytes.Compare(maxKey, rule.GetNewKeyPrefix()) < 0 {
+				maxKey = rule.GetNewKeyPrefix()
+			}
 		}
 	}
 	interval := SplitRetryInterval
@@ -266,11 +268,13 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
-	for _, rule := range rewriteRules.Table {
-		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
-	}
-	for _, rule := range rewriteRules.Data {
-		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
+	if rewriteRules != nil {
+		for _, rule := range rewriteRules.Table {
+			checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
+		}
+		for _, rule := range rewriteRules.Data {
+			checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
+		}
 	}
 	curSize := uint64(0)
 	curKVs := uint64(0)
