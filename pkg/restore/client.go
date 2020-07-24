@@ -649,10 +649,11 @@ func (rc *Client) RestoreFiles(
 		fileReplica := file
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
-        defer func() {
+				fileStart := time.Now()
+				defer func() {
 					log.Info("import file done", utils.ZapFile(fileReplica),
 						zap.Duration("take", time.Since(fileStart)))
-          updateCh.Inc()
+					updateCh.Inc()
 				}()
 				return rc.fileImporter.Import(ectx, fileReplica, rejectStoreMap, rewriteRules)
 			})
@@ -808,7 +809,6 @@ func (rc *Client) GoValidateChecksum(
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
-			summary.CollectDuration("restore checksum", elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
