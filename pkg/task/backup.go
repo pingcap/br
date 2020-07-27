@@ -114,18 +114,36 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
+
+	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
+	return err
+}
+
+// adjustBackupConfig is use for BR(binary) and BR in TiDB.
+// When new config was add and not included in parser.
+// we should set proper value in this function.
+// so that both binary and TiDB will use same default value.
+func (cfg *BackupConfig) adjustBackupConfig() {
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
 	if cfg.Config.Concurrency > maxBackupConcurrency {
 		cfg.Config.Concurrency = maxBackupConcurrency
 	}
-	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
-	return err
+
+	if cfg.GCTTL == 0 {
+		cfg.GCTTL = backup.DefaultBRGCSafePointTTL
+	}
+	// Use zstd as default
+	if cfg.CompressionType == kvproto.CompressionType_UNKNOWN {
+		cfg.CompressionType = kvproto.CompressionType_ZSTD
+	}
 }
 
 // RunBackup starts a backup task inside the current goroutine.
 func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig) error {
+	cfg.adjustBackupConfig()
+
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
