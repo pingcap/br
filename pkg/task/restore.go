@@ -76,8 +76,23 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+// adjustRestoreConfig is use for BR(binary) and BR in TiDB.
+// When new config was add and not included in parser.
+// we should set proper value in this function.
+// so that both binary and TiDB will use same default value.
+func (cfg *RestoreConfig) adjustRestoreConfig() {
+	if cfg.Config.Concurrency == 0 {
+		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	if cfg.Config.SwitchModeInterval == 0 {
+		cfg.Config.SwitchModeInterval = defaultSwitchInterval
+	}
+}
+
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
+	cfg.adjustRestoreConfig()
+
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
