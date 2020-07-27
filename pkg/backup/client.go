@@ -131,6 +131,9 @@ func (bc *Client) SetLockFile(ctx context.Context) error {
 
 // SetGCTTL set gcTTL for client.
 func (bc *Client) SetGCTTL(ttl int64) {
+	if ttl <= 0 {
+		ttl = DefaultBRGCSafePointTTL
+	}
 	bc.gcTTL = ttl
 }
 
