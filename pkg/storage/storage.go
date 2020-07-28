@@ -34,7 +34,7 @@ type ExternalStorage interface {
 func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) (ExternalStorage, error) {
 	switch backend := backend.Backend.(type) {
 	case *backup.StorageBackend_Local:
-		return newLocalStorage(backend.Local.Path)
+		return NewLocalStorage(backend.Local.Path)
 	case *backup.StorageBackend_S3:
 		if backend.S3 == nil {
 			return nil, errors.New("s3 config not found")
