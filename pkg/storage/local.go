@@ -62,7 +62,9 @@ func pathExists(_path string) (bool, error) {
 	return true, nil
 }
 
-func newLocalStorage(base string) (*localStorage, error) {
+// NewLocalStorage return a localStorage at directory `base`
+// export for test use
+func NewLocalStorage(base string) (*localStorage, error) {
 	ok, err := pathExists(base)
 	if err != nil {
 		return nil, err
