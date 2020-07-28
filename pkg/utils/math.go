@@ -37,3 +37,14 @@ func ClampInt(n, min, max int) int {
 
 	return MinInt(max, MaxInt(min, n))
 }
+
+// MinInt choice smallest integer from its arguments.
+func MinInt64(x int64, xs ...int64) int64 {
+	min := x
+	for _, n := range xs {
+		if n < min {
+			min = n
+		}
+	}
+	return min
+}

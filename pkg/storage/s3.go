@@ -5,16 +5,18 @@ package storage
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
-	"net/url"
-
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/spf13/pflag"
+	"io"
+	"io/ioutil"
+	"net/url"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -38,6 +40,7 @@ type s3Handlers interface {
 	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
 	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
 	PutObjectWithContext(context.Context, *s3.PutObjectInput, ...request.Option) (*s3.PutObjectOutput, error)
+	ListObjectsWithContext(context.Context, *s3.ListObjectsInput, ...request.Option) (*s3.ListObjectsOutput, error)
 	HeadBucketWithContext(context.Context, *s3.HeadBucketInput, ...request.Option) (*s3.HeadBucketOutput, error)
 	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
 }
@@ -291,4 +294,130 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 	}
 
 	return true, err
+}
+
+func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+	var marker *string
+	maxKeys := int64(1000)
+	req := &s3.ListObjectsInput{
+		Bucket:  &rs.options.Bucket,
+		Prefix:  &rs.options.Prefix,
+		MaxKeys: &maxKeys,
+	}
+	for {
+		req.Marker = marker
+		res, err := rs.svc.ListObjectsWithContext(ctx, req)
+		if err != nil {
+			return err
+		}
+		for _, r := range res.Contents {
+			if err = fn(*r.Key, *r.Size); err != nil {
+				return err
+			}
+		}
+		if res.IsTruncated != nil && *res.IsTruncated {
+			marker = res.Marker
+		} else {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (rs *S3Storage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+	reader, err := rs.open(ctx, name, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	return &S3ObjectReader{
+		storage: rs,
+		name:    name,
+		reader:  reader,
+	}, nil
+}
+
+func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + name),
+	}
+
+	var rangeOffset string
+	if startOffset > 0 {
+		if endOffset > startOffset {
+			rangeOffset = fmt.Sprintf("%d-%d", startOffset, endOffset)
+		} else {
+			rangeOffset = fmt.Sprintf("%d-", startOffset)
+		}
+		input.Range = &rangeOffset
+	}
+
+	result, err := rs.svc.GetObjectWithContext(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if rangeOffset != "" && (result.AcceptRanges == nil || *result.AcceptRanges != rangeOffset) {
+		return nil, errors.Errorf("open file '%' failed, expected range: %s, got: %s", rangeOffset, *result.AcceptRanges)
+	}
+
+	return result.Body, nil
+}
+
+type S3ObjectReader struct {
+	storage *S3Storage
+	name    string
+	reader  io.ReadCloser
+	pos     int64
+}
+
+func (r *S3ObjectReader) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	r.pos += int64(n)
+	return
+}
+
+func (r *S3ObjectReader) Close() error {
+	return r.reader.Close()
+}
+
+func (r *S3ObjectReader) Seek(offset int64, whence int) (int64, error) {
+	// if seek ahead no more than 64k, we read add drop these data
+	var realOffset int64
+	if whence == io.SeekStart {
+		realOffset = offset
+	} else if whence == io.SeekCurrent {
+		realOffset = r.pos + offset
+	} else {
+		// TODO
+		return 0, errors.New("seek by SeekEnd is not supported yet")
+	}
+	if realOffset > r.pos && offset-r.pos < 1<<16 {
+		batch := int64(4096)
+		buf := make([]byte, batch, batch)
+		total := offset - r.pos
+		remain := total
+		for remain > 0 {
+			n, err := r.Read(buf[:utils.MinInt64(remain, batch)])
+			if err != nil {
+				return total - remain + int64(n), err
+			}
+			remain -= int64(n)
+		}
+		return realOffset, nil
+	}
+
+	// close current read and open a new one
+	err := r.reader.Close()
+	if err == nil {
+		return 0, err
+	}
+
+	newReader, err := r.storage.open(context.Background(), r.name, realOffset, 0)
+	if err != nil {
+		return 0, err
+	}
+	r.reader = newReader
+	return realOffset, nil
 }

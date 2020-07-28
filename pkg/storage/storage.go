@@ -4,10 +4,17 @@ package storage
 
 import (
 	"context"
+	"io"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
+
+type ReadSeekCloser interface {
+	io.Reader
+	io.Seeker
+	io.Closer
+}
 
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
@@ -17,6 +24,10 @@ type ExternalStorage interface {
 	Read(ctx context.Context, name string) ([]byte, error)
 	// FileExists return true if file exists
 	FileExists(ctx context.Context, name string) (bool, error)
+	// Open a Reader by file name
+	Open(ctx context.Context, name string) (ReadSeekCloser, error)
+	// WalkDir traverse all the files in a dir
+	WalkDir(ctx context.Context, fn func(string, int64) error) error
 }
 
 // Create creates ExternalStorage.
