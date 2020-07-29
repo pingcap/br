@@ -8,13 +8,13 @@ import (
 
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
-	defineS3Flags(flags)
+	DefineS3Flags(flags)
 	defineGCSFlags(flags)
 }
 
 // ParseFromFlags obtains the backend options from the flag set.
 func (options *BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
-	if err := options.S3.parseFromFlags(flags); err != nil {
+	if err := options.S3.ParseFromFlags(flags); err != nil {
 		return err
 	}
 	return options.GCS.parseFromFlags(flags)

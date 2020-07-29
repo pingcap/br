@@ -109,7 +109,7 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	return nil
 }
 
-func defineS3Flags(flags *pflag.FlagSet) {
+func DefineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
 		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
@@ -122,7 +122,7 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
-func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
+func (options *S3BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {

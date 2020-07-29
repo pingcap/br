@@ -449,7 +449,7 @@ func (r *testStorageSuite) TestS3Handlers(c *C) {
 }
 
 func (r *testStorageSuite) TestS3Others(c *C) {
-	defineS3Flags(&pflag.FlagSet{})
+	DefineS3Flags(&pflag.FlagSet{})
 }
 
 type mockS3Handler struct {
