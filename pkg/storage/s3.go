@@ -393,6 +393,11 @@ func (r *S3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		// TODO
 		return 0, errors.New("seek by SeekEnd is not supported yet")
 	}
+
+	if realOffset == r.pos {
+		return realOffset, nil
+	}
+
 	if realOffset > r.pos && offset-r.pos < 1<<16 {
 		batch := int64(4096)
 		buf := make([]byte, batch, batch)
@@ -410,7 +415,7 @@ func (r *S3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 
 	// close current read and open a new one
 	err := r.reader.Close()
-	if err == nil {
+	if err != nil {
 		return 0, err
 	}
 
