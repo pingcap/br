@@ -48,7 +48,7 @@ func (l *localStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 }
 
 func (l *localStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
-	return os.Open(name)
+	return os.Open(path.Join(l.base, name))
 }
 
 func pathExists(_path string) (bool, error) {
