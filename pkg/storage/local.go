@@ -4,36 +4,39 @@ package storage
 
 import (
 	"context"
-	"github.com/pingcap/errors"
 	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
+
+	"github.com/pingcap/errors"
 )
 
-// localStorage represents local file system storage.
-type localStorage struct {
+// LocalStorage represents local file system storage.
+// export for using in tests
+type LocalStorage struct {
 	base string
 }
 
-func (l *localStorage) Write(ctx context.Context, name string, data []byte) error {
+func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
 	filepath := path.Join(l.base, name)
 	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
 	// the backupmeta file _is_ intended to be world-readable.
 }
 
-func (l *localStorage) Read(ctx context.Context, name string) ([]byte, error) {
+func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	filepath := path.Join(l.base, name)
 	return ioutil.ReadFile(filepath)
 }
 
 // FileExists implement ExternalStorage.FileExists.
-func (l *localStorage) FileExists(ctx context.Context, name string) (bool, error) {
+func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	filepath := path.Join(l.base, name)
 	return pathExists(filepath)
 }
 
-func (l *localStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+// WalkDir traverse all the files in a dir
+func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
 	return filepath.Walk(l.base, func(path string, f os.FileInfo, err error) error {
 		if err != nil {
 			return errors.Trace(err)
@@ -47,7 +50,8 @@ func (l *localStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 	})
 }
 
-func (l *localStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+// Open a Reader by file name
+func (l *LocalStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
 	return os.Open(path.Join(l.base, name))
 }
 
@@ -62,9 +66,9 @@ func pathExists(_path string) (bool, error) {
 	return true, nil
 }
 
-// NewLocalStorage return a localStorage at directory `base`
+// NewLocalStorage return a LocalStorage at directory `base`
 // export for test use
-func NewLocalStorage(base string) (*localStorage, error) {
+func NewLocalStorage(base string) (*LocalStorage, error) {
 	ok, err := pathExists(base)
 	if err != nil {
 		return nil, err
@@ -75,8 +79,5 @@ func NewLocalStorage(base string) (*localStorage, error) {
 			return nil, err
 		}
 	}
-	return &localStorage{base: base}, nil
-}
-
-type LocalReader struct {
+	return &LocalStorage{base: base}, nil
 }

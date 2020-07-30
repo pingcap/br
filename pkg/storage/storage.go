@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
+// ReadSeekCloser is the interface that groups the basic Read, Seek and Close methods.
 type ReadSeekCloser interface {
 	io.Reader
 	io.Seeker

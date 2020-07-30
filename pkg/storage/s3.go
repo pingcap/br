@@ -6,17 +6,19 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net/url"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/spf13/pflag"
-	"io"
-	"io/ioutil"
-	"net/url"
+
+	"github.com/pingcap/br/pkg/utils"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -109,6 +111,7 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	return nil
 }
 
+// DefineS3Flags defines the command line flags for S3BackendOptions
 func DefineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
@@ -122,6 +125,7 @@ func DefineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
+// ParseFromFlags parse S3BackendOptions from command line flags
 func (options *S3BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
@@ -296,6 +300,7 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 	return true, err
 }
 
+// WalkDir traverse all the files in a dir
 func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
 	var marker *string
 	maxKeys := int64(1000)
@@ -325,12 +330,13 @@ func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) 
 	return nil
 }
 
+// Open a Reader by file name
 func (rs *S3Storage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
 	reader, err := rs.open(ctx, name, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	return &S3ObjectReader{
+	return &s3ObjectReader{
 		storage: rs,
 		name:    name,
 		reader:  reader,
@@ -367,24 +373,28 @@ func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, e
 	return result.Body, nil
 }
 
-type S3ObjectReader struct {
+// s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method
+type s3ObjectReader struct {
 	storage *S3Storage
 	name    string
 	reader  io.ReadCloser
 	pos     int64
 }
 
-func (r *S3ObjectReader) Read(p []byte) (n int, err error) {
+// Read implement the io.Reader interface
+func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	r.pos += int64(n)
 	return
 }
 
-func (r *S3ObjectReader) Close() error {
+// Close implement the io.Closer interface
+func (r *s3ObjectReader) Close() error {
 	return r.reader.Close()
 }
 
-func (r *S3ObjectReader) Seek(offset int64, whence int) (int64, error) {
+// Seek implement the io.Seeker interface
+func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	// if seek ahead no more than 64k, we read add drop these data
 	var realOffset int64
 	if whence == io.SeekStart {
