@@ -18,8 +18,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
@@ -35,6 +33,9 @@ const (
 	notFound             = "NotFound"
 	// number of retries to make of operations
 	maxRetries = 3
+
+	// the maximum number of byte to read for seek
+	maxSkipOffsetByRead = 1 << 16 //64KB
 )
 
 // s3Handlers make it easy to inject test functions.
@@ -111,7 +112,7 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	return nil
 }
 
-// DefineS3Flags defines the command line flags for S3BackendOptions
+// DefineS3Flags defines the command line flags for S3BackendOptions.
 func DefineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
@@ -125,7 +126,7 @@ func DefineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
-// ParseFromFlags parse S3BackendOptions from command line flags
+// ParseFromFlags parse S3BackendOptions from command line flags.
 func (options *S3BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
@@ -300,7 +301,12 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 	return true, err
 }
 
-// WalkDir traverse all the files in a dir
+// WalkDir traverse all the files in a dir.
+//
+// fn is the function called for each regular file visited by WalkDir.
+// The first argument is the file path that can be used in `Open`
+// function; the second argument is the size in byte of the file determined
+// by path.
 func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
 	var marker *string
 	maxKeys := int64(1000)
@@ -330,7 +336,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) 
 	return nil
 }
 
-// Open a Reader by file name
+// Open a Reader by file name.
 func (rs *S3Storage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
 	reader, err := rs.open(ctx, name, 0, 0)
 	if err != nil {
@@ -364,16 +370,17 @@ func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, e
 		return nil, err
 	}
 
-	// FIXME: we test in minio, when request with Range, the result.AcceptRanges is a bare string 'range', not sure
-	// whether this is a feature or bug
+	// FIXME: we test in minio, when request with Range, the result.AcceptRanges is a bare string 'range',
+	//  not sure whether this is a feature or bug
 	//if rangeOffset != nil && (result.AcceptRanges == nil || *result.AcceptRanges != *rangeOffset) {
-	//	return nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v", name, *rangeOffset, result.AcceptRanges)
+	//	return nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+	//		name, *rangeOffset, result.AcceptRanges)
 	//}
 
 	return result.Body, nil
 }
 
-// s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method
+// s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method.
 type s3ObjectReader struct {
 	storage *S3Storage
 	name    string
@@ -381,28 +388,28 @@ type s3ObjectReader struct {
 	pos     int64
 }
 
-// Read implement the io.Reader interface
+// Read implement the io.Reader interface.
 func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	r.pos += int64(n)
 	return
 }
 
-// Close implement the io.Closer interface
+// Close implement the io.Closer interface.
 func (r *s3ObjectReader) Close() error {
 	return r.reader.Close()
 }
 
-// Seek implement the io.Seeker interface
+// Seek implement the io.Seeker interface.
 func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
-	// if seek ahead no more than 64k, we read add drop these data
 	var realOffset int64
-	if whence == io.SeekStart {
+	switch whence {
+	case io.SeekStart:
 		realOffset = offset
-	} else if whence == io.SeekCurrent {
+	case io.SeekCurrent:
 		realOffset = r.pos + offset
-	} else {
-		// TODO
+	default:
+		// TODO: maybe we can fetch the object stat and calculate the absolute offset
 		return 0, errors.New("seek by SeekEnd is not supported yet")
 	}
 
@@ -410,22 +417,16 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return realOffset, nil
 	}
 
-	if realOffset > r.pos && offset-r.pos < 1<<16 {
-		batch := int64(4096)
-		buf := make([]byte, batch, batch)
-		total := offset - r.pos
-		remain := total
-		for remain > 0 {
-			n, err := r.Read(buf[:utils.MinInt64(remain, batch)])
-			if err != nil {
-				return total - remain + int64(n), err
-			}
-			remain -= int64(n)
+	// if seek ahead no more than 64k, we read add drop these data
+	if realOffset > r.pos && offset-r.pos <= maxSkipOffsetByRead {
+		_, err := io.CopyN(ioutil.Discard, r, offset-r.pos)
+		if err != nil {
+			return r.pos, err
 		}
 		return realOffset, nil
 	}
 
-	// close current read and open a new one
+	// close current read and open a new one which target offset
 	err := r.reader.Close()
 	if err != nil {
 		return 0, err

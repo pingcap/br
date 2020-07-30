@@ -473,6 +473,27 @@ func (c *mockS3Handler) PutObjectWithContext(ctx context.Context,
 	input *s3.PutObjectInput, opts ...request.Option) (*s3.PutObjectOutput, error) {
 	return nil, c.err
 }
+func (c *mockS3Handler) ListObjectsWithContext(
+	context.Context,
+	*s3.ListObjectsInput,
+	...request.Option,
+) (*s3.ListObjectsOutput, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	truncated := false
+	key := "/HappyFace.jpg"
+	size := int64(13)
+	return &s3.ListObjectsOutput{
+		Contents: []*s3.Object{
+			{
+				Key:  &key,
+				Size: &size,
+			},
+		},
+		IsTruncated: &truncated,
+	}, nil
+}
 func (c *mockS3Handler) HeadBucketWithContext(ctx context.Context,
 	input *s3.HeadBucketInput, opts ...request.Option) (*s3.HeadBucketOutput, error) {
 	return nil, c.err

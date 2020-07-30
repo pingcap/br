@@ -13,7 +13,8 @@ import (
 )
 
 // LocalStorage represents local file system storage.
-// export for using in tests
+//
+// export for using in tests.
 type LocalStorage struct {
 	base string
 }
@@ -35,7 +36,12 @@ func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error
 	return pathExists(filepath)
 }
 
-// WalkDir traverse all the files in a dir
+// WalkDir traverse all the files in a dir.
+//
+// fn is the function called for each regular file visited by WalkDir.
+// The first argument is the file path that can be used in `Open`
+// function; the second argument is the size in byte of the file determined
+// by path.
 func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
 	return filepath.Walk(l.base, func(path string, f os.FileInfo, err error) error {
 		if err != nil {
@@ -50,7 +56,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 	})
 }
 
-// Open a Reader by file name
+// Open a Reader by file name.
 func (l *LocalStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
 	return os.Open(path.Join(l.base, name))
 }
@@ -66,8 +72,9 @@ func pathExists(_path string) (bool, error) {
 	return true, nil
 }
 
-// NewLocalStorage return a LocalStorage at directory `base`
-// export for test use
+// NewLocalStorage return a LocalStorage at directory `base`.
+//
+// export for test.
 func NewLocalStorage(base string) (*LocalStorage, error) {
 	ok, err := pathExists(base)
 	if err != nil {
