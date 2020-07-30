@@ -343,14 +343,14 @@ func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, e
 		Key:    aws.String(rs.options.Prefix + name),
 	}
 
-	var rangeOffset string
+	var rangeOffset *string
 	if startOffset > 0 {
 		if endOffset > startOffset {
-			rangeOffset = fmt.Sprintf("%d-%d", startOffset, endOffset)
+			rangeOffset = aws.String(fmt.Sprintf("bytes=%d-%d", startOffset, endOffset))
 		} else {
-			rangeOffset = fmt.Sprintf("%d-", startOffset)
+			rangeOffset = aws.String(fmt.Sprintf("bytes=%d-", startOffset))
 		}
-		input.Range = &rangeOffset
+		input.Range = rangeOffset
 	}
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
@@ -358,7 +358,7 @@ func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, e
 		return nil, err
 	}
 
-	if rangeOffset != "" && (result.AcceptRanges == nil || *result.AcceptRanges != rangeOffset) {
+	if rangeOffset != nil && (result.AcceptRanges == nil || *result.AcceptRanges != *rangeOffset) {
 		return nil, errors.Errorf("open file '%' failed, expected range: %s, got: %s", rangeOffset, *result.AcceptRanges)
 	}
 
@@ -424,5 +424,6 @@ func (r *S3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, err
 	}
 	r.reader = newReader
+	r.pos = realOffset
 	return realOffset, nil
 }
