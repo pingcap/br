@@ -358,9 +358,11 @@ func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, e
 		return nil, err
 	}
 
-	if rangeOffset != nil && (result.AcceptRanges == nil || *result.AcceptRanges != *rangeOffset) {
-		return nil, errors.Errorf("open file '%' failed, expected range: %s, got: %s", rangeOffset, *result.AcceptRanges)
-	}
+	// FIXME: we test in minio, when request with Range, the result.AcceptRanges is a bare string 'range', not sure
+	// whether this is a feature or bug
+	//if rangeOffset != nil && (result.AcceptRanges == nil || *result.AcceptRanges != *rangeOffset) {
+	//	return nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v", name, *rangeOffset, result.AcceptRanges)
+	//}
 
 	return result.Body, nil
 }

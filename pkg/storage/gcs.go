@@ -125,12 +125,14 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 
 // Open a Reader by file name
 func (s *gcsStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
-	return nil, errors.New("Unsupported Operation")
+	// TODO, implement this if needed
+	panic("Unsupported Operation")
 }
 
 // WalkDir traverse all the files in a dir
 func (s *gcsStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
-	return errors.New("Unsupported Operation")
+	// TODO, implement this if needed
+	panic("Unsupported Operation")
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {
