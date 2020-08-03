@@ -12,17 +12,17 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
-	github.com/juju/testing v0.0.0-20200608005635-e4eedbc6f7aa // indirect
+	github.com/ngaut/unistore v0.0.0-20200803051709-607d96233b1d // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
+	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
 	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
-	github.com/pingcap/kvproto v0.0.0-20200706115936-1e0910aabe6c
+	github.com/pingcap/kvproto v0.0.0-20200715040832-c3e2e0b163ee
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
-	github.com/pingcap/parser v0.0.0-20200623082809-b74301ac298b
-	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200714122454-1a64f969cb3c
-	github.com/pingcap/tidb v1.1.0-beta.0.20200721005019-f5c6e59f0daf
+	github.com/pingcap/parser v0.0.0-20200730092557-34a468e9b774
+	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200730093003-dc8c75cf7ca0
+	github.com/pingcap/tidb v1.1.0-beta.0.20200803051932-e291f8fbd1e0
 	github.com/pingcap/tidb-tools v4.0.1+incompatible
-	github.com/pingcap/tipb v0.0.0-20200615034523-dcfcea0b5965
+	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
