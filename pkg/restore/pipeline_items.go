@@ -181,7 +181,7 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rew
 		files = append(files, fs.Files...)
 	}
 
-	if err := b.client.RestoreFiles(files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
+	if err := b.client.RestoreFiles(ctx, files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
 		return err
 	}
 

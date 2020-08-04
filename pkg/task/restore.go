@@ -103,7 +103,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	enableTiDBConfig()
 
 	// execute DDL first
-	err = client.ExecDDLs(ddlJobs)
+	err = client.ExecDDLs(ctx, ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -175,7 +175,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	for _, db := range dbs {
-		err = client.CreateDatabase(db.Info)
+		err = client.CreateDatabase(ctx, db.Info)
 		if err != nil {
 			return err
 		}
@@ -224,7 +224,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
 	if !client.IsIncremental() {
-		if err = client.ResetTS(cfg.PD); err != nil {
+		if err = client.ResetTS(ctx, cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
 			return err
 		}
@@ -449,7 +449,7 @@ func restoreTableStream(
 		log.Info("doing postwork",
 			zap.Int("table count", len(oldTables)),
 		)
-		if err := client.RecoverTiFlashReplica(oldTables); err != nil {
+		if err := client.RecoverTiFlashReplica(ctx, oldTables); err != nil {
 			log.Error("failed on recover TiFlash replicas", zap.Error(err))
 			errCh <- err
 		}
@@ -465,14 +465,14 @@ func restoreTableStream(
 				return
 			}
 			if removeTiFlashReplica {
-				rules, err := client.GetPlacementRules(pdAddr)
+				rules, err := client.GetPlacementRules(ctx, pdAddr)
 				if err != nil {
 					errCh <- err
 					return
 				}
 				log.Debug("get rules", zap.Any("rules", rules), zap.Strings("pd", pdAddr))
 				log.Debug("try to remove tiflash of table", zap.Stringer("table name", t.Table.Name))
-				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
+				tiFlashRep, err := client.RemoveTiFlashOfTable(ctx, t.CreatedTable, rules)
 				if err != nil {
 					log.Error("failed on remove TiFlash replicas", zap.Error(err))
 					errCh <- err

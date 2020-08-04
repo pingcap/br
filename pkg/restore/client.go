@@ -49,7 +49,6 @@ const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files.
 type Client struct {
-	ctx    context.Context
 	cancel context.CancelFunc
 
 	pdClient     pd.Client
@@ -93,22 +92,17 @@ type Client struct {
 
 // NewRestoreClient returns a new RestoreClient.
 func NewRestoreClient(
-	ctx context.Context,
 	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
 ) (*Client, error) {
-	ctx, cancel := context.WithCancel(ctx)
 	db, err := NewDB(g, store)
 	if err != nil {
-		cancel()
 		return nil, errors.Trace(err)
 	}
 
 	return &Client{
-		ctx:        ctx,
-		cancel:     cancel,
 		pdClient:   pdClient,
 		toolClient: NewSplitClient(pdClient, tlsConf),
 		db:         db,
@@ -154,7 +148,6 @@ func (rc *Client) Close() {
 	if rc.db != nil {
 		rc.db.Close()
 	}
-	rc.cancel()
 	log.Info("Restore client closed")
 }
 
@@ -267,11 +260,11 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 }
 
 // ResetTS resets the timestamp of PD to a bigger value.
-func (rc *Client) ResetTS(pdAddrs []string) error {
+func (rc *Client) ResetTS(ctx context.Context, pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return utils.WithRetry(rc.ctx, func() error {
+	return utils.WithRetry(ctx, func() error {
 		idx := i % len(pdAddrs)
 		i++
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
@@ -279,10 +272,10 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 }
 
 // GetPlacementRules return the current placement rules.
-func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
+func (rc *Client) GetPlacementRules(ctx context.Context, pdAddrs []string) ([]placement.Rule, error) {
 	var placementRules []placement.Rule
 	i := 0
-	errRetry := utils.WithRetry(rc.ctx, func() error {
+	errRetry := utils.WithRetry(ctx, func() error {
 		var err error
 		idx := i % len(pdAddrs)
 		i++
@@ -326,12 +319,12 @@ func (rc *Client) GetTableSchema(
 }
 
 // CreateDatabase creates a database.
-func (rc *Client) CreateDatabase(db *model.DBInfo) error {
+func (rc *Client) CreateDatabase(ctx context.Context, db *model.DBInfo) error {
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create database", zap.Stringer("database", db.Name))
 		return nil
 	}
-	return rc.db.CreateDatabase(rc.ctx, db)
+	return rc.db.CreateDatabase(ctx, db)
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
@@ -507,14 +500,14 @@ func makeTiFlashOfTableRecord(table *utils.Table, replica int) (*backup.Schema, 
 // returns the removed count of TiFlash nodes.
 // TODO: save the removed TiFlash information into disk.
 // TODO: remove this after tiflash supports restore.
-func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
+func (rc *Client) RemoveTiFlashOfTable(ctx context.Context, table CreatedTable, rule []placement.Rule) (int, error) {
 	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
 		if rule.Count > 0 {
 			log.Info("remove TiFlash of table", zap.Int64("table ID", table.Table.ID), zap.Int("count", rule.Count))
 			err := multierr.Combine(
-				rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0),
+				rc.db.AlterTiflashReplica(ctx, table.OldTable, 0),
 				rc.removeTiFlashOf(table.OldTable, rule.Count),
-				rc.flushTiFlashRecord(),
+				rc.flushTiFlashRecord(ctx),
 			)
 			if err != nil {
 				return 0, errors.Trace(err)
@@ -535,7 +528,7 @@ func (rc *Client) removeTiFlashOf(table *utils.Table, replica int) error {
 	return nil
 }
 
-func (rc *Client) flushTiFlashRecord() error {
+func (rc *Client) flushTiFlashRecord(ctx context.Context) error {
 	// Today nothing to do :D
 	if !rc.tiFlashRecordUpdated {
 		return nil
@@ -551,7 +544,7 @@ func (rc *Client) flushTiFlashRecord() error {
 	}
 	backendURL := storage.FormatBackendURL(rc.backend)
 	log.Info("update backup meta", zap.Stringer("path", &backendURL))
-	err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
+	err = rc.storage.Write(ctx, utils.SavedMetaFile, backupMetaData)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -560,9 +553,9 @@ func (rc *Client) flushTiFlashRecord() error {
 
 // RecoverTiFlashOfTable recovers TiFlash replica of some table.
 // TODO: remove this after tiflash supports restore.
-func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
+func (rc *Client) RecoverTiFlashOfTable(ctx context.Context, table *utils.Table) error {
 	if table.TiFlashReplicas > 0 {
-		err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
+		err := rc.db.AlterTiflashReplica(ctx, table, table.TiFlashReplicas)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -572,9 +565,9 @@ func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
 
 // RecoverTiFlashReplica recovers all the tiflash replicas of a table
 // TODO: remove this after tiflash supports restore.
-func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
+func (rc *Client) RecoverTiFlashReplica(ctx context.Context, tables []*utils.Table) error {
 	for _, table := range tables {
-		if err := rc.RecoverTiFlashOfTable(table); err != nil {
+		if err := rc.RecoverTiFlashOfTable(ctx, table); err != nil {
 			return err
 		}
 	}
@@ -582,14 +575,14 @@ func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
 }
 
 // ExecDDLs executes the queries of the ddl jobs.
-func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
+func (rc *Client) ExecDDLs(ctx context.Context, ddlJobs []*model.Job) error {
 	// Sort the ddl jobs by schema version in ascending order.
 	sort.Slice(ddlJobs, func(i, j int) bool {
 		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
 	})
 
 	for _, job := range ddlJobs {
-		err := rc.db.ExecDDL(rc.ctx, job)
+		err := rc.db.ExecDDL(ctx, job)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -601,14 +594,14 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	return nil
 }
 
-func (rc *Client) setSpeedLimit() error {
+func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.SkipTiFlash)
+		stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.SkipTiFlash)
 		if err != nil {
 			return err
 		}
 		for _, store := range stores {
-			err = rc.fileImporter.setDownloadSpeedLimit(rc.ctx, store.GetId())
+			err = rc.fileImporter.setDownloadSpeedLimit(ctx, store.GetId())
 			if err != nil {
 				return err
 			}
@@ -620,6 +613,7 @@ func (rc *Client) setSpeedLimit() error {
 
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
+	ctx context.Context,
 	files []*backup.File,
 	rewriteRules *RewriteRules,
 	rejectStoreMap map[uint64]bool,
@@ -638,8 +632,8 @@ func (rc *Client) RestoreFiles(
 	log.Debug("start to restore files",
 		zap.Int("files", len(files)),
 	)
-	eg, ectx := errgroup.WithContext(rc.ctx)
-	err = rc.setSpeedLimit()
+	eg, ectx := errgroup.WithContext(ctx)
+	err = rc.setSpeedLimit(ctx)
 	if err != nil {
 		return err
 	}
@@ -664,7 +658,9 @@ func (rc *Client) RestoreFiles(
 }
 
 // RestoreRaw tries to restore raw keys in the specified range.
-func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress) error {
+func (rc *Client) RestoreRaw(
+	ctx context.Context, startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress,
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -674,7 +670,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
-	eg, ectx := errgroup.WithContext(rc.ctx)
+	eg, ectx := errgroup.WithContext(ctx)
 	defer close(errCh)
 
 	err := rc.fileImporter.SetRawRange(startKey, endKey)

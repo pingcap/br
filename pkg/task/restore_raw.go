@@ -57,7 +57,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	defer restorePostWork(ctx, client, restoreSchedulers)
 
-	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
+	err = client.RestoreRaw(ctx, cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
