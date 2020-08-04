@@ -18,7 +18,6 @@ import (
 
 // pushDown warps a backup task.
 type pushDown struct {
-	ctx    context.Context
 	mgr    ClientMgr
 	respCh chan *backup.BackupResponse
 	errCh  chan error
@@ -26,9 +25,7 @@ type pushDown struct {
 
 // newPushDown creates a push down backup.
 func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
-	log.Info("new backup client")
 	return &pushDown{
-		ctx:    ctx,
 		mgr:    mgr,
 		respCh: make(chan *backup.BackupResponse, cap),
 		errCh:  make(chan error, cap),
@@ -37,6 +34,7 @@ func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
 
 // FullBackup make a full backup of a tikv cluster.
 func (push *pushDown) pushBackup(
+	ctx context.Context,
 	req backup.BackupRequest,
 	stores []*metapb.Store,
 	updateCh glue.Progress,
@@ -50,7 +48,7 @@ func (push *pushDown) pushBackup(
 			log.Warn("skip store", zap.Uint64("StoreID", storeID), zap.Stringer("State", s.GetState()))
 			continue
 		}
-		client, err := push.mgr.GetBackupClient(push.ctx, storeID)
+		client, err := push.mgr.GetBackupClient(ctx, storeID)
 		if err != nil {
 			log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
 			return res, errors.Trace(err)
@@ -59,7 +57,7 @@ func (push *pushDown) pushBackup(
 		go func() {
 			defer wg.Done()
 			err := SendBackup(
-				push.ctx, storeID, client, req,
+				ctx, storeID, client, req,
 				func(resp *backup.BackupResponse) error {
 					// Forward all responses (including error).
 					push.respCh <- resp
