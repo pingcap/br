@@ -23,14 +23,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/log"
-	pd "github.com/tikv/pd/client"
-	"github.com/tikv/pd/server/schedule/placement"
+	pd "github.com/pingcap/pd/v4/client"
+	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-
-	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -135,7 +133,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		peer = regionInfo.Leader
 	} else {
 		if len(regionInfo.Region.Peers) == 0 {
-			return nil, errors.Annotate(berrors.ErrRestoreNoPeer, "region does not have peer")
+			return nil, errors.New("region does not have peer")
 		}
 		peer = regionInfo.Region.Peers[0]
 	}
@@ -163,7 +161,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		return nil, err
 	}
 	if resp.RegionError != nil {
-		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
+		return nil, errors.Errorf("split region failed: region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
 	}
 
 	// BUG: Left is deprecated, it may be nil even if split is succeed!
@@ -179,7 +177,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		}
 	}
 	if newRegion == nil {
-		return nil, errors.Annotate(berrors.ErrRestoreSplitFailed, "new region is nil")
+		return nil, errors.New("split region failed: new region is nil")
 	}
 	var leader *metapb.Peer
 	// Assume the leaders will be at the same store.
@@ -247,7 +245,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {
 				return nil, multierr.Append(splitErrors,
-					errors.Annotatef(berrors.ErrRestoreNoPeer, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
+					errors.Errorf("region[%d] doesn't have any peer", regionInfo.Region.GetId()))
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
@@ -272,7 +270,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		}
 		if resp.RegionError != nil {
 			splitErrors = multierr.Append(splitErrors,
-				errors.Annotatef(berrors.ErrRestoreSplitFailed, "split region failed: region=%v, err=%v",
+				errors.Errorf("split region failed: region=%v, err=%v",
 					regionInfo.Region, resp.RegionError))
 			if nl := resp.RegionError.NotLeader; nl != nil {
 				if leader := nl.GetLeader(); leader != nil {
@@ -283,7 +281,7 @@ func (c *pdClient) sendSplitRegionRequest(
 						return nil, multierr.Append(splitErrors, findLeaderErr)
 					}
 					if !checkRegionEpoch(newRegionInfo, regionInfo) {
-						return nil, multierr.Append(splitErrors, berrors.ErrKVEpochNotMatch)
+						return nil, multierr.Append(splitErrors, ErrEpochNotMatch)
 					}
 					log.Info("find new leader", zap.Uint64("new leader", newRegionInfo.Leader.Id))
 					regionInfo = newRegionInfo
@@ -357,15 +355,15 @@ func (c *pdClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetO
 }
 
 func (c *pdClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
-	regions, peers, err := c.client.ScanRegions(ctx, key, endKey, limit)
+	regions, err := c.client.ScanRegions(ctx, key, endKey, limit)
 	if err != nil {
 		return nil, err
 	}
 	regionInfos := make([]*RegionInfo, 0, len(regions))
-	for i, r := range regions {
+	for _, region := range regions {
 		regionInfos = append(regionInfos, &RegionInfo{
-			Region: r,
-			Leader: peers[i],
+			Region: region.Meta,
+			Leader: region.Leader,
 		})
 	}
 	return regionInfos, nil
@@ -375,21 +373,21 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 	var rule placement.Rule
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return rule, errors.Annotate(berrors.ErrRestoreSplitFailed, "failed to add stores labels: no leader")
+		return rule, errors.New("failed to add stores labels: no leader")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return rule, errors.Trace(err)
+		return rule, errors.WithStack(err)
 	}
 	b, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return rule, errors.Trace(err)
+		return rule, errors.WithStack(err)
 	}
 	res.Body.Close()
 	err = json.Unmarshal(b, &rule)
 	if err != nil {
-		return rule, errors.Trace(err)
+		return rule, errors.WithStack(err)
 	}
 	return rule, nil
 }
@@ -397,13 +395,13 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) error {
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
+		return errors.New("failed to add stores labels: no leader")
 	}
 	m, _ := json.Marshal(rule)
 	req, _ := http.NewRequestWithContext(ctx, "POST", addr+path.Join("/pd/api/v1/config/rule"), bytes.NewReader(m))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.Trace(err)
+		return errors.WithStack(err)
 	}
 	return errors.Trace(res.Body.Close())
 }
@@ -411,12 +409,12 @@ func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) er
 func (c *pdClient) DeletePlacementRule(ctx context.Context, groupID, ruleID string) error {
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
+		return errors.New("failed to add stores labels: no leader")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.Trace(err)
+		return errors.WithStack(err)
 	}
 	return errors.Trace(res.Body.Close())
 }
@@ -427,7 +425,7 @@ func (c *pdClient) SetStoresLabel(
 	b := []byte(fmt.Sprintf(`{"%s": "%s"}`, labelKey, labelValue))
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
+		return errors.New("failed to add stores labels: no leader")
 	}
 	for _, id := range stores {
 		req, _ := http.NewRequestWithContext(
@@ -437,7 +435,7 @@ func (c *pdClient) SetStoresLabel(
 		)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return errors.Trace(err)
+			return errors.WithStack(err)
 		}
 		err = res.Body.Close()
 		if err != nil {
