@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
@@ -74,10 +75,12 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 			return err
 		}
 		if u.Scheme == "" {
-			return errors.New("scheme not found in endpoint")
+			return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+				"scheme not found in endpoint")
 		}
 		if u.Host == "" {
-			return errors.New("host not found in endpoint")
+			return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+				"host not found in endpoint")
 		}
 	}
 	// In some cases, we need to set ForcePathStyle to false.
@@ -87,10 +90,12 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 		options.ForcePathStyle = false
 	}
 	if options.AccessKey == "" && options.SecretAccessKey != "" {
-		return errors.New("access_key not found")
+		return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+			"access_key not found")
 	}
 	if options.AccessKey != "" && options.SecretAccessKey == "" {
-		return errors.New("secret_access_key not found")
+		return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+			"secret_access_key not found")
 	}
 
 	s3.Endpoint = options.Endpoint
@@ -200,7 +205,7 @@ func newS3Storage( // revive:disable-line:flag-parameter
 	c := s3.New(ses)
 	err = checkS3Bucket(c, qs.Bucket)
 	if err != nil {
-		return nil, errors.Errorf("Bucket %s is not accessible: %v", qs.Bucket, err)
+		return nil, berrors.ErrStorageInvalidConfig.GenWithStack("Bucket %s is not accessible: %v", qs.Bucket, err)
 	}
 
 	qs.Prefix += "/"

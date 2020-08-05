@@ -5,7 +5,7 @@ package storage
 import (
 	"context"
 
-	"github.com/pingcap/errors"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
@@ -26,17 +26,17 @@ func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool)
 		return newLocalStorage(backend.Local.Path)
 	case *backup.StorageBackend_S3:
 		if backend.S3 == nil {
-			return nil, errors.New("s3 config not found")
+			return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs("s3 config not found")
 		}
 		return newS3Storage(backend.S3, sendCreds)
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:
 		if backend.Gcs == nil {
-			return nil, errors.New("GCS config not found")
+			return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs("GCS config not found")
 		}
 		return newGCSStorage(ctx, backend.Gcs, sendCreds)
 	default:
-		return nil, errors.Errorf("storage %T is not supported yet", backend)
+		return nil, berrors.ErrStorageInvalidConfig.GenWithStack("storage %T is not supported yet", backend)
 	}
 }

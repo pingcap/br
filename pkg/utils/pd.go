@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/pd/v4/pkg/codec"
 	"github.com/pingcap/pd/v4/server/schedule/placement"
@@ -56,7 +57,7 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusForbidden {
 		buf := new(bytes.Buffer)
 		_, _ = buf.ReadFrom(resp.Body)
-		return errors.Errorf("pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
+		return berrors.ErrPDInvalidResponse.GenWithStack("pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
 	}
 	return nil
 }
@@ -86,7 +87,7 @@ func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, er
 		return []placement.Rule{}, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Errorf("get placement rules failed: resp=%v, err=%v, code=%d", buf.String(), err, resp.StatusCode)
+		return nil, berrors.ErrPDInvalidResponse.GenWithStack("get placement rules failed: resp=%v, err=%v, code=%d", buf.String(), err, resp.StatusCode)
 	}
 	var rules []placement.Rule
 	err = json.Unmarshal(buf.Bytes(), &rules)

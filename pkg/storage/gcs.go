@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"cloud.google.com/go/storage"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/pflag"
@@ -137,13 +138,14 @@ func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			return nil, errors.New(err.Error() + "Or you should provide '--gcs.credentials_file'.")
+			return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+				err.Error() + "Or you should provide '--gcs.credentials_file'.")
 		}
 		if sendCredential {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				return nil, errors.New(
+				return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
 					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}

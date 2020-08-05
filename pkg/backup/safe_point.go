@@ -8,12 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/pd/v4/pkg/tsoutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -67,7 +68,7 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 		return nil
 	}
 	if ts <= safePoint {
-		return errors.Errorf("GC safepoint %d exceed TS %d", safePoint, ts)
+		return berrors.ErrBackupGCSafepointExceeded.GenWithStack("GC safepoint %d exceed TS %d", safePoint, ts)
 	}
 	return nil
 }

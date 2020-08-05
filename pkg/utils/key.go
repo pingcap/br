@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 )
 
@@ -26,7 +27,7 @@ func ParseKey(format, key string) ([]byte, error) {
 		}
 		return key, nil
 	}
-	return nil, errors.New("unknown format")
+	return nil, berrors.ErrInternal.FastGenByArgs("unknown format")
 }
 
 // Ref PD: https://github.com/pingcap/pd/blob/master/tools/pd-ctl/pdctl/command/region_command.go#L334

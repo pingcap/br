@@ -15,6 +15,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
@@ -78,7 +79,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
-		return errors.New("endKey must be greater than startKey")
+		return berrors.ErrBackupInvalidRange.GenWithStackByArgs("endKey must be greater than startKey")
 	}
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {

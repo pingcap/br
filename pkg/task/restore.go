@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
@@ -140,12 +141,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	if client.IsRawKvMode() {
-		return errors.New("cannot do transactional restore from raw kv data")
+		return berrors.ErrRestoreModeMismatch.GenWithStack("cannot do transactional restore from raw kv data")
 	}
 
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
-		return errors.New("invalid backup, contain tables but no databases")
+		return berrors.ErrRestoreInvalidBackup.GenWithStackByArgs("contain tables but no databases")
 	}
 
 	var newTS uint64

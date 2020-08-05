@@ -14,7 +14,7 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/juju/testing v0.0.0-20200608005635-e4eedbc6f7aa // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20190809092503-95897b64e011
+	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
 	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
 	github.com/pingcap/kvproto v0.0.0-20200706115936-1e0910aabe6c
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad

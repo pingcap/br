@@ -31,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -64,9 +65,8 @@ type Mgr struct {
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
 
 func pdRequest(
-	ctx context.Context,
-	addr string, prefix string,
-	cli *http.Client, method string, body io.Reader) ([]byte, error) {
+	ctx context.Context, addr string, prefix string, cli *http.Client, method string, body io.Reader,
+) ([]byte, error) {
 	u, err := url.Parse(addr)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -83,7 +83,7 @@ func pdRequest(
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, url)
+		return nil, berrors.ErrPDInvalidResponse.GenWithStack("[%d] %s %s", resp.StatusCode, res, url)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -132,7 +132,7 @@ skipStore:
 				if storeBehavior == SkipTiFlash {
 					continue skipStore
 				} else if storeBehavior == ErrorOnTiFlash {
-					return nil, errors.Errorf(
+					return nil, berrors.ErrPDInvalidResponse.GenWithStack(
 						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 				}
 				isTiFlash = true
@@ -227,7 +227,7 @@ func NewMgr(
 		// Assume 3 replicas
 		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
 		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Errorf("tikv cluster not health %+v", stores)
+		return nil, berrors.ErrKVNotHealth.GenWithStackByArgs(stores)
 	}
 
 	dom, err := g.GetDomain(storage)
@@ -486,7 +486,7 @@ func (mgr *Mgr) UpdatePDScheduleConfig(
 			return nil
 		}
 	}
-	return errors.New("update PD schedule config failed")
+	return berrors.ErrPDUpdateFailed.FastGenByArgs("failed to update PD schedule config")
 }
 
 // Close closes all client in Mgr.

@@ -5,13 +5,13 @@ package restore
 import (
 	"bytes"
 
-	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -49,11 +49,11 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 					zap.Stringer("endKey", utils.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
-				return nil, errors.New("table id does not match")
+				return nil, berrors.ErrRestoreTableIDMismatch.GenWithStackByArgs("table id mismatch")
 			}
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
-			return nil, errors.Errorf("ranges overlapped: %s, %s", out, rg)
+			return nil, berrors.ErrRestoreInvalidRange.GenWithStack("ranges overlapped: %s, %s", out, rg)
 		}
 	}
 	sortedRanges := rangeTree.GetSortedRanges()

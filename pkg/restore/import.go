@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -164,7 +165,7 @@ func NewFileImporter(
 // SetRawRange sets the range to be restored in raw kv mode.
 func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 	if !importer.isRawKvMode {
-		return errors.New("file importer is not in raw kv mode")
+		return berrors.ErrRestoreModeMismatch.FastGenByArgs("file importer is not in raw kv mode")
 	}
 	importer.rawStartKey = startKey
 	importer.rawEndKey = endKey
@@ -221,7 +222,7 @@ func (importer *FileImporter) Import(
 				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
 					log.Error("waiting for removing rejected stores failed",
 						utils.ZapRegion(region.Region))
-					return errors.New("waiting for removing rejected stores failed")
+					return berrors.ErrRestoreRejectStore.FastGenByArgs("waiting for removing rejected stores failed")
 				}
 			}
 			log.Info("waiting for removing rejected stores done",
@@ -248,7 +249,7 @@ func (importer *FileImporter) Import(
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
 					switch e {
-					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
+					case berrors.ErrRewriteRuleNotFound, berrors.ErrRangeIsEmpty:
 						// Skip this region
 						log.Warn("download file skipped",
 							utils.ZapFile(file),
@@ -298,7 +299,7 @@ func (importer *FileImporter) Import(
 						zap.Stringer("newLeader", newInfo.Leader))
 
 					if !checkRegionEpoch(newInfo, info) {
-						errIngest = errors.AddStack(ErrEpochNotMatch)
+						errIngest = errors.AddStack(berrors.ErrEpochNotMatch)
 						break ingestRetry
 					}
 					ingestResp, errIngest = importer.ingestSST(ctx, downloadMeta, newInfo)
@@ -306,14 +307,14 @@ func (importer *FileImporter) Import(
 					// TODO handle epoch not match error
 					//      1. retry download if needed
 					//      2. retry ingest
-					errIngest = errors.AddStack(ErrEpochNotMatch)
+					errIngest = errors.AddStack(berrors.ErrEpochNotMatch)
 					break ingestRetry
 				case errPb.KeyNotInRegion != nil:
-					errIngest = errors.AddStack(ErrKeyNotInRegion)
+					errIngest = errors.AddStack(berrors.ErrKeyNotInRegion)
 					break ingestRetry
 				default:
 					// Other errors like `ServerIsBusy`, `RegionNotFound`, etc. should be retryable
-					errIngest = errors.Annotatef(ErrIngestFailed, "ingest error %s", errPb)
+					errIngest = errors.Annotatef(berrors.ErrIngestFailed, "ingest error %s", errPb)
 					break ingestRetry
 				}
 			}
@@ -359,7 +360,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	regionRule := matchNewPrefix(key, rewriteRules)
 	if regionRule == nil {
-		return nil, errors.Trace(ErrRewriteRuleNotFound)
+		return nil, errors.Trace(berrors.ErrRewriteRuleNotFound)
 	}
 	rule := import_sstpb.RewriteRule{
 		OldKeyPrefix: encodeKeyPrefix(regionRule.GetOldKeyPrefix()),
@@ -385,10 +386,10 @@ func (importer *FileImporter) downloadSST(
 			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
-			return nil, errors.Annotate(ErrDownloadFailed, resp.GetError().GetMessage())
+			return nil, errors.Annotate(berrors.ErrDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
-			return nil, errors.Trace(ErrRangeIsEmpty)
+			return nil, errors.Trace(berrors.ErrRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
@@ -419,7 +420,7 @@ func (importer *FileImporter) downloadRawKVSST(
 		sstMeta.EndKeyExclusive = true
 	}
 	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
-		return nil, errors.Trace(ErrRangeIsEmpty)
+		return nil, errors.Trace(berrors.ErrRangeIsEmpty)
 	}
 
 	req := &import_sstpb.DownloadRequest{
@@ -440,10 +441,10 @@ func (importer *FileImporter) downloadRawKVSST(
 			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
-			return nil, errors.Annotate(ErrDownloadFailed, resp.GetError().GetMessage())
+			return nil, errors.Annotate(berrors.ErrDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
-			return nil, errors.Trace(ErrRangeIsEmpty)
+			return nil, errors.Trace(berrors.ErrRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = resp.Range.GetStart()
