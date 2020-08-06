@@ -360,10 +360,10 @@ func (c *pdClient) ScanRegions(ctx context.Context, key, endKey []byte, limit in
 		return nil, err
 	}
 	regionInfos := make([]*RegionInfo, 0, len(regions))
-	for i := range regions {
+	for _, region := range regions {
 		regionInfos = append(regionInfos, &RegionInfo{
-			Region: regions[i].Meta,
-			Leader: regions[i].Leader,
+			Region: region.Meta,
+			Leader: region.Leader,
 		})
 	}
 	return regionInfos, nil
