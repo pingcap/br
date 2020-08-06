@@ -355,15 +355,15 @@ func (c *pdClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetO
 }
 
 func (c *pdClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
-	regions, leaders, err := c.client.ScanRegions(ctx, key, endKey, limit)
+	regions, err := c.client.ScanRegions(ctx, key, endKey, limit)
 	if err != nil {
 		return nil, err
 	}
 	regionInfos := make([]*RegionInfo, 0, len(regions))
 	for i := range regions {
 		regionInfos = append(regionInfos, &RegionInfo{
-			Region: regions[i],
-			Leader: leaders[i],
+			Region: regions[i].Meta,
+			Leader: regions[i].Leader,
 		})
 	}
 	return regionInfos, nil
