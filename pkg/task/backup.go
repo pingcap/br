@@ -41,17 +41,21 @@ const (
 	maxBackupConcurrency     = 256
 )
 
+type CompressionConfig struct {
+	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
+}
+
 // BackupConfig is the configuration specific for backup tasks.
 type BackupConfig struct {
 	Config
 
-	TimeAgo          time.Duration           `json:"time-ago" toml:"time-ago"`
-	BackupTS         uint64                  `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS     uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL            int64                   `json:"gc-ttl" toml:"gc-ttl"`
-	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
-	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
-	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
+	TimeAgo          time.Duration `json:"time-ago" toml:"time-ago"`
+	BackupTS         uint64        `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS     uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
+	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
+	CompressionConfig
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -104,20 +108,11 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.GCTTL = gcTTL
 
-	compressionStr, err := flags.GetString(flagCompressionType)
+	compressionCfg, err := parseCompressionFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	compressionType, err := parseCompressionType(compressionStr)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	cfg.CompressionType = compressionType
-	level, err := flags.GetInt32(flagCompressionLevel)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	cfg.CompressionLevel = level
+	cfg.CompressionConfig = *compressionCfg
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -125,6 +120,26 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
 	return err
+}
+
+// ParseFromFlags parses the backup-related flags from the flag set.
+func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	level, err := flags.GetInt32(flagCompressionLevel)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &CompressionConfig{
+		CompressionLevel: level,
+		CompressionType:  compressionType,
+	}, nil
 }
 
 // adjustBackupConfig is use for BR(binary) and BR in TiDB.

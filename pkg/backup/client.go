@@ -507,7 +507,7 @@ func (bc *Client) BackupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType,
+		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
 		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
 		return nil, err
@@ -569,6 +569,7 @@ func (bc *Client) fineGrainedBackup(
 	lastBackupTS uint64,
 	backupTS uint64,
 	compressType kvproto.CompressionType,
+	compressLevel int32,
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
@@ -599,7 +600,7 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, compressLevel, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -734,6 +735,7 @@ func (bc *Client) handleFineGrained(
 	lastBackupTS uint64,
 	backupTS uint64,
 	compressType kvproto.CompressionType,
+	compressionLevel int32,
 	rateLimit uint64,
 	concurrency uint32,
 	respCh chan<- *kvproto.BackupResponse,
@@ -746,15 +748,16 @@ func (bc *Client) handleFineGrained(
 	max := 0
 
 	req := kvproto.BackupRequest{
-		ClusterId:       bc.clusterID,
-		StartKey:        rg.StartKey, // TODO: the range may cross region.
-		EndKey:          rg.EndKey,
-		StartVersion:    lastBackupTS,
-		EndVersion:      backupTS,
-		StorageBackend:  bc.backend,
-		RateLimit:       rateLimit,
-		Concurrency:     concurrency,
-		CompressionType: compressType,
+		ClusterId:        bc.clusterID,
+		StartKey:         rg.StartKey, // TODO: the range may cross region.
+		EndKey:           rg.EndKey,
+		StartVersion:     lastBackupTS,
+		EndVersion:       backupTS,
+		StorageBackend:   bc.backend,
+		RateLimit:        rateLimit,
+		Concurrency:      concurrency,
+		CompressionType:  compressType,
+		CompressionLevel: compressionLevel,
 	}
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
