@@ -69,7 +69,7 @@ for ct in lz4 zstd; do
   else
       echo "TEST: [$TEST_NAME] successed!"
   fi
-fi
+done
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
