@@ -8,7 +8,7 @@ import (
 
 // DefineFlags adds flags to the flag set corresponding to all backend options.
 func DefineFlags(flags *pflag.FlagSet) {
-	DefineS3Flags(flags)
+	defineS3Flags(flags)
 	defineGCSFlags(flags)
 }
 

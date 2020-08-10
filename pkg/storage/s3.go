@@ -112,8 +112,8 @@ func (options *S3BackendOptions) apply(s3 *backup.S3) error {
 	return nil
 }
 
-// DefineS3Flags defines the command line flags for S3BackendOptions.
-func DefineS3Flags(flags *pflag.FlagSet) {
+// defineS3Flags defines the command line flags for S3BackendOptions.
+func defineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
 		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
