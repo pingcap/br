@@ -28,35 +28,47 @@ for i in $(seq $DB_COUNT); do
 done
 
 # backup full
-echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+echo "backup with lz4 start..."
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --ratelimit 5 --concurrency 4 --compression lz4
+size_lz4=$(du -d 0 $TEST_DIR/$DB-lz4 | awk '{print $1}')
 
-for i in $(seq $DB_COUNT); do
-    run_sql "DROP DATABASE $DB${i};"
-done
+echo "backup with zstd start..."
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-zstd" --ratelimit 5 --concurrency 4 --compression zstd --compression-level 6
+size_zstd=$(du -d 0 $TEST_DIR/$DB-zstd | awk '{print $1}')
 
-# restore full
-echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --ratelimit 1024
+if [ "$size_lz4" -le "$size_zstd" ]; then
+  echo "full backup lz4 size $size_lz4 is small than backup with zstd $size_zstd"
+  exit -1
+fi
 
-for i in $(seq $DB_COUNT); do
-    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
-done
+for ct in (lz4 zstd); do
+  for i in $(seq $DB_COUNT); do
+      run_sql "DROP DATABASE $DB${i};"
+  done
 
-fail=false
-for i in $(seq $DB_COUNT); do
-    if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
-        fail=true
-        echo "TEST: [$TEST_NAME] fail on database $DB${i}"
-    fi
-    echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
-done
+  # restore full
+  echo "restore with $ct backup start..."
+  run_br restore full -s "local://$TEST_DIR/$DB-$ct" --pd $PD_ADDR --ratelimit 1024
 
-if $fail; then
-    echo "TEST: [$TEST_NAME] failed!"
-    exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
+  for i in $(seq $DB_COUNT); do
+      row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+  done
+
+  fail=false
+  for i in $(seq $DB_COUNT); do
+      if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
+          fail=true
+          echo "TEST: [$TEST_NAME] fail on database $DB${i}"
+      fi
+      echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+  done
+
+  if $fail; then
+      echo "TEST: [$TEST_NAME] failed!"
+      exit 1
+  else
+      echo "TEST: [$TEST_NAME] successed!"
+  fi
 fi
 
 for i in $(seq $DB_COUNT); do
