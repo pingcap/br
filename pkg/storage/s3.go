@@ -127,7 +127,7 @@ func defineS3Flags(flags *pflag.FlagSet) {
 }
 
 // ParseFromFlags parse S3BackendOptions from command line flags.
-func (options *S3BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
+func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
 	if err != nil {

@@ -12,9 +12,9 @@ func DefineFlags(flags *pflag.FlagSet) {
 	defineGCSFlags(flags)
 }
 
-// ParseFromFlags obtains the backend options from the flag set.
+// parseFromFlags obtains the backend options from the flag set.
 func (options *BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
-	if err := options.S3.ParseFromFlags(flags); err != nil {
+	if err := options.S3.parseFromFlags(flags); err != nil {
 		return err
 	}
 	return options.GCS.parseFromFlags(flags)
