@@ -49,8 +49,6 @@ const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files.
 type Client struct {
-	cancel context.CancelFunc
-
 	pdClient     pd.Client
 	toolClient   SplitClient
 	fileImporter FileImporter

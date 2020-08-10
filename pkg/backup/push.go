@@ -24,7 +24,7 @@ type pushDown struct {
 }
 
 // newPushDown creates a push down backup.
-func newPushDown(ctx context.Context, mgr ClientMgr, cap int) *pushDown {
+func newPushDown(mgr ClientMgr, cap int) *pushDown {
 	return &pushDown{
 		mgr:    mgr,
 		respCh: make(chan *backup.BackupResponse, cap),
