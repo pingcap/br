@@ -417,7 +417,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return realOffset, nil
 	}
 
-	// if seek ahead no more than 64k, we read add drop these data
+	// if seek ahead no more than 64k, we discard these data
 	if realOffset > r.pos && offset-r.pos <= maxSkipOffsetByRead {
 		_, err := io.CopyN(ioutil.Discard, r, offset-r.pos)
 		if err != nil {
@@ -432,7 +432,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, err
 	}
 
-	newReader, err := r.storage.open(context.Background(), r.name, realOffset, 0)
+	newReader, err := r.storage.open(context.TODO(), r.name, realOffset, 0)
 	if err != nil {
 		return 0, err
 	}
