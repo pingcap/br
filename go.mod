@@ -15,11 +15,11 @@ require (
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
 	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
-	github.com/pingcap/kvproto v0.0.0-20200730045059-3177b43b983c
+	github.com/pingcap/kvproto v0.0.0-20200803054707-ebd5de15093f
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
 	github.com/pingcap/parser v0.0.0-20200731033026-84f62115187c
 	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200730093003-dc8c75cf7ca0
-	github.com/pingcap/tidb v1.1.0-beta.0.20200806130549-32963d338791
+	github.com/pingcap/tidb v1.1.0-beta.0.20200810064414-d81150394f9d
 	github.com/pingcap/tidb-tools v4.0.1+incompatible
 	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
