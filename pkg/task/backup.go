@@ -41,7 +41,7 @@ const (
 	maxBackupConcurrency     = 256
 )
 
-// CompressionConfig is the configuration for sst file compression
+// CompressionConfig is the configuration for sst file compression.
 type CompressionConfig struct {
 	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
 	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`

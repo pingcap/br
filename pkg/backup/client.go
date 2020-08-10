@@ -600,7 +600,8 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, compressLevel, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS,
+							compressType, compressLevel, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
