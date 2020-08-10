@@ -41,7 +41,7 @@ if [ "$size_lz4" -le "$size_zstd" ]; then
   exit -1
 fi
 
-for ct in (lz4 zstd); do
+for ct in lz4 zstd; do
   for i in $(seq $DB_COUNT); do
       run_sql "DROP DATABASE $DB${i};"
   done
