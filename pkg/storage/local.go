@@ -77,38 +77,6 @@ func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, e
 	return os.Open(filepath.Join(l.base, path))
 }
 
-// WalkDir traverse all the files in a dir.
-//
-// fn is the function called for each regular file visited by WalkDir.
-// The first argument is the file path that can be used in `Open`
-// function; the second argument is the size in byte of the file determined
-// by path.
-func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
-	return filepath.Walk(l.base, func(path string, f os.FileInfo, err error) error {
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		if f == nil || f.IsDir() {
-			return nil
-		}
-		// in mac osx, the path parameter is absolute path; in linux, the path is relative path to execution base dir,
-		// so use Rel to convert to relative path to l.base
-		path, _ = filepath.Rel(l.base, path)
-		return fn(path, f.Size())
-	})
-}
-
-// CreateUploader implenments ExternalStorage interface.
-func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	panic("local storage not support multi-upload")
-}
-
-// Open a Reader by file path, path is a relative path to base path.
-func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
-	return os.Open(filepath.Join(l.base, path))
-}
-
 func pathExists(_path string) (bool, error) {
 	_, err := os.Stat(_path)
 	if err != nil {

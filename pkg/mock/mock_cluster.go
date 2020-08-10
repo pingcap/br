@@ -21,8 +21,8 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/session"
+	"github.com/pingcap/tidb/store/mockstore"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
-	"github.com/pingcap/tidb/store/tikv"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/pkg/tempurl"
 	"go.uber.org/zap"
@@ -56,26 +56,26 @@ func NewCluster() (*Cluster, error) {
 		}()
 	})
 
-	mvccStore := mocktikv.MustNewMVCCStore()
-	client, cluster, pdClient, err := mocktikv.NewTiKVAndPDClient("")
+	lease := 50 * time.Millisecond
+	cluster := mocktikv.NewCluster()
 	mocktikv.BootstrapWithSingleStore(cluster)
-
+	mvccStore := mocktikv.MustNewMVCCStore()
+	pdClient := mocktikv.NewPDClient(cluster)
+	storage, err := mockstore.NewMockTikvStore(
+		mockstore.WithCluster(cluster),
+		mockstore.WithMVCCStore(mvccStore),
+	)
 	if err != nil {
 		return nil, err
 	}
-	storage, err := tikv.NewTestTiKVStore(client, pdClient, nil, nil, 0)
-	if err != nil {
-		return nil, err
-	}
-	session.SetSchemaLease(0)
-	session.DisableStats4Test()
+	session.SetSchemaLease(lease)
 	dom, err := session.BootstrapSession(storage)
 	if err != nil {
 		return nil, err
 	}
 	return &Cluster{
 		Cluster:   cluster,
-		MVCCStore: client.MvccStore,
+		MVCCStore: mvccStore,
 		Storage:   storage,
 		Domain:    dom,
 		PDClient:  pdClient,

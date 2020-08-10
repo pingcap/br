@@ -11,7 +11,6 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/mockstore/mocktikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 type testBackup struct {
@@ -36,13 +36,13 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	mvccStore := mocktikv.MustNewMVCCStore()
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
+	cluster, err := mock.NewCluster()
+	c.Assert(err, IsNil)
+	r.mockPDClient = cluster.PDClient
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{}
 	mockMgr.SetPDClient(r.mockPDClient)
 	mockMgr.SetPDHTTP([]string{"test"}, nil)
-	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)
 }
