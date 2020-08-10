@@ -126,7 +126,7 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
 }
 
-// ParseFromFlags parse S3BackendOptions from command line flags.
+// parseFromFlags parse S3BackendOptions from command line flags.
 func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	options.Endpoint, err = flags.GetString(s3EndpointOption)
