@@ -46,6 +46,17 @@ type s3Handlers interface {
 	ListObjectsWithContext(context.Context, *s3.ListObjectsInput, ...request.Option) (*s3.ListObjectsOutput, error)
 	HeadBucketWithContext(context.Context, *s3.HeadBucketInput, ...request.Option) (*s3.HeadBucketOutput, error)
 	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
+
+	ListObjectsV2WithContext(context.Context, *s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error)
+	CreateMultipartUploadWithContext(
+		context.Context,
+		*s3.CreateMultipartUploadInput,
+		...request.Option) (*s3.CreateMultipartUploadOutput, error)
+	CompleteMultipartUploadWithContext(
+		context.Context,
+		*s3.CompleteMultipartUploadInput,
+		...request.Option) (*s3.CompleteMultipartUploadOutput, error)
+	UploadPartWithContext(context.Context, *s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error)
 }
 
 // S3Storage info for s3 storage.
@@ -70,7 +81,7 @@ type S3BackendOptions struct {
 	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
 }
 
-func (options *S3BackendOptions) apply(s3 *backup.S3) error {
+func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 	if options.Region == "" {
 		options.Region = "us-east-1"
 	}
@@ -161,8 +172,8 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
-// newS3Storage initialize a new s3 storage for metadata.
-func newS3Storage( // revive:disable-line:flag-parameter
+// NewS3Storage initialize a new s3 storage for metadata.
+func NewS3Storage( // revive:disable-line:flag-parameter
 	backend *backup.S3,
 	sendCredential bool,
 ) (*S3Storage, error) {
@@ -439,4 +450,65 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	r.reader = newReader
 	r.pos = realOffset
 	return realOffset, nil
+}
+
+// ListObject list `maxkeys` objects with specify path.
+func (rs *S3Storage) ListObject(ctx context.Context, name string, maxKeys int64) (*s3.ListObjectsV2Output, error) {
+	input := &s3.ListObjectsV2Input{
+		Bucket:  aws.String(rs.options.Bucket),
+		Prefix:  aws.String(rs.options.Prefix + name),
+		MaxKeys: aws.Int64(maxKeys),
+	}
+	return rs.svc.ListObjectsV2WithContext(ctx, input)
+}
+
+// CreateMultipartUpload create multi upload request.
+func (rs *S3Storage) CreateMultipartUpload(ctx context.Context, name string) (*s3.CreateMultipartUploadOutput, error) {
+	input := &s3.CreateMultipartUploadInput{
+		Bucket: aws.String(rs.options.Bucket),
+		Key:    aws.String(rs.options.Prefix + name),
+	}
+	return rs.svc.CreateMultipartUploadWithContext(ctx, input)
+}
+
+// CompleteMultipartUpload complete multi upload request.
+func (rs *S3Storage) CompleteMultipartUpload(
+	ctx context.Context,
+	resp *s3.CreateMultipartUploadOutput,
+	completedParts []*s3.CompletedPart) (*s3.CompleteMultipartUploadOutput, error) {
+	completeInput := &s3.CompleteMultipartUploadInput{
+		Bucket:   resp.Bucket,
+		Key:      resp.Key,
+		UploadId: resp.UploadId,
+		MultipartUpload: &s3.CompletedMultipartUpload{
+			Parts: completedParts,
+		},
+	}
+	return rs.svc.CompleteMultipartUploadWithContext(ctx, completeInput)
+}
+
+// UploadPart update partial data to s3, we should call CreateMultipartUpload to start it,
+// and call CompleteMultipartUpload to finish it.
+func (rs *S3Storage) UploadPart(
+	ctx context.Context,
+	resp *s3.CreateMultipartUploadOutput,
+	fileBytes []byte,
+	partNumber int) (*s3.CompletedPart, error) {
+	partInput := &s3.UploadPartInput{
+		Body:          bytes.NewReader(fileBytes),
+		Bucket:        resp.Bucket,
+		Key:           resp.Key,
+		PartNumber:    aws.Int64(int64(partNumber)),
+		UploadId:      resp.UploadId,
+		ContentLength: aws.Int64(int64(len(fileBytes))),
+	}
+
+	uploadResult, err := rs.svc.UploadPartWithContext(ctx, partInput)
+	if err != nil {
+		return nil, err
+	}
+	return &s3.CompletedPart{
+		ETag:       uploadResult.ETag,
+		PartNumber: aws.Int64(int64(partNumber)),
+	}, nil
 }

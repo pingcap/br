@@ -45,7 +45,7 @@ func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool)
 		if backend.S3 == nil {
 			return nil, errors.New("s3 config not found")
 		}
-		return newS3Storage(backend.S3, sendCreds)
+		return NewS3Storage(backend.S3, sendCreds)
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:

@@ -502,3 +502,19 @@ func (c *mockS3Handler) WaitUntilObjectExistsWithContext(ctx context.Context,
 	input *s3.HeadObjectInput, opts ...request.WaiterOption) error {
 	return c.err
 }
+func (c *mockS3Handler) ListObjectsV2WithContext(context.Context,
+	*s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) CreateMultipartUploadWithContext(context.Context,
+	*s3.CreateMultipartUploadInput, ...request.Option) (*s3.CreateMultipartUploadOutput, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) CompleteMultipartUploadWithContext(context.Context,
+	*s3.CompleteMultipartUploadInput, ...request.Option) (*s3.CompleteMultipartUploadOutput, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) UploadPartWithContext(context.Context,
+	*s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error) {
+	return nil, c.err
+}
