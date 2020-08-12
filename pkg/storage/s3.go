@@ -81,6 +81,7 @@ type S3BackendOptions struct {
 	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
 }
 
+// Apply apply s3 options on backup.S3.
 func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 	if options.Region == "" {
 		options.Region = "us-east-1"
