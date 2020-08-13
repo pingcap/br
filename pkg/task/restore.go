@@ -86,8 +86,23 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+// adjustRestoreConfig is use for BR(binary) and BR in TiDB.
+// When new config was add and not included in parser.
+// we should set proper value in this function.
+// so that both binary and TiDB will use same default value.
+func (cfg *RestoreConfig) adjustRestoreConfig() {
+	if cfg.Config.Concurrency == 0 {
+		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	if cfg.Config.SwitchModeInterval == 0 {
+		cfg.Config.SwitchModeInterval = defaultSwitchInterval
+	}
+}
+
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
+	cfg.adjustRestoreConfig()
+
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
@@ -183,9 +198,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// and we cost most of time at waiting DDL jobs be enqueued.
 	// So these jobs won't be faster or slower when machine become faster or slower,
 	// hence make it a fixed value would be fine.
-	dbPool, err := restore.MakeDBPool(defaultDDLConcurrency, func() (*restore.DB, error) {
-		return restore.NewDB(g, mgr.GetTiKV())
-	})
+	var dbPool []*restore.DB
+	if g.OwnsStorage() {
+		// Only in binary we can use multi-thread sessions to create tables.
+		// so use OwnStorage() to tell whether we are use binary or SQL.
+		dbPool, err = restore.MakeDBPool(defaultDDLConcurrency, func() (*restore.DB, error) {
+			return restore.NewDB(g, mgr.GetTiKV())
+		})
+	}
 	if err != nil {
 		log.Warn("create session pool failed, we will send DDLs only by created sessions",
 			zap.Error(err),

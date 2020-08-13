@@ -200,11 +200,9 @@ func buildIndexRequest(
 }
 
 func sendChecksumRequest(
-	ctx context.Context,
-	client kv.Client,
-	req *kv.Request,
+	ctx context.Context, client kv.Client, req *kv.Request, vars *kv.Variables,
 ) (resp *tipb.ChecksumResponse, err error) {
-	res, err := distsql.Checksum(ctx, client, req, nil)
+	res, err := distsql.Checksum(ctx, client, req, vars)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +271,12 @@ func (exec *Executor) Execute(
 ) (*tipb.ChecksumResponse, error) {
 	checksumResp := &tipb.ChecksumResponse{}
 	for _, req := range exec.reqs {
-		resp, err := sendChecksumRequest(ctx, client, req)
+		// Pointer to SessionVars.Killed
+		// Killed is a flag to indicate that this query is killed.
+		//
+		// It is useful in TiDB, however, it's a place holder in BR.
+		killed := uint32(0)
+		resp, err := sendChecksumRequest(ctx, client, req, kv.NewVariables(&killed))
 		if err != nil {
 			return nil, err
 		}
