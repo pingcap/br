@@ -66,6 +66,50 @@ type S3Storage struct {
 	options *backup.S3
 }
 
+// S3Uploader does multi-part upload to s3
+type S3Uploader struct {
+	svc           s3Handlers
+	createOutput  *s3.CreateMultipartUploadOutput
+	completeParts []*s3.CompletedPart
+}
+
+// UploadPart update partial data to s3, we should call CreateMultipartUpload to start it,
+// and call CompleteMultipartUpload to finish it.
+func (u *S3Uploader) UploadPart(ctx context.Context, data []byte, partNum int) error {
+	partInput := &s3.UploadPartInput{
+		Body:          bytes.NewReader(data),
+		Bucket:        u.createOutput.Bucket,
+		Key:           u.createOutput.Key,
+		PartNumber:    aws.Int64(int64(partNum)),
+		UploadId:      u.createOutput.UploadId,
+		ContentLength: aws.Int64(int64(len(data))),
+	}
+
+	uploadResult, err := u.svc.UploadPartWithContext(ctx, partInput)
+	if err != nil {
+		return err
+	}
+	u.completeParts = append(u.completeParts, &s3.CompletedPart{
+		ETag:       uploadResult.ETag,
+		PartNumber: aws.Int64(int64(partNum)),
+	})
+	return nil
+}
+
+// CompleteUpload complete multi upload request.
+func (u *S3Uploader) CompleteUpload(ctx context.Context) error {
+	completeInput := &s3.CompleteMultipartUploadInput{
+		Bucket:   u.createOutput.Bucket,
+		Key:      u.createOutput.Key,
+		UploadId: u.createOutput.UploadId,
+		MultipartUpload: &s3.CompletedMultipartUpload{
+			Parts: u.completeParts,
+		},
+	}
+	_, err := u.svc.CompleteMultipartUploadWithContext(ctx, completeInput)
+	return err
+}
+
 // S3BackendOptions contains options for s3 storage.
 type S3BackendOptions struct {
 	Endpoint              string `json:"endpoint" toml:"endpoint"`
@@ -460,53 +504,19 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	return realOffset, nil
 }
 
-// CreateMultipartUpload create multi upload request.
-func (rs *S3Storage) CreateMultipartUpload(ctx context.Context, name string) (*s3.CreateMultipartUploadOutput, error) {
+// CreateUploader create multi upload request.
+func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	input := &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + name),
 	}
-	return rs.svc.CreateMultipartUploadWithContext(ctx, input)
-}
-
-// CompleteMultipartUpload complete multi upload request.
-func (rs *S3Storage) CompleteMultipartUpload(
-	ctx context.Context,
-	resp *s3.CreateMultipartUploadOutput,
-	completedParts []*s3.CompletedPart) (*s3.CompleteMultipartUploadOutput, error) {
-	completeInput := &s3.CompleteMultipartUploadInput{
-		Bucket:   resp.Bucket,
-		Key:      resp.Key,
-		UploadId: resp.UploadId,
-		MultipartUpload: &s3.CompletedMultipartUpload{
-			Parts: completedParts,
-		},
-	}
-	return rs.svc.CompleteMultipartUploadWithContext(ctx, completeInput)
-}
-
-// UploadPart update partial data to s3, we should call CreateMultipartUpload to start it,
-// and call CompleteMultipartUpload to finish it.
-func (rs *S3Storage) UploadPart(
-	ctx context.Context,
-	resp *s3.CreateMultipartUploadOutput,
-	fileBytes []byte,
-	partNumber int) (*s3.CompletedPart, error) {
-	partInput := &s3.UploadPartInput{
-		Body:          bytes.NewReader(fileBytes),
-		Bucket:        resp.Bucket,
-		Key:           resp.Key,
-		PartNumber:    aws.Int64(int64(partNumber)),
-		UploadId:      resp.UploadId,
-		ContentLength: aws.Int64(int64(len(fileBytes))),
-	}
-
-	uploadResult, err := rs.svc.UploadPartWithContext(ctx, partInput)
+	resp, err := rs.svc.CreateMultipartUploadWithContext(ctx, input)
 	if err != nil {
 		return nil, err
 	}
-	return &s3.CompletedPart{
-		ETag:       uploadResult.ETag,
-		PartNumber: aws.Int64(int64(partNumber)),
+	return &S3Uploader{
+		svc:           rs.svc,
+		createOutput:  resp,
+		completeParts: make([]*s3.CompletedPart, 0, 128),
 	}, nil
 }
