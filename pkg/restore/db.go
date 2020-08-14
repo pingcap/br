@@ -5,6 +5,7 @@ package restore
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/pingcap/errors"
@@ -159,11 +160,17 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		default:
 			alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
 		}
+
+		// auto inc id overflow
+		autoIncID := table.Info.AutoIncID
+		if table.Info.AutoIncID < 0 {
+			autoIncID = math.MaxInt64
+		}
 		restoreMetaSQL = fmt.Sprintf(
 			alterAutoIncIDFormat,
 			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O),
-			table.Info.AutoIncID)
+			autoIncID)
 		if utils.NeedAutoID(table.Info) {
 			err = db.se.Execute(ctx, restoreMetaSQL)
 		}

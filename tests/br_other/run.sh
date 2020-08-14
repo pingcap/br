@@ -188,3 +188,19 @@ run_br --version
 run_br -V
 
 run_sql "DROP DATABASE $DB;"
+
+# generate table with auto_inc_id
+run_sql "create table $DB.autoid(`auto_inc_id` bigint(20) NOT NULL AUTO_INCREMENT,UNIQUE KEY `auto_inc_id` (`auto_inc_id`))"
+run_sql "insert into $DB.autoid values(9223372036854775805)"
+
+# backup db
+echo "backup start overflow test..."
+run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+
+run_sql "DROP DATABASE $DB;"
+
+# restore db
+echo "restore start..."
+run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+
+run_sql "DROP DATABASE $DB;"
