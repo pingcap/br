@@ -195,12 +195,12 @@ run_sql "insert into $DB.autoid values(9223372036854775805)"
 
 # backup db
 echo "backup start overflow test..."
-run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB/autoid" --pd $PD_ADDR
 
 run_sql "DROP DATABASE $DB;"
 
 # restore db
 echo "restore start..."
-run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore db --db $DB -s "local://$TEST_DIR/$DB/autoid" --pd $PD_ADDR
 
 run_sql "DROP DATABASE $DB;"
