@@ -75,12 +75,12 @@ type S3Uploader struct {
 
 // UploadPart update partial data to s3, we should call CreateMultipartUpload to start it,
 // and call CompleteMultipartUpload to finish it.
-func (u *S3Uploader) UploadPart(ctx context.Context, data []byte, partNum int) error {
+func (u *S3Uploader) UploadPart(ctx context.Context, data []byte) error {
 	partInput := &s3.UploadPartInput{
 		Body:          bytes.NewReader(data),
 		Bucket:        u.createOutput.Bucket,
 		Key:           u.createOutput.Key,
-		PartNumber:    aws.Int64(int64(partNum)),
+		PartNumber:    aws.Int64(int64(len(u.completeParts))),
 		UploadId:      u.createOutput.UploadId,
 		ContentLength: aws.Int64(int64(len(data))),
 	}
@@ -91,7 +91,7 @@ func (u *S3Uploader) UploadPart(ctx context.Context, data []byte, partNum int) e
 	}
 	u.completeParts = append(u.completeParts, &s3.CompletedPart{
 		ETag:       uploadResult.ETag,
-		PartNumber: aws.Int64(int64(partNum)),
+		PartNumber: aws.Int64(int64(len(u.completeParts))),
 	})
 	return nil
 }

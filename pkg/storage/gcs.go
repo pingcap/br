@@ -142,7 +142,8 @@ func (s *gcsStorage) WalkDir(ctx context.Context, dir string, listCount int64, f
 
 // CreateUploader implenments ExternalStorage interface.
 func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	return nil, nil
+	// TODO, implement this if needed
+	panic("gcs storage not support multi-upload")
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {

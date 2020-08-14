@@ -20,7 +20,7 @@ type ReadSeekCloser interface {
 // Uploader upload file with chunks.
 type Uploader interface {
 	// UploadPart upload part of file data to storage
-	UploadPart(ctx context.Context, data []byte, partNum int) error
+	UploadPart(ctx context.Context, data []byte) error
 	// CompleteUpload make the upload data to a complete file
 	CompleteUpload(ctx context.Context) error
 }

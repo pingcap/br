@@ -58,7 +58,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, dir string, listCount int64,
 
 // CreateUploader implenments ExternalStorage interface.
 func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	return nil, nil
+	panic("local storage not support multi-upload")
 }
 
 // Open a Reader by file name.
