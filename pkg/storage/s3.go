@@ -66,7 +66,7 @@ type S3Storage struct {
 	options *backup.S3
 }
 
-// S3Uploader does multi-part upload to s3
+// S3Uploader does multi-part upload to s3.
 type S3Uploader struct {
 	svc           s3Handlers
 	createOutput  *s3.CreateMultipartUploadOutput
