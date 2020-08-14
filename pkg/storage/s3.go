@@ -319,13 +319,20 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+func (rs *S3Storage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
 	var marker *string
+	prefix := rs.options.Prefix
+	if len(dir) > 0 {
+		prefix += dir
+	}
 	maxKeys := int64(1000)
+	if listCount > 0 {
+		maxKeys = listCount
+	}
 	req := &s3.ListObjectsInput{
-		Bucket:  &rs.options.Bucket,
-		Prefix:  &rs.options.Prefix,
-		MaxKeys: &maxKeys,
+		Bucket:  aws.String(rs.options.Bucket),
+		Prefix:  aws.String(prefix),
+		MaxKeys: aws.Int64(maxKeys),
 	}
 	for {
 		req.Marker = marker
@@ -451,16 +458,6 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	r.reader = newReader
 	r.pos = realOffset
 	return realOffset, nil
-}
-
-// ListObject list `maxkeys` objects with specify path.
-func (rs *S3Storage) ListObject(ctx context.Context, name string, maxKeys int64) (*s3.ListObjectsV2Output, error) {
-	input := &s3.ListObjectsV2Input{
-		Bucket:  aws.String(rs.options.Bucket),
-		Prefix:  aws.String(rs.options.Prefix + name),
-		MaxKeys: aws.Int64(maxKeys),
-	}
-	return rs.svc.ListObjectsV2WithContext(ctx, input)
 }
 
 // CreateMultipartUpload create multi upload request.
