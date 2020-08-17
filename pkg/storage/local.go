@@ -6,7 +6,6 @@ import (
 	"context"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/pingcap/errors"
@@ -20,19 +19,19 @@ type LocalStorage struct {
 }
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
 	// the backupmeta file _is_ intended to be world-readable.
 }
 
 func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return ioutil.ReadFile(filepath)
 }
 
 // FileExists implement ExternalStorage.FileExists.
 func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return pathExists(filepath)
 }
 
@@ -59,7 +58,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 // Open a Reader by file path.
 func (l *LocalStorage) Open(ctx context.Context, p string) (ReadSeekCloser, error) {
 	if !filepath.IsAbs(p) {
-		p = path.Join(l.base, p)
+		p = filepath.Join(l.base, p)
 	}
 	return os.Open(p)
 }
