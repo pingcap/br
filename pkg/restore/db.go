@@ -161,10 +161,16 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
 		}
 
+		var autoIncID uint64
 		// auto inc id overflow
-		autoIncID := table.Info.AutoIncID
 		if table.Info.AutoIncID < 0 {
-			autoIncID = math.MaxInt64
+			if table.Info.IsAutoIncColUnsigned() {
+				autoIncID = math.MaxUint64
+			} else {
+				autoIncID = math.MaxInt64
+			}
+		} else {
+			autoIncID = uint64(table.Info.AutoIncID)
 		}
 		restoreMetaSQL = fmt.Sprintf(
 			alterAutoIncIDFormat,
