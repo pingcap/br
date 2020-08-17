@@ -123,8 +123,8 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 	return true, nil
 }
 
-// Open a Reader by file name.
-func (s *gcsStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+// Open a Reader by file path.
+func (s *gcsStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
 }
