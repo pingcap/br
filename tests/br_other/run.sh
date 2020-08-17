@@ -189,6 +189,7 @@ run_br -V
 
 run_sql "DROP DATABASE $DB;"
 
+run_sql "CREATE DATABASE $DB;"
 # generate table with auto_inc_id
 run_sql "create table $DB.autoid(auto_inc_id bigint primary key auto_increment)"
 run_sql "insert into $DB.autoid values(9223372036854775805)"
