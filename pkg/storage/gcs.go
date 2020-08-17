@@ -135,9 +135,15 @@ func (s *gcsStorage) Open(ctx context.Context, name string) (ReadSeekCloser, err
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (s *gcsStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+func (s *gcsStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
+}
+
+// CreateUploader implenments ExternalStorage interface.
+func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
+	// TODO, implement this if needed
+	panic("gcs storage not support multi-upload")
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {
