@@ -29,8 +29,13 @@ func (*noopStorage) Open(ctx context.Context, name string) (ReadSeekCloser, erro
 }
 
 // WalkDir traverse all the files in a dir.
-func (*noopStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+func (*noopStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
 	return nil
+}
+
+// CreateUploader implenments ExternalStorage interface.
+func (*noopStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
+	panic("noop storage not support multi-upload")
 }
 
 func newNoopStorage() *noopStorage {
