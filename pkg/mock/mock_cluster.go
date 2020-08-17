@@ -56,11 +56,7 @@ func NewCluster() (*Cluster, error) {
 		}()
 	})
 
-	cluster := mocktikv.NewCluster()
-	mocktikv.BootstrapWithSingleStore(cluster)
-	mvccStore := mocktikv.MustNewMVCCStore()
-
-	client, pdClient, err := mocktikv.NewTiKVAndPDClient(cluster, mvccStore, "")
+	client, cluster, pdClient, err := mocktikv.NewTiKVAndPDClient("")
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +72,7 @@ func NewCluster() (*Cluster, error) {
 	}
 	return &Cluster{
 		Cluster:   cluster,
-		MVCCStore: mvccStore,
+		MVCCStore: client.MvccStore,
 		Storage:   storage,
 		Domain:    dom,
 		PDClient:  pdClient,
