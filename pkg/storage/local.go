@@ -52,13 +52,16 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 			return nil
 		}
 
-		return fn(f.Name(), f.Size())
+		return fn(path, f.Size())
 	})
 }
 
-// Open a Reader by file name.
-func (l *LocalStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
-	return os.Open(path.Join(l.base, name))
+// Open a Reader by file path.
+func (l *LocalStorage) Open(ctx context.Context, p string) (ReadSeekCloser, error) {
+	if !filepath.IsAbs(p) {
+		p = path.Join(l.base, p)
+	}
+	return os.Open(p)
 }
 
 func pathExists(_path string) (bool, error) {

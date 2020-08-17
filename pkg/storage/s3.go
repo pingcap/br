@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -349,10 +350,13 @@ func (rs *S3Storage) Open(ctx context.Context, name string) (ReadSeekCloser, err
 	}, nil
 }
 
-func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
+func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
+	if strings.Index(path, rs.options.Prefix) != 0 {
+		path = rs.options.Prefix + path
+	}
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
-		Key:    aws.String(rs.options.Prefix + name),
+		Key:    aws.String(path),
 	}
 
 	var rangeOffset *string
