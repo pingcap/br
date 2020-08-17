@@ -6,11 +6,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"net/url"
-	"strings"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -18,6 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
+	"io"
+	"io/ioutil"
+	"net/url"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -351,12 +349,9 @@ func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, err
 }
 
 func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
-	if strings.Index(path, rs.options.Prefix) != 0 {
-		path = rs.options.Prefix + path
-	}
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
-		Key:    aws.String(path),
+		Key:    aws.String(rs.options.Prefix + path),
 	}
 
 	var rangeOffset *string

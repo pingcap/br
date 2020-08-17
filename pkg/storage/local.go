@@ -50,17 +50,16 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 		if f == nil || f.IsDir() {
 			return nil
 		}
-
+		// in mac osx, the path parameter is absolute path; in linux, the path is relative path to execution base dir,
+		// so use Rel to convert to relative path to l.base
+		path, _ = filepath.Rel(l.base, path)
 		return fn(path, f.Size())
 	})
 }
 
-// Open a Reader by file path.
+// Open a Reader by file path. path is a relative path to base path
 func (l *LocalStorage) Open(ctx context.Context, p string) (ReadSeekCloser, error) {
-	if !filepath.IsAbs(p) {
-		p = filepath.Join(l.base, p)
-	}
-	return os.Open(p)
+	return os.Open(filepath.Join(l.base, p))
 }
 
 func pathExists(_path string) (bool, error) {
