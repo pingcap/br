@@ -57,9 +57,9 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 	})
 }
 
-// Open a Reader by file path. path is a relative path to base path
-func (l *LocalStorage) Open(ctx context.Context, p string) (ReadSeekCloser, error) {
-	return os.Open(filepath.Join(l.base, p))
+// Open a Reader by file path, path is a relative path to base path.
+func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+	return os.Open(filepath.Join(l.base, path))
 }
 
 func pathExists(_path string) (bool, error) {
