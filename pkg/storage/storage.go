@@ -17,6 +17,14 @@ type ReadSeekCloser interface {
 	io.Closer
 }
 
+// Uploader upload file with chunks.
+type Uploader interface {
+	// UploadPart upload part of file data to storage
+	UploadPart(ctx context.Context, data []byte) error
+	// CompleteUpload make the upload data to a complete file
+	CompleteUpload(ctx context.Context) error
+}
+
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
 	// Write file to storage
@@ -33,7 +41,12 @@ type ExternalStorage interface {
 	// The argument `path` is the file path that can be used in `Open`
 	// function; the argument `size` is the size in byte of the file determined
 	// by path.
-	WalkDir(ctx context.Context, fn func(path string, size int64) error) error
+	WalkDir(ctx context.Context, dir string, listCount int64, fn func(path string, size int64) error) error
+
+	// CreateUploader create a uploader that will upload chunks data to storage.
+	// It's design for s3 multi-part upload currently. e.g. cdc log backup use this to do multi part upload
+	// to avoid generate small fragment files.
+	CreateUploader(ctx context.Context, name string) (Uploader, error)
 }
 
 // Create creates ExternalStorage.
@@ -45,7 +58,7 @@ func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool)
 		if backend.S3 == nil {
 			return nil, errors.New("s3 config not found")
 		}
-		return newS3Storage(backend.S3, sendCreds)
+		return NewS3Storage(backend.S3, sendCreds)
 	case *backup.StorageBackend_Noop:
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:

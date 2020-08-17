@@ -19,20 +19,20 @@ type LocalStorage struct {
 }
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
-	filepath := filepath.Join(l.base, name)
-	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
-	// the backupmeta file _is_ intended to be world-readable.
+	path := filepath.Join(l.base, name)
+	return ioutil.WriteFile(path, data, 0644) // nolint:gosec
+	// the backup meta file _is_ intended to be world-readable.
 }
 
 func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
-	filepath := filepath.Join(l.base, name)
-	return ioutil.ReadFile(filepath)
+	path := filepath.Join(l.base, name)
+	return ioutil.ReadFile(path)
 }
 
 // FileExists implement ExternalStorage.FileExists.
 func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
-	filepath := filepath.Join(l.base, name)
-	return pathExists(filepath)
+	path := filepath.Join(l.base, name)
+	return pathExists(path)
 }
 
 // WalkDir traverse all the files in a dir.
@@ -41,7 +41,7 @@ func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+func (l *LocalStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
 	return filepath.Walk(l.base, func(path string, f os.FileInfo, err error) error {
 		if err != nil {
 			return errors.Trace(err)
@@ -55,6 +55,11 @@ func (l *LocalStorage) WalkDir(ctx context.Context, fn func(string, int64) error
 		path, _ = filepath.Rel(l.base, path)
 		return fn(path, f.Size())
 	})
+}
+
+// CreateUploader implements ExternalStorage interface.
+func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
+	panic("local storage not support multi-upload")
 }
 
 // Open a Reader by file path, path is a relative path to base path.
