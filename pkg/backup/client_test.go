@@ -36,7 +36,8 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster())
+	store := mocktikv.MustNewMVCCStore()
+	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(store))
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{}
 	mockMgr.SetPDClient(r.mockPDClient)
