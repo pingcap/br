@@ -80,7 +80,7 @@ func (u *S3Uploader) UploadPart(ctx context.Context, data []byte) error {
 		Body:          bytes.NewReader(data),
 		Bucket:        u.createOutput.Bucket,
 		Key:           u.createOutput.Key,
-		PartNumber:    aws.Int64(int64(len(u.completeParts)+1)),
+		PartNumber:    aws.Int64(int64(len(u.completeParts) + 1)),
 		UploadId:      u.createOutput.UploadId,
 		ContentLength: aws.Int64(int64(len(data))),
 	}
