@@ -365,10 +365,7 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // by path.
 func (rs *S3Storage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
 	var marker *string
-	prefix := rs.options.Prefix
-	if len(dir) > 0 {
-		prefix += dir
-	}
+	prefix := rs.options.Prefix + dir
 	maxKeys := int64(1000)
 	if listCount > 0 {
 		maxKeys = listCount
