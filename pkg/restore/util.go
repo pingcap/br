@@ -580,3 +580,18 @@ func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 		zap.Uint64("total size", totalSize),
 	}
 }
+
+func parseQuoteName(name string) (string, string) {
+	schemaRune := make([]rune, 0, len(name))
+	for i, c := range name {
+		schemaRune = append(schemaRune, c)
+		if i == 0 {
+			continue
+		}
+		if name[i] == '`' && name[i-1] != '`' {
+			break
+		}
+	}
+	schema := string(schemaRune)
+	return schema, strings.TrimPrefix(name, schema+".")
+}
