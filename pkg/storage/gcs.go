@@ -123,6 +123,23 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 	return true, nil
 }
 
+// Open a Reader by file name.
+func (s *gcsStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+	// TODO, implement this if needed
+	panic("Unsupported Operation")
+}
+
+// WalkDir traverse all the files in a dir.
+//
+// fn is the function called for each regular file visited by WalkDir.
+// The first argument is the file path that can be used in `Open`
+// function; the second argument is the size in byte of the file determined
+// by path.
+func (s *gcsStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+	// TODO, implement this if needed
+	panic("Unsupported Operation")
+}
+
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {
 	return newGCSStorageWithHTTPClient(ctx, gcs, nil, sendCredential)
 }

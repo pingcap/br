@@ -31,3 +31,10 @@ func (*testMathSuite) TestClampInt(c *C) {
 	c.Assert(ClampInt(0, 1, 1), Equals, 1)
 	c.Assert(ClampInt(100, 1, 1), Equals, 1)
 }
+
+func (*testMathSuite) TestMinInt64(c *C) {
+	c.Assert(MinInt(1, 2), Equals, 1)
+	c.Assert(MinInt(2, 1), Equals, 1)
+	c.Assert(MinInt(4, 2, 1, 3), Equals, 1)
+	c.Assert(MinInt(1, 1), Equals, 1)
+}
