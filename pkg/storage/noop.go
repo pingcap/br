@@ -23,8 +23,8 @@ func (*noopStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
-// Open a Reader by file name.
-func (*noopStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+// Open a Reader by file path.
+func (*noopStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
 	return noopReader{}, nil
 }
 
