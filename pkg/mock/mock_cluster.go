@@ -57,6 +57,7 @@ func NewCluster() (*Cluster, error) {
 	})
 
 	client, cluster, pdClient, err := mocktikv.NewTiKVAndPDClient("")
+	mocktikv.BootstrapWithSingleStore(cluster)
 	if err != nil {
 		return nil, err
 	}
