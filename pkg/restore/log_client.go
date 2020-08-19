@@ -14,17 +14,14 @@ import (
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/task"
 )
 
 const (
-
 	tableLogPrefix = "t_"
-	logPrefix = "cdclog"
+	logPrefix      = "cdclog"
 
-	metaFile = "log.meta"
-	ddlEventsDir = "ddls"
+	metaFile      = "log.meta"
+	ddlEventsDir  = "ddls"
 	ddlFilePrefix = "ddl"
 
 	maxUint64 = ^uint64(0)
@@ -53,10 +50,11 @@ type LogClient struct {
 func NewLogRestoreClient(
 	ctx context.Context,
 	restoreClient *Client,
-	restoreCfg    *task.LogRestoreConfig,
+	startTs uint64,
+	endTS uint64,
+	tableFilter filter.Filter,
 ) (*LogClient, error) {
 	var err error
-	endTS := restoreCfg.EndTS
 	if endTS == 0 {
 		// means restore all log data,
 		// so we get current ts from restore cluster
@@ -68,10 +66,10 @@ func NewLogRestoreClient(
 
 	return &LogClient{
 		restoreClient,
-		restoreCfg.StartTS,
+		startTs,
 		endTS,
 		new(LogMeta),
-		restoreCfg.TableFilter,
+		tableFilter,
 	}, nil
 }
 
@@ -105,7 +103,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	ddlFiles := make([]string, 0)
-	err := l.restoreClient.storage.WalkDir(ctx, ddlEventsDir,-1, func(path string, size int64) error {
+	err := l.restoreClient.storage.WalkDir(ctx, ddlEventsDir, -1, func(path string, size int64) error {
 		fileName := filepath.Base(path)
 		shouldRestore, err := l.needRestoreDDL(fileName)
 		if err != nil {
@@ -165,7 +163,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	for _, tableID := range tableIDs {
 		// FIXME update log meta logic here
 		dir := fmt.Sprintf("%s%d", tableLogPrefix, tableID)
-		err := l.restoreClient.storage.WalkDir(ctx, dir,-1, func(path string, size int64) error {
+		err := l.restoreClient.storage.WalkDir(ctx, dir, -1, func(path string, size int64) error {
 			fileName := filepath.Base(path)
 			shouldRestore, err := l.needRestoreRowChange(fileName)
 			if err != nil {
@@ -216,7 +214,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context) error {
 			l.startTS, l.meta.GlobalResolvedTS)
 	}
 	if l.endTs > l.meta.GlobalResolvedTS {
-		log.Info("end ts is greater than resolved ts," +
+		log.Info("end ts is greater than resolved ts,"+
 			" to keep consistency we only recover data until resolved ts",
 			zap.Uint64("end ts", l.endTs),
 			zap.Uint64("resolved ts", l.meta.GlobalResolvedTS))

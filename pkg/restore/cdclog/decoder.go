@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package codec
+package cdclog
 
 import (
 	"bytes"
@@ -27,6 +27,14 @@ import (
 )
 
 type ColumnFlagType uint64
+type ItemType uint
+
+const (
+	// RowChanged represents dml type
+	RowChanged ItemType = 1 << ItemType(iota)
+	// DDL represents ddl type
+	DDL
+)
 
 const (
 	// BatchVersion1 represents the version of batch format
@@ -52,11 +60,10 @@ type column struct {
 
 	// WhereHandle is deprecation
 	// WhereHandle is replaced by HandleKey in Flag
-	WhereHandle *bool                `json:"h,omitempty"`
+	WhereHandle *bool          `json:"h,omitempty"`
 	Flag        ColumnFlagType `json:"f"`
-	Value       interface{}          `json:"v"`
+	Value       interface{}    `json:"v"`
 }
-
 
 func formatColumnVal(c column) column {
 	switch c.Type {
@@ -82,10 +89,10 @@ func formatColumnVal(c column) column {
 }
 
 type messageKey struct {
-	Ts        uint64              `json:"ts"`
-	Schema    string              `json:"scm,omitempty"`
-	Table     string              `json:"tbl,omitempty"`
-	Partition *int64              `json:"ptn,omitempty"`
+	Ts        uint64 `json:"ts"`
+	Schema    string `json:"scm,omitempty"`
+	Table     string `json:"tbl,omitempty"`
+	Partition *int64 `json:"ptn,omitempty"`
 }
 
 func (m *messageKey) Encode() ([]byte, error) {
@@ -95,7 +102,6 @@ func (m *messageKey) Encode() ([]byte, error) {
 func (m *messageKey) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
-
 
 type messageDDL struct {
 	Query string             `json:"q"`
@@ -139,6 +145,12 @@ func (m *messageRow) Decode(data []byte) error {
 	return nil
 }
 
+type SortItem struct {
+	itemType ItemType
+	item     interface{}
+	ts       uint64
+}
+
 // JSONEventBatchMixedDecoder decodes the byte of a batch into the original messages.
 type JSONEventBatchMixedDecoder struct {
 	mixedBytes []byte
@@ -147,7 +159,37 @@ type JSONEventBatchMixedDecoder struct {
 }
 
 // NextRowChangedEvent implements the EventBatchDecoder interface
-func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*kvPair, error) {
+func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
+	if !b.hasNext() {
+		log.Info("decode events finished")
+		return nil, nil
+	}
+	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
+	key := b.mixedBytes[8 : keyLen+8]
+	b.mixedBytes = b.mixedBytes[keyLen+8:]
+	keyMsg := new(messageKey)
+	if err := keyMsg.Decode(key); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
+	value := b.mixedBytes[8 : valueLen+8]
+	b.mixedBytes = b.mixedBytes[valueLen+8:]
+	rowMsg := new(messageRow)
+	if err := rowMsg.Decode(value); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &SortItem{
+		itemType: RowChanged,
+		// TODO encode row Msg to kv Pairs
+		item: rowMsg,
+		ts:   keyMsg.Ts,
+	}, nil
+}
+
+// NextDDLEvent implements the EventBatchDecoder interface
+func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
 	if !b.hasNext() {
 		log.Info("decode events finished")
 		return nil, nil
@@ -156,32 +198,10 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*kvPair, error) {
 	key := b.mixedBytes[8 : keyLen+8]
 	b.mixedBytes = b.mixedBytes[keyLen+8:]
 
-	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
-	value := b.mixedBytes[8 : valueLen+8]
-	b.mixedBytes = b.mixedBytes[valueLen+8:]
-
 	keyMsg := new(messageKey)
 	if err := keyMsg.Decode(key); err != nil {
 		return nil, errors.Trace(err)
 	}
-	rowMsg := new(messageRow)
-	if err := rowMsg.Decode(value); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	// TODO spell to kv pair
-	return nil, nil
-}
-
-// NextDDLEvent implements the EventBatchDecoder interface
-func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (string, error) {
-	if !b.hasNext() {
-		log.Info("decode events finished")
-		return "", nil
-	}
-	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
-	key := b.mixedBytes[8 : keyLen+8]
-	b.mixedBytes = b.mixedBytes[keyLen+8:]
 
 	b.mixedBytes = b.mixedBytes[keyLen+8:]
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
@@ -193,8 +213,11 @@ func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (string, error) {
 		return nil, errors.Trace(err)
 
 	}
-	// TODO spell to sql string with ts
-	return "", nil
+	return &SortItem{
+		itemType: DDL,
+		item:     ddlMsg,
+		ts:       keyMsg.Ts,
+	}, nil
 }
 
 func (b *JSONEventBatchMixedDecoder) hasNext() bool {

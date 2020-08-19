@@ -91,7 +91,7 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 		return err
 	}
 
-	logClient, err := restore.NewLogRestoreClient(ctx, client, cfg)
+	logClient, err := restore.NewLogRestoreClient(ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter)
 	if err != nil {
 		return err
 	}
