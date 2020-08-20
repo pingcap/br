@@ -14,11 +14,11 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/v4/client"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	pd "github.com/tikv/pd/client"
 	"go.etcd.io/etcd/pkg/transport"
 	"go.uber.org/zap"
 
