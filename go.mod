@@ -19,7 +19,7 @@ require (
 	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
 	github.com/pingcap/parser v0.0.0-20200731033026-84f62115187c
 	github.com/pingcap/tidb v1.1.0-beta.0.20200810064414-d81150394f9d
-	github.com/pingcap/tidb-tools v4.0.1+incompatible
+	github.com/pingcap/tidb-tools v4.0.5-0.20200820082341-afeaaaaaa153+incompatible
 	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
@@ -35,5 +35,3 @@ require (
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
-
-replace github.com/pingcap/tidb-tools => github.com/hundundm/tidb-tools v0.0.0-20200819101533-57d3c315da06
