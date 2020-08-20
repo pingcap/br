@@ -336,23 +336,23 @@ func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) 
 	return nil
 }
 
-// Open a Reader by file name.
-func (rs *S3Storage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
-	reader, err := rs.open(ctx, name, 0, 0)
+// Open a Reader by file path.
+func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+	reader, err := rs.open(ctx, path, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	return &s3ObjectReader{
 		storage: rs,
-		name:    name,
+		name:    path,
 		reader:  reader,
 	}, nil
 }
 
-func (rs *S3Storage) open(ctx context.Context, name string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
+func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
-		Key:    aws.String(rs.options.Prefix + name),
+		Key:    aws.String(rs.options.Prefix + path),
 	}
 
 	var rangeOffset *string
