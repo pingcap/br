@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/log"
 	timodel "github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 )
 
@@ -63,6 +64,13 @@ type column struct {
 	WhereHandle *bool          `json:"h,omitempty"`
 	Flag        ColumnFlagType `json:"f"`
 	Value       interface{}    `json:"v"`
+}
+
+func (c column) toDatum() types.Datum {
+	dat := types.Datum{}
+	tp := types.NewFieldType(c.Type)
+	dat.SetValue(c.Value, tp)
+	return dat
 }
 
 func formatColumnVal(c column) column {
@@ -182,7 +190,7 @@ func (b *JSONEventBatchMixedDecoder) decodeNextKey() error {
 	return nil
 }
 
-// NextRowChangedEvent implements the EventBatchDecoder interface
+// NextRowChangedEvent implements the EventBatchDecoder interface.
 func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 	if b.nextKey == nil {
 		if err := b.decodeNextKey(); err != nil {
@@ -210,7 +218,7 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 	}, nil
 }
 
-// NextDDLEvent implements the EventBatchDecoder interface
+// NextDDLEvent implements the EventBatchDecoder interface.
 func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
 	if b.nextKey == nil {
 		if err := b.decodeNextKey(); err != nil {
@@ -226,7 +234,6 @@ func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
 	ddlMsg := new(MessageDDL)
 	if err := ddlMsg.Decode(value); err != nil {
 		return nil, errors.Trace(err)
-
 	}
 	b.nextKey = nil
 	return &SortItem{

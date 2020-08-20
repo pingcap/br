@@ -15,7 +15,6 @@ package cdclog
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 
@@ -40,17 +39,17 @@ type invalidIterator struct {
 	kv.Iterator
 }
 
-// TableHasAutoRowID return whether table has auto generated row id
+// TableHasAutoRowID return whether table has auto generated row id.
 func TableHasAutoRowID(info *model.TableInfo) bool {
 	return !info.PKIsHandle && !info.IsCommonHandle
 }
 
-// Valid implements the kv.Iterator interface
+// Valid implements the kv.Iterator interface.
 func (*invalidIterator) Valid() bool {
 	return false
 }
 
-// Close implements the kv.Iterator interface
+// Close implements the kv.Iterator interface.
 func (*invalidIterator) Close() {
 }
 
@@ -74,7 +73,11 @@ func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
 }
 
 func (mb *kvMemBuf) Delete(k kv.Key) error {
-	return errors.New("unsupported operation")
+	mb.kvPairs = append(mb.kvPairs, KvPair{
+		Key: k.Clone(),
+	})
+	mb.size += len(k)
+	return nil
 }
 
 // Release publish all modifications in the latest staging buffer to upper level.
@@ -141,31 +144,31 @@ func (t *transaction) Flush() (int, error) {
 	return 0, nil
 }
 
-// Reset implements the kv.MemBuffer interface
+// Reset implements the kv.MemBuffer interface.
 func (t *transaction) Reset() {}
 
-// Get implements the kv.Retriever interface
+// Get implements the kv.Retriever interface.
 func (t *transaction) Get(ctx context.Context, key kv.Key) ([]byte, error) {
 	return nil, kv.ErrNotExist
 }
 
-// Iter implements the kv.Retriever interface
+// Iter implements the kv.Retriever interface.
 func (t *transaction) Iter(k kv.Key, upperBound kv.Key) (kv.Iterator, error) {
 	return &invalidIterator{}, nil
 }
 
-// Set implements the kv.Mutator interface
+// Set implements the kv.Mutator interface.
 func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
 }
 
-// SetOption implements the kv.Transaction interface
+// SetOption implements the kv.Transaction interface.
 func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
 
-// DelOption implements the kv.Transaction interface
+// DelOption implements the kv.Transaction interface.
 func (t *transaction) DelOption(kv.Option) {}
 
-// SetAssertion implements the kv.Transaction interface
+// SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
 func (t *transaction) GetUnionStore() kv.UnionStore {
@@ -210,7 +213,6 @@ func newSession(options *SessionOptions) *session {
 		vars:   vars,
 		values: make(map[fmt.Stringer]interface{}, 1),
 	}
-
 	return s
 }
 
@@ -221,12 +223,12 @@ func (se *session) takeKvPairs() []KvPair {
 	return pairs
 }
 
-// Txn implements the sessionctx.Context interface
+// Txn implements the sessionctx.Context interface.
 func (se *session) Txn(active bool) (kv.Transaction, error) {
 	return &se.txn, nil
 }
 
-// GetSessionVars implements the sessionctx.Context interface
+// GetSessionVars implements the sessionctx.Context interface.
 func (se *session) GetSessionVars() *variable.SessionVars {
 	return se.vars
 }
@@ -241,5 +243,5 @@ func (se *session) Value(key fmt.Stringer) interface{} {
 	return se.values[key]
 }
 
-// StmtAddDirtyTableOP implements the sessionctx.Context interface
+// StmtAddDirtyTableOP implements the sessionctx.Context interface.
 func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handle) {}

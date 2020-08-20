@@ -96,5 +96,5 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 		return err
 	}
 
-	return logClient.RestoreLogData(ctx)
+	return logClient.RestoreLogData(ctx, mgr.GetDomain())
 }

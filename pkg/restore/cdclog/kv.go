@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
@@ -35,8 +36,15 @@ type Encoder interface {
 	// Close the encoder.
 	Close()
 
-	// Encode encodes a row of SQL values into a backend-friendly format.
-	Encode(
+	// AddRecord encode encodes a row of SQL values into a backend-friendly format.
+	AddRecord(
+		row []types.Datum,
+		rowID int64,
+		columnPermutation []int,
+	) (Row, error)
+
+	// RemoveRecord encode encodes a row of SQL values into a backend-friendly format.
+	RemoveRecord(
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
@@ -109,7 +117,7 @@ var kindStr = [...]string{
 	types.KindMysqlJSON:     "json",
 }
 
-// MarshalLogArray implements the zapcore.ArrayMarshaler interface
+// MarshalLogArray implements the zapcore.ArrayMarshaler interface.
 func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, datum := range row {
 		kind := datum.Kind()
@@ -137,31 +145,31 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 	return nil
 }
 
-type kvPairs []KvPair
+type KvPairs []KvPair
 
 // MakeRowsFromKvPairs converts a KvPair slice into a Rows instance. This is
 // mainly used for testing only. The resulting Rows instance should only be used
 // for the importer backend.
 func MakeRowsFromKvPairs(pairs []KvPair) Rows {
-	return kvPairs(pairs)
+	return KvPairs(pairs)
 }
 
 // MakeRowFromKvPairs converts a KvPair slice into a Row instance. This is
 // mainly used for testing only. The resulting Row instance should only be used
 // for the importer backend.
 func MakeRowFromKvPairs(pairs []KvPair) Row {
-	return kvPairs(pairs)
+	return KvPairs(pairs)
 }
 
 // Close ...
 func (kvcodec *tableKVEncoder) Close() {
 }
 
-// Encode a row of data into KV pairs.
+// AddRecord encode a row of data into KV pairs.
 //
 // See comments in `(*TableRestore).initializeColumns` for the meaning of the
 // `columnPermutation` parameter.
-func (kvcodec *tableKVEncoder) Encode(
+func (kvcodec *tableKVEncoder) AddRecord(
 	row []types.Datum,
 	rowID int64,
 	columnPermutation []int,
@@ -209,7 +217,7 @@ func (kvcodec *tableKVEncoder) Encode(
 			incrementalBits := typeBitsLength - kvcodec.tbl.Meta().AutoRandomBits
 			hasSignBit := !mysql.HasUnsignedFlag(col.Flag)
 			if hasSignBit {
-				incrementalBits -= 1
+				incrementalBits--
 			}
 			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType)
 		}
@@ -233,7 +241,7 @@ func (kvcodec *tableKVEncoder) Encode(
 	}
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
-		log.Error("kv encode failed",
+		log.Error("kv add Record failed",
 			zap.Array("originalRow", rowArrayMarshaler(row)),
 			zap.Array("convertedRow", rowArrayMarshaler(record)),
 			zap.Error(err),
@@ -243,17 +251,69 @@ func (kvcodec *tableKVEncoder) Encode(
 
 	pairs := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return kvPairs(pairs), nil
+	return KvPairs(pairs), nil
 }
 
-func (kvs kvPairs) ClassifyAndAppend(
+// RemoveRecord encode a row of data into KV pairs.
+func (kvcodec *tableKVEncoder) RemoveRecord(
+	row []types.Datum,
+	rowID int64,
+	columnPermutation []int,
+) (Row, error) {
+	cols := kvcodec.tbl.Cols()
+
+	var value types.Datum
+	var err error
+	var record []types.Datum
+
+	if kvcodec.recordCache != nil {
+		record = kvcodec.recordCache
+	} else {
+		record = make([]types.Datum, 0, len(cols)+1)
+	}
+
+	for i, col := range cols {
+		j := columnPermutation[i]
+		isAutoIncCol := mysql.HasAutoIncrementFlag(col.Flag)
+		if j >= 0 && j < len(row) {
+			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
+			if err == nil {
+				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
+			}
+		} else if isAutoIncCol {
+			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
+			value, err = table.CastValue(kvcodec.se, types.NewIntDatum(rowID), col.ToInfo(), false, false)
+		} else {
+			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
+		}
+		if err != nil {
+			return nil, err
+		}
+		record = append(record, value)
+	}
+	err = kvcodec.tbl.RemoveRecord(kvcodec.se, kv.IntHandle(rowID), record)
+	if err != nil {
+		log.Error("kv remove record failed",
+			zap.Array("originalRow", rowArrayMarshaler(row)),
+			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			zap.Error(err),
+		)
+		return nil, errors.Trace(err)
+	}
+
+	pairs := kvcodec.se.takeKvPairs()
+	kvcodec.recordCache = record[:0]
+	return KvPairs(pairs), nil
+}
+
+func (kvs KvPairs) ClassifyAndAppend(
 	data *Rows,
 	dataChecksum *KVChecksum,
 	indices *Rows,
 	indexChecksum *KVChecksum,
 ) {
-	dataKVs := (*data).(kvPairs)
-	indexKVs := (*indices).(kvPairs)
+	dataKVs := (*data).(KvPairs)
+	indexKVs := (*indices).(KvPairs)
 
 	for _, kv := range kvs {
 		if kv.Key[tablecodec.TableSplitKeyLen+1] == 'r' {
@@ -269,8 +329,8 @@ func (kvs kvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
-func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
-	if len(totalKVs) == 0 {
+func (kvs KvPairs) SplitIntoChunks(splitSize int) []Rows {
+	if len(kvs) == 0 {
 		return nil
 	}
 
@@ -278,19 +338,19 @@ func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
 	i := 0
 	cumSize := 0
 
-	for j, pair := range totalKVs {
+	for j, pair := range kvs {
 		size := len(pair.Key) + len(pair.Val)
 		if i < j && cumSize+size > splitSize {
-			res = append(res, kvPairs(totalKVs[i:j]))
+			res = append(res, kvs[i:j])
 			i = j
 			cumSize = 0
 		}
 		cumSize += size
 	}
 
-	return append(res, kvPairs(totalKVs[i:]))
+	return append(res, kvs[i:])
 }
 
-func (kvs kvPairs) Clear() Rows {
-	return kvPairs(kvs[:0])
+func (kvs KvPairs) Clear() Rows {
+	return kvs[:0]
 }

@@ -48,7 +48,6 @@ func NewEventPuller(
 	ddlFiles []string,
 	rowChangedFiles []string,
 	storage storage.ExternalStorage) (*EventPuller, error) {
-
 	var (
 		ddlDecoder        *JSONEventBatchMixedDecoder
 		ddlFileIndex      int
@@ -62,7 +61,7 @@ func NewEventPuller(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		ddlFileIndex += 1
+		ddlFileIndex++
 		ddlDecoder, err = NewJSONEventBatchDecoder(data)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -76,7 +75,7 @@ func NewEventPuller(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		rowFileIndex += 1
+		rowFileIndex++
 		rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
 		if err != nil {
 			return nil, errors.Trace(err)
@@ -110,7 +109,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			e.ddlFileIndex += 1
+			e.ddlFileIndex++
 			e.ddlDecoder, err = NewJSONEventBatchDecoder(data)
 			if err != nil {
 				return nil, errors.Trace(err)
@@ -133,7 +132,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			e.rowChangedFileIndex += 1
+			e.rowChangedFileIndex++
 			e.rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
 			if err != nil {
 				return nil, errors.Trace(err)
