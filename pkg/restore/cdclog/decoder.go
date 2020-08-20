@@ -103,30 +103,30 @@ func (m *messageKey) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-type messageDDL struct {
+type MessageDDL struct {
 	Query string             `json:"q"`
 	Type  timodel.ActionType `json:"t"`
 }
 
-func (m *messageDDL) Encode() ([]byte, error) {
+func (m *MessageDDL) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-func (m *messageDDL) Decode(data []byte) error {
+func (m *MessageDDL) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-type messageRow struct {
+type MessageRow struct {
 	Update     map[string]column `json:"u,omitempty"`
 	PreColumns map[string]column `json:"p,omitempty"`
 	Delete     map[string]column `json:"d,omitempty"`
 }
 
-func (m *messageRow) Encode() ([]byte, error) {
+func (m *MessageRow) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-func (m *messageRow) Decode(data []byte) error {
+func (m *MessageRow) Decode(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	err := decoder.Decode(m)
@@ -146,77 +146,95 @@ func (m *messageRow) Decode(data []byte) error {
 }
 
 type SortItem struct {
-	itemType ItemType
-	item     interface{}
-	ts       uint64
+	ItemType ItemType
+	Meta     interface{}
+	Schema   string
+	Table    string
+	TS       uint64
+}
+
+func (s *SortItem) LessThan(other *SortItem) bool {
+	if other != nil {
+		return s.TS < other.TS
+	}
+	return false
 }
 
 // JSONEventBatchMixedDecoder decodes the byte of a batch into the original messages.
 type JSONEventBatchMixedDecoder struct {
 	mixedBytes []byte
 
-	offset int
+	nextKey    *messageKey
+	nextKeyLen uint64
+}
+
+func (b *JSONEventBatchMixedDecoder) decodeNextKey() error {
+	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
+	key := b.mixedBytes[8 : keyLen+8]
+	// drop value bytes
+	msgKey := new(messageKey)
+	err := msgKey.Decode(key)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	b.nextKey = msgKey
+	b.nextKeyLen = keyLen
+	return nil
 }
 
 // NextRowChangedEvent implements the EventBatchDecoder interface
 func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
-	if !b.hasNext() {
-		log.Info("decode events finished")
-		return nil, nil
-	}
-	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
-	key := b.mixedBytes[8 : keyLen+8]
-	b.mixedBytes = b.mixedBytes[keyLen+8:]
-	keyMsg := new(messageKey)
-	if err := keyMsg.Decode(key); err != nil {
-		return nil, errors.Trace(err)
+	if b.nextKey == nil {
+		if err := b.decodeNextKey(); err != nil {
+			return nil, err
+		}
 	}
 
+	b.mixedBytes = b.mixedBytes[b.nextKeyLen+8:]
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	value := b.mixedBytes[8 : valueLen+8]
 	b.mixedBytes = b.mixedBytes[valueLen+8:]
-	rowMsg := new(messageRow)
+	rowMsg := new(MessageRow)
 	if err := rowMsg.Decode(value); err != nil {
 		return nil, errors.Trace(err)
 	}
+	b.nextKey = nil
 
 	return &SortItem{
-		itemType: RowChanged,
+		ItemType: RowChanged,
 		// TODO encode row Msg to kv Pairs
-		item: rowMsg,
-		ts:   keyMsg.Ts,
+		Meta:   rowMsg,
+		Schema: b.nextKey.Schema,
+		Table:  b.nextKey.Table,
+		TS:     b.nextKey.Ts,
 	}, nil
 }
 
 // NextDDLEvent implements the EventBatchDecoder interface
 func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
-	if !b.hasNext() {
-		log.Info("decode events finished")
-		return nil, nil
-	}
-	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
-	key := b.mixedBytes[8 : keyLen+8]
-	b.mixedBytes = b.mixedBytes[keyLen+8:]
-
-	keyMsg := new(messageKey)
-	if err := keyMsg.Decode(key); err != nil {
-		return nil, errors.Trace(err)
+	if b.nextKey == nil {
+		if err := b.decodeNextKey(); err != nil {
+			return nil, err
+		}
 	}
 
-	b.mixedBytes = b.mixedBytes[keyLen+8:]
+	b.mixedBytes = b.mixedBytes[b.nextKeyLen+8:]
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	value := b.mixedBytes[8 : valueLen+8]
 	b.mixedBytes = b.mixedBytes[valueLen+8:]
 
-	ddlMsg := new(messageDDL)
+	ddlMsg := new(MessageDDL)
 	if err := ddlMsg.Decode(value); err != nil {
 		return nil, errors.Trace(err)
 
 	}
+	b.nextKey = nil
 	return &SortItem{
-		itemType: DDL,
-		item:     ddlMsg,
-		ts:       keyMsg.Ts,
+		ItemType: DDL,
+		Meta:     ddlMsg,
+		Schema:   b.nextKey.Schema,
+		Table:    b.nextKey.Table,
+		TS:       b.nextKey.Ts,
 	}, nil
 }
 

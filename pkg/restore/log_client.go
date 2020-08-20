@@ -14,6 +14,10 @@ import (
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+
+	"github.com/pingcap/br/pkg/restore/cdclog"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -41,7 +45,8 @@ type LogClient struct {
 	endTs   uint64
 
 	// meta info parsed from log backup
-	meta *LogMeta
+	meta        *LogMeta
+	eventPuller map[int64]*cdclog.EventPuller
 
 	tableFilter filter.Filter
 }
@@ -69,6 +74,7 @@ func NewLogRestoreClient(
 		startTs,
 		endTS,
 		new(LogMeta),
+		nil,
 		tableFilter,
 	}, nil
 }
@@ -185,11 +191,65 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	return rowChangeFiles, nil
 }
 
-func (l *LogClient) restoreFiles(
-	ctx context.Context,
-	ddlFiles []string,
-	rowChangedFiles map[int64][]string) error {
+func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, puller *cdclog.EventPuller) error {
+	for {
+		item, err := puller.PullOneEvent(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if item == nil {
+			log.Info("[restoreFromPuller] nothing in puller")
+			return nil
+		}
+		if !l.tsInRange(item.TS) {
+			log.Warn("[restoreFromPuller] ts not in given range",
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTs),
+				zap.Uint64("item ts", item.TS),
+			)
+			return nil
+		}
 
+		switch item.ItemType {
+		case cdclog.DDL:
+			name := l.meta.Names[tableID]
+			schema, table := parseQuoteName(name)
+			// ddl not influence on this table
+			if schema != item.Schema || table != item.Table {
+				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
+					zap.String("item table", item.Table),
+					zap.String("table", table),
+					zap.String("item schema", item.Schema),
+					zap.String("schema", schema),
+					zap.Int64("current table id", tableID),
+				)
+				continue
+			}
+
+			// TODO exec SQL on downstream TiDB
+
+		case cdclog.RowChanged:
+			// TODO spell kv pairs
+		}
+	}
+}
+
+func (l *LogClient) restoreTables(ctx context.Context) error {
+	// 1. decode cdclog with in ts range
+	// 2. dispatch cdclog events to table level concurrently
+	// 		a. encode row changed files to kvpairs and ingest into tikv
+	// 		b. exec ddl
+
+	// TODO change it concurrency to config
+	workerPool := utils.NewWorkerPool(128, "table log restore")
+	var eg *errgroup.Group
+	for tableID, puller := range l.eventPuller {
+		pullerReplica := puller
+		tableIDReplica := tableID
+		workerPool.ApplyOnErrorGroup(eg, func() error {
+			return l.restoreTableFromPuller(ctx, tableIDReplica, pullerReplica)
+		})
+	}
 	return nil
 }
 
@@ -232,6 +292,16 @@ func (l *LogClient) RestoreLogData(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 
+	// create event puller to apply changes concurrently
+	eventPullers := make(map[int64]*cdclog.EventPuller)
+	for tableID, files := range rowChangesFiles {
+		name := l.meta.Names[tableID]
+		schema, table := parseQuoteName(name)
+		eventPullers[tableID], err = cdclog.NewEventPuller(ctx, schema, table, ddlFiles, files, l.restoreClient.storage)
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
 	// restore files
-	return l.restoreFiles(ctx, ddlFiles, rowChangesFiles)
+	return l.restoreTables(ctx)
 }
