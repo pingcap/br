@@ -122,17 +122,35 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
 				utils.EncloseName(table.Db.Name.O),
 				utils.EncloseName(table.Info.Name.O))
+			var setValSQL string
 			if increment < 0 {
-				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
 			} else {
-				restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
 			}
+			err = db.se.Execute(ctx, setValSQL)
+			if err != nil {
+				log.Error("restore meta sql failed",
+					zap.String("query", setValSQL),
+					zap.Stringer("db", table.Db.Name),
+					zap.Stringer("table", table.Info.Name),
+					zap.Error(err))
+				return errors.Trace(err)
+			}
+
 			// trigger cycle round > 0
-			restoreMetaSQL += nextSeqSQL
-			restoreMetaSQL += fmt.Sprintf(setValFormat, table.Info.AutoIncID)
-		} else {
-			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+			err = db.se.Execute(ctx, nextSeqSQL)
+			if err != nil {
+				log.Error("restore meta sql failed",
+					zap.String("query", nextSeqSQL),
+					zap.Stringer("db", table.Db.Name),
+					zap.Stringer("table", table.Info.Name),
+					zap.Error(err))
+				return errors.Trace(err)
+			}
 		}
+		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+		err = db.se.Execute(ctx, restoreMetaSQL)
 	} else {
 		var alterAutoIncIDFormat string
 		switch {
@@ -146,15 +164,18 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.Db.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoIncID)
+		if utils.NeedAutoID(table.Info) {
+			err = db.se.Execute(ctx, restoreMetaSQL)
+		}
 	}
 
-	err = db.se.Execute(ctx, restoreMetaSQL)
 	if err != nil {
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
 			zap.Stringer("db", table.Db.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
+		return errors.Trace(err)
 	}
 	if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
 		// this table has auto random id, we need rebase it

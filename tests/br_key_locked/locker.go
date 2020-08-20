@@ -29,6 +29,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pingcap/tidb/kv"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
@@ -194,7 +196,7 @@ func (c *Locker) lockKeys(ctx context.Context, rowIDs []int64) error {
 
 	keyPrefix := tablecodec.GenTableRecordPrefix(c.tableID)
 	for _, rowID := range rowIDs {
-		key := tablecodec.EncodeRecordKey(keyPrefix, rowID)
+		key := tablecodec.EncodeRecordKey(keyPrefix, kv.IntHandle(rowID))
 		keys = append(keys, key)
 	}
 
