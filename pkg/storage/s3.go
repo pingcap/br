@@ -363,18 +363,12 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (rs *S3Storage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
+func (rs *S3Storage) WalkDir(ctx context.Context, opt WalkOption, fn func(string, int64) error) error {
 	var marker *string
-	prefix := rs.options.Prefix
+	prefix := rs.options.Prefix + opt.subDir
 	maxKeys := int64(1000)
-
-	dir, ok := ctx.Value("subDir").(string)
-	if ok {
-		prefix += dir
-	}
-	listCount, ok := ctx.Value("listCount").(int64)
-	if ok {
-		maxKeys = listCount
+	if opt.listCount > 0 {
+		maxKeys = opt.listCount
 	}
 
 	req := &s3.ListObjectsInput{
