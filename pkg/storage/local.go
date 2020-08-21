@@ -6,7 +6,6 @@ import (
 	"context"
 	"io/ioutil"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/pingcap/errors"
@@ -20,19 +19,19 @@ type LocalStorage struct {
 }
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
 	// the backupmeta file _is_ intended to be world-readable.
 }
 
 func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return ioutil.ReadFile(filepath)
 }
 
 // FileExists implement ExternalStorage.FileExists.
 func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
-	filepath := path.Join(l.base, name)
+	filepath := filepath.Join(l.base, name)
 	return pathExists(filepath)
 }
 
@@ -51,8 +50,10 @@ func (l *LocalStorage) WalkDir(ctx context.Context, dir string, listCount int64,
 		if f == nil || f.IsDir() {
 			return nil
 		}
-
-		return fn(f.Name(), f.Size())
+		// in mac osx, the path parameter is absolute path; in linux, the path is relative path to execution base dir,
+		// so use Rel to convert to relative path to l.base
+		path, _ = filepath.Rel(l.base, path)
+		return fn(path, f.Size())
 	})
 }
 
@@ -61,9 +62,9 @@ func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploade
 	panic("local storage not support multi-upload")
 }
 
-// Open a Reader by file name.
-func (l *LocalStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
-	return os.Open(path.Join(l.base, name))
+// Open a Reader by file path, path is a relative path to base path.
+func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+	return os.Open(filepath.Join(l.base, path))
 }
 
 func pathExists(_path string) (bool, error) {
