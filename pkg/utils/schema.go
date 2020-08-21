@@ -42,7 +42,7 @@ func (tbl *Table) NoChecksum() bool {
 
 // NeedAutoID checks whether the table needs backing up with an autoid.
 func NeedAutoID(tblInfo *model.TableInfo) bool {
-	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle
+	hasRowID := !tblInfo.PKIsHandle
 	hasAutoIncID := tblInfo.GetAutoIncrementColInfo() != nil
 	return hasRowID || hasAutoIncID
 }
