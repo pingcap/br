@@ -10,7 +10,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 )
 
-// WalkOption is the option of storage.WalkDir
+// WalkOption is the option of storage.WalkDir.
 type WalkOption struct {
 	subDir    string
 	listCount int64
