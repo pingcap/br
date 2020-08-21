@@ -12,7 +12,7 @@ import (
 
 // WalkOption is the option of storage.WalkDir
 type WalkOption struct {
-	subDir string
+	subDir    string
 	listCount int64
 }
 
