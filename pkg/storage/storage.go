@@ -41,7 +41,7 @@ type ExternalStorage interface {
 	// The argument `path` is the file path that can be used in `Open`
 	// function; the argument `size` is the size in byte of the file determined
 	// by path.
-	WalkDir(ctx context.Context, dir string, listCount int64, fn func(path string, size int64) error) error
+	WalkDir(ctx context.Context, fn func(path string, size int64) error) error
 
 	// CreateUploader create a uploader that will upload chunks data to storage.
 	// It's design for s3 multi-part upload currently. e.g. cdc log backup use this to do multi part upload

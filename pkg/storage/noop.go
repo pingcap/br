@@ -29,7 +29,7 @@ func (*noopStorage) Open(ctx context.Context, path string) (ReadSeekCloser, erro
 }
 
 // WalkDir traverse all the files in a dir.
-func (*noopStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
+func (*noopStorage) WalkDir(ctx context.Context, fn func(string, int64) error) error {
 	return nil
 }
 
