@@ -366,10 +366,10 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // by path.
 func (rs *S3Storage) WalkDir(ctx context.Context, opt WalkOption, fn func(string, int64) error) error {
 	var marker *string
-	prefix := rs.options.Prefix + opt.subDir
+	prefix := rs.options.Prefix + opt.SubDir
 	maxKeys := int64(1000)
-	if opt.listCount > 0 {
-		maxKeys = opt.listCount
+	if opt.ListCount > 0 {
+		maxKeys = opt.ListCount
 	}
 
 	req := &s3.ListObjectsInput{
@@ -385,7 +385,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt WalkOption, fn func(string
 		}
 		for _, r := range res.Contents {
 			path := *r.Key
-			if opt.removePrefix {
+			if opt.RemovePrefix {
 				path = strings.TrimLeft(path, rs.options.Prefix)
 			}
 			if err = fn(path, *r.Size); err != nil {
