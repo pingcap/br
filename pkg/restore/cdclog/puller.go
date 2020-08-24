@@ -103,7 +103,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 	// ddl exists
 	if e.ddlDecoder != nil {
 		// current file end, read next file if next file exists
-		if !e.ddlDecoder.hasNext() && e.ddlFileIndex < len(e.ddlFiles) {
+		if !e.ddlDecoder.HasNext() && e.ddlFileIndex < len(e.ddlFiles) {
 			path := e.ddlFiles[e.ddlFileIndex]
 			data, err := e.storage.Read(ctx, path)
 			if err != nil {
@@ -126,7 +126,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 	// dml exists
 	if e.rowChangedDecoder != nil {
 		// current file end, read next file if next file exists
-		if !e.rowChangedDecoder.hasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
+		if !e.rowChangedDecoder.HasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
 			path := e.rowChangedFiles[e.rowChangedFileIndex]
 			data, err := e.storage.Read(ctx, path)
 			if err != nil {

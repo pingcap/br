@@ -196,6 +196,43 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	return false, nil
 }
 
+func (l *LogClient) isCreateDDL(sql string) bool {
+	return strings.HasPrefix(strings.ToLower(sql), "create")
+}
+
+func (l *LogClient) doCreateDDLJob(ctx context.Context, ddls []string) error {
+	if len(ddls) == 0 {
+		log.Info("no create ddls to restore")
+		return nil
+	}
+
+	for _, path := range ddls {
+		data, err := l.restoreClient.storage.Read(ctx, path)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		decoder, err := cdclog.NewJSONEventBatchDecoder(data)
+		for decoder.HasNext() {
+			item, err := decoder.NextDDLEvent()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ddl := item.Meta.(*cdclog.MessageDDL)
+			log.Debug("[doCreateDDLJob] parse ddl", zap.String("query", ddl.Query))
+			if l.isCreateDDL(ddl.Query) {
+				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
+				if err != nil {
+					log.Error("[doCreateDDLJob] exec ddl failed",
+						zap.String("query", ddl.Query),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	ddlFiles := make([]string, 0)
 	err := l.restoreClient.storage.WalkDir(ctx, ddlEventsDir, -1, func(path string, size int64) error {
@@ -630,6 +667,19 @@ func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, p
 			ddl := item.Meta.(*cdclog.MessageDDL)
 			log.Debug("[restoreFromPuller] exec ddl", zap.String("query", ddl.Query))
 
+			if l.isCreateDDL(ddl.Query) {
+				// we already put all create ddl at beginning of log restore
+				// so we should skip when meet create ddl
+				log.Info("[restoreFromPuller] meet create ddl, and continue pulling",
+					zap.String("item table", item.Table),
+					zap.String("table", table),
+					zap.String("item schema", item.Schema),
+					zap.String("schema", schema),
+					zap.Int64("current table id", tableID),
+				)
+				continue
+			}
+
 			// wait all previous kvs ingest finished
 			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
@@ -705,6 +755,13 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 
 	// collect ddl files
 	ddlFiles, err := l.collectDDLFiles(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// execute create ddl first, because we need tableInfo to create kvEncoder
+	// we will filter all create ddl in later eventPuller
+	err = l.doCreateDDLJob(ctx, ddlFiles)
 	if err != nil {
 		return errors.Trace(err)
 	}

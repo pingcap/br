@@ -247,7 +247,7 @@ func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
 	return item, nil
 }
 
-func (b *JSONEventBatchMixedDecoder) hasNext() bool {
+func (b *JSONEventBatchMixedDecoder) HasNext() bool {
 	return len(b.mixedBytes) > 0
 }
 
