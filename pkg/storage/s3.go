@@ -386,7 +386,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt WalkOption, fn func(string
 		for _, r := range res.Contents {
 			path := *r.Key
 			if opt.RemovePrefix {
-				path = strings.TrimLeft(path, rs.options.Prefix)
+				path = strings.TrimPrefix(path, rs.options.Prefix)
 			}
 			if err = fn(path, *r.Size); err != nil {
 				return err
