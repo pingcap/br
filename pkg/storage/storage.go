@@ -12,8 +12,14 @@ import (
 
 // WalkOption is the option of storage.WalkDir.
 type WalkOption struct {
+	// walk on subDir of specify directory
 	subDir    string
+	// number of list count, default 1000
 	listCount int64
+	// this is used for s3 storage, when walk on specify directory,
+	// the result include storage.Prefix, which can not be reuse in other API.(Open/Read),
+	// we can set removePrefix to true, to avoid this problem.
+	removePrefix bool
 }
 
 // ReadSeekCloser is the interface that groups the basic Read, Seek and Close methods.

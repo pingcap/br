@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -383,7 +384,11 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt WalkOption, fn func(string
 			return err
 		}
 		for _, r := range res.Contents {
-			if err = fn(*r.Key, *r.Size); err != nil {
+			path := *r.Key
+			if opt.removePrefix {
+				path = strings.TrimLeft(path, rs.options.Prefix)
+			}
+			if err = fn(path, *r.Size); err != nil {
 				return err
 			}
 		}
