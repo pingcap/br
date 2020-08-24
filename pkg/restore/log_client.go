@@ -662,6 +662,7 @@ func (l *LogClient) restoreTables(ctx context.Context) error {
 	// 		a. encode row changed files to kvpairs and ingest into tikv
 	// 		b. exec ddl
 	// TODO change it concurrency to config
+	log.Debug("start restore tables")
 	workerPool := utils.NewWorkerPool(128, "table log restore")
 	var eg *errgroup.Group
 	for tableID, puller := range l.eventPullers {
@@ -707,16 +708,26 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	log.Debug("collect ddl files", zap.Any("files", ddlFiles))
+
 	// collect row change files
 	rowChangesFiles, err := l.collectRowChangeFiles(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
+	log.Debug("collect row changed files", zap.Any("files", rowChangesFiles))
+
 	// create event puller to apply changes concurrently
 	for tableID, files := range rowChangesFiles {
 		name := l.meta.Names[tableID]
 		schema, table := parseQuoteName(name)
+		log.Info("create puller for table",
+			zap.Int64("table id", tableID),
+			zap.String("schema", schema),
+			zap.String("table", table),
+		)
 		l.eventPullers[tableID], err = cdclog.NewEventPuller(ctx, schema, table, ddlFiles, files, l.restoreClient.storage)
 		if err != nil {
 			return errors.Trace(err)
