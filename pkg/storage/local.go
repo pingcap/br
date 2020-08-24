@@ -41,7 +41,7 @@ func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (l *LocalStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
+func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	return filepath.Walk(l.base, func(path string, f os.FileInfo, err error) error {
 		if err != nil {
 			return errors.Trace(err)

@@ -135,7 +135,7 @@ func (s *gcsStorage) Open(ctx context.Context, path string) (ReadSeekCloser, err
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (s *gcsStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
+func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
 }
