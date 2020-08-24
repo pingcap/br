@@ -146,7 +146,8 @@ func newLogRestoreCommand() *cobra.Command {
 			return runLogRestoreCommand(cmd)
 		},
 	}
-	task.DefineTableFlags(command)
+	task.DefineFilterFlags(command)
+	task.DefineLogRestoreFlags(command)
 	return command
 }
 

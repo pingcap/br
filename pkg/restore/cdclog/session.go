@@ -125,12 +125,6 @@ type transaction struct {
 	kvUnionStore
 }
 
-func NewTransaction() *transaction {
-	return &transaction{
-		kvUnionStore: kvUnionStore{},
-	}
-}
-
 func (t *transaction) GetMemBuffer() kv.MemBuffer {
 	return &t.kvUnionStore.kvMemBuf
 }

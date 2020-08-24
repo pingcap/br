@@ -22,7 +22,7 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 )
 
-// EventPuller pulls next event in ts order
+// EventPuller pulls next event in ts order.
 type EventPuller struct {
 	ddlDecoder            *JSONEventBatchMixedDecoder
 	rowChangedDecoder     *JSONEventBatchMixedDecoder

@@ -6,6 +6,7 @@ import (
 	"context"
 
 	"github.com/pingcap/errors"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/br/pkg/conn"
@@ -25,6 +26,12 @@ type LogRestoreConfig struct {
 
 	StartTS uint64
 	EndTS   uint64
+}
+
+// DefineLogRestoreFlags defines common flags for the backup command.
+func DefineLogRestoreFlags(command *cobra.Command) {
+	command.Flags().Uint64P(flagStartTS, "", 0, "restore log start ts")
+	command.Flags().Uint64P(flagEndTS, "", 0, "restore log end ts")
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
