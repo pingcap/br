@@ -23,13 +23,13 @@ func (*noopStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
-// Open a Reader by file name.
-func (*noopStorage) Open(ctx context.Context, name string) (ReadSeekCloser, error) {
+// Open a Reader by file path.
+func (*noopStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
 	return noopReader{}, nil
 }
 
 // WalkDir traverse all the files in a dir.
-func (*noopStorage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
+func (*noopStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	return nil
 }
 
