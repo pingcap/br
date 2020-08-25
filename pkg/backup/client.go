@@ -984,6 +984,7 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 
 	return checksums, nil
 }
+<<<<<<< HEAD
 
 // FilterSchema filter in-place schemas that doesn't have backup files
 // this is useful during incremental backup, no files in backup means no files to restore
@@ -1018,3 +1019,5 @@ func FilterSchema(backupMeta *kvproto.BackupMeta) error {
 func isRetryableError(err error) bool {
 	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
 }
+=======
+>>>>>>> 64271cf... test: fix br incremental index not stable (#468)

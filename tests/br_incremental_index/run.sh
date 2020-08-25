@@ -31,7 +31,7 @@ done
 
 # full backup
 echo "backup full start..."
-run_sql "CREATE INDEX idx_c1 ON ${DB}.${TABLE}(c1)" &
+run_sql "CREATE INDEX idx_c1 ON ${DB}.${TABLE}(c1)"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/full" --ratelimit 5 --concurrency 4
 wait
 # run ddls
