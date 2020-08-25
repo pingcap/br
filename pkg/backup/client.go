@@ -919,8 +919,6 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 			totalBytes += file.TotalBytes
 		}
 
-		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
 		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		localChecksum := Checksum{
 			Crc64Xor:   checksum,
