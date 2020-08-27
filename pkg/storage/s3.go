@@ -412,6 +412,7 @@ func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, err
 		storage: rs,
 		name:    path,
 		reader:  reader,
+		ctx:     ctx,
 	}, nil
 }
 
@@ -452,6 +453,9 @@ type s3ObjectReader struct {
 	name    string
 	reader  io.ReadCloser
 	pos     int64
+	size    *int64
+	// reader context used for seek
+	ctx context.Context
 }
 
 // Read implement the io.Reader interface.
@@ -466,6 +470,24 @@ func (r *s3ObjectReader) Close() error {
 	return r.reader.Close()
 }
 
+func (r *s3ObjectReader) fileSize(ctx context.Context) (int64, error) {
+	if r.size == nil {
+		hio := &s3.HeadObjectInput{
+			Bucket: aws.String(r.storage.options.Bucket),
+			Key:    aws.String(r.storage.options.Prefix + r.name),
+		}
+
+		hoo, err := r.storage.svc.HeadObjectWithContext(ctx, hio)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+
+		r.size = hoo.ContentLength
+	}
+
+	return *r.size, nil
+}
+
 // Seek implement the io.Seeker interface.
 func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	var realOffset int64
@@ -474,9 +496,14 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		realOffset = offset
 	case io.SeekCurrent:
 		realOffset = r.pos + offset
+	case io.SeekEnd:
+		fileSize, err := r.fileSize(r.ctx)
+		if err != nil {
+			return 0, errors.Trace(err)
+		}
+		realOffset = fileSize + offset
 	default:
-		// TODO: maybe we can fetch the object stat and calculate the absolute offset
-		return 0, errors.New("seek by SeekEnd is not supported yet")
+		return 0, errors.Errorf("Seek: invalid whence '%d'", whence)
 	}
 
 	if realOffset == r.pos {
@@ -498,7 +525,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, err
 	}
 
-	newReader, err := r.storage.open(context.TODO(), r.name, realOffset, 0)
+	newReader, err := r.storage.open(r.ctx, r.name, realOffset, 0)
 	if err != nil {
 		return 0, err
 	}
