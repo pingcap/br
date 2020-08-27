@@ -365,6 +365,9 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // function; the second argument is the size in byte of the file determined
 // by path.
 func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
+	if opt == nil {
+		opt = &WalkOption{}
+	}
 	var marker *string
 	prefix := rs.options.Prefix + opt.SubDir
 	maxKeys := int64(1000)
