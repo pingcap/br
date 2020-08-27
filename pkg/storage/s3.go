@@ -9,6 +9,8 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -407,19 +409,26 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 
 // Open a Reader by file path.
 func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
-	reader, err := rs.open(ctx, path, 0, 0)
+	reader, r, err := rs.open(ctx, path, 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	return &s3ObjectReader{
-		storage: rs,
-		name:    path,
-		reader:  reader,
-		ctx:     ctx,
+		storage:   rs,
+		name:      path,
+		reader:    reader,
+		ctx:       ctx,
+		rangeInfo: r,
 	}, nil
 }
 
-func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, error) {
+type rangeInfo struct {
+	start int64
+	end   int64
+	size  int64
+}
+
+func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, *rangeInfo, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + path),
@@ -437,26 +446,60 @@ func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, e
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// FIXME: we test in minio, when request with Range, the result.AcceptRanges is a bare string 'range',
-	//  not sure whether this is a feature or bug
-	//if rangeOffset != nil && (result.AcceptRanges == nil || *result.AcceptRanges != *rangeOffset) {
-	//	return nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
-	//		name, *rangeOffset, result.AcceptRanges)
-	//}
+	var r *rangeInfo
+	if result.ContentRange != nil {
+		r, err = parseRangeInfo(result.ContentRange)
+		if err != nil {
+			return nil, nil, errors.Trace(err)
+		}
+	}
 
-	return result.Body, nil
+	if rangeOffset != nil && (r == nil || startOffset != r.start || (endOffset != 0 && endOffset != r.end)) {
+		return nil, nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+			path, *rangeOffset, result.ContentRange)
+	}
+
+	return result.Body, r, nil
+}
+
+var (
+	contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
+)
+
+func parseRangeInfo(info *string) (*rangeInfo, error) {
+	if info == nil || len(*info) == 0 {
+		return nil, nil
+	}
+	subMatches := contentRangeRegex.FindStringSubmatch(*info)
+	if len(subMatches) != 4 {
+		return nil, errors.Errorf("invalid content range: '%s'", *info)
+	}
+
+	start, err := strconv.ParseInt(subMatches[1], 10, 64)
+	if err != nil {
+		return nil, errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+	}
+	end, err := strconv.ParseInt(subMatches[2], 10, 64)
+	if err != nil {
+		return nil, errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+	}
+	size, err := strconv.ParseInt(subMatches[3], 10, 64)
+	if err != nil {
+		return nil, errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+	}
+	return &rangeInfo{start: start, end: end, size: size}, nil
 }
 
 // s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method.
 type s3ObjectReader struct {
-	storage *S3Storage
-	name    string
-	reader  io.ReadCloser
-	pos     int64
-	size    *int64
+	storage   *S3Storage
+	name      string
+	reader    io.ReadCloser
+	pos       int64
+	rangeInfo *rangeInfo
 	// reader context used for seek
 	ctx context.Context
 }
@@ -474,7 +517,7 @@ func (r *s3ObjectReader) Close() error {
 }
 
 func (r *s3ObjectReader) fileSize(ctx context.Context) (int64, error) {
-	if r.size == nil {
+	if r.rangeInfo == nil {
 		hio := &s3.HeadObjectInput{
 			Bucket: aws.String(r.storage.options.Bucket),
 			Key:    aws.String(r.storage.options.Prefix + r.name),
@@ -485,10 +528,10 @@ func (r *s3ObjectReader) fileSize(ctx context.Context) (int64, error) {
 			return 0, errors.Trace(err)
 		}
 
-		r.size = hoo.ContentLength
+		r.rangeInfo = &rangeInfo{start: 0, end: *hoo.ContentLength, size: *hoo.ContentLength}
 	}
 
-	return *r.size, nil
+	return r.rangeInfo.size, nil
 }
 
 // Seek implement the io.Seeker interface.
@@ -528,11 +571,12 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, err
 	}
 
-	newReader, err := r.storage.open(r.ctx, r.name, realOffset, 0)
+	newReader, rangeInfo, err := r.storage.open(r.ctx, r.name, realOffset, 0)
 	if err != nil {
 		return 0, err
 	}
 	r.reader = newReader
+	r.rangeInfo = rangeInfo
 	r.pos = realOffset
 	return realOffset, nil
 }

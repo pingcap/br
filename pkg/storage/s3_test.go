@@ -452,6 +452,21 @@ func (r *testStorageSuite) TestS3Others(c *C) {
 	defineS3Flags(&pflag.FlagSet{})
 }
 
+func (r *testStorageSuite) TestS3Range(c *C) {
+	contentRange := "bytes 0-9/443"
+	ri, err := parseRangeInfo(&contentRange)
+	c.Assert(err, IsNil)
+	c.Assert(*ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
+
+	ri, err = parseRangeInfo(nil)
+	c.Assert(err, IsNil)
+	c.Assert(ri, IsNil)
+
+	badRange := "bytes "
+	ri, err = parseRangeInfo(&badRange)
+	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '")
+}
+
 type mockS3Handler struct {
 	err error
 }
