@@ -428,7 +428,11 @@ type rangeInfo struct {
 	size  int64
 }
 
-func (rs *S3Storage) open(ctx context.Context, path string, startOffset int64, endOffset int64) (io.ReadCloser, *rangeInfo, error) {
+func (rs *S3Storage) open(
+	ctx context.Context,
+	path string,
+	startOffset, endOffset int64,
+) (io.ReadCloser, *rangeInfo, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + path),
