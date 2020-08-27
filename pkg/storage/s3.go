@@ -398,7 +398,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 			}
 		}
 		if res.IsTruncated != nil && *res.IsTruncated {
-			marker = res.Marker
+			marker = res.NextMarker
 		} else {
 			break
 		}
