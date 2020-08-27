@@ -463,7 +463,7 @@ func (r *testStorageSuite) TestS3Range(c *C) {
 	c.Assert(ri, IsNil)
 
 	badRange := "bytes "
-	ri, err = parseRangeInfo(&badRange)
+	_, err = parseRangeInfo(&badRange)
 	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '")
 }
 
