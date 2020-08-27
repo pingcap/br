@@ -593,5 +593,10 @@ func parseQuoteName(name string) (string, string) {
 		}
 	}
 	schema := string(schemaRune)
-	return schema, strings.TrimPrefix(name, schema+".")
+	return unQuoteName(schema), unQuoteName(strings.TrimPrefix(name, schema+"."))
+}
+
+func unQuoteName(name string) string {
+	name = strings.TrimLeft(name, "`")
+	return strings.TrimRight(name, "`")
 }
