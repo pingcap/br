@@ -475,17 +475,20 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 	var start, end int
 	// TODO use binary sort
 	for i, kv := range kvs {
-		if bytes.Compare(kv.Key, startKey) > 0 {
+		if bytes.Compare(kv.Key, startKey) >= 0 {
 			start = i
 			break
 		}
 	}
-	for i, kv := range kvs {
-		if bytes.Compare(kv.Key, endKey) < 0 {
+	for i := len(kvs) -1; i >= 0; i -- {
+		if bytes.Compare(kvs[i].Key, endKey) < 0 {
 			end = i
 			break
 		}
 	}
+
+	log.Debug("doWriteAndIngest", zap.Int("kv count", len(kvs)),
+		zap.Int("start", start), zap.Int("end", start))
 
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
