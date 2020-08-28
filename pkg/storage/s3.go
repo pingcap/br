@@ -507,9 +507,28 @@ type s3ObjectReader struct {
 
 // Read implement the io.Reader interface.
 func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
-	n, err = r.reader.Read(p)
-	r.pos += int64(n)
-	return
+	maxCnt := r.rangeInfo.end + 1 - r.pos
+	if maxCnt > int64(len(p)) {
+		maxCnt = int64(len(p))
+	}
+	var c int
+	// s3 api may not return enough data, so we need to loop fetch enough
+	for {
+		c, err = r.reader.Read(p[n:maxCnt])
+		if err != nil {
+			// TODO: currently, if read to the end, s3 will return io.EOF
+			if err == io.EOF && r.pos+int64(c) == r.rangeInfo.end+1 {
+				err = nil
+			} else {
+				return
+			}
+		}
+		n += c
+		r.pos += int64(c)
+		if n >= int(maxCnt) {
+			return
+		}
+	}
 }
 
 // Close implement the io.Closer interface.
