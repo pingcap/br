@@ -536,8 +536,8 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	// if seek ahead no more than 64k, we discard these data
-	if realOffset > r.pos && offset-r.pos <= maxSkipOffsetByRead {
-		_, err := io.CopyN(ioutil.Discard, r, offset-r.pos)
+	if realOffset > r.pos && realOffset-r.pos <= maxSkipOffsetByRead {
+		_, err := io.CopyN(ioutil.Discard, r, realOffset-r.pos)
 		if err != nil {
 			return r.pos, err
 		}
