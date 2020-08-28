@@ -458,7 +458,7 @@ func (rs *S3Storage) open(
 		return nil, rangeInfo{}, errors.Trace(err)
 	}
 
-	if startOffset != r.start || (endOffset != 0 && endOffset != r.end) {
+	if startOffset != r.start || (endOffset != 0 && endOffset != r.end+1) {
 		return nil, r, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
