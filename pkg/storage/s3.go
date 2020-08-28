@@ -428,7 +428,7 @@ type rangeInfo struct {
 	size  int64
 }
 
-// if endOffset > startOffset, should return reader for bytes in [startOffset, endOffset)
+// if endOffset > startOffset, should return reader for bytes in [startOffset, endOffset).
 func (rs *S3Storage) open(
 	ctx context.Context,
 	path string,
