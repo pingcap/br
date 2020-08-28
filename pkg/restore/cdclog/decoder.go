@@ -192,6 +192,9 @@ func (b *JSONEventBatchMixedDecoder) decodeNextKey() error {
 
 // NextRowChangedEvent implements the EventBatchDecoder interface.
 func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
+	if !b.HasNext() {
+		return nil, nil
+	}
 	if b.nextKey == nil {
 		if err := b.decodeNextKey(); err != nil {
 			return nil, err
@@ -221,6 +224,9 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 
 // NextDDLEvent implements the EventBatchDecoder interface.
 func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
+	if !b.HasNext() {
+		return nil, nil
+	}
 	if b.nextKey == nil {
 		if err := b.decodeNextKey(); err != nil {
 			return nil, err

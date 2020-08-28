@@ -601,6 +601,12 @@ WriteAndIngest:
 
 func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
 	kvs := rows.(cdclog.KvPairs)
+	log.Debug("writeRows", zap.Int("kv count", len(kvs)))
+	if len(kvs) == 0 {
+		// shouldn't happen
+		log.Warn("not rows to write")
+		return nil
+	}
 	// sort kvs in memory
 	sort.Slice(kvs, func(i, j int) bool {
 		return bytes.Compare(kvs[i].Key, kvs[j].Key) < 0
@@ -610,7 +616,7 @@ func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
 
 func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 	log.Debug("apply kv changes to tikv",
-		zap.Any("table", l.tableBuffers[tableID]),
+		zap.Any("table", tableID),
 	)
 	dataKVs := cdclog.MakeRowsFromKvPairs(nil)
 	indexKVs := cdclog.MakeRowsFromKvPairs(nil)
@@ -731,7 +737,7 @@ func (l *LogClient) restoreTables(ctx context.Context) error {
 			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica)
 		})
 	}
-	return nil
+	return eg.Wait()
 }
 
 // RestoreLogData restore specify log data from storage.
