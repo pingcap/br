@@ -569,12 +569,12 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, err
 	}
 
-	newReader, rangeInfo, err := r.storage.open(r.ctx, r.name, realOffset, 0)
+	newReader, info, err := r.storage.open(r.ctx, r.name, realOffset, 0)
 	if err != nil {
 		return 0, err
 	}
 	r.reader = newReader
-	r.rangeInfo = rangeInfo
+	r.rangeInfo = info
 	r.pos = realOffset
 	return realOffset, nil
 }
