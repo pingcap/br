@@ -723,12 +723,12 @@ func (l *LogClient) restoreTables(ctx context.Context) error {
 	// TODO change it concurrency to config
 	log.Debug("start restore tables")
 	workerPool := utils.NewWorkerPool(128, "table log restore")
-	var eg *errgroup.Group
+	eg, ectx := errgroup.WithContext(ctx)
 	for tableID, puller := range l.eventPullers {
 		pullerReplica := puller
 		tableIDReplica := tableID
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			return l.restoreTableFromPuller(ctx, tableIDReplica, pullerReplica)
+			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica)
 		})
 	}
 	return nil
