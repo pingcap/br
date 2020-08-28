@@ -456,11 +456,10 @@ func (r *testStorageSuite) TestS3Range(c *C) {
 	contentRange := "bytes 0-9/443"
 	ri, err := parseRangeInfo(&contentRange)
 	c.Assert(err, IsNil)
-	c.Assert(*ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
+	c.Assert(ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
 
 	ri, err = parseRangeInfo(nil)
-	c.Assert(err, IsNil)
-	c.Assert(ri, IsNil)
+	c.Assert(err, ErrorMatches, "ContentRange is empty")
 
 	badRange := "bytes "
 	_, err = parseRangeInfo(&badRange)

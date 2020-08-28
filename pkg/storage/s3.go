@@ -428,41 +428,38 @@ type rangeInfo struct {
 	size  int64
 }
 
+// if endOffset > startOffset, should return reader for bytes in [startOffset, endOffset)
 func (rs *S3Storage) open(
 	ctx context.Context,
 	path string,
 	startOffset, endOffset int64,
-) (io.ReadCloser, *rangeInfo, error) {
+) (io.ReadCloser, rangeInfo, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + path),
 	}
 
+	// always set rangeOffset to fetch file size info
+	// s3 endOffset is inclusive
 	var rangeOffset *string
-	if startOffset > 0 {
-		if endOffset > startOffset {
-			rangeOffset = aws.String(fmt.Sprintf("bytes=%d-%d", startOffset, endOffset))
-		} else {
-			rangeOffset = aws.String(fmt.Sprintf("bytes=%d-", startOffset))
-		}
-		input.Range = rangeOffset
+	if endOffset > startOffset {
+		rangeOffset = aws.String(fmt.Sprintf("bytes=%d-%d", startOffset, endOffset-1))
+	} else {
+		rangeOffset = aws.String(fmt.Sprintf("bytes=%d-", startOffset))
 	}
-
+	input.Range = rangeOffset
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, nil, err
+		return nil, rangeInfo{}, err
 	}
 
-	var r *rangeInfo
-	if result.ContentRange != nil {
-		r, err = parseRangeInfo(result.ContentRange)
-		if err != nil {
-			return nil, nil, errors.Trace(err)
-		}
+	r, err := parseRangeInfo(result.ContentRange)
+	if err != nil {
+		return nil, rangeInfo{}, errors.Trace(err)
 	}
 
-	if rangeOffset != nil && (r == nil || startOffset != r.start || (endOffset != 0 && endOffset != r.end)) {
-		return nil, nil, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+	if startOffset != r.start || (endOffset != 0 && endOffset != r.end) {
+		return nil, r, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
 
@@ -473,28 +470,28 @@ var (
 	contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
 )
 
-func parseRangeInfo(info *string) (*rangeInfo, error) {
+func parseRangeInfo(info *string) (rangeInfo, error) {
 	if info == nil || len(*info) == 0 {
-		return nil, nil
+		return rangeInfo{}, errors.New("ContentRange is empty")
 	}
 	subMatches := contentRangeRegex.FindStringSubmatch(*info)
 	if len(subMatches) != 4 {
-		return nil, errors.Errorf("invalid content range: '%s'", *info)
+		return rangeInfo{}, errors.Errorf("invalid content range: '%s'", *info)
 	}
 
 	start, err := strconv.ParseInt(subMatches[1], 10, 64)
 	if err != nil {
-		return nil, errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		return rangeInfo{}, errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
 	}
 	end, err := strconv.ParseInt(subMatches[2], 10, 64)
 	if err != nil {
-		return nil, errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		return rangeInfo{}, errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
 	}
 	size, err := strconv.ParseInt(subMatches[3], 10, 64)
 	if err != nil {
-		return nil, errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		return rangeInfo{}, errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
 	}
-	return &rangeInfo{start: start, end: end, size: size}, nil
+	return rangeInfo{start: start, end: end, size: size}, nil
 }
 
 // s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method.
@@ -503,7 +500,7 @@ type s3ObjectReader struct {
 	name      string
 	reader    io.ReadCloser
 	pos       int64
-	rangeInfo *rangeInfo
+	rangeInfo rangeInfo
 	// reader context used for seek
 	ctx context.Context
 }
@@ -520,24 +517,6 @@ func (r *s3ObjectReader) Close() error {
 	return r.reader.Close()
 }
 
-func (r *s3ObjectReader) fileSize(ctx context.Context) (int64, error) {
-	if r.rangeInfo == nil {
-		hio := &s3.HeadObjectInput{
-			Bucket: aws.String(r.storage.options.Bucket),
-			Key:    aws.String(r.storage.options.Prefix + r.name),
-		}
-
-		hoo, err := r.storage.svc.HeadObjectWithContext(ctx, hio)
-		if err != nil {
-			return 0, errors.Trace(err)
-		}
-
-		r.rangeInfo = &rangeInfo{start: 0, end: *hoo.ContentLength, size: *hoo.ContentLength}
-	}
-
-	return r.rangeInfo.size, nil
-}
-
 // Seek implement the io.Seeker interface.
 func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	var realOffset int64
@@ -547,11 +526,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		realOffset = r.pos + offset
 	case io.SeekEnd:
-		fileSize, err := r.fileSize(r.ctx)
-		if err != nil {
-			return 0, errors.Trace(err)
-		}
-		realOffset = fileSize + offset
+		realOffset = r.rangeInfo.size + offset
 	default:
 		return 0, errors.Errorf("Seek: invalid whence '%d'", whence)
 	}
