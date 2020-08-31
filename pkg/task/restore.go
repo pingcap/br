@@ -188,9 +188,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// and we cost most of time at waiting DDL jobs be enqueued.
 	// So these jobs won't be faster or slower when machine become faster or slower,
 	// hence make it a fixed value would be fine.
-	dbPool, err := restore.MakeDBPool(defaultDDLConcurrency, func() (*restore.DB, error) {
-		return restore.NewDB(g, mgr.GetTiKV())
-	})
+	var dbPool []*restore.DB
+	if g.OwnsStorage() {
+		// Only in binary we can use multi-thread sessions to create tables.
+		// so use OwnStorage() to tell whether we are use binary or SQL.
+		dbPool, err = restore.MakeDBPool(defaultDDLConcurrency, func() (*restore.DB, error) {
+			return restore.NewDB(g, mgr.GetTiKV())
+		})
+	}
 	if err != nil {
 		log.Warn("create session pool failed, we will send DDLs only by created sessions",
 			zap.Error(err),

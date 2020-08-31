@@ -32,6 +32,7 @@ const (
 	flagBackupTS         = "backupts"
 	flagLastBackupTS     = "lastbackupts"
 	flagCompressionType  = "compression"
+	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
 
 	flagGCTTL = "gcttl"
@@ -40,16 +41,22 @@ const (
 	maxBackupConcurrency     = 256
 )
 
+// CompressionConfig is the configuration for sst file compression.
+type CompressionConfig struct {
+	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
+	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
+}
+
 // BackupConfig is the configuration specific for backup tasks.
 type BackupConfig struct {
 	Config
 
-	TimeAgo          time.Duration           `json:"time-ago" toml:"time-ago"`
-	BackupTS         uint64                  `json:"backup-ts" toml:"backup-ts"`
-	LastBackupTS     uint64                  `json:"last-backup-ts" toml:"last-backup-ts"`
-	GCTTL            int64                   `json:"gc-ttl" toml:"gc-ttl"`
-	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
-	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
+	TimeAgo          time.Duration `json:"time-ago" toml:"time-ago"`
+	BackupTS         uint64        `json:"backup-ts" toml:"backup-ts"`
+	LastBackupTS     uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
+	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
+	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
+	CompressionConfig
 }
 
 // DefineBackupFlags defines common flags for the backup command.
@@ -66,6 +73,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 	flags.String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
+	flags.Int32(flagCompressionLevel, 0, "compression level used for sst file compression")
 
 	flags.Bool(flagRemoveSchedulers, false,
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
@@ -101,15 +109,11 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.GCTTL = gcTTL
 
-	compressionStr, err := flags.GetString(flagCompressionType)
+	compressionCfg, err := parseCompressionFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	compressionType, err := parseCompressionType(compressionStr)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	cfg.CompressionType = compressionType
+	cfg.CompressionConfig = *compressionCfg
 
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -117,6 +121,26 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
 	return err
+}
+
+// ParseFromFlags parses the backup-related flags from the flag set.
+func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
+	compressionStr, err := flags.GetString(flagCompressionType)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	compressionType, err := parseCompressionType(compressionStr)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	level, err := flags.GetInt32(flagCompressionLevel)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &CompressionConfig{
+		CompressionLevel: level,
+		CompressionType:  compressionType,
+	}, nil
 }
 
 // adjustBackupConfig is use for BR(binary) and BR in TiDB.
@@ -206,11 +230,12 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	req := kvproto.BackupRequest{
-		StartVersion:    cfg.LastBackupTS,
-		EndVersion:      backupTS,
-		RateLimit:       cfg.RateLimit,
-		Concurrency:     defaultBackupConcurrency,
-		CompressionType: cfg.CompressionType,
+		StartVersion:     cfg.LastBackupTS,
+		EndVersion:       backupTS,
+		RateLimit:        cfg.RateLimit,
+		Concurrency:      defaultBackupConcurrency,
+		CompressionType:  cfg.CompressionType,
+		CompressionLevel: cfg.CompressionLevel,
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
@@ -298,10 +323,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		if isIncrementalBackup {
 			// Since we don't support checksum for incremental data, fast checksum should be skipped.
 			log.Info("Skip fast checksum in incremental backup")
-			err = backup.FilterSchema(&backupMeta)
-			if err != nil {
-				return err
-			}
 		} else {
 			// When user specified not to calculate checksum, don't calculate checksum.
 			log.Info("Skip fast checksum because user requirement.")

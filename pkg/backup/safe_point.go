@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/pd/v4/pkg/tsoutil"
+	pd "github.com/tikv/pd/client"
+	"github.com/tikv/pd/pkg/tsoutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

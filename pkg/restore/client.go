@@ -20,13 +20,13 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	pd "github.com/tikv/pd/client"
+	"github.com/tikv/pd/server/schedule/placement"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -708,6 +708,14 @@ func (rc *Client) SwitchToImportMode(ctx context.Context) {
 	// so we need ping tikv in less than 10 minute
 	go func() {
 		tick := time.NewTicker(rc.switchModeInterval)
+		defer tick.Stop()
+
+		// [important!] switch tikv mode into import at the beginning
+		log.Info("switch to import mode at beginning")
+		err := rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
+		if err != nil {
+			log.Warn("switch to import mode failed", zap.Error(err))
+		}
 
 		for {
 			select {
