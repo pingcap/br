@@ -98,6 +98,8 @@ func NewEventPuller(
 	}, nil
 }
 
+// PullOneEvent pulls one event in ts order.
+// The Next event which can be DDL item or Row changed Item depends on next commit ts.
 func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 	var err error
 	// ddl exists

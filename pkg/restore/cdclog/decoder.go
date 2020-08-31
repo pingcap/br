@@ -27,32 +27,34 @@ import (
 	"go.uber.org/zap"
 )
 
+// ColumnFlagType represents the type of column.
 type ColumnFlagType uint64
+// ItemType represents the type of SortItem.
 type ItemType uint
 
 const (
-	// RowChanged represents dml type
+	// RowChanged represents dml type.
 	RowChanged ItemType = 1 << ItemType(iota)
-	// DDL represents ddl type
+	// DDL represents ddl type.
 	DDL
 )
 
 const (
-	// BatchVersion1 represents the version of batch format
+	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1
-	// BinaryFlag means the column charset is binary
+	// BinaryFlag means the column charset is binary.
 	BinaryFlag ColumnFlagType = 1 << ColumnFlagType(iota)
-	// HandleKeyFlag means the column is selected as the handle key
+	// HandleKeyFlag means the column is selected as the handle key.
 	HandleKeyFlag
-	// GeneratedColumnFlag means the column is a generated column
+	// GeneratedColumnFlag means the column is a generated column.
 	GeneratedColumnFlag
-	// PrimaryKeyFlag means the column is primary key
+	// PrimaryKeyFlag means the column is primary key.
 	PrimaryKeyFlag
-	// UniqueKeyFlag means the column is unique key
+	// UniqueKeyFlag means the column is unique key.
 	UniqueKeyFlag
-	// MultipleKeyFlag means the column is multiple key
+	// MultipleKeyFlag means the column is multiple key.
 	MultipleKeyFlag
-	// NullableFlag means the column is nullable
+	// NullableFlag means the column is nullable.
 	NullableFlag
 )
 
@@ -60,7 +62,7 @@ type column struct {
 	Type byte `json:"t"`
 
 	// WhereHandle is deprecation
-	// WhereHandle is replaced by HandleKey in Flag
+	// WhereHandle is replaced by HandleKey in Flag.
 	WhereHandle *bool          `json:"h,omitempty"`
 	Flag        ColumnFlagType `json:"f"`
 	Value       interface{}    `json:"v"`
@@ -120,37 +122,45 @@ type messageKey struct {
 	Partition *int64 `json:"ptn,omitempty"`
 }
 
+// Encode the messageKey.
 func (m *messageKey) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// Decode the messageKey.
 func (m *messageKey) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
+// MessageDDL represents the ddl changes.
 type MessageDDL struct {
 	Query string             `json:"q"`
 	Type  timodel.ActionType `json:"t"`
 }
 
+// Encode the DDL message.
 func (m *MessageDDL) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// Decode the DDL message.
 func (m *MessageDDL) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
+// MessageRow represents the row changes in same commit ts.
 type MessageRow struct {
 	Update     map[string]column `json:"u,omitempty"`
 	PreColumns map[string]column `json:"p,omitempty"`
 	Delete     map[string]column `json:"d,omitempty"`
 }
 
+// Encode the Row message.
 func (m *MessageRow) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// Deocde the Row message.
 func (m *MessageRow) Decode(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
@@ -170,6 +180,7 @@ func (m *MessageRow) Decode(data []byte) error {
 	return nil
 }
 
+// SortItem represents a DDL item or Row changed item.
 type SortItem struct {
 	ItemType ItemType
 	Meta     interface{}
@@ -179,6 +190,7 @@ type SortItem struct {
 	TS       uint64
 }
 
+// LessThan return whether it has smaller commit ts than other item.
 func (s *SortItem) LessThan(other *SortItem) bool {
 	if other != nil {
 		return s.TS < other.TS
@@ -272,6 +284,7 @@ func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
 	return item, nil
 }
 
+// HasNext represents whether it has next kv to decode.
 func (b *JSONEventBatchMixedDecoder) HasNext() bool {
 	return len(b.mixedBytes) > 0
 }

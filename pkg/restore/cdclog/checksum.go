@@ -22,18 +22,21 @@ import (
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)
 
+// KVChecksum represents the field needs checksum.
 type KVChecksum struct {
 	bytes    uint64
 	kvs      uint64
 	checksum uint64
 }
 
+// NewKVChecksum creates KVChecksum.
 func NewKVChecksum(checksum uint64) *KVChecksum {
 	return &KVChecksum{
 		checksum: checksum,
 	}
 }
 
+// MakeKVChecksum creates KVChecksum.
 func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) KVChecksum {
 	return KVChecksum{
 		bytes:    bytes,
@@ -42,6 +45,7 @@ func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) KVChecksum {
 	}
 }
 
+// UpdateOne add kv with its values.
 func (c *KVChecksum) UpdateOne(kv KvPair) {
 	sum := crc64.Update(0, ecmaTable, kv.Key)
 	sum = crc64.Update(sum, ecmaTable, kv.Val)
@@ -51,6 +55,7 @@ func (c *KVChecksum) UpdateOne(kv KvPair) {
 	c.checksum ^= sum
 }
 
+// Update add batch of kvs with their values.
 func (c *KVChecksum) Update(kvs []KvPair) {
 	var (
 		checksum uint64
@@ -72,20 +77,24 @@ func (c *KVChecksum) Update(kvs []KvPair) {
 	c.checksum ^= checksum
 }
 
+// Add other checksum.
 func (c *KVChecksum) Add(other *KVChecksum) {
 	c.bytes += other.bytes
 	c.kvs += other.kvs
 	c.checksum ^= other.checksum
 }
 
+// Sum returns the checksum.
 func (c *KVChecksum) Sum() uint64 {
 	return c.checksum
 }
 
+// SumSize returns the bytes.
 func (c *KVChecksum) SumSize() uint64 {
 	return c.bytes
 }
 
+// SumKVS returns the kv count.
 func (c *KVChecksum) SumKVS() uint64 {
 	return c.kvs
 }

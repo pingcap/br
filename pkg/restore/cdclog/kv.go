@@ -82,6 +82,7 @@ type tableKVEncoder struct {
 	recordCache []types.Datum
 }
 
+// NewTableKVEncoder creates the Encoder.
 func NewTableKVEncoder(tbl table.Table, options *SessionOptions) Encoder {
 	se := newSession(options)
 	// Set CommonAddRecordCtx to session to reuse the slices and BufStore in AddRecord
@@ -145,6 +146,7 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 	return nil
 }
 
+// KvPairs represents the slice of KvPair.
 type KvPairs []KvPair
 
 // MakeRowsFromKvPairs converts a KvPair slice into a Rows instance. This is
@@ -306,6 +308,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	return KvPairs(pairs), nil
 }
 
+// ClassifyAndAppend split KvPairs to data rows and index rows.
 func (kvs KvPairs) ClassifyAndAppend(
 	data *Rows,
 	dataChecksum *KVChecksum,
@@ -329,6 +332,7 @@ func (kvs KvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
+// SplitIntoChunks is used in lightning.
 func (kvs KvPairs) SplitIntoChunks(splitSize int) []Rows {
 	if len(kvs) == 0 {
 		return nil
@@ -351,6 +355,7 @@ func (kvs KvPairs) SplitIntoChunks(splitSize int) []Rows {
 	return append(res, kvs[i:])
 }
 
+// Clear resets the KvPairs.
 func (kvs KvPairs) Clear() Rows {
 	return kvs[:0]
 }
