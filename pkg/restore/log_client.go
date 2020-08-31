@@ -274,6 +274,7 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	if l.tsInRange(ts) {
 		return true, nil
 	}
+	log.Info("filter file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
 	return false, nil
 }
 
@@ -481,14 +482,14 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 		}
 	}
 	for i := len(kvs) -1; i >= 0; i -- {
-		if bytes.Compare(kvs[i].Key, endKey) < 0 {
+		if beforeEnd(kvs[i].Key, endKey) {
 			end = i
 			break
 		}
 	}
 
 	log.Debug("doWriteAndIngest", zap.Int("kv count", len(kvs)),
-		zap.Int("start", start), zap.Int("end", start))
+		zap.Int("start", start), zap.Int("end", end))
 
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
