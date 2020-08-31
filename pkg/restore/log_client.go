@@ -110,7 +110,7 @@ func NewLogRestoreClient(
 		startTS:       startTs,
 		endTs:         endTS,
 		// TODO make it config
-		batchWriteKVPairs: 0,
+		batchWriteKVPairs: 128,
 		meta:              new(LogMeta),
 		eventPullers:      make(map[int64]*cdclog.EventPuller),
 		tableBuffers:      make(map[int64]*cdclog.TableBuffer),
@@ -368,7 +368,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region 
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
 				// FIXME commit ts
-				CommitTs: 0,
+				CommitTs: uint64(time.Now().Unix()),
 			},
 		}
 		clients = append(clients, wstream)
