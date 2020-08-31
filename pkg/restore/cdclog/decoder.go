@@ -100,6 +100,7 @@ type messageKey struct {
 	Ts        uint64 `json:"ts"`
 	Schema    string `json:"scm,omitempty"`
 	Table     string `json:"tbl,omitempty"`
+	RowID     int64  `json:"rid,omitempty"`
 	Partition *int64 `json:"ptn,omitempty"`
 }
 
@@ -158,6 +159,7 @@ type SortItem struct {
 	Meta     interface{}
 	Schema   string
 	Table    string
+	RowID    int64
 	TS       uint64
 }
 
@@ -217,6 +219,8 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 		Schema: b.nextKey.Schema,
 		Table:  b.nextKey.Table,
 		TS:     b.nextKey.Ts,
+		RowID:  b.nextKey.RowID,
+
 	}
 	b.nextKey = nil
 	return item, nil

@@ -81,21 +81,19 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 		zap.Stringer("table", t.tableInfo.Meta().Name),
 	)
 	row := item.Meta.(*MessageRow)
-	// FIXME given proper row ID after encode key
-	rowID := int64(1)
 
 	if row.Update != nil {
 		if row.PreColumns != nil {
 			log.Debug("process update event", zap.Any("row", row))
 			oldCols := t.translateToDatum(row.PreColumns)
-			pair, err := t.KvEncoder.RemoveRecord(oldCols, rowID, t.colPerm)
+			pair, err := t.KvEncoder.RemoveRecord(oldCols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			t.KvPairs = append(t.KvPairs, pair)
 
 			newCols := t.translateToDatum(row.Update)
-			pair, err = t.KvEncoder.AddRecord(newCols, rowID, t.colPerm)
+			pair, err = t.KvEncoder.AddRecord(newCols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -103,7 +101,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 		} else {
 			log.Debug("process insert event", zap.Any("row", row))
 			cols := t.translateToDatum(row.Update)
-			pair, err := t.KvEncoder.AddRecord(cols, rowID, t.colPerm)
+			pair, err := t.KvEncoder.AddRecord(cols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -113,7 +111,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 	if row.Delete != nil {
 		log.Debug("process delete event", zap.Any("row", row))
 		cols := t.translateToDatum(row.Delete)
-		pair, err := t.KvEncoder.RemoveRecord(cols, rowID, t.colPerm)
+		pair, err := t.KvEncoder.RemoveRecord(cols, item.RowID, t.colPerm)
 		if err != nil {
 			return errors.Trace(err)
 		}
