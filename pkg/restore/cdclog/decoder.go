@@ -160,7 +160,7 @@ func (m *MessageRow) Encode() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// Deocde the Row message.
+// Decode the Row message.
 func (m *MessageRow) Decode(data []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
