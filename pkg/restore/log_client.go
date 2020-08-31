@@ -237,7 +237,7 @@ func (l *LogClient) doCreateDDLJob(ctx context.Context, ddls []string) error {
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	ddlFiles := make([]string, 0)
 	opt := &storage.WalkOption{
-		SubDir: ddlEventsDir,
+		SubDir:    ddlEventsDir,
 		ListCount: -1,
 	}
 	err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
@@ -303,7 +303,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		// FIXME update log meta logic here
 		dir := fmt.Sprintf("%s%d", tableLogPrefix, tableID)
 		opt := &storage.WalkOption{
-			SubDir: dir,
+			SubDir:    dir,
 			ListCount: -1,
 		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
@@ -481,9 +481,9 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 			break
 		}
 	}
-	for i := len(kvs) -1; i >= 0; i -- {
+	for i := len(kvs) - 1; i >= 0; i-- {
 		if beforeEnd(kvs[i].Key, endKey) {
-			end = i
+			end = i + 1
 			break
 		}
 	}
@@ -626,6 +626,10 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 	indexKVs := cdclog.MakeRowsFromKvPairs(nil)
 
 	tableBuffer := l.tableBuffers[tableID]
+	if tableBuffer.IsEmpty() {
+		log.Warn("no kv changes to apply")
+		return nil
+	}
 
 	var dataChecksum, indexChecksum cdclog.KVChecksum
 	for _, p := range tableBuffer.KvPairs {
@@ -650,21 +654,30 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 }
 
 func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, puller *cdclog.EventPuller) error {
+
 	for {
 		item, err := puller.PullOneEvent(ctx)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		if item == nil {
-			log.Info("[restoreFromPuller] nothing in puller")
+			log.Info("[restoreFromPuller] nothing in puller, we should stop and flush")
+			err := l.applyKVChanges(ctx, tableID)
+			if err != nil {
+				return errors.Trace(err)
+			}
 			return nil
 		}
 		if !l.tsInRange(item.TS) {
-			log.Warn("[restoreFromPuller] ts not in given range",
+			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
 				zap.Uint64("start ts", l.startTS),
 				zap.Uint64("end ts", l.endTs),
 				zap.Uint64("item ts", item.TS),
 			)
+			err := l.applyKVChanges(ctx, tableID)
+			if err != nil {
+				return errors.Trace(err)
+			}
 			return nil
 		}
 

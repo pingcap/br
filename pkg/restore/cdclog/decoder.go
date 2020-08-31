@@ -236,7 +236,6 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 		Table:  b.nextKey.Table,
 		TS:     b.nextKey.Ts,
 		RowID:  b.nextKey.RowID,
-
 	}
 	b.nextKey = nil
 	return item, nil

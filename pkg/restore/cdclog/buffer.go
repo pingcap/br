@@ -77,6 +77,7 @@ func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, er
 		}
 		cols = append(cols, val)
 	}
+	log.Debug("translate to datum", zap.Any("datums", cols))
 	return cols, nil
 }
 
@@ -140,6 +141,10 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 func (t *TableBuffer) ShouldApply() bool {
 	// flush when reached flush kv len
 	return len(t.KvPairs) >= defaultKVLen
+}
+
+func (t *TableBuffer) IsEmpty() bool {
+	return t.Size == 0
 }
 
 func (t *TableBuffer) Clear() {
