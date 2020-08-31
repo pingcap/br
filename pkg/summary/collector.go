@@ -77,6 +77,7 @@ type logCollector struct {
 	ints             map[string]int
 	uints            map[string]uint64
 	successStatus    bool
+	startTime        time.Time
 
 	log logFunc
 }
@@ -92,6 +93,7 @@ func newLogCollector(log logFunc) LogCollector {
 		ints:             make(map[string]int),
 		uints:            make(map[string]uint64),
 		log:              log,
+		startTime:        time.Now(),
 	}
 }
 
@@ -189,7 +191,8 @@ func (tc *logCollector) Summary(name string) {
 	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
-	msg += fmt.Sprintf(", total take(s): %.2f", totalCost.Seconds())
+	msg += fmt.Sprintf(", total take(TiKV service time): %s", totalCost)
+	msg += fmt.Sprintf(", total take(real time): %s", time.Since(tc.startTime))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
 			fData := float64(data) / 1024 / 1024
