@@ -481,15 +481,18 @@ func parseRangeInfo(info *string) (rangeInfo, error) {
 
 	start, err := strconv.ParseInt(subMatches[1], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		return rangeInfo{}, errors.Annotatef(err,
+			"invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
 	}
 	end, err := strconv.ParseInt(subMatches[2], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		return rangeInfo{}, errors.Annotatef(err,
+			"invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
 	}
 	size, err := strconv.ParseInt(subMatches[3], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		return rangeInfo{}, errors.Annotatef(err,
+			"invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
 	}
 	return rangeInfo{start: start, end: end, size: size}, nil
 }
