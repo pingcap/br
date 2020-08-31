@@ -17,7 +17,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/v4/client"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
@@ -29,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -919,8 +919,6 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 			totalBytes += file.TotalBytes
 		}
 
-		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
 		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		localChecksum := Checksum{
 			Crc64Xor:   checksum,
@@ -931,33 +929,4 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
-}
-
-// FilterSchema filter in-place schemas that doesn't have backup files
-// this is useful during incremental backup, no files in backup means no files to restore
-// so we can skip some DDL in restore to speed up restoration.
-func FilterSchema(backupMeta *kvproto.BackupMeta) error {
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return err
-	}
-	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return err
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return err
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-		if len(tbl.Files) > 0 {
-			schemas = append(schemas, schema)
-		}
-	}
-	backupMeta.Schemas = schemas
-	return nil
 }
