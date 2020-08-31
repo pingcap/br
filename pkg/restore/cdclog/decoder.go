@@ -29,6 +29,7 @@ import (
 
 // ColumnFlagType represents the type of column.
 type ColumnFlagType uint64
+
 // ItemType represents the type of SortItem.
 type ItemType uint
 

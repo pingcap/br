@@ -36,6 +36,7 @@ func init() {
 	}
 }
 
+// Acquire ...
 func (c *bytesRecycleChan) Acquire() []byte {
 	select {
 	case b := <-c.ch:
@@ -45,6 +46,7 @@ func (c *bytesRecycleChan) Acquire() []byte {
 	}
 }
 
+// Release ...
 func (c *bytesRecycleChan) Release(w []byte) {
 	select {
 	case c.ch <- w:
@@ -54,6 +56,7 @@ func (c *bytesRecycleChan) Release(w []byte) {
 	}
 }
 
+// BytesBuffer ...
 type BytesBuffer struct {
 	bufs      [][]byte
 	curBuf    []byte
@@ -62,10 +65,12 @@ type BytesBuffer struct {
 	curBufLen int
 }
 
+// NewBytesBuffer ...
 func NewBytesBuffer() *BytesBuffer {
 	return &BytesBuffer{bufs: make([][]byte, 0, 128), curBufIdx: -1}
 }
 
+// AddBuf ...
 func (b *BytesBuffer) AddBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
 		b.curBufIdx++
@@ -81,6 +86,7 @@ func (b *BytesBuffer) AddBuf() {
 	b.curIdx = 0
 }
 
+// Reset ...
 func (b *BytesBuffer) Reset() {
 	if len(b.bufs) > 0 {
 		b.curBuf = b.bufs[0]
@@ -90,6 +96,7 @@ func (b *BytesBuffer) Reset() {
 	}
 }
 
+// Destroy ...
 func (b *BytesBuffer) Destroy() {
 	for _, buf := range b.bufs {
 		recycleChan.Release(buf)
@@ -97,10 +104,12 @@ func (b *BytesBuffer) Destroy() {
 	b.bufs = b.bufs[:0]
 }
 
+// TotalSize ...
 func (b *BytesBuffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
+// AddBytes ...
 func (b *BytesBuffer) AddBytes(bytes []byte) []byte {
 	if len(bytes) > bigValueSize {
 		return append([]byte{}, bytes...)
