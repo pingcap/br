@@ -66,11 +66,27 @@ type column struct {
 	Value       interface{}    `json:"v"`
 }
 
-func (c column) toDatum() types.Datum {
-	dat := types.Datum{}
-	tp := types.NewFieldType(c.Type)
-	dat.SetValue(c.Value, tp)
-	return dat
+func (c column) toDatum() (types.Datum, error) {
+	var (
+		val interface{}
+		err error
+	)
+
+	switch c.Type {
+	case types.KindInt64, types.KindUint64:
+		val, err = c.Value.(json.Number).Int64()
+		if err != nil {
+			return types.Datum{}, errors.Trace(err)
+		}
+	case types.KindFloat32, types.KindFloat64:
+		val, err = c.Value.(json.Number).Float64()
+		if err != nil {
+			return types.Datum{}, errors.Trace(err)
+		}
+	default:
+		val = c.Value
+	}
+	return types.NewDatum(val), nil
 }
 
 func formatColumnVal(c column) column {

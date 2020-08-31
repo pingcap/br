@@ -68,12 +68,16 @@ func NewTableBuffer(tbl table.Table) *TableBuffer {
 	}
 }
 
-func (t *TableBuffer) translateToDatum(row map[string]column) []types.Datum {
+func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, error) {
 	cols := make([]types.Datum, 0, len(row))
 	for _, col := range t.colNames {
-		cols = append(cols, row[col].toDatum())
+		val, err := row[col].toDatum()
+		if err != nil {
+			return nil, err
+		}
+		cols = append(cols, val)
 	}
-	return cols
+	return cols, nil
 }
 
 func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
@@ -85,14 +89,21 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 	if row.Update != nil {
 		if row.PreColumns != nil {
 			log.Debug("process update event", zap.Any("row", row))
-			oldCols := t.translateToDatum(row.PreColumns)
+			oldCols, err := t.translateToDatum(row.PreColumns)
+			if err != nil {
+				return err
+			}
+
 			pair, err := t.KvEncoder.RemoveRecord(oldCols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			t.KvPairs = append(t.KvPairs, pair)
 
-			newCols := t.translateToDatum(row.Update)
+			newCols, err := t.translateToDatum(row.Update)
+			if err != nil {
+				return err
+			}
 			pair, err = t.KvEncoder.AddRecord(newCols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
@@ -100,7 +111,10 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 			t.KvPairs = append(t.KvPairs, pair)
 		} else {
 			log.Debug("process insert event", zap.Any("row", row))
-			cols := t.translateToDatum(row.Update)
+			cols, err := t.translateToDatum(row.Update)
+			if err != nil {
+				return err
+			}
 			pair, err := t.KvEncoder.AddRecord(cols, item.RowID, t.colPerm)
 			if err != nil {
 				return errors.Trace(err)
@@ -110,7 +124,10 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 	}
 	if row.Delete != nil {
 		log.Debug("process delete event", zap.Any("row", row))
-		cols := t.translateToDatum(row.Delete)
+		cols, err := t.translateToDatum(row.Delete)
+		if err != nil {
+			return err
+		}
 		pair, err := t.KvEncoder.RemoveRecord(cols, item.RowID, t.colPerm)
 		if err != nil {
 			return errors.Trace(err)
