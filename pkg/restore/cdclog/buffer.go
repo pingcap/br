@@ -100,7 +100,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 				return errors.Trace(err)
 			}
 			t.KvPairs = append(t.KvPairs, pair)
-			t.Size ++
+			t.Size++
 
 			newCols, err := t.translateToDatum(row.Update)
 			if err != nil {
@@ -111,7 +111,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 				return errors.Trace(err)
 			}
 			t.KvPairs = append(t.KvPairs, pair)
-			t.Size ++
+			t.Size++
 		} else {
 			log.Debug("process insert event", zap.Any("row", row))
 			cols, err := t.translateToDatum(row.Update)
@@ -123,7 +123,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 				return errors.Trace(err)
 			}
 			t.KvPairs = append(t.KvPairs, pair)
-			t.Size ++
+			t.Size++
 		}
 	}
 	if row.Delete != nil {
@@ -137,7 +137,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 			return errors.Trace(err)
 		}
 		t.KvPairs = append(t.KvPairs, pair)
-		t.Size ++
+		t.Size++
 	}
 	return nil
 }
