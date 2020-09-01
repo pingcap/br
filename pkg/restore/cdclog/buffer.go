@@ -24,10 +24,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	defaultKVLen = 1280
-)
-
 // TableBuffer represents the kv buffer of this table.
 // we restore one tableBuffer in one goroutine.
 // this is the concurrent unit of log restore.
@@ -38,12 +34,14 @@ type TableBuffer struct {
 	KvEncoder Encoder
 	tableInfo table.Table
 
+	flushKVPairs int
+
 	colNames []string
 	colPerm  []int
 }
 
 // NewTableBuffer creates TableBuffer.
-func NewTableBuffer(tbl table.Table) *TableBuffer {
+func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
 	kvEncoder := NewTableKVEncoder(tbl, &SessionOptions{
 		Timestamp: time.Now().Unix(),
 		// TODO make it config
@@ -63,9 +61,11 @@ func NewTableBuffer(tbl table.Table) *TableBuffer {
 	}
 
 	return &TableBuffer{
-		KvPairs:   make([]Row, 0, defaultKVLen),
+		KvPairs:   make([]Row, 0, flushKVPairs),
 		KvEncoder: kvEncoder,
 		tableInfo: tbl,
+
+		flushKVPairs: flushKVPairs,
 
 		colNames: colNames,
 		colPerm:  colPerm,
@@ -150,7 +150,7 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 // ShouldApply tells whether we should flush memory kv buffer to storage.
 func (t *TableBuffer) ShouldApply() bool {
 	// flush when reached flush kv len
-	return len(t.KvPairs) >= defaultKVLen
+	return len(t.KvPairs) >= t.flushKVPairs
 }
 
 // IsEmpty tells buffer is empty.

@@ -16,8 +16,15 @@ import (
 )
 
 const (
-	flagStartTS = "start-ts"
-	flagEndTS   = "end-ts"
+	flagStartTS         = "start-ts"
+	flagEndTS           = "end-ts"
+	flagBatchWriteCount = "write-kvs"
+	flagBatchFlushCount = "flush-kvs"
+
+	// represents kv size flush to storage for each table.
+	defaultFlushKV = 12800
+	// represents kv size that write to TiKV once at at time.
+	defaultWriteKV = 1280
 )
 
 // LogRestoreConfig is the configuration specific for restore tasks.
@@ -26,12 +33,18 @@ type LogRestoreConfig struct {
 
 	StartTS uint64
 	EndTS   uint64
+
+	BatchFlushKVPairs int
+	BatchWriteKVPairs int
 }
 
 // DefineLogRestoreFlags defines common flags for the backup command.
 func DefineLogRestoreFlags(command *cobra.Command) {
 	command.Flags().Uint64P(flagStartTS, "", 0, "restore log start ts")
 	command.Flags().Uint64P(flagEndTS, "", 0, "restore log end ts")
+
+	command.Flags().Uint64P(flagBatchWriteCount, "", 0, "the kv count that write to TiKV once at a time")
+	command.Flags().Uint64P(flagBatchFlushCount, "", 0, "the kv count that flush from memory to TiKV")
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -63,6 +76,16 @@ func (cfg *LogRestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 func (cfg *LogRestoreConfig) adjustRestoreConfig() {
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
+	}
+	if cfg.BatchFlushKVPairs == 0 {
+		cfg.BatchFlushKVPairs = defaultFlushKV
+	}
+	if cfg.BatchWriteKVPairs == 0 {
+		cfg.BatchFlushKVPairs = defaultWriteKV
+	}
+	// write kv count doesn't have to excceed flush kv count.
+	if cfg.BatchWriteKVPairs > cfg.BatchFlushKVPairs {
+		cfg.BatchWriteKVPairs = cfg.BatchFlushKVPairs
 	}
 }
 
@@ -98,7 +121,9 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 		return err
 	}
 
-	logClient, err := restore.NewLogRestoreClient(ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter)
+	logClient, err := restore.NewLogRestoreClient(
+		ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter,
+		uint(cfg.Concurrency), cfg.BatchFlushKVPairs, cfg.BatchWriteKVPairs)
 	if err != nil {
 		return err
 	}
