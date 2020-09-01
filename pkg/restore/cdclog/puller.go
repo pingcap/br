@@ -55,7 +55,7 @@ func NewEventPuller(
 		rowFileIndex      int
 	)
 	if len(ddlFiles) == 0 {
-		log.Info("There is no ddl file")
+		log.Info("There is no ddl file to restore")
 	} else {
 		data, err := storage.Read(ctx, ddlFiles[0])
 		if err != nil {
@@ -69,7 +69,7 @@ func NewEventPuller(
 	}
 
 	if len(rowChangedFiles) == 0 {
-		log.Info("There is no ddl file")
+		log.Info("There is no row changed file to restore")
 	} else {
 		data, err := storage.Read(ctx, rowChangedFiles[0])
 		if err != nil {
