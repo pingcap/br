@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -363,13 +364,14 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
 // by path.
-func (rs *S3Storage) WalkDir(ctx context.Context, dir string, listCount int64, fn func(string, int64) error) error {
+func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	var marker *string
-	prefix := rs.options.Prefix + dir
+	prefix := rs.options.Prefix + opt.SubDir
 	maxKeys := int64(1000)
-	if listCount > 0 {
-		maxKeys = listCount
+	if opt.ListCount > 0 {
+		maxKeys = opt.ListCount
 	}
+
 	req := &s3.ListObjectsInput{
 		Bucket:  aws.String(rs.options.Bucket),
 		Prefix:  aws.String(prefix),
@@ -382,7 +384,11 @@ func (rs *S3Storage) WalkDir(ctx context.Context, dir string, listCount int64, f
 			return err
 		}
 		for _, r := range res.Contents {
-			if err = fn(*r.Key, *r.Size); err != nil {
+			// when walk on specify directory, the result include storage.Prefix,
+			// which can not be reuse in other API(Open/Read) directly.
+			// so we use TrimPrefix to filter Prefix for next Open/Read.
+			path := strings.TrimPrefix(*r.Key, rs.options.Prefix)
+			if err = fn(path, *r.Size); err != nil {
 				return err
 			}
 		}
