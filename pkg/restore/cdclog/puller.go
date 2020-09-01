@@ -149,7 +149,8 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 	}
 
 	var returnItem *SortItem
-	if e.currentDDLItem != nil {
+	switch {
+	case e.currentDDLItem != nil:
 		if e.currentDDLItem.LessThan(e.currentRowChangedItem) {
 			returnItem = e.currentDDLItem
 			e.currentDDLItem, err = e.ddlDecoder.NextDDLEvent()
@@ -163,13 +164,13 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 				return nil, errors.Trace(err)
 			}
 		}
-	} else if e.currentRowChangedItem != nil {
+	case e.currentRowChangedItem != nil:
 		returnItem = e.currentRowChangedItem
 		e.currentRowChangedItem, err = e.rowChangedDecoder.NextRowChangedEvent()
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-	} else {
+	default:
 		log.Info("nothing to pull, we should finish")
 	}
 	return returnItem, nil

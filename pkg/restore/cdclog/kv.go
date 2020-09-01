@@ -137,7 +137,7 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 				return err
 			}
 		}
-		encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
+		_ = encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
 			enc.AddString("val", str)
 			return nil
@@ -180,11 +180,9 @@ func (kvcodec *tableKVEncoder) AddRecord(
 
 	var value types.Datum
 	var err error
-	var record []types.Datum
 
-	if kvcodec.recordCache != nil {
-		record = kvcodec.recordCache
-	} else {
+	record := kvcodec.recordCache
+	if record == nil {
 		record = make([]types.Datum, 0, len(cols)+1)
 	}
 
@@ -197,15 +195,16 @@ func (kvcodec *tableKVEncoder) AddRecord(
 		j := columnPermutation[i]
 		isAutoIncCol := mysql.HasAutoIncrementFlag(col.Flag)
 		isPk := mysql.HasPriKeyFlag(col.Flag)
-		if j >= 0 && j < len(row) {
+		switch {
+		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
 				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
 			}
-		} else if isAutoIncCol {
+		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
 			value, err = table.CastValue(kvcodec.se, types.NewIntDatum(rowID), col.ToInfo(), false, false)
-		} else {
+		default:
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
@@ -221,10 +220,10 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			if hasSignBit {
 				incrementalBits--
 			}
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType)
+			_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType)
 		}
 		if isAutoIncCol {
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType)
+			_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType)
 		}
 	}
 
@@ -239,7 +238,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			return nil, err
 		}
 		record = append(record, value)
-		kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
+		_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
 	}
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
@@ -266,26 +265,25 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 
 	var value types.Datum
 	var err error
-	var record []types.Datum
 
-	if kvcodec.recordCache != nil {
-		record = kvcodec.recordCache
-	} else {
+	record := kvcodec.recordCache
+	if record == nil {
 		record = make([]types.Datum, 0, len(cols)+1)
 	}
 
 	for i, col := range cols {
 		j := columnPermutation[i]
 		isAutoIncCol := mysql.HasAutoIncrementFlag(col.Flag)
-		if j >= 0 && j < len(row) {
+		switch {
+		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
 				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
 			}
-		} else if isAutoIncCol {
+		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
 			value, err = table.CastValue(kvcodec.se, types.NewIntDatum(rowID), col.ToInfo(), false, false)
-		} else {
+		default:
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {

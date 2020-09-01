@@ -199,8 +199,8 @@ func newSession(options *SessionOptions) *session {
 	vars.StmtCtx.AllowInvalidDate = sqlMode.HasAllowInvalidDatesMode()
 	vars.StmtCtx.IgnoreZeroInDate = !sqlMode.HasStrictMode() || sqlMode.HasAllowInvalidDatesMode()
 	vars.StmtCtx.TimeZone = vars.Location()
-	vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10))
-	vars.SetSystemVar(variable.TiDBRowFormatVersion, options.RowFormatVersion)
+	_ = vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10))
+	_ = vars.SetSystemVar(variable.TiDBRowFormatVersion, options.RowFormatVersion)
 	vars.TxnCtx = nil
 
 	s := &session{
