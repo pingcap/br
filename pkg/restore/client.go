@@ -718,6 +718,14 @@ func (rc *Client) SwitchToImportMode(ctx context.Context) {
 	// so we need ping tikv in less than 10 minute
 	go func() {
 		tick := time.NewTicker(rc.switchModeInterval)
+		defer tick.Stop()
+
+		// [important!] switch tikv mode into import at the beginning
+		log.Info("switch to import mode at beginning")
+		err := rc.switchTiKVMode(ctx, import_sstpb.SwitchMode_Import)
+		if err != nil {
+			log.Warn("switch to import mode failed", zap.Error(err))
+		}
 
 		for {
 			select {
