@@ -191,7 +191,7 @@ func (tc *logCollector) Summary(name string) {
 	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
-	msg += fmt.Sprintf(", total take(TiKV service time): %s", totalCost)
+	msg += fmt.Sprintf(", total take(%s time): %s", name, totalCost)
 	msg += fmt.Sprintf(", total take(real time): %s", time.Since(tc.startTime))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
