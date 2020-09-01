@@ -23,16 +23,16 @@ import (
 func Test(t *testing.T) { check.TestingT(t) }
 
 type batchSuite struct {
-	ddlEvents []*MessageDDL
+	ddlEvents     []*MessageDDL
 	ddlDecodeItem []*SortItem
 
-	rowEvents []*MessageRow
+	rowEvents     []*MessageRow
 	rowDecodeItem []*SortItem
 }
 
 var updateCols = map[string]column{
 	// json.Number
-	"id": {Type: 1, Value: "1"},
+	"id":   {Type: 1, Value: "1"},
 	"name": {Type: 2, Value: "test"},
 }
 
@@ -43,9 +43,9 @@ var _ = check.Suite(&batchSuite{
 		{"drop table event", 5},
 	},
 	ddlDecodeItem: []*SortItem{
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 4 }},
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"create table event", 3 }},
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 5 }},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 4}},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"create table event", 3}},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 5}},
 	},
 
 	rowEvents: []*MessageRow{
@@ -60,17 +60,17 @@ var _ = check.Suite(&batchSuite{
 	},
 })
 
-func buildEncodeRowData(events []*MessageRow)[]byte {
+func buildEncodeRowData(events []*MessageRow) []byte {
 	var versionByte [8]byte
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts: 1,
+		Ts:     1,
 		Schema: "test",
-		Table: "event",
+		Table:  "event",
 	}
 	var LenByte [8]byte
-	for i := 0; i < len(events); i ++ {
+	for i := 0; i < len(events); i++ {
 		key.RowID = int64(i)
 		keyBytes, _ := key.Encode()
 		binary.BigEndian.PutUint64(LenByte[:], uint64(len(keyBytes)))
@@ -84,18 +84,17 @@ func buildEncodeRowData(events []*MessageRow)[]byte {
 	return data
 }
 
-
-func buildEncodeDDLData(events []*MessageDDL)[]byte {
+func buildEncodeDDLData(events []*MessageDDL) []byte {
 	var versionByte [8]byte
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts: 1,
+		Ts:     1,
 		Schema: "test",
-		Table: "event",
+		Table:  "event",
 	}
 	var LenByte [8]byte
-	for i := 0; i < len(events); i ++ {
+	for i := 0; i < len(events); i++ {
 		keyBytes, _ := key.Encode()
 		binary.BigEndian.PutUint64(LenByte[:], uint64(len(keyBytes)))
 		data = append(data, LenByte[:]...)
@@ -109,6 +108,8 @@ func buildEncodeDDLData(events []*MessageDDL)[]byte {
 }
 
 func (s *batchSuite) TestDecoder(c *check.C) {
+	var item *SortItem
+
 	data := buildEncodeDDLData(s.ddlEvents)
 	decoder, err := NewJSONEventBatchDecoder(data)
 	c.Assert(err, check.IsNil)
@@ -118,9 +119,9 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		if !hasNext {
 			break
 		}
-		ddl, err := decoder.NextDDLEvent()
+		item, err = decoder.NextDDLEvent()
 		c.Assert(err, check.IsNil)
-		c.Assert(ddl.Meta.(*MessageDDL), check.DeepEquals, s.ddlEvents[index])
+		c.Assert(item.Meta.(*MessageDDL), check.DeepEquals, s.ddlEvents[index])
 		index++
 	}
 
@@ -133,11 +134,10 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		if !hasNext {
 			break
 		}
-		row, err := decoder.NextRowChangedEvent()
+		item, err = decoder.NextRowChangedEvent()
 		c.Assert(err, check.IsNil)
-		c.Assert(row.Meta.(*MessageRow), check.DeepEquals, s.rowEvents[index])
-		c.Assert(row.RowID, check.Equals, int64(index))
+		c.Assert(item.Meta.(*MessageRow), check.DeepEquals, s.rowEvents[index])
+		c.Assert(item.RowID, check.Equals, int64(index))
 		index++
 	}
 }
-
