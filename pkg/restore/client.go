@@ -755,7 +755,7 @@ func (rc *Client) GoValidateChecksum(
 			wg.Wait()
 			elapsed := time.Since(start)
 			summary.CollectDuration("restore checksum", elapsed)
-			summary.CollectSuccessUnit("table checksumed", 1, elapsed)
+			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
