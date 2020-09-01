@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/pingcap/kvproto/pkg/metapb"
+
 	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -54,11 +56,32 @@ func BRInfo() string {
 var minTiKVVersion *semver.Version = semver.New("3.1.0-beta.2")
 var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
 var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
+var compatibleTiFlashMajor3 = semver.New("3.1.0")
+var compatibleTiFlashMajor4 = semver.New("4.0.0")
 
 func removeVAndHash(v string) string {
 	v = VersionHash.ReplaceAllLiteralString(v, "")
 	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
+}
+
+func checkTiFlashVersion(store *metapb.Store) error {
+	flash, err := semver.NewVersion(removeVAndHash(store.Version))
+	if err != nil {
+		return errors.Annotatef(err, "failed to parse TiFlash@[%s] version %s", store.GetPeerAddress(), store.Version)
+	}
+
+	if flash.Major == 3 && flash.LessThan(*compatibleTiFlashMajor3) {
+		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor3)
+	}
+
+	if flash.Major == 4 && flash.LessThan(*compatibleTiFlashMajor4) {
+		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor4)
+	}
+
+	return nil
 }
 
 // CheckClusterVersion check TiKV version.
@@ -72,6 +95,12 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		return errors.Trace(err)
 	}
 	for _, s := range stores {
+		if IsTiFlash(s) {
+			if err := checkTiFlashVersion(s); err != nil {
+				return err
+			}
+		}
+
 		tikvVersionString := removeVAndHash(s.Version)
 		tikvVersion, err := semver.NewVersion(tikvVersionString)
 		if err != nil {

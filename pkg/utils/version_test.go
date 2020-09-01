@@ -25,9 +25,42 @@ func (m *mockPDClient) GetAllStores(ctx context.Context, opts ...pd.GetStoreOpti
 	return []*metapb.Store{}, nil
 }
 
+func tiflash(version string) []*metapb.Store {
+	return []*metapb.Store{
+		{Version: version, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
+	}
+}
+
 func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 	mock := mockPDClient{
 		Client: nil,
+	}
+
+	{
+		BRReleaseVersion = "v4.0.5"
+		mock.getAllStores = func() []*metapb.Store {
+			return tiflash("v4.0.0-rc.1")
+		}
+		err := CheckClusterVersion(context.Background(), &mock)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v4.0.0-rc.1, try update it to 4.0.0`)
+	}
+
+	{
+		BRReleaseVersion = "v3.0.14"
+		mock.getAllStores = func() []*metapb.Store {
+			return tiflash("v3.1.0-beta.1")
+		}
+		err := CheckClusterVersion(context.Background(), &mock)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.1.0-beta.1, try update it to 3.1.0`)
+	}
+
+	{
+		BRReleaseVersion = "v3.1.1"
+		mock.getAllStores = func() []*metapb.Store {
+			return tiflash("v3.0.15")
+		}
+		err := CheckClusterVersion(context.Background(), &mock)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.0.15, try update it to 3.1.0`)
 	}
 
 	{
