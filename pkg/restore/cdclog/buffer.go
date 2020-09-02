@@ -48,6 +48,24 @@ func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
 		RowFormatVersion: "1",
 	})
 
+	tb := &TableBuffer{
+		KvPairs:      make([]Row, 0, flushKVPairs),
+		KvEncoder:    kvEncoder,
+		flushKVPairs: flushKVPairs,
+	}
+	tb.ReloadMeta(tbl)
+	return tb
+}
+
+// TableID return this table id.
+func (t *TableBuffer) TableID() int64 {
+	return t.tableInfo.Meta().ID
+}
+
+// ReloadMeta reload columns after
+// 1. table buffer created.
+// 2. every ddl executed.
+func (t *TableBuffer) ReloadMeta(tbl table.Table) {
 	columns := tbl.Meta().Cols()
 	colNames := make([]string, 0, len(columns))
 	colPerm := make([]int, 0, len(columns)+1)
@@ -59,17 +77,9 @@ func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
 	if TableHasAutoRowID(tbl.Meta()) {
 		colPerm = append(colPerm, -1)
 	}
-
-	return &TableBuffer{
-		KvPairs:   make([]Row, 0, flushKVPairs),
-		KvEncoder: kvEncoder,
-		tableInfo: tbl,
-
-		flushKVPairs: flushKVPairs,
-
-		colNames: colNames,
-		colPerm:  colPerm,
-	}
+	t.tableInfo = tbl
+	t.colNames = colNames
+	t.colPerm = colPerm
 }
 
 func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, error) {

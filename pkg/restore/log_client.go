@@ -674,7 +674,11 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 	return nil
 }
 
-func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, puller *cdclog.EventPuller) error {
+func (l *LogClient) restoreTableFromPuller(
+	ctx context.Context,
+	tableID int64,
+	puller *cdclog.EventPuller,
+	dom *domain.Domain) error {
 	for {
 		item, err := puller.PullOneEvent(ctx)
 		if err != nil {
@@ -712,7 +716,7 @@ func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, p
 					zap.String("table", table),
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
-					zap.Int64("current table id", tableID),
+					zap.Int64("backup table id", tableID),
 				)
 				continue
 			}
@@ -727,7 +731,7 @@ func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, p
 					zap.String("table", table),
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
-					zap.Int64("current table id", tableID),
+					zap.Int64("backup table id", tableID),
 				)
 				continue
 			}
@@ -742,6 +746,35 @@ func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, p
 			if err != nil {
 				return errors.Trace(err)
 			}
+
+			err = dom.Reload()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			// find tableID for this table on cluster
+			newTableID := l.tableBuffers[tableID].TableID()
+			newTableInfo, ok := dom.InfoSchema().TableByID(newTableID)
+			if !ok {
+				log.Error("[restoreFromPuller] can't get table info from dom by tableID",
+					zap.String("item table", item.Table),
+					zap.String("table", table),
+					zap.String("item schema", item.Schema),
+					zap.String("schema", schema),
+					zap.Int64("backup table id", tableID),
+					zap.Int64("restore table id", newTableID),
+				)
+				return errors.Trace(err)
+			}
+			// reload
+			l.tableBuffers[tableID].ReloadMeta(newTableInfo)
+			log.Debug("reload table meta for table",
+				zap.String("item table", item.Table),
+				zap.String("table", table),
+				zap.String("item schema", item.Schema),
+				zap.String("schema", schema),
+				zap.Int64("backup table id", tableID),
+				zap.Int64("restore table id", newTableID),
+			)
 
 		case cdclog.RowChanged:
 			err := l.tableBuffers[tableID].Append(ctx, item)
@@ -758,7 +791,7 @@ func (l *LogClient) restoreTableFromPuller(ctx context.Context, tableID int64, p
 	}
 }
 
-func (l *LogClient) restoreTables(ctx context.Context) error {
+func (l *LogClient) restoreTables(ctx context.Context, dom *domain.Domain) error {
 	// 1. decode cdclog with in ts range
 	// 2. dispatch cdclog events to table level concurrently
 	// 		a. encode row changed files to kvpairs and ingest into tikv
@@ -770,7 +803,7 @@ func (l *LogClient) restoreTables(ctx context.Context) error {
 		pullerReplica := puller
 		tableIDReplica := tableID
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica)
+			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica, dom)
 		})
 	}
 	return eg.Wait()
@@ -848,7 +881,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, l.concurrencyCfg.BatchFlushKVPairs)
 	}
 	// restore files
-	return l.restoreTables(ctx)
+	return l.restoreTables(ctx, dom)
 }
 
 func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.SSTMeta) (bool, *RegionInfo, error) {
