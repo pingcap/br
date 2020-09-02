@@ -216,7 +216,7 @@ func (b *JSONEventBatchMixedDecoder) decodeNextKey() (*messageKey, uint64, error
 	return msgKey, keyLen, nil
 }
 
-// NextEvent return next item depends on type
+// NextEvent return next item depends on type.
 func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, error) {
 	if !b.HasNext() {
 		return nil, nil
