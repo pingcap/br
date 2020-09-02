@@ -95,7 +95,13 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		return errors.Trace(err)
 	}
 	for _, s := range stores {
-		if IsTiFlash(s) {
+		isTiFlash := IsTiFlash(s)
+		log.Debug("checking compatibility of store in cluster",
+			zap.Bool("TiFlash?", isTiFlash),
+			zap.String("address", s.GetAddress()),
+			zap.String("version", s.GetVersion()),
+		)
+		if isTiFlash {
 			if err := checkTiFlashVersion(s); err != nil {
 				return err
 			}
