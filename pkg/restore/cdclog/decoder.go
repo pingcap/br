@@ -62,7 +62,7 @@ const (
 type column struct {
 	Type byte `json:"t"`
 
-	// WhereHandle is deprecation
+	// WhereHandle is deprecated
 	// WhereHandle is replaced by HandleKey in Flag.
 	WhereHandle *bool          `json:"h,omitempty"`
 	Flag        ColumnFlagType `json:"f"`
