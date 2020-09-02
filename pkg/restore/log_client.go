@@ -232,7 +232,7 @@ func (l *LogClient) doCreateDDLJob(ctx context.Context, ddls []string) error {
 			return errors.Trace(err)
 		}
 		for decoder.HasNext() {
-			item, err := decoder.NextDDLEvent()
+			item, err := decoder.NextEvent(cdclog.DDL)
 			if err != nil {
 				return errors.Trace(err)
 			}

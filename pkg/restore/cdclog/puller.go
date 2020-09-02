@@ -119,7 +119,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		}
 		// set current DDL item first
 		if e.currentDDLItem == nil {
-			e.currentDDLItem, err = e.ddlDecoder.NextDDLEvent()
+			e.currentDDLItem, err = e.ddlDecoder.NextEvent(DDL)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -141,7 +141,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			}
 		}
 		if e.currentRowChangedItem == nil {
-			e.currentRowChangedItem, err = e.ddlDecoder.NextRowChangedEvent()
+			e.currentRowChangedItem, err = e.ddlDecoder.NextEvent(RowChanged)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -153,20 +153,20 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 	case e.currentDDLItem != nil:
 		if e.currentDDLItem.LessThan(e.currentRowChangedItem) {
 			returnItem = e.currentDDLItem
-			e.currentDDLItem, err = e.ddlDecoder.NextDDLEvent()
+			e.currentDDLItem, err = e.ddlDecoder.NextEvent(DDL)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
 		} else {
 			returnItem = e.currentRowChangedItem
-			e.currentRowChangedItem, err = e.rowChangedDecoder.NextRowChangedEvent()
+			e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
 		}
 	case e.currentRowChangedItem != nil:
 		returnItem = e.currentRowChangedItem
-		e.currentRowChangedItem, err = e.rowChangedDecoder.NextRowChangedEvent()
+		e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

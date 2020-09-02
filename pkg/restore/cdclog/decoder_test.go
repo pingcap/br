@@ -119,7 +119,7 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		if !hasNext {
 			break
 		}
-		item, err = decoder.NextDDLEvent()
+		item, err = decoder.NextEvent(DDL)
 		c.Assert(err, check.IsNil)
 		c.Assert(item.Meta.(*MessageDDL), check.DeepEquals, s.ddlEvents[index])
 		index++
@@ -134,7 +134,7 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		if !hasNext {
 			break
 		}
-		item, err = decoder.NextRowChangedEvent()
+		item, err = decoder.NextEvent(RowChanged)
 		c.Assert(err, check.IsNil)
 		c.Assert(item.Meta.(*MessageRow), check.DeepEquals, s.rowEvents[index])
 		c.Assert(item.RowID, check.Equals, int64(index))

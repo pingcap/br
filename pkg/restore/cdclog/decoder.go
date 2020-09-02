@@ -202,85 +202,56 @@ func (s *SortItem) LessThan(other *SortItem) bool {
 // JSONEventBatchMixedDecoder decodes the byte of a batch into the original messages.
 type JSONEventBatchMixedDecoder struct {
 	mixedBytes []byte
-
-	nextKey    *messageKey
-	nextKeyLen uint64
 }
 
-func (b *JSONEventBatchMixedDecoder) decodeNextKey() error {
+func (b *JSONEventBatchMixedDecoder) decodeNextKey() (*messageKey, uint64, error) {
 	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	key := b.mixedBytes[8 : keyLen+8]
 	// drop value bytes
 	msgKey := new(messageKey)
 	err := msgKey.Decode(key)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, 0, errors.Trace(err)
 	}
-	b.nextKey = msgKey
-	b.nextKeyLen = keyLen
-	return nil
+	return msgKey, keyLen, nil
 }
 
-// NextRowChangedEvent implements the EventBatchDecoder interface.
-func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
+// NextEvent return next item depends on type
+func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, error) {
 	if !b.HasNext() {
 		return nil, nil
 	}
-	if b.nextKey == nil {
-		if err := b.decodeNextKey(); err != nil {
-			return nil, err
-		}
+	nextKey, nextKeyLen, err := b.decodeNextKey()
+	if err != nil {
+		return nil, err
 	}
 
-	b.mixedBytes = b.mixedBytes[b.nextKeyLen+8:]
-	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
-	value := b.mixedBytes[8 : valueLen+8]
-	b.mixedBytes = b.mixedBytes[valueLen+8:]
-	rowMsg := new(MessageRow)
-	if err := rowMsg.Decode(value); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	item := &SortItem{
-		ItemType: RowChanged,
-		Meta:   rowMsg,
-		Schema: b.nextKey.Schema,
-		Table:  b.nextKey.Table,
-		TS:     b.nextKey.Ts,
-		RowID:  b.nextKey.RowID,
-	}
-	b.nextKey = nil
-	return item, nil
-}
-
-// NextDDLEvent implements the EventBatchDecoder interface.
-func (b *JSONEventBatchMixedDecoder) NextDDLEvent() (*SortItem, error) {
-	if !b.HasNext() {
-		return nil, nil
-	}
-	if b.nextKey == nil {
-		if err := b.decodeNextKey(); err != nil {
-			return nil, err
-		}
-	}
-
-	b.mixedBytes = b.mixedBytes[b.nextKeyLen+8:]
+	b.mixedBytes = b.mixedBytes[nextKeyLen+8:]
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	value := b.mixedBytes[8 : valueLen+8]
 	b.mixedBytes = b.mixedBytes[valueLen+8:]
 
-	ddlMsg := new(MessageDDL)
-	if err := ddlMsg.Decode(value); err != nil {
-		return nil, errors.Trace(err)
+	var m interface{}
+	if itemType == DDL {
+		m = new(MessageDDL)
+		if err := m.(*MessageDDL).Decode(value); err != nil {
+			return nil, errors.Trace(err)
+		}
+	} else if itemType == RowChanged {
+		m = new(MessageRow)
+		if err := m.(*MessageRow).Decode(value); err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
+
 	item := &SortItem{
-		ItemType: DDL,
-		Meta:     ddlMsg,
-		Schema:   b.nextKey.Schema,
-		Table:    b.nextKey.Table,
-		TS:       b.nextKey.Ts,
+		ItemType: itemType,
+		Meta:     m,
+		Schema:   nextKey.Schema,
+		Table:    nextKey.Table,
+		TS:       nextKey.Ts,
+		RowID:    nextKey.RowID,
 	}
-	b.nextKey = nil
 	return item, nil
 }
 
