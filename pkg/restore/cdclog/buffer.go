@@ -85,6 +85,26 @@ func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, er
 	return cols, nil
 }
 
+func (t *TableBuffer) appendRow(
+	row map[string]column,
+	item *SortItem,
+	encodeFn func(row []types.Datum,
+		rowID int64,
+		columnPermutation []int) (Row, error),
+) error {
+	cols, err := t.translateToDatum(row)
+	if err != nil {
+		return err
+	}
+	pair, err := encodeFn(cols, item.RowID, t.colPerm)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	t.KvPairs = append(t.KvPairs, pair)
+	t.Size++
+	return nil
+}
+
 // Append appends the item to this buffer.
 func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 	log.Debug("Append item to buffer",
@@ -92,57 +112,36 @@ func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
 	)
 	row := item.Meta.(*MessageRow)
 
-	if row.Update != nil {
+	select {
+	case <-ctx.Done():
+		log.Info("stop append to table buffer", zap.Stringer("table", t.tableInfo.Meta().Name))
+	default:
 		if row.PreColumns != nil {
+			// Remove previous columns
 			log.Debug("process update event", zap.Any("row", row))
-			oldCols, err := t.translateToDatum(row.PreColumns)
+			err := t.appendRow(row.PreColumns, item, t.KvEncoder.RemoveRecord)
 			if err != nil {
 				return err
 			}
-
-			pair, err := t.KvEncoder.RemoveRecord(oldCols, item.RowID, t.colPerm)
-			if err != nil {
-				return errors.Trace(err)
+		}
+		if row.Update != nil {
+			// Add new columns
+			if row.PreColumns == nil {
+				log.Debug("process insert event", zap.Any("row", row))
 			}
-			t.KvPairs = append(t.KvPairs, pair)
-			t.Size++
-
-			newCols, err := t.translateToDatum(row.Update)
+			err := t.appendRow(row.Update, item, t.KvEncoder.AddRecord)
 			if err != nil {
 				return err
 			}
-			pair, err = t.KvEncoder.AddRecord(newCols, item.RowID, t.colPerm)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			t.KvPairs = append(t.KvPairs, pair)
-			t.Size++
-		} else {
-			log.Debug("process insert event", zap.Any("row", row))
-			cols, err := t.translateToDatum(row.Update)
+		}
+		if row.Delete != nil {
+			// Remove current columns
+			log.Debug("process delete event", zap.Any("row", row))
+			err := t.appendRow(row.Delete, item, t.KvEncoder.RemoveRecord)
 			if err != nil {
 				return err
 			}
-			pair, err := t.KvEncoder.AddRecord(cols, item.RowID, t.colPerm)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			t.KvPairs = append(t.KvPairs, pair)
-			t.Size++
 		}
-	}
-	if row.Delete != nil {
-		log.Debug("process delete event", zap.Any("row", row))
-		cols, err := t.translateToDatum(row.Delete)
-		if err != nil {
-			return err
-		}
-		pair, err := t.KvEncoder.RemoveRecord(cols, item.RowID, t.colPerm)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		t.KvPairs = append(t.KvPairs, pair)
-		t.Size++
 	}
 	return nil
 }

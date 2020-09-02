@@ -243,7 +243,6 @@ func (b *JSONEventBatchMixedDecoder) NextRowChangedEvent() (*SortItem, error) {
 
 	item := &SortItem{
 		ItemType: RowChanged,
-		// TODO encode row Msg to kv Pairs
 		Meta:   rowMsg,
 		Schema: b.nextKey.Schema,
 		Table:  b.nextKey.Table,
