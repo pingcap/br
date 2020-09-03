@@ -504,7 +504,7 @@ type s3ObjectReader struct {
 	reader    io.ReadCloser
 	pos       int64
 	rangeInfo rangeInfo
-	// reader context used for seek
+	// reader context used for implement `io.Seek`
 	ctx context.Context
 }
 
@@ -525,6 +525,8 @@ func (r *s3ObjectReader) Close() error {
 }
 
 // Seek implement the io.Seeker interface.
+//
+// Currently, tidb-lightning depends on this method to read parquet file for s3 storage.
 func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	var realOffset int64
 	switch whence {
