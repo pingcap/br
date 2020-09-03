@@ -65,7 +65,17 @@ func (b *Batcher) Len() int {
 // contextCleaner is the worker goroutine that cleaning the 'context'
 // (e.g. make regions leave restore mode).
 func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
-	defer b.manager.Close(ctx)
+	defer func() {
+		if ctx.Err() != nil {
+			timeout := 5 * time.Second
+			log.Info("restore canceled, cleaning in a context with timeout",
+				zap.Stringer("timeout", timeout))
+			limitedCtx, _ := context.WithTimeout(context.Background(), timeout)
+			b.manager.Close(limitedCtx)
+		} else {
+			b.manager.Close(ctx)
+		}
+	}()
 	defer b.everythingIsDone.Done()
 	for {
 		select {
@@ -156,6 +166,7 @@ func (b *Batcher) joinAutoCommitWorker() {
 }
 
 // sendWorker is the 'worker' that send all ranges to TiKV.
+// TODO since all operations are asynchronous now, it's possible to remove this worker.
 func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 	sendUntil := func(lessOrEqual int) {
 		for b.Len() > lessOrEqual {
