@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -30,6 +29,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (

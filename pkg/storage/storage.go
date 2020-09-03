@@ -5,8 +5,9 @@ package storage
 import (
 	"context"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // ExternalStorage represents a kind of file system storage.

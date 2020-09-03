@@ -46,7 +46,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return []*metapb.Store{{Version: `v2.1.0`}}
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, "TiKV .* don't support BR, please upgrade cluster .*")
+		c.Assert(err, check.ErrorMatches, ".*TiKV .* don't support BR, please upgrade cluster .*")
 	}
 
 	{

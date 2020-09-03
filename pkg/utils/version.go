@@ -11,12 +11,13 @@ import (
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/util/israce"
 	"go.uber.org/zap"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // Version information.

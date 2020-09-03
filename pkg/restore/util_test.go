@@ -237,5 +237,5 @@ func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {
 	c.Assert(batch, DeepEquals, regions[1:2])
 
 	_, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{2}, []byte{1}, 3)
-	c.Assert(err, ErrorMatches, "startKey >= endKey.*")
+	c.Assert(err, ErrorMatches, ".*startKey >= endKey.*")
 }

@@ -9,12 +9,13 @@ import (
 	"net/http"
 
 	"cloud.google.com/go/storage"
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/spf13/pflag"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (

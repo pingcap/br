@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // BackendOptions further configures the storage backend not expressed by the

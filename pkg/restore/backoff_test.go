@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
@@ -42,7 +43,7 @@ func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 		case 0:
 			return status.Error(codes.Unavailable, "transport is closing")
 		case 1:
-			return restore.ErrEpochNotMatch
+			return berrors.ErrEpochNotMatch
 		case 2:
 			return nil
 		}
@@ -62,20 +63,20 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 		case 0:
 			return gRPCError
 		case 1:
-			return restore.ErrEpochNotMatch
+			return berrors.ErrEpochNotMatch
 		case 2:
-			return restore.ErrDownloadFailed
+			return berrors.ErrDownloadFailed
 		case 3:
-			return restore.ErrRangeIsEmpty
+			return berrors.ErrRangeIsEmpty
 		}
 		return nil
 	}, backoffer)
 	c.Assert(counter, Equals, 4)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
 		gRPCError,
-		restore.ErrEpochNotMatch,
-		restore.ErrDownloadFailed,
-		restore.ErrRangeIsEmpty,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrDownloadFailed,
+		berrors.ErrRangeIsEmpty,
 	})
 }
 
@@ -98,19 +99,19 @@ func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
-		return restore.ErrEpochNotMatch
+		return berrors.ErrEpochNotMatch
 	}, backoffer)
 	c.Assert(counter, Equals, 10)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
-		restore.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
+		berrors.ErrEpochNotMatch,
 	})
 }

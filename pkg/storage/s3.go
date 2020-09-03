@@ -16,9 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/pflag"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
