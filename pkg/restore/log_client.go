@@ -236,7 +236,7 @@ func (l *LogClient) doCreateDDLJob(ctx context.Context, ddls []string) error {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			ddl := item.Meta.(*cdclog.MessageDDL)
+			ddl := item.Data.(*cdclog.MessageDDL)
 			log.Debug("[doCreateDDLJob] parse ddl", zap.String("query", ddl.Query))
 			if l.isCreateDDL(ddl.Query) {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
@@ -582,7 +582,7 @@ WriteAndIngest:
 		}
 
 		shouldWait := false
-		errChan := make(chan error, len(regions))
+		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
 			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
@@ -596,25 +596,19 @@ WriteAndIngest:
 				}
 			} else {
 				shouldWait = true
-				go func(r *RegionInfo) {
-					errChan <- l.doWriteAndIngest(ctx, kvs, r)
-				}(region)
+				regionReplica := region
+				eg.Go(func() error {
+					return l.doWriteAndIngest(ectx, kvs, regionReplica)
+				})
 			}
 		}
 		if shouldWait {
-			shouldRetry := false
-			for i := 0; i < len(regions); i++ {
-				err1 := <-errChan
-				if err1 != nil {
-					err = err1
-					log.L().Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
-					shouldRetry = true
-				}
+			err1 := eg.Wait()
+			if err1 != nil {
+				err = err1
+				log.L().Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
+				continue WriteAndIngest
 			}
-			if !shouldRetry {
-				return nil
-			}
-			continue WriteAndIngest
 		}
 		return nil
 	}
@@ -720,7 +714,7 @@ func (l *LogClient) restoreTableFromPuller(
 				)
 				continue
 			}
-			ddl := item.Meta.(*cdclog.MessageDDL)
+			ddl := item.Data.(*cdclog.MessageDDL)
 			log.Debug("[restoreFromPuller] exec ddl", zap.String("query", ddl.Query))
 
 			if l.isCreateDDL(ddl.Query) {
@@ -777,7 +771,7 @@ func (l *LogClient) restoreTableFromPuller(
 			)
 
 		case cdclog.RowChanged:
-			err := l.tableBuffers[tableID].Append(ctx, item)
+			err := l.tableBuffers[tableID].Append(item)
 			if err != nil {
 				return errors.Trace(err)
 			}

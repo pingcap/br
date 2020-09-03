@@ -14,7 +14,6 @@
 package cdclog
 
 import (
-	"context"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -116,41 +115,36 @@ func (t *TableBuffer) appendRow(
 }
 
 // Append appends the item to this buffer.
-func (t *TableBuffer) Append(ctx context.Context, item *SortItem) error {
+func (t *TableBuffer) Append(item *SortItem) error {
 	log.Debug("Append item to buffer",
 		zap.Stringer("table", t.tableInfo.Meta().Name),
 	)
-	row := item.Meta.(*MessageRow)
+	row := item.Data.(*MessageRow)
 
-	select {
-	case <-ctx.Done():
-		log.Info("stop append to table buffer", zap.Stringer("table", t.tableInfo.Meta().Name))
-	default:
-		if row.PreColumns != nil {
-			// Remove previous columns
-			log.Debug("process update event", zap.Any("row", row))
-			err := t.appendRow(row.PreColumns, item, t.KvEncoder.RemoveRecord)
-			if err != nil {
-				return err
-			}
+	if row.PreColumns != nil {
+		// Remove previous columns
+		log.Debug("process update event", zap.Any("row", row))
+		err := t.appendRow(row.PreColumns, item, t.KvEncoder.RemoveRecord)
+		if err != nil {
+			return err
 		}
-		if row.Update != nil {
-			// Add new columns
-			if row.PreColumns == nil {
-				log.Debug("process insert event", zap.Any("row", row))
-			}
-			err := t.appendRow(row.Update, item, t.KvEncoder.AddRecord)
-			if err != nil {
-				return err
-			}
+	}
+	if row.Update != nil {
+		// Add new columns
+		if row.PreColumns == nil {
+			log.Debug("process insert event", zap.Any("row", row))
 		}
-		if row.Delete != nil {
-			// Remove current columns
-			log.Debug("process delete event", zap.Any("row", row))
-			err := t.appendRow(row.Delete, item, t.KvEncoder.RemoveRecord)
-			if err != nil {
-				return err
-			}
+		err := t.appendRow(row.Update, item, t.KvEncoder.AddRecord)
+		if err != nil {
+			return err
+		}
+	}
+	if row.Delete != nil {
+		// Remove current columns
+		log.Debug("process delete event", zap.Any("row", row))
+		err := t.appendRow(row.Delete, item, t.KvEncoder.RemoveRecord)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

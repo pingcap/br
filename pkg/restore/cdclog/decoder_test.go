@@ -43,9 +43,9 @@ var _ = check.Suite(&batchSuite{
 		{"drop table event", 5},
 	},
 	ddlDecodeItem: []*SortItem{
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 4}},
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"create table event", 3}},
-		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Meta: MessageDDL{"drop table event", 5}},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Data: MessageDDL{"drop table event", 4}},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Data: MessageDDL{"create table event", 3}},
+		{ItemType: DDL, Schema: "test", Table: "event", TS: 1, Data: MessageDDL{"drop table event", 5}},
 	},
 
 	rowEvents: []*MessageRow{
@@ -54,9 +54,9 @@ var _ = check.Suite(&batchSuite{
 		{Delete: updateCols},
 	},
 	rowDecodeItem: []*SortItem{
-		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 0, Meta: MessageRow{Update: updateCols}},
-		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 1, Meta: MessageRow{PreColumns: updateCols}},
-		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 2, Meta: MessageRow{Delete: updateCols}},
+		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 0, Data: MessageRow{Update: updateCols}},
+		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 1, Data: MessageRow{PreColumns: updateCols}},
+		{ItemType: RowChanged, Schema: "test", Table: "event", TS: 1, RowID: 2, Data: MessageRow{Delete: updateCols}},
 	},
 })
 
@@ -121,7 +121,7 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		}
 		item, err = decoder.NextEvent(DDL)
 		c.Assert(err, check.IsNil)
-		c.Assert(item.Meta.(*MessageDDL), check.DeepEquals, s.ddlEvents[index])
+		c.Assert(item.Data.(*MessageDDL), check.DeepEquals, s.ddlEvents[index])
 		index++
 	}
 
@@ -136,7 +136,7 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		}
 		item, err = decoder.NextEvent(RowChanged)
 		c.Assert(err, check.IsNil)
-		c.Assert(item.Meta.(*MessageRow), check.DeepEquals, s.rowEvents[index])
+		c.Assert(item.Data.(*MessageRow), check.DeepEquals, s.rowEvents[index])
 		c.Assert(item.RowID, check.Equals, int64(index))
 		index++
 	}

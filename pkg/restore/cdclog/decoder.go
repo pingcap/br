@@ -184,7 +184,7 @@ func (m *MessageRow) Decode(data []byte) error {
 // SortItem represents a DDL item or Row changed item.
 type SortItem struct {
 	ItemType ItemType
-	Meta     interface{}
+	Data     interface{}
 	Schema   string
 	Table    string
 	RowID    int64
@@ -246,7 +246,7 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 
 	item := &SortItem{
 		ItemType: itemType,
-		Meta:     m,
+		Data:     m,
 		Schema:   nextKey.Schema,
 		Table:    nextKey.Table,
 		TS:       nextKey.Ts,
