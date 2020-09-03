@@ -30,9 +30,9 @@ type TableBuffer struct {
 	KvPairs []Row
 	Size    int64
 
-	KvEncoderFn func() Encoder
-	KvEncoder Encoder
-	tableInfo table.Table
+	KvEncoderFn func(table.Table) Encoder
+	KvEncoder   Encoder
+	tableInfo   table.Table
 
 	flushKVPairs int
 
@@ -42,7 +42,7 @@ type TableBuffer struct {
 
 // NewTableBuffer creates TableBuffer.
 func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
-	kvEncoderFn := func() Encoder {
+	kvEncoderFn := func(tbl table.Table) Encoder {
 		return NewTableKVEncoder(tbl, &SessionOptions{
 			Timestamp: time.Now().Unix(),
 			// TODO make it config
@@ -52,10 +52,12 @@ func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
 
 	tb := &TableBuffer{
 		KvPairs:      make([]Row, 0, flushKVPairs),
-		KvEncoderFn:    kvEncoderFn,
+		KvEncoderFn:  kvEncoderFn,
 		flushKVPairs: flushKVPairs,
 	}
-	tb.ReloadMeta(tbl)
+	if tbl != nil {
+		tb.ReloadMeta(tbl)
+	}
 	return tb
 }
 
@@ -128,7 +130,8 @@ func (t *TableBuffer) Append(item *SortItem) error {
 
 	if t.KvEncoder == nil {
 		// lazy create kv encoder
-		t.KvEncoder = t.KvEncoderFn()
+		log.Debug("create kv encoder lazily")
+		t.KvEncoder = t.KvEncoderFn(t.tableInfo)
 	}
 
 	if row.PreColumns != nil {

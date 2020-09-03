@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/domain"
+	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
@@ -808,9 +809,13 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 			return errors.Trace(err)
 		}
 		// use table name to get table info
-		tableInfo, err := dom.InfoSchema().TableByName(model.NewCIStr(schema), model.NewCIStr(table))
-		if err != nil {
-			return errors.Trace(err)
+		var tableInfo titable.Table
+		infoSchema := dom.InfoSchema()
+		if infoSchema.TableExists(model.NewCIStr(schema), model.NewCIStr(table)) {
+			tableInfo, err = infoSchema.TableByName(model.NewCIStr(schema), model.NewCIStr(table))
+			if err != nil {
+				return errors.Trace(err)
+			}
 		}
 		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, l.concurrencyCfg.BatchFlushKVPairs)
 	}
