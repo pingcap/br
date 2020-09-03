@@ -70,7 +70,8 @@ func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTab
 			timeout := 5 * time.Second
 			log.Info("restore canceled, cleaning in a context with timeout",
 				zap.Stringer("timeout", timeout))
-			limitedCtx, _ := context.WithTimeout(context.Background(), timeout)
+			limitedCtx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
 			b.manager.Close(limitedCtx)
 		} else {
 			b.manager.Close(ctx)
