@@ -30,6 +30,7 @@ type TableBuffer struct {
 	KvPairs []Row
 	Size    int64
 
+	KvEncoderFn func() Encoder
 	KvEncoder Encoder
 	tableInfo table.Table
 
@@ -41,15 +42,17 @@ type TableBuffer struct {
 
 // NewTableBuffer creates TableBuffer.
 func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
-	kvEncoder := NewTableKVEncoder(tbl, &SessionOptions{
-		Timestamp: time.Now().Unix(),
-		// TODO make it config
-		RowFormatVersion: "1",
-	})
+	kvEncoderFn := func() Encoder {
+		return NewTableKVEncoder(tbl, &SessionOptions{
+			Timestamp: time.Now().Unix(),
+			// TODO make it config
+			RowFormatVersion: "1",
+		})
+	}
 
 	tb := &TableBuffer{
 		KvPairs:      make([]Row, 0, flushKVPairs),
-		KvEncoder:    kvEncoder,
+		KvEncoderFn:    kvEncoderFn,
 		flushKVPairs: flushKVPairs,
 	}
 	tb.ReloadMeta(tbl)
@@ -79,6 +82,8 @@ func (t *TableBuffer) ReloadMeta(tbl table.Table) {
 	t.tableInfo = tbl
 	t.colNames = colNames
 	t.colPerm = colPerm
+	// reset kv encoder after meta changed
+	t.KvEncoder = nil
 }
 
 func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, error) {
@@ -120,6 +125,11 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		zap.Stringer("table", t.tableInfo.Meta().Name),
 	)
 	row := item.Data.(*MessageRow)
+
+	if t.KvEncoder == nil {
+		// lazy create kv encoder
+		t.KvEncoder = t.KvEncoderFn()
+	}
 
 	if row.PreColumns != nil {
 		// Remove previous columns
