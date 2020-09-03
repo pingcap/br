@@ -61,10 +61,6 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	err = cfg.Config.ParseFromFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
@@ -97,7 +93,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -250,7 +246,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		int64(rangeSize+len(files)+len(tables)),
 		!cfg.LogProgress)
 	defer updateCh.Close()
-	sender, err := restore.NewTiKVSender(ctx, client, updateCh, cfg.RemoveTiFlash)
+	sender, err := restore.NewTiKVSender(ctx, client, updateCh)
 	if err != nil {
 		return err
 	}
@@ -258,7 +254,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
 	batcher.SetThreshold(batchSize)
 	batcher.EnableAutoCommit(ctx, time.Second)
-	go restoreTableStream(ctx, rangeStream, cfg.RemoveTiFlash, cfg.PD, client, batcher, errCh)
+	go restoreTableStream(ctx, rangeStream, batcher, errCh)
 
 	var finish <-chan struct{}
 	// Checksum
@@ -372,7 +368,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -439,10 +435,6 @@ func enableTiDBConfig() {
 func restoreTableStream(
 	ctx context.Context,
 	inputCh <-chan restore.TableWithRange,
-	// TODO: remove this field and rules field after we support TiFlash
-	removeTiFlashReplica bool,
-	pdAddr []string,
-	client *restore.Client,
 	batcher *restore.Batcher,
 	errCh chan<- error,
 ) {
@@ -454,10 +446,6 @@ func restoreTableStream(
 		log.Info("doing postwork",
 			zap.Int("table count", len(oldTables)),
 		)
-		if err := client.RecoverTiFlashReplica(oldTables); err != nil {
-			log.Error("failed on recover TiFlash replicas", zap.Error(err))
-			errCh <- err
-		}
 	}()
 
 	for {
@@ -468,22 +456,6 @@ func restoreTableStream(
 		case t, ok := <-inputCh:
 			if !ok {
 				return
-			}
-			if removeTiFlashReplica {
-				rules, err := client.GetPlacementRules(pdAddr)
-				if err != nil {
-					errCh <- err
-					return
-				}
-				log.Debug("get rules", zap.Any("rules", rules), zap.Strings("pd", pdAddr))
-				log.Debug("try to remove tiflash of table", zap.Stringer("table name", t.Table.Name))
-				tiFlashRep, err := client.RemoveTiFlashOfTable(t.CreatedTable, rules)
-				if err != nil {
-					log.Error("failed on remove TiFlash replicas", zap.Error(err))
-					errCh <- err
-					return
-				}
-				t.OldTable.TiFlashReplicas = tiFlashRep
 			}
 			oldTables = append(oldTables, t.OldTable)
 
