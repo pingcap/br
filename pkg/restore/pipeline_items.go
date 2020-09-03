@@ -11,7 +11,6 @@ import (
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
@@ -202,20 +201,9 @@ func NewTiKVSender(
 	ctx context.Context,
 	cli *Client,
 	updateCh glue.Progress,
-	// TODO remove this field after we support TiFlash.
-	removeTiFlash bool,
 ) (BatchSender, error) {
 	rejectStoreMap := make(map[uint64]bool)
-	if removeTiFlash {
-		tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
-		if err != nil {
-			log.Error("failed to get and remove TiFlash replicas", zap.Error(err))
-			return nil, err
-		}
-		for _, store := range tiflashStores {
-			rejectStoreMap[store.GetId()] = true
-		}
-	}
+
 	inCh := make(chan DrainResult, defaultChannelSize)
 	midCh := make(chan DrainResult, defaultChannelSize)
 

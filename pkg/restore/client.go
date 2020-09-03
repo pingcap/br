@@ -655,7 +655,7 @@ func (rc *Client) RestoreFiles(
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
-				return rc.fileImporter.Import(ectx, fileReplica, rejectStoreMap, rewriteRules)
+				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -688,13 +688,12 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 		return errors.Trace(err)
 	}
 
-	emptyRules := &RewriteRules{}
 	for _, file := range files {
 		fileReplica := file
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, nil, emptyRules)
+				return rc.fileImporter.Import(ectx, fileReplica, EmptyRewriteRule())
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -811,12 +810,16 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
+		start := time.Now()
 		wg, ectx := errgroup.WithContext(ctx)
 		defer func() {
 			log.Info("all checksum ended")
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
+			elapsed := time.Since(start)
+			summary.CollectDuration("restore checksum", elapsed)
+			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -844,11 +847,6 @@ func (rc *Client) GoValidateChecksum(
 }
 
 func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("restore checksum", elapsed)
-	}()
 	if tbl.OldTable.NoChecksum() {
 		log.Warn("table has no checksum, skipping checksum",
 			zap.Stringer("table", tbl.OldTable.Info.Name),
