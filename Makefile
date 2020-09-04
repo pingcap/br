@@ -17,10 +17,10 @@ ifeq ("$(WITH_RACE)", "1")
 	RACEFLAG = -race
 endif
 
-all: check test build
+all: build check test
 
 build:
-	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
+	GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
 
 build_for_integration_test: failpoint-enable
 	(GO111MODULE=on go test -c -cover -covermode=count \
@@ -86,6 +86,7 @@ static: tools
 	@#        testpackage - several test packages still rely on private functions
 	@#             nestif - PENDING REFACTORING
 	@#           goerr113 - it mistaken pingcap/errors with standard errors
+	@#                lll - pingcap/errors may need to write a long line
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -98,6 +99,7 @@ static: tools
 		--disable testpackage \
 		--disable nestif \
 		--disable goerr113 \
+		--disable lll \
 		$$($(PACKAGE_DIRECTORIES))
 
 lint: tools
