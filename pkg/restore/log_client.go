@@ -90,6 +90,9 @@ type LogClient struct {
 	grpcClis     grpcClis
 
 	tableFilter filter.Filter
+
+	// only this table can do database releated ddl job
+	primaryTableID int64
 }
 
 // NewLogRestoreClient returns a new LogRestoreClient.
@@ -664,6 +667,7 @@ func (l *LogClient) restoreTableFromPuller(
 		case cdclog.DDL:
 			name := l.meta.Names[tableID]
 			schema, table := parseQuoteName(name)
+			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
 			if schema != item.Schema || table != item.Table {
 				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
@@ -672,11 +676,15 @@ func (l *LogClient) restoreTableFromPuller(
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
+					zap.String("query", ddl.Query),
 				)
 				continue
 			}
-			ddl := item.Data.(*cdclog.MessageDDL)
-			log.Debug("[restoreFromPuller] exec ddl", zap.String("query", ddl.Query))
+
+			// only primaryTable can do database level ddl job
+			if len(item.Table) == 0 && l.primaryTableID != tableID {
+				continue
+			}
 
 			// wait all previous kvs ingest finished
 			err = l.applyKVChanges(ctx, tableID)
@@ -744,6 +752,9 @@ func (l *LogClient) restoreTables(ctx context.Context, dom *domain.Domain) error
 	for tableID, puller := range l.eventPullers {
 		pullerReplica := puller
 		tableIDReplica := tableID
+		if l.primaryTableID == 0 {
+			l.primaryTableID = tableID
+		}
 		workerPool.ApplyOnErrorGroup(eg, func() error {
 			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica, dom)
 		})
