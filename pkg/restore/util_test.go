@@ -120,7 +120,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		}},
 		rules,
 	)
-	c.Assert(err, ErrorMatches, "table ids mismatch")
+	c.Assert(err, ErrorMatches, "\\[[a-zA-Z:]+\\]restore table ID mismatch.*")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
@@ -135,7 +135,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		}},
 		rules,
 	)
-	c.Assert(err, ErrorMatches, "unexpected rewrite rules")
+	c.Assert(err, ErrorMatches, ".*unexpected rewrite rules.*")
 }
 
 func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {

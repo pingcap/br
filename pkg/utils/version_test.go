@@ -56,7 +56,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return []*metapb.Store{{Version: minTiKVVersion.String()}}
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, "TiKV .* mismatch, please .*")
+		c.Assert(err, check.ErrorMatches, "\\[[a-zA-Z:]+\\]TiKV .* mismatch, please .*")
 	}
 
 	{
@@ -66,7 +66,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return []*metapb.Store{{Version: "v4.0.0-rc"}}
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, "TiKV .* major version mismatch, please .*")
+		c.Assert(err, check.ErrorMatches, "\\[[a-zA-Z:]+\\]TiKV .* major version mismatch, please .*")
 	}
 
 	{
@@ -76,7 +76,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return []*metapb.Store{{Version: "v4.0.0-beta.1"}}
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, "TiKV .* mismatch, please .*")
+		c.Assert(err, check.ErrorMatches, "\\[[a-zA-Z:]+\\]TiKV .* mismatch, please .*")
 	}
 
 	{

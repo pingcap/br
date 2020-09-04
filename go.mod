@@ -36,3 +36,5 @@ require (
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
+
+replace github.com/pingcap/errors => github.com/overvenus/errors v0.11.5-0.20200904093827-6645dcbd94fb

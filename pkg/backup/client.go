@@ -488,7 +488,7 @@ func (bc *Client) BackupRange(
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
 
-	push := newPushDown(ctx, bc.mgr, len(allStores))
+	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
 	results, err = push.pushBackup(ctx, req, allStores, updateCh)

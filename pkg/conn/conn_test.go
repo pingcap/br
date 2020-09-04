@@ -195,7 +195,7 @@ func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
 				{Id: 2, Labels: []*metapb.StoreLabel{{Key: "engine", Value: "tiflash"}}},
 			},
 			storeBehavior: ErrorOnTiFlash,
-			expectedError: "cannot restore to a cluster with active TiFlash stores.*",
+			expectedError: "\\[[a-zA-Z:]+\\]cannot restore to a cluster with active TiFlash stores.*",
 		},
 		{
 			stores: []*metapb.Store{
@@ -219,7 +219,7 @@ func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
 				{Id: 6, Labels: []*metapb.StoreLabel{{Key: "else", Value: "tiflash"}, {Key: "engine", Value: "tikv"}}},
 			},
 			storeBehavior: ErrorOnTiFlash,
-			expectedError: "cannot restore to a cluster with active TiFlash stores.*",
+			expectedError: "\\[[a-zA-Z:]+\\]cannot restore to a cluster with active TiFlash stores.*",
 		},
 		{
 			stores: []*metapb.Store{
