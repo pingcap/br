@@ -12,29 +12,33 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
-	github.com/juju/testing v0.0.0-20200608005635-e4eedbc6f7aa // indirect
+	github.com/mattn/go-colorable v0.1.7 // indirect
+	github.com/mattn/go-runewidth v0.0.9 // indirect
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20200902104258-eba4f1d8f6de
-	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
-	github.com/pingcap/kvproto v0.0.0-20200706115936-1e0910aabe6c
+	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
+	github.com/pingcap/kvproto v0.0.0-20200828054126-d677e6fd224a
 	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
-	github.com/pingcap/parser v0.0.0-20200623082809-b74301ac298b
-	github.com/pingcap/pd/v4 v4.0.0-rc.2.0.20200714122454-1a64f969cb3c
-	github.com/pingcap/tidb v1.1.0-beta.0.20200721005019-f5c6e59f0daf
-	github.com/pingcap/tidb-tools v4.0.1+incompatible
-	github.com/pingcap/tipb v0.0.0-20200615034523-dcfcea0b5965
+	github.com/pingcap/parser v0.0.0-20200902143951-126c14c456eb
+	github.com/pingcap/tidb v1.1.0-beta.0.20200904091201-a428d472e92c
+	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
+	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
+	github.com/tikv/pd v1.1.0-beta.0.20200904085400-67cc378f9f4d
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.16.0
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
+	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
+	golang.org/x/sys v0.0.0-20200831180312-196b9ba8737a // indirect
+	golang.org/x/tools v0.0.0-20200903185744-af4cc2cd812e // indirect
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
+	gopkg.in/yaml.v2 v2.3.0 // indirect
 )
 
 replace github.com/pingcap/errors => github.com/overvenus/errors v0.11.5-0.20200904093827-6645dcbd94fb

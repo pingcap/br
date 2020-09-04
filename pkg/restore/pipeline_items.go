@@ -11,7 +11,6 @@ import (
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
@@ -135,9 +134,8 @@ type BatchSender interface {
 }
 
 type tikvSender struct {
-	client         *Client
-	updateCh       glue.Progress
-	rejectStoreMap map[uint64]bool
+	client   *Client
+	updateCh glue.Progress
 }
 
 // NewTiKVSender make a sender that send restore requests to TiKV.
@@ -145,25 +143,10 @@ func NewTiKVSender(
 	ctx context.Context,
 	cli *Client,
 	updateCh glue.Progress,
-	// TODO remove this field after we support TiFlash.
-	removeTiFlash bool,
 ) (BatchSender, error) {
-	rejectStoreMap := make(map[uint64]bool)
-	if removeTiFlash {
-		tiflashStores, err := conn.GetAllTiKVStores(ctx, cli.GetPDClient(), conn.TiFlashOnly)
-		if err != nil {
-			log.Error("failed to get and remove TiFlash replicas", zap.Error(err))
-			return nil, err
-		}
-		for _, store := range tiflashStores {
-			rejectStoreMap[store.GetId()] = true
-		}
-	}
-
 	return &tikvSender{
-		client:         cli,
-		updateCh:       updateCh,
-		rejectStoreMap: rejectStoreMap,
+		client:   cli,
+		updateCh: updateCh,
 	}, nil
 }
 
@@ -181,7 +164,7 @@ func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rew
 		files = append(files, fs.Files...)
 	}
 
-	if err := b.client.RestoreFiles(ctx, files, rewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
+	if err := b.client.RestoreFiles(ctx, files, rewriteRules, b.updateCh); err != nil {
 		return err
 	}
 

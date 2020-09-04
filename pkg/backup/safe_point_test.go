@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	. "github.com/pingcap/check"
-	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb/util/testleak"
+	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"

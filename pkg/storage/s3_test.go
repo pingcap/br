@@ -452,6 +452,20 @@ func (r *testStorageSuite) TestS3Others(c *C) {
 	defineS3Flags(&pflag.FlagSet{})
 }
 
+func (r *testStorageSuite) TestS3Range(c *C) {
+	contentRange := "bytes 0-9/443"
+	ri, err := parseRangeInfo(&contentRange)
+	c.Assert(err, IsNil)
+	c.Assert(ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
+
+	_, err = parseRangeInfo(nil)
+	c.Assert(err, ErrorMatches, "ContentRange is empty")
+
+	badRange := "bytes "
+	_, err = parseRangeInfo(&badRange)
+	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '")
+}
+
 type mockS3Handler struct {
 	err error
 }
@@ -473,6 +487,27 @@ func (c *mockS3Handler) PutObjectWithContext(ctx context.Context,
 	input *s3.PutObjectInput, opts ...request.Option) (*s3.PutObjectOutput, error) {
 	return nil, c.err
 }
+func (c *mockS3Handler) ListObjectsWithContext(
+	context.Context,
+	*s3.ListObjectsInput,
+	...request.Option,
+) (*s3.ListObjectsOutput, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	truncated := false
+	key := "/HappyFace.jpg"
+	size := int64(13)
+	return &s3.ListObjectsOutput{
+		Contents: []*s3.Object{
+			{
+				Key:  &key,
+				Size: &size,
+			},
+		},
+		IsTruncated: &truncated,
+	}, nil
+}
 func (c *mockS3Handler) HeadBucketWithContext(ctx context.Context,
 	input *s3.HeadBucketInput, opts ...request.Option) (*s3.HeadBucketOutput, error) {
 	return nil, c.err
@@ -480,4 +515,20 @@ func (c *mockS3Handler) HeadBucketWithContext(ctx context.Context,
 func (c *mockS3Handler) WaitUntilObjectExistsWithContext(ctx context.Context,
 	input *s3.HeadObjectInput, opts ...request.WaiterOption) error {
 	return c.err
+}
+func (c *mockS3Handler) ListObjectsV2WithContext(context.Context,
+	*s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) CreateMultipartUploadWithContext(context.Context,
+	*s3.CreateMultipartUploadInput, ...request.Option) (*s3.CreateMultipartUploadOutput, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) CompleteMultipartUploadWithContext(context.Context,
+	*s3.CompleteMultipartUploadInput, ...request.Option) (*s3.CompleteMultipartUploadOutput, error) {
+	return nil, c.err
+}
+func (c *mockS3Handler) UploadPartWithContext(context.Context,
+	*s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error) {
+	return nil, c.err
 }

@@ -14,7 +14,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
-	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
@@ -34,11 +33,11 @@ const (
 type RawKvConfig struct {
 	Config
 
-	StartKey         []byte                  `json:"start-key" toml:"start-key"`
-	EndKey           []byte                  `json:"end-key" toml:"end-key"`
-	CF               string                  `json:"cf" toml:"cf"`
-	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
-	RemoveSchedulers bool                    `json:"remove-schedulers" toml:"remove-schedulers"`
+	StartKey []byte `json:"start-key" toml:"start-key"`
+	EndKey   []byte `json:"end-key" toml:"end-key"`
+	CF       string `json:"cf" toml:"cf"`
+	CompressionConfig
+	RemoveSchedulers bool `json:"remove-schedulers" toml:"remove-schedulers"`
 }
 
 // DefineRawBackupFlags defines common flags for the backup command.
@@ -98,19 +97,22 @@ func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
 		return err
 	}
 
-	compressionStr, err := flags.GetString(flagCompressionType)
+	compressionCfg, err := parseCompressionFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	compressionType, err := parseCompressionType(compressionStr)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	cfg.CompressionType = compressionType
+	cfg.CompressionConfig = *compressionCfg
+
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	level, err := flags.GetInt32(flagCompressionLevel)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.CompressionLevel = level
+
 	return nil
 }
 
@@ -124,7 +126,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -166,13 +168,14 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
-		StartVersion:    0,
-		EndVersion:      0,
-		RateLimit:       cfg.RateLimit,
-		Concurrency:     cfg.Concurrency,
-		IsRawKv:         true,
-		Cf:              cfg.CF,
-		CompressionType: cfg.CompressionType,
+		StartVersion:     0,
+		EndVersion:       0,
+		RateLimit:        cfg.RateLimit,
+		Concurrency:      cfg.Concurrency,
+		IsRawKv:          true,
+		Cf:               cfg.CF,
+		CompressionType:  cfg.CompressionType,
+		CompressionLevel: cfg.CompressionLevel,
 	}
 	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
 	if err != nil {
