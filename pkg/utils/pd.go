@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pingcap/kvproto/pkg/metapb"
+
 	"github.com/pingcap/errors"
-	"github.com/pingcap/pd/v4/pkg/codec"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/tikv/pd/pkg/codec"
+	"github.com/tikv/pd/server/schedule/placement"
 )
 
 // UndoFunc is a 'undo' operation of some undoable command.
@@ -112,4 +114,14 @@ func SearchPlacementRule(tableID int64, placementRules []placement.Rule, role pl
 		}
 	}
 	return nil
+}
+
+// IsTiFlash tests whether the store is based on tiflash engine.
+func IsTiFlash(store *metapb.Store) bool {
+	for _, label := range store.Labels {
+		if label.Key == "engine" && label.Value == "tiflash" {
+			return true
+		}
+	}
+	return false
 }

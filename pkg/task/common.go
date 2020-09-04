@@ -14,11 +14,11 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	pd "github.com/pingcap/pd/v4/client"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	pd "github.com/tikv/pd/client"
 	"go.etcd.io/etcd/pkg/transport"
 	"go.uber.org/zap"
 
@@ -110,7 +110,6 @@ type Config struct {
 	Filter filter.MySQLReplicationRules
 
 	TableFilter        filter.Filter `json:"-" toml:"-"`
-	RemoveTiFlash      bool          `json:"remove-tiflash" toml:"remove-tiflash"`
 	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 }
@@ -137,6 +136,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
+	_ = flags.MarkDeprecated(flagRemoveTiFlash,
+		"TiFlash is fully supported by BR now, removing TiFlash isn't needed any more. This flag would be ignored.")
 
 	flags.Bool(flagCheckRequirement, true,
 		"Whether start version check before execute command")
@@ -221,11 +222,6 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
-	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
 		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
@@ -282,14 +278,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // newMgr creates a new mgr at the given PD address.
-func newMgr(
-	ctx context.Context,
-	g glue.Glue,
-	pds []string,
+func newMgr(ctx context.Context,
+	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
-	storeBehavior conn.StoreBehavior,
-	checkRequirements bool,
-) (*conn.Mgr, error) {
+	checkRequirements bool) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -315,7 +307,12 @@ func newMgr(
 	if err != nil {
 		return nil, err
 	}
-	return conn.NewMgr(ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, storeBehavior, checkRequirements)
+
+	// Is it necessary to remove `StoreBehavior`?
+	return conn.NewMgr(ctx, g,
+		pdAddress, store.(tikv.Storage),
+		tlsConf, securityOption,
+		conn.SkipTiFlash, checkRequirements)
 }
 
 // GetStorage gets the storage backend from the config.
