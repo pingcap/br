@@ -13,7 +13,7 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
+	github.com/pingcap/errors v0.11.5-0.20200902104258-eba4f1d8f6de
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
 	github.com/pingcap/kvproto v0.0.0-20200818080353-7aaed8998596
 	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
@@ -26,7 +26,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/tikv/pd v1.1.0-beta.0.20200901111643-930d5b6be8e8
+	github.com/tikv/pd v1.1.0-beta.0.20200907080620-6830f5bb92a2
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/multierr v1.5.0
