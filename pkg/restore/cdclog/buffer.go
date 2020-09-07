@@ -18,6 +18,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
@@ -30,9 +31,10 @@ type TableBuffer struct {
 	KvPairs []Row
 	Size    int64
 
-	KvEncoderFn func(table.Table) Encoder
+	KvEncoderFn func(autoid.Allocators, table.Table) (Encoder, error)
 	KvEncoder   Encoder
 	tableInfo   table.Table
+	allocator   autoid.Allocators
 
 	flushKVPairs int
 
@@ -41,13 +43,17 @@ type TableBuffer struct {
 }
 
 // NewTableBuffer creates TableBuffer.
-func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
-	kvEncoderFn := func(tbl table.Table) Encoder {
-		return NewTableKVEncoder(tbl, &SessionOptions{
+func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs int) *TableBuffer {
+	kvEncoderFn := func(allocators autoid.Allocators, tbl table.Table) (Encoder, error) {
+		encTable, err := table.TableFromMeta(allocators, tbl.Meta())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return NewTableKVEncoder(encTable, &SessionOptions{
 			Timestamp: time.Now().Unix(),
 			// TODO make it config
 			RowFormatVersion: "1",
-		})
+		}), nil
 	}
 
 	tb := &TableBuffer{
@@ -56,20 +62,26 @@ func NewTableBuffer(tbl table.Table, flushKVPairs int) *TableBuffer {
 		flushKVPairs: flushKVPairs,
 	}
 	if tbl != nil {
-		tb.ReloadMeta(tbl)
+		tb.ReloadMeta(tbl, allocators)
 	}
 	return tb
 }
 
-// TableID return this table id.
+func (t *TableBuffer) TableInfo() table.Table {
+	return t.tableInfo
+}
+
 func (t *TableBuffer) TableID() int64 {
-	return t.tableInfo.Meta().ID
+	if t.tableInfo != nil {
+		return t.tableInfo.Meta().ID
+	}
+	return 0
 }
 
 // ReloadMeta reload columns after
 // 1. table buffer created.
 // 2. every ddl executed.
-func (t *TableBuffer) ReloadMeta(tbl table.Table) {
+func (t *TableBuffer) ReloadMeta(tbl table.Table, allocator autoid.Allocators) {
 	columns := tbl.Meta().Cols()
 	colNames := make([]string, 0, len(columns))
 	colPerm := make([]int, 0, len(columns)+1)
@@ -80,6 +92,9 @@ func (t *TableBuffer) ReloadMeta(tbl table.Table) {
 	}
 	if TableHasAutoRowID(tbl.Meta()) {
 		colPerm = append(colPerm, -1)
+	}
+	if t.allocator == nil {
+		t.allocator = allocator
 	}
 	t.tableInfo = tbl
 	t.colNames = colNames
@@ -123,15 +138,21 @@ func (t *TableBuffer) appendRow(
 
 // Append appends the item to this buffer.
 func (t *TableBuffer) Append(item *SortItem) error {
+	var err error
 	log.Debug("Append item to buffer",
 		zap.Stringer("table", t.tableInfo.Meta().Name),
+		zap.Any("item", item),
 	)
 	row := item.Data.(*MessageRow)
 
 	if t.KvEncoder == nil {
 		// lazy create kv encoder
-		log.Debug("create kv encoder lazily")
-		t.KvEncoder = t.KvEncoderFn(t.tableInfo)
+		log.Debug("create kv encoder lazily",
+			zap.Any("alloc", t.allocator), zap.Any("tbl", t.tableInfo))
+		t.KvEncoder, err = t.KvEncoderFn(t.allocator, t.tableInfo)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 
 	if row.PreColumns != nil {

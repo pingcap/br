@@ -81,7 +81,7 @@ func (cfg *LogRestoreConfig) adjustRestoreConfig() {
 		cfg.BatchFlushKVPairs = defaultFlushKV
 	}
 	if cfg.BatchWriteKVPairs == 0 {
-		cfg.BatchFlushKVPairs = defaultWriteKV
+		cfg.BatchWriteKVPairs = defaultWriteKV
 	}
 	// write kv count doesn't have to excceed flush kv count.
 	if cfg.BatchWriteKVPairs > cfg.BatchFlushKVPairs {

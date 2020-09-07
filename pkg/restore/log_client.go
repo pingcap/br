@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/meta/autoid"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	uuid "github.com/satori/go.uuid"
@@ -75,6 +76,10 @@ type grpcClis struct {
 
 // LogClient sends requests to restore files.
 type LogClient struct {
+	// lock DDL execution
+	// TODO remove lock by using db session pool if necessary
+	ddlLock sync.Mutex
+
 	restoreClient *Client
 	splitClient   SplitClient
 
@@ -91,8 +96,8 @@ type LogClient struct {
 
 	tableFilter filter.Filter
 
-	// only this table can do database releated ddl job
-	primaryTableID int64
+	// a map to store all drop schema ts, use it as a filter
+	dropTSMap sync.Map
 }
 
 // NewLogRestoreClient returns a new LogRestoreClient.
@@ -103,8 +108,8 @@ func NewLogRestoreClient(
 	endTS uint64,
 	tableFilter filter.Filter,
 	concurrency uint,
-	batchWriteKVPairs int,
 	batchFlushPairs int,
+	batchWriteKVPairs int,
 ) (*LogClient, error) {
 	var err error
 	if endTS == 0 {
@@ -195,6 +200,15 @@ func (l *LogClient) tsInRange(ts uint64) bool {
 	return true
 }
 
+func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
+	if val, ok := l.dropTSMap.Load(item.Schema); ok {
+		if val.(uint64) > item.TS {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	names := strings.Split(fileName, ".")
 	if len(names) != 2 {
@@ -237,6 +251,54 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return ddlFiles, nil
+}
+
+func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
+	switch ddl.Type {
+	case model.ActionDropSchema, model.ActionCreateSchema, model.ActionModifySchemaCharsetAndCollate:
+		return true
+	}
+	return false
+}
+
+func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
+	if len(ddls) == 0 {
+		log.Info("no ddls to restore")
+		return nil
+	}
+
+	for _, path := range ddls {
+		data, err := l.restoreClient.storage.Read(ctx, path)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		decoder, err := cdclog.NewJSONEventBatchDecoder(data)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for decoder.HasNext() {
+			item, err := decoder.NextEvent(cdclog.DDL)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			ddl := item.Data.(*cdclog.MessageDDL)
+			log.Debug("[doDBDDLJob] parse ddl", zap.String("query", ddl.Query))
+			if l.isDBRelatedDDL(ddl) {
+				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
+				if err != nil {
+					log.Error("[doDBDDLJob] exec ddl failed",
+						zap.String("query", ddl.Query),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
+				if ddl.Type == model.ActionDropSchema {
+					// store the drop schema ts, and then we need filter evetns which ts is small than this.
+					l.dropTSMap.Store(item.Schema, item.TS)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
@@ -584,7 +646,7 @@ WriteAndIngest:
 
 func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
 	kvs := rows.(cdclog.KvPairs)
-	log.Debug("writeRows", zap.Int("kv count", len(kvs)))
+	log.Info("writeRows", zap.Int("kv count", len(kvs)))
 	if len(kvs) == 0 {
 		// shouldn't happen
 		log.Warn("not rows to write")
@@ -597,8 +659,62 @@ func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
 	return l.writeAndIngestPairs(ctx, kvs)
 }
 
+func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdclog.SortItem) error {
+	err := dom.Reload()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// find tableID for this table on cluster
+	newTableID := l.tableBuffers[tableID].TableID()
+	var (
+		newTableInfo titable.Table
+		ok           bool
+	)
+	if newTableID != 0 {
+		newTableInfo, ok = dom.InfoSchema().TableByID(newTableID)
+		if !ok {
+			log.Error("[restoreFromPuller] can't get table info from dom by tableID",
+				zap.Int64("backup table id", tableID),
+				zap.Int64("restore table id", newTableID),
+			)
+			return errors.Trace(err)
+		}
+	} else {
+		// fall back to use schema table get info
+		newTableInfo, err = dom.InfoSchema().TableByName(
+			model.NewCIStr(item.Schema), model.NewCIStr(item.Table))
+		if err != nil {
+			log.Error("[restoreFromPuller] can't get table info from dom by table name",
+				zap.Int64("backup table id", tableID),
+				zap.Int64("restore table id", newTableID),
+				zap.String("restore table name", item.Table),
+				zap.String("restore schema name", item.Schema),
+			)
+			return errors.Trace(err)
+		}
+	}
+
+	dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(item.Schema))
+	if !ok {
+		return errors.Errorf("[restoreFromPuller] schema %s not exists", item.Schema)
+	}
+	allocs := autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, newTableInfo.Meta())
+
+	// reload
+	l.tableBuffers[tableID].ReloadMeta(newTableInfo, allocs)
+	log.Debug("reload table meta for table",
+		zap.Int64("backup table id", tableID),
+		zap.Int64("restore table id", newTableID),
+		zap.String("restore table name", item.Table),
+		zap.String("restore schema name", item.Schema),
+		zap.Any("allocator", len(allocs)),
+		zap.Any("auto", newTableInfo.Meta().GetAutoIncrementColInfo()),
+	)
+	return nil
+}
+
 func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
-	log.Debug("apply kv changes to tikv",
+	log.Info("apply kv changes to tikv",
 		zap.Any("table", tableID),
 	)
 	dataKVs := cdclog.MakeRowsFromKvPairs(nil)
@@ -643,13 +759,15 @@ func (l *LogClient) restoreTableFromPuller(
 			return errors.Trace(err)
 		}
 		if item == nil {
-			log.Info("[restoreFromPuller] nothing in puller, we should stop and flush")
+			log.Info("[restoreFromPuller] nothing in puller, we should stop and flush",
+				zap.Int64("table  id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			return nil
 		}
+		log.Debug("[restoreFromPuller]", zap.Any("item", item))
 		if !l.tsInRange(item.TS) {
 			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
 				zap.Uint64("start ts", l.startTS),
@@ -663,13 +781,23 @@ func (l *LogClient) restoreTableFromPuller(
 			return nil
 		}
 
+		if l.shouldFilter(item) {
+			log.Debug("[restoreFromPuller] filter item because later drop schema will affect on this item",
+				zap.Any("item", item))
+			err := l.applyKVChanges(ctx, tableID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			continue
+		}
+
 		switch item.ItemType {
 		case cdclog.DDL:
 			name := l.meta.Names[tableID]
 			schema, table := parseQuoteName(name)
 			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
-			if schema != item.Schema || table != item.Table {
+			if !(schema == item.Schema && (table == item.Table || l.isDBRelatedDDL(ddl))) {
 				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
 					zap.String("item table", item.Table),
 					zap.String("table", table),
@@ -681,8 +809,11 @@ func (l *LogClient) restoreTableFromPuller(
 				continue
 			}
 
-			// only primaryTable can do database level ddl job
-			if len(item.Table) == 0 && l.primaryTableID != tableID {
+			// database level ddl job has been executed at the beginning
+			if l.isDBRelatedDDL(ddl) {
+				log.Debug("[restoreFromPuller] meet database level ddl, continue pulling",
+					zap.String("ddl", ddl.Query),
+				)
 				continue
 			}
 
@@ -692,42 +823,34 @@ func (l *LogClient) restoreTableFromPuller(
 				return errors.Trace(err)
 			}
 
+			log.Debug("[restoreFromPuller] execute ddl", zap.String("ddl", ddl.Query))
+
+			l.ddlLock.Lock()
+			err = l.restoreClient.db.se.Execute(ctx, fmt.Sprintf("use %s", item.Schema))
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 			if err != nil {
 				return errors.Trace(err)
 			}
+			l.ddlLock.Unlock()
 
-			err = dom.Reload()
+			err = l.reloadTableMeta(dom, tableID, item)
 			if err != nil {
 				return errors.Trace(err)
 			}
-			// find tableID for this table on cluster
-			newTableID := l.tableBuffers[tableID].TableID()
-			newTableInfo, ok := dom.InfoSchema().TableByID(newTableID)
-			if !ok {
-				log.Error("[restoreFromPuller] can't get table info from dom by tableID",
-					zap.String("item table", item.Table),
-					zap.String("table", table),
-					zap.String("item schema", item.Schema),
-					zap.String("schema", schema),
-					zap.Int64("backup table id", tableID),
-					zap.Int64("restore table id", newTableID),
-				)
-				return errors.Trace(err)
-			}
-			// reload
-			l.tableBuffers[tableID].ReloadMeta(newTableInfo)
-			log.Debug("reload table meta for table",
-				zap.String("item table", item.Table),
-				zap.String("table", table),
-				zap.String("item schema", item.Schema),
-				zap.String("schema", schema),
-				zap.Int64("backup table id", tableID),
-				zap.Int64("restore table id", newTableID),
-			)
 
 		case cdclog.RowChanged:
-			err := l.tableBuffers[tableID].Append(item)
+			if l.tableBuffers[tableID].TableInfo() == nil {
+				err = l.reloadTableMeta(dom, tableID, item)
+				if err != nil {
+					// shouldn't happen
+					return errors.Trace(err)
+				}
+			}
+			err = l.tableBuffers[tableID].Append(item)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -752,9 +875,6 @@ func (l *LogClient) restoreTables(ctx context.Context, dom *domain.Domain) error
 	for tableID, puller := range l.eventPullers {
 		pullerReplica := puller
 		tableIDReplica := tableID
-		if l.primaryTableID == 0 {
-			l.primaryTableID = tableID
-		}
 		workerPool.ApplyOnErrorGroup(eg, func() error {
 			return l.restoreTableFromPuller(ectx, tableIDReplica, pullerReplica, dom)
 		})
@@ -777,6 +897,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	if err != nil {
 		return errors.Trace(err)
 	}
+	log.Info("get meta from storage", zap.Binary("data", data))
 
 	if l.startTS > l.meta.GlobalResolvedTS {
 		return errors.Errorf("start ts:%d is greater than resolved ts:%d",
@@ -797,6 +918,12 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	}
 
 	log.Debug("collect ddl files", zap.Any("files", ddlFiles))
+
+	err = l.doDBDDLJob(ctx, ddlFiles)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Debug("execute db level ddl")
 
 	// collect row change files
 	rowChangesFiles, err := l.collectRowChangeFiles(ctx)
@@ -821,14 +948,21 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 		}
 		// use table name to get table info
 		var tableInfo titable.Table
+		var allocs autoid.Allocators
 		infoSchema := dom.InfoSchema()
 		if infoSchema.TableExists(model.NewCIStr(schema), model.NewCIStr(table)) {
 			tableInfo, err = infoSchema.TableByName(model.NewCIStr(schema), model.NewCIStr(table))
 			if err != nil {
 				return errors.Trace(err)
 			}
+			dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(schema))
+			if !ok {
+				return errors.Errorf("schema %s not exists", schema)
+			}
+			allocs = autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, tableInfo.Meta())
 		}
-		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, l.concurrencyCfg.BatchFlushKVPairs)
+
+		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, allocs, l.concurrencyCfg.BatchFlushKVPairs)
 	}
 	// restore files
 	return l.restoreTables(ctx, dom)

@@ -141,7 +141,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			}
 		}
 		if e.currentRowChangedItem == nil {
-			e.currentRowChangedItem, err = e.ddlDecoder.NextEvent(RowChanged)
+			e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
