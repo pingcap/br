@@ -17,7 +17,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/v4/client"
 	"github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
@@ -29,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 

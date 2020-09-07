@@ -13,20 +13,20 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
+	github.com/pingcap/errors v0.11.5-0.20200902104258-eba4f1d8f6de
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
 	github.com/pingcap/kvproto v0.0.0-20200818080353-7aaed8998596
-	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
-	github.com/pingcap/parser v0.0.0-20200803072748-fdf66528323d
-	github.com/pingcap/pd/v4 v4.0.5-0.20200817114353-e465cafe8a91
+	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
+	github.com/pingcap/parser v0.0.0-20200901062802-475ea5e2e0a7
 	github.com/pingcap/tidb v1.1.0-beta.0.20200820092836-c5b7658b0896
-	github.com/pingcap/tidb-tools v4.0.1+incompatible
+	github.com/pingcap/tidb-tools v4.0.6-0.20200828085514-03575b185007+incompatible
 	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
+	github.com/tikv/pd v1.1.0-beta.0.20200907080620-6830f5bb92a2
 	go.etcd.io/bbolt v1.3.5 // indirect
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/multierr v1.5.0
