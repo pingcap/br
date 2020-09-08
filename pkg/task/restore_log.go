@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
@@ -50,10 +49,6 @@ func DefineLogRestoreFlags(command *cobra.Command) {
 // ParseFromFlags parses the restore-related flags from the flag set.
 func (cfg *LogRestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	cfg.RemoveTiFlash, err = flags.GetBool(flagRemoveTiFlash)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	cfg.StartTS, err = flags.GetUint64(flagStartTS)
 	if err != nil {
 		return errors.Trace(err)
@@ -96,7 +91,7 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, conn.SkipTiFlash, cfg.CheckRequirements)
+	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}

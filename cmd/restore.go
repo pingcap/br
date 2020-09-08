@@ -154,7 +154,7 @@ func newLogRestoreCommand() *cobra.Command {
 func newTiflashReplicaRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "tiflash-replica",
-		Short: "restore the tiflash replica before the last restore, it must only be used after the last restore failed",
+		Short: "restore the tiflash replica removed by a failed restore of the older version BR",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreTiflashReplicaCommand(cmd, "Restore TiFlash Replica")
 		},
