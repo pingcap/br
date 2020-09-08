@@ -156,6 +156,11 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
 }
 
+// Delete implements the kv.Mutator interface.
+func (t *transaction) Delete(k kv.Key) error {
+	return t.kvMemBuf.Delete(k)
+}
+
 // SetOption implements the kv.Transaction interface.
 func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
 

@@ -111,10 +111,12 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			e.ddlFileIndex++
-			e.ddlDecoder, err = NewJSONEventBatchDecoder(data)
-			if err != nil {
-				return nil, errors.Trace(err)
+			if len(data) > 0 {
+				e.ddlFileIndex++
+				e.ddlDecoder, err = NewJSONEventBatchDecoder(data)
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
 			}
 		}
 		// set current DDL item first
@@ -134,10 +136,12 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			e.rowChangedFileIndex++
-			e.rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
-			if err != nil {
-				return nil, errors.Trace(err)
+			if len(data) != 0 {
+				e.rowChangedFileIndex++
+				e.rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
+				if err != nil {
+					return nil, errors.Trace(err)
+				}
 			}
 		}
 		if e.currentRowChangedItem == nil {

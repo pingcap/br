@@ -251,6 +251,10 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	sort.Slice(ddlFiles, func(i, j int) bool {
+		return ddlFiles[i] > ddlFiles[j]
+	})
 	return ddlFiles, nil
 }
 
@@ -303,6 +307,10 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 }
 
 func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
+	if fileName == logPrefix {
+		// this file name appeared when file sink enabled
+		return true, nil
+	}
 	names := strings.Split(fileName, ".")
 	if len(names) != 2 {
 		log.Warn("found wrong format of row changes file", zap.String("file", fileName))
@@ -370,6 +378,19 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 			return nil, err
 		}
 	}
+
+	// sort file in order
+	for tID, files := range rowChangeFiles {
+		sortFiles := files
+		sort.Slice(sortFiles, func(i, j int) bool {
+			if filepath.Base(sortFiles[j]) == logPrefix {
+				return true
+			}
+			return sortFiles[i] < sortFiles[j]
+		})
+		rowChangeFiles[tID] = sortFiles
+	}
+
 	return rowChangeFiles, nil
 }
 
@@ -579,7 +600,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 	return nil
 }
 
-func (l *LogClient) writeAndIngestPairs(ctx context.Context, kvs cdclog.KvPairs) error {
+func (l *LogClient) writeAndIngestPairs(tctx context.Context, kvs cdclog.KvPairs) error {
 	var (
 		regions []*RegionInfo
 		err     error
@@ -588,7 +609,7 @@ func (l *LogClient) writeAndIngestPairs(ctx context.Context, kvs cdclog.KvPairs)
 	pairStart := kvs[0].Key
 	pairEnd := kvs[len(kvs)-1].Key
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(tctx)
 	defer cancel()
 WriteAndIngest:
 	for retry := 0; retry < maxRetryTimes; retry++ {
@@ -760,21 +781,21 @@ func (l *LogClient) restoreTableFromPuller(
 			return errors.Trace(err)
 		}
 		if item == nil {
-			log.Info("[restoreFromPuller] nothing in puller, we should stop and flush",
-				zap.Int64("table  id", tableID))
+			log.Info("[restoreFromPuller] nothing in this puller, we should stop and flush",
+				zap.Int64("table id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			return nil
 		}
-		log.Debug("[restoreFromPuller]", zap.Any("item", item))
+		log.Debug("[restoreFromPuller] next event", zap.Any("item", item), zap.Int64("table id", tableID))
 		if !l.tsInRange(item.TS) {
 			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
 				zap.Uint64("start ts", l.startTS),
 				zap.Uint64("end ts", l.endTs),
 				zap.Uint64("item ts", item.TS),
-			)
+				zap.Int64("table id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
@@ -784,7 +805,8 @@ func (l *LogClient) restoreTableFromPuller(
 
 		if l.shouldFilter(item) {
 			log.Debug("[restoreFromPuller] filter item because later drop schema will affect on this item",
-				zap.Any("item", item))
+				zap.Any("item", item),
+				zap.Int64("table id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
@@ -806,7 +828,7 @@ func (l *LogClient) restoreTableFromPuller(
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
 					zap.String("query", ddl.Query),
-				)
+					zap.Int64("table id", tableID))
 				continue
 			}
 
@@ -814,7 +836,7 @@ func (l *LogClient) restoreTableFromPuller(
 			if l.isDBRelatedDDL(ddl) {
 				log.Debug("[restoreFromPuller] meet database level ddl, continue pulling",
 					zap.String("ddl", ddl.Query),
-				)
+					zap.Int64("table id", tableID))
 				continue
 			}
 
@@ -918,13 +940,13 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 		return errors.Trace(err)
 	}
 
-	log.Debug("collect ddl files", zap.Any("files", ddlFiles))
+	log.Info("collect ddl files", zap.Any("files", ddlFiles))
 
 	err = l.doDBDDLJob(ctx, ddlFiles)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	log.Debug("execute db level ddl")
+	log.Debug("db level ddl executed")
 
 	// collect row change files
 	rowChangesFiles, err := l.collectRowChangeFiles(ctx)
@@ -932,7 +954,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 		return errors.Trace(err)
 	}
 
-	log.Debug("collect row changed files", zap.Any("files", rowChangesFiles))
+	log.Info("collect row changed files", zap.Any("files", rowChangesFiles))
 
 	// create event puller to apply changes concurrently
 	for tableID, files := range rowChangesFiles {

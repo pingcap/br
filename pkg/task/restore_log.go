@@ -21,7 +21,7 @@ const (
 	flagBatchFlushCount = "flush-kvs"
 
 	// represents kv size flush to storage for each table.
-	defaultFlushKV = 12800
+	defaultFlushKV = 5120
 	// represents kv size that write to TiKV once at at time.
 	defaultWriteKV = 1280
 )
