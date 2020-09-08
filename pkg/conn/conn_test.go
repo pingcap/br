@@ -15,10 +15,10 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	pd "github.com/pingcap/pd/v4/client"
-	"github.com/pingcap/pd/v4/server/core"
-	"github.com/pingcap/pd/v4/server/statistics"
 	"github.com/pingcap/tidb/util/codec"
+	pd "github.com/tikv/pd/client"
+	"github.com/tikv/pd/server/core"
+	"github.com/tikv/pd/server/statistics"
 )
 
 func TestT(t *testing.T) {

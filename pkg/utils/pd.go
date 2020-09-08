@@ -16,9 +16,9 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/pd/v4/pkg/codec"
-	"github.com/pingcap/pd/v4/server/schedule/placement"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/tikv/pd/pkg/codec"
+	"github.com/tikv/pd/server/schedule/placement"
 )
 
 // UndoFunc is a 'undo' operation of some undoable command.
