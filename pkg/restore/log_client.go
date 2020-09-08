@@ -23,6 +23,7 @@ import (
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	uuid "github.com/satori/go.uuid"
@@ -414,7 +415,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region 
 				// FIXME we should discuss about the commit ts
 				// 1. give a batch of kv a specify commit ts
 				// 2. give each kv the backup commit ts
-				CommitTs: uint64(time.Now().Unix()),
+				CommitTs: oracle.ComposeTS(time.Now().Unix()*1000, 0),
 			},
 		}
 		clients = append(clients, wstream)

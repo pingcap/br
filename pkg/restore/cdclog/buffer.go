@@ -51,8 +51,12 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 		}
 		return NewTableKVEncoder(encTable, &SessionOptions{
 			Timestamp: time.Now().Unix(),
-			// TODO make it config
-			RowFormatVersion: "1",
+			// TODO get the version from TiDB cluster
+			// currently TiDB only support v1 and v2, and since 4.0
+			// the default RowFormatVersion is 2, so I think
+			// we can implement the row version retrieve from cluster in the future
+			// when TiDB decide to support v3 RowFormatVersion.
+			RowFormatVersion: "2",
 		}), nil
 	}
 
@@ -67,10 +71,12 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 	return tb
 }
 
+// TableInfo returns the table info of this buffer.
 func (t *TableBuffer) TableInfo() table.Table {
 	return t.tableInfo
 }
 
+// TableID returns the table id of this buffer.
 func (t *TableBuffer) TableID() int64 {
 	if t.tableInfo != nil {
 		return t.tableInfo.Meta().ID
