@@ -57,7 +57,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 		size := f.Size()
 		// if not a regular file, we need to use os.stat to get the real file size
 		if !f.Mode().IsRegular() {
-			stat, err := os.Stat(path)
+			stat, err := os.Stat(filepath.Join(l.base, path))
 			if err != nil {
 				return errors.Trace(err)
 			}
