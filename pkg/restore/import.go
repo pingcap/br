@@ -292,8 +292,10 @@ func (importer *FileImporter) Import(
 						if errIngest != nil {
 							break ingestRetry
 						}
+						// do not get region info, wait a second and continue
 						if newInfo == nil {
-							errIngest = errors.Annotatef(ErrIngestFailed, "region '%d' not found", info.Region.Id)
+							log.Warn("get region by key return nil", zap.Reflect("region", info.Region))
+							time.Sleep(time.Second)
 							continue
 						}
 					}
