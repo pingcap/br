@@ -175,7 +175,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			return nil, errors.Trace(err)
 		}
 	default:
-		log.Info("nothing to pull, we should finish")
+		log.Info("puller finished")
 	}
 	return returnItem, nil
 }

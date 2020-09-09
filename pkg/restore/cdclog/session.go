@@ -32,6 +32,8 @@ type KvPair struct {
 	Key []byte
 	// Val is the value of the KV pair
 	Val []byte
+	// IsDelete represents whether we should remove this KV pair.
+	IsDelete bool
 }
 
 // invalidIterator is a trimmed down Iterator type which is invalid.
@@ -74,7 +76,9 @@ func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
 
 func (mb *kvMemBuf) Delete(k kv.Key) error {
 	mb.kvPairs = append(mb.kvPairs, KvPair{
-		Key: k.Clone(),
+		Key:      k.Clone(),
+		Val:      []byte{},
+		IsDelete: true,
 	})
 	mb.size += len(k)
 	return nil

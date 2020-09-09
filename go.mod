@@ -13,12 +13,12 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20200729012136-4e113ddee29e
-	github.com/pingcap/failpoint v0.0.0-20200603062251-b230c36c413c
+	github.com/pingcap/errors v0.11.5-0.20200902104258-eba4f1d8f6de
+	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
 	github.com/pingcap/kvproto v0.0.0-20200828054126-d677e6fd224a
-	github.com/pingcap/log v0.0.0-20200511115504-543df19646ad
-	github.com/pingcap/parser v0.0.0-20200821073936-cf85e80665c4
-	github.com/pingcap/tidb v1.1.0-beta.0.20200831085451-438945d2948e
+	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
+	github.com/pingcap/parser v0.0.0-20200909072241-6dac7bb703e2
+	github.com/pingcap/tidb v1.1.0-beta.0.20200910052409-5d52a34b2476
 	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
 	github.com/pingcap/tipb v0.0.0-20200618092958-4fad48b4c8c3
 	github.com/prometheus/client_golang v1.5.1
@@ -27,12 +27,14 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/tikv/pd v1.1.0-beta.0.20200818122340-ef1a4e920b2f
+	github.com/tikv/pd v1.1.0-beta.0.20200820084926-bcfa77a7a593
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20191023171146-3cf2f69b5738
 	go.uber.org/multierr v1.5.0
-	go.uber.org/zap v1.15.0
+	go.uber.org/zap v1.16.0
 	golang.org/x/oauth2 v0.0.0-20191202225959-858c2ad4c8b6
-	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
+	golang.org/x/sync v0.0.0-20200625203802-6e8e738ad208
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
+
+replace github.com/pingcap/kvproto => github.com/pingcap/kvproto v0.0.0-20200908120510-1f17b31feb24

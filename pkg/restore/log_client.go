@@ -21,11 +21,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
-	"github.com/pingcap/tidb/domain"
-	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/store/tikv/oracle"
-	titable "github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/util/codec"
 	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -33,6 +28,12 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
+	titable "github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/util/codec"
 
 	"github.com/pingcap/br/pkg/restore/cdclog"
 	"github.com/pingcap/br/pkg/storage"
@@ -288,7 +289,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 			}
 			ddl := item.Data.(*cdclog.MessageDDL)
 			log.Debug("[doDBDDLJob] parse ddl", zap.String("query", ddl.Query))
-			if l.isDBRelatedDDL(ddl) {
+			if l.isDBRelatedDDL(ddl) && l.tsInRange(item.TS) {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
 					log.Error("[doDBDDLJob] exec ddl failed",
@@ -358,6 +359,11 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		opt := &storage.WalkOption{
 			SubDir:    dir,
 			ListCount: -1,
+		}
+		if ok, err := l.restoreClient.storage.FileExists(ctx, opt.SubDir); !ok {
+			// this could happen after duplicate create drop table
+			log.Debug("path not exists", zap.String("path", opt.SubDir), zap.Error(err))
+			continue
 		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
@@ -451,17 +457,23 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region 
 	totalCount := 0
 	firstLoop := true
 	for _, kv := range kvs {
+		op := sst.Pair_Put
+		if kv.IsDelete {
+			op = sst.Pair_Delete
+		}
 		size += int64(len(kv.Key) + len(kv.Val))
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
 			pair := &sst.Pair{
 				Key:   bytesBuf.AddBytes(kv.Key),
 				Value: bytesBuf.AddBytes(kv.Val),
+				Op:    op,
 			}
 			pairs = append(pairs, pair)
 		} else {
 			pairs[count].Key = bytesBuf.AddBytes(kv.Key)
 			pairs[count].Value = bytesBuf.AddBytes(kv.Val)
+			pairs[count].Op = op
 		}
 		count++
 		totalCount++
@@ -674,11 +686,27 @@ func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
 		log.Warn("not rows to write")
 		return nil
 	}
-	// sort kvs in memory
-	sort.Slice(kvs, func(i, j int) bool {
+
+	// stable sort kvs in memory
+	sort.SliceStable(kvs, func(i, j int) bool {
 		return bytes.Compare(kvs[i].Key, kvs[j].Key) < 0
 	})
-	return l.writeAndIngestPairs(ctx, kvs)
+
+	// remove duplicate keys, and keep the last one
+	newKvs := make([]cdclog.KvPair, 0, len(kvs))
+	for i := 0; i < len(kvs); i++ {
+		if i == len(kvs)-1 {
+			newKvs = append(newKvs, kvs[i])
+			break
+		}
+		if bytes.Equal(kvs[i].Key, kvs[i+1].Key) {
+			// skip this one
+			continue
+		}
+		newKvs = append(newKvs, kvs[i])
+	}
+
+	return l.writeAndIngestPairs(ctx, newKvs)
 }
 
 func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdclog.SortItem) error {

@@ -162,7 +162,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 	}
 
 	if row.PreColumns != nil {
-		// Remove previous columns
+		// remove old keys
 		log.Debug("process update event", zap.Any("row", row))
 		err := t.appendRow(row.PreColumns, item, t.KvEncoder.RemoveRecord)
 		if err != nil {
@@ -193,7 +193,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 // ShouldApply tells whether we should flush memory kv buffer to storage.
 func (t *TableBuffer) ShouldApply() bool {
 	// flush when reached flush kv len
-	return len(t.KvPairs) >= t.flushKVPairs
+	return int(t.Size) >= t.flushKVPairs
 }
 
 // IsEmpty tells buffer is empty.
