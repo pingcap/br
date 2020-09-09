@@ -270,7 +270,7 @@ func (importer *FileImporter) Import(
 						// Slow path, get region from PD
 						newInfo, errIngest = importer.metaClient.GetRegion(
 							ctx, info.Region.GetStartKey())
-						if errIngest != nil {
+						if errIngest != nil || newInfo == nil {
 							break ingestRetry
 						}
 					}
