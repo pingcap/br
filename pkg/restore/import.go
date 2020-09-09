@@ -270,8 +270,12 @@ func (importer *FileImporter) Import(
 						// Slow path, get region from PD
 						newInfo, errIngest = importer.metaClient.GetRegion(
 							ctx, info.Region.GetStartKey())
-						if errIngest != nil || newInfo == nil {
+						if errIngest != nil {
 							break ingestRetry
+						}
+						if newInfo == nil {
+							errIngest = errors.Annotatef(ErrIngestFailed, "region '%d' not found", info.Region.Id)
+							continue
 						}
 					}
 					log.Debug("ingest sst returns not leader error, retry it",
