@@ -54,7 +54,17 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 		// in mac osx, the path parameter is absolute path; in linux, the path is relative path to execution base dir,
 		// so use Rel to convert to relative path to l.base
 		path, _ = filepath.Rel(l.base, path)
-		return fn(path, f.Size())
+
+		size := f.Size()
+		// if not a regular file, we need to use os.stat to get the real file size
+		if !f.Mode().IsRegular() {
+			stat, err := os.Stat(filepath.Join(l.base, path))
+			if err != nil {
+				return errors.Trace(err)
+			}
+			size = stat.Size()
+		}
+		return fn(path, size)
 	})
 }
 
