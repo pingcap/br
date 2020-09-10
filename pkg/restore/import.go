@@ -15,7 +15,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
-	"github.com/pingcap/pd/v4/pkg/codec"
+	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -176,7 +176,6 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 func (importer *FileImporter) Import(
 	ctx context.Context,
 	file *backup.File,
-	rejectStoreMap map[uint64]bool,
 	rewriteRules *RewriteRules,
 ) error {
 	log.Debug("import file", utils.ZapFile(file))
@@ -201,8 +200,6 @@ func (importer *FileImporter) Import(
 		zap.Stringer("startKey", utils.WrapKey(startKey)),
 		zap.Stringer("endKey", utils.WrapKey(endKey)))
 
-	needReject := len(rejectStoreMap) > 0
-
 	err = utils.WithRetry(ctx, func() error {
 		tctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
 		defer cancel()
@@ -211,22 +208,6 @@ func (importer *FileImporter) Import(
 			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
-		}
-
-		if needReject {
-			// TODO remove when TiFlash support restore
-			startTime := time.Now()
-			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
-			for _, region := range regionInfos {
-				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
-					log.Error("waiting for removing rejected stores failed",
-						utils.ZapRegion(region.Region))
-					return errors.New("waiting for removing rejected stores failed")
-				}
-			}
-			log.Info("waiting for removing rejected stores done",
-				zap.Int("regions", len(regionInfos)), zap.Duration("take", time.Since(startTime)))
-			needReject = false
 		}
 
 		log.Debug("scan regions", utils.ZapFile(file), zap.Int("count", len(regionInfos)))
@@ -292,6 +273,12 @@ func (importer *FileImporter) Import(
 						if errIngest != nil {
 							break ingestRetry
 						}
+						// do not get region info, wait a second and continue
+						if newInfo == nil {
+							log.Warn("get region by key return nil", zap.Reflect("region", info.Region))
+							time.Sleep(time.Second)
+							continue
+						}
 					}
 					log.Debug("ingest sst returns not leader error, retry it",
 						utils.ZapRegion(info.Region),
@@ -326,9 +313,9 @@ func (importer *FileImporter) Import(
 					zap.Error(errIngest))
 				return errIngest
 			}
-			summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
-			summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		}
+		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		return nil
 	}, newImportSSTBackoffer())
 	return err

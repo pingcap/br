@@ -16,8 +16,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/pd/v4/pkg/mock/mockid"
 	"github.com/spf13/cobra"
+	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/restore"

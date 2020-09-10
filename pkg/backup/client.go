@@ -17,7 +17,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	pd "github.com/pingcap/pd/v4/client"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
@@ -29,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
@@ -499,7 +499,7 @@ func (bc *Client) BackupRange(
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
-		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType,
+		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
 		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
 		return nil, err
@@ -538,8 +538,8 @@ func (bc *Client) findRegionLeader(
 	for i := 0; i < 5; i++ {
 		// better backoff.
 		region, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
-		if err != nil {
-			log.Error("find leader failed", zap.Error(err))
+		if err != nil || region == nil {
+			log.Error("find leader failed", zap.Error(err), zap.Reflect("region", region))
 			time.Sleep(time.Millisecond * time.Duration(100*i))
 			continue
 		}
@@ -561,6 +561,7 @@ func (bc *Client) fineGrainedBackup(
 	lastBackupTS uint64,
 	backupTS uint64,
 	compressType kvproto.CompressionType,
+	compressLevel int32,
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
@@ -591,7 +592,8 @@ func (bc *Client) fineGrainedBackup(
 				defer wg.Done()
 				for rg := range retry {
 					backoffMs, err :=
-						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS, compressType, rateLimit, concurrency, respCh)
+						bc.handleFineGrained(ctx, boFork, rg, lastBackupTS, backupTS,
+							compressType, compressLevel, rateLimit, concurrency, respCh)
 					if err != nil {
 						errCh <- err
 						return
@@ -726,6 +728,7 @@ func (bc *Client) handleFineGrained(
 	lastBackupTS uint64,
 	backupTS uint64,
 	compressType kvproto.CompressionType,
+	compressionLevel int32,
 	rateLimit uint64,
 	concurrency uint32,
 	respCh chan<- *kvproto.BackupResponse,
@@ -738,15 +741,16 @@ func (bc *Client) handleFineGrained(
 	max := 0
 
 	req := kvproto.BackupRequest{
-		ClusterId:       bc.clusterID,
-		StartKey:        rg.StartKey, // TODO: the range may cross region.
-		EndKey:          rg.EndKey,
-		StartVersion:    lastBackupTS,
-		EndVersion:      backupTS,
-		StorageBackend:  bc.backend,
-		RateLimit:       rateLimit,
-		Concurrency:     concurrency,
-		CompressionType: compressType,
+		ClusterId:        bc.clusterID,
+		StartKey:         rg.StartKey, // TODO: the range may cross region.
+		EndKey:           rg.EndKey,
+		StartVersion:     lastBackupTS,
+		EndVersion:       backupTS,
+		StorageBackend:   bc.backend,
+		RateLimit:        rateLimit,
+		Concurrency:      concurrency,
+		CompressionType:  compressType,
+		CompressionLevel: compressionLevel,
 	}
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
@@ -905,8 +909,6 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 			totalBytes += file.TotalBytes
 		}
 
-		summary.CollectSuccessUnit(summary.TotalKV, 1, totalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, 1, totalBytes)
 		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
 		localChecksum := Checksum{
 			Crc64Xor:   checksum,
@@ -917,33 +919,4 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
-}
-
-// FilterSchema filter in-place schemas that doesn't have backup files
-// this is useful during incremental backup, no files in backup means no files to restore
-// so we can skip some DDL in restore to speed up restoration.
-func FilterSchema(backupMeta *kvproto.BackupMeta) error {
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return err
-	}
-	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return err
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return err
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-		if len(tbl.Files) > 0 {
-			schemas = append(schemas, schema)
-		}
-	}
-	backupMeta.Schemas = schemas
-	return nil
 }
