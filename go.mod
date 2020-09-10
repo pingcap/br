@@ -15,7 +15,7 @@ require (
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20200902104258-eba4f1d8f6de
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
-	github.com/pingcap/kvproto v0.0.0-20200828054126-d677e6fd224a
+	github.com/pingcap/kvproto v0.0.0-20200910095337-6b893f12be43
 	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
 	github.com/pingcap/parser v0.0.0-20200909072241-6dac7bb703e2
 	github.com/pingcap/tidb v1.1.0-beta.0.20200910052409-5d52a34b2476
@@ -36,5 +36,3 @@ require (
 	google.golang.org/api v0.15.1
 	google.golang.org/grpc v1.26.0
 )
-
-replace github.com/pingcap/kvproto => github.com/pingcap/kvproto v0.0.0-20200908120510-1f17b31feb24
