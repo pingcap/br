@@ -176,7 +176,6 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 func (importer *FileImporter) Import(
 	ctx context.Context,
 	file *backup.File,
-	rejectStoreMap map[uint64]bool,
 	rewriteRules *RewriteRules,
 ) error {
 	log.Debug("import file", utils.ZapFile(file))
@@ -201,8 +200,6 @@ func (importer *FileImporter) Import(
 		zap.Stringer("startKey", utils.WrapKey(startKey)),
 		zap.Stringer("endKey", utils.WrapKey(endKey)))
 
-	needReject := len(rejectStoreMap) > 0
-
 	err = utils.WithRetry(ctx, func() error {
 		tctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
 		defer cancel()
@@ -211,22 +208,6 @@ func (importer *FileImporter) Import(
 			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
-		}
-
-		if needReject {
-			// TODO remove when TiFlash support restore
-			startTime := time.Now()
-			log.Info("start to wait for removing rejected stores", zap.Reflect("rejectStores", rejectStoreMap))
-			for _, region := range regionInfos {
-				if !waitForRemoveRejectStores(ctx, importer.metaClient, region, rejectStoreMap) {
-					log.Error("waiting for removing rejected stores failed",
-						utils.ZapRegion(region.Region))
-					return errors.New("waiting for removing rejected stores failed")
-				}
-			}
-			log.Info("waiting for removing rejected stores done",
-				zap.Int("regions", len(regionInfos)), zap.Duration("take", time.Since(startTime)))
-			needReject = false
 		}
 
 		log.Debug("scan regions", utils.ZapFile(file), zap.Int("count", len(regionInfos)))
@@ -251,10 +232,10 @@ func (importer *FileImporter) Import(
 					case ErrRewriteRuleNotFound, ErrRangeIsEmpty:
 						// Skip this region
 						log.Warn("download file skipped",
-							zap.Stringer("file", file),
-							zap.Stringer("region", info.Region),
-							zap.Binary("startKey", startKey),
-							zap.Binary("endKey", endKey),
+							utils.ZapFile(file),
+							utils.ZapRegion(info.Region),
+							zap.Stringer("startKey", utils.WrapKey(startKey)),
+							zap.Stringer("endKey", utils.WrapKey(endKey)),
 							zap.Error(e))
 						continue regionLoop
 					}
@@ -419,9 +400,10 @@ func (importer *FileImporter) downloadRawKVSST(
 	if bytes.Compare(importer.rawStartKey, sstMeta.Range.GetStart()) > 0 {
 		sstMeta.Range.Start = importer.rawStartKey
 	}
-	// TODO: importer.RawEndKey is exclusive but sstMeta.Range.End is inclusive. How to exclude importer.RawEndKey?
-	if len(importer.rawEndKey) > 0 && bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) < 0 {
+	if len(importer.rawEndKey) > 0 &&
+		(len(sstMeta.Range.GetEnd()) == 0 || bytes.Compare(importer.rawEndKey, sstMeta.Range.GetEnd()) <= 0) {
 		sstMeta.Range.End = importer.rawEndKey
+		sstMeta.EndKeyExclusive = true
 	}
 	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
 		return nil, errors.Trace(ErrRangeIsEmpty)
@@ -432,6 +414,7 @@ func (importer *FileImporter) downloadRawKVSST(
 		StorageBackend: importer.backend,
 		Name:           file.GetName(),
 		RewriteRule:    rule,
+		IsRawKv:        true,
 	}
 	log.Debug("download SST",
 		utils.ZapSSTMeta(&sstMeta),

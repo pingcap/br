@@ -1,6 +1,6 @@
 # BR
 
-[![Build Status](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/release-4.0/badge/icon)](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/release-4.0/)
+[![Build Status](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/master/badge/icon)](https://internal.pingcap.net/idc-jenkins/job/build_br_multi_branch/job/master/)
 [![codecov](https://codecov.io/gh/pingcap/br/branch/master/graph/badge.svg)](https://codecov.io/gh/pingcap/br)
 [![LICENSE](https://img.shields.io/github/license/pingcap/br.svg)](https://github.com/pingcap/br/blob/master/LICENSE)
 [![Language](https://img.shields.io/badge/Language-Go-blue.svg)](https://golang.org/)
@@ -17,9 +17,13 @@
 
 ## Documentation
 
-[Chinese Document](https://pingcap.com/docs-cn/dev/how-to/maintain/backup-and-restore/br/)
+[Chinese Document](https://docs.pingcap.com/zh/tidb/v4.0/backup-and-restore-tool)
 
-[English Document](https://pingcap.com/docs/dev/how-to/maintain/backup-and-restore/br/)
+[English Document](https://docs.pingcap.com/tidb/v4.0/backup-and-restore-tool)
+
+[Backup SQL Statement](https://docs.pingcap.com/tidb/v4.0/sql-statement-backup)
+
+[Restore SQL Statement](https://docs.pingcap.com/tidb/v4.0/sql-statement-restore)
 
 ## Building
 

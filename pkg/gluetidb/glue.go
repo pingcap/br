@@ -32,10 +32,9 @@ const (
 // New makes a new tidb glue.
 func New() Glue {
 	log.Debug("enabling no register config")
-	// TODO use config.UpdateGlobalConfig here if TiDB merge it to 4.0
-	conf := *config.GetGlobalConfig()
-	conf.SkipRegisterToDashboard = true
-	config.StoreGlobalConfig(&conf)
+	config.UpdateGlobal(func(conf *config.Config) {
+		conf.SkipRegisterToDashboard = true
+	})
 	return Glue{}
 }
 
@@ -85,6 +84,7 @@ func (g Glue) Record(name string, value uint64) {
 	g.tikvGlue.Record(name, value)
 }
 
+// Execute implements glue.Session.
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
 	return err

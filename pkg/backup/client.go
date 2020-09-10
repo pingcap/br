@@ -17,7 +17,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb-tools/pkg/table-filter"
+	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -271,8 +271,8 @@ func BuildBackupRangeAndSchema(
 			switch {
 			case tableInfo.IsSequence():
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
-			case tableInfo.IsView():
-				// no auto ID for views.
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
 			default:
 				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
 			}
@@ -929,33 +929,4 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
-}
-
-// FilterSchema filter in-place schemas that doesn't have backup files
-// this is useful during incremental backup, no files in backup means no files to restore
-// so we can skip some DDL in restore to speed up restoration.
-func FilterSchema(backupMeta *kvproto.BackupMeta) error {
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return err
-	}
-	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return err
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return err
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-		if len(tbl.Files) > 0 {
-			schemas = append(schemas, schema)
-		}
-	}
-	backupMeta.Schemas = schemas
-	return nil
 }

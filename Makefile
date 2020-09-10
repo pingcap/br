@@ -40,7 +40,7 @@ testcover: tools failpoint-enable
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
-		-ignore='.git,vendor,tests,_tools' \
+		-ignore='.git,vendor,tests,_tools,docker' \
 		-debug \
 		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 

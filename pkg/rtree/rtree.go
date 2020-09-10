@@ -26,7 +26,7 @@ func (rg *Range) String() string {
 	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
-// Intersect returns?
+// Intersect returns intersect range in the tree.
 func (rg *Range) Intersect(
 	start, end []byte,
 ) (subStart, subEnd []byte, isIntersect bool) {
