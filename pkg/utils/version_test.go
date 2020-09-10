@@ -131,6 +131,16 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 		err := CheckClusterVersion(context.Background(), &mock)
 		c.Assert(err, check.IsNil)
 	}
+
+	{
+		BRReleaseVersion = "v4.0.0-rc.1"
+		mock.getAllStores = func() []*metapb.Store {
+			// TiKV v4.0.0-rc.2 with BR v4.0.0-rc.1 is ok
+			return []*metapb.Store{{Version: "v4.1.0-rc.2"}}
+		}
+		err := CheckClusterVersion(context.Background(), &mock)
+		c.Assert(err, check.ErrorMatches, "TiKV .* minor version mismatch, please .*")
+	}
 }
 
 func (s *versionSuite) TestCompareVersion(c *check.C) {

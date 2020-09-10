@@ -124,6 +124,12 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 				s.Address, tikvVersionString, BRReleaseVersion)
 		}
 
+		if tikvVersion.Minor != BRVersion.Minor {
+			return errors.Errorf("TiKV node %s version %s and BR %s minor version mismatch,"+
+				" please use the same minor version of BR",
+				s.Address, tikvVersionString, BRReleaseVersion)
+		}
+
 		// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
 		// if BR include #233 and TiKV not include #7241, BR will panic TiKV during restore
 		// These incompatible version is 3.1.0 and 4.0.0-rc.1
