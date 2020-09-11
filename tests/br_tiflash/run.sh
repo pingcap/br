@@ -20,14 +20,15 @@ RECORD_COUNT=1000
 
 run_sql "CREATE DATABASE $DB" 
 
-run_sql "CREATE TABLE $DB.kv(k varchar(256) primary key, v int)" 
-run_sql "ALTER TABLE $DB.kv SET TIFLASH REPLICA 1" 
+run_sql "CREATE TABLE $DB.kv(k varchar(256) primary key, v int)"
 
 stmt="INSERT INTO $DB.kv(k, v) VALUES ('1-record', 1)"
 for i in $(seq 2 $RECORD_COUNT); do
     stmt="$stmt,('$i-record', $i)"
 done
 run_sql "$stmt"
+
+run_sql "ALTER TABLE $DB.kv SET TIFLASH REPLICA 1"
 
 i=0
 while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
