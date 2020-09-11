@@ -52,17 +52,6 @@ if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
     exit 1
 fi
 
-# backup again, but don't remove tiflash replicas.
-run_br backup full -s "local://$TEST_DIR/$DB/with-tiflash" --pd $PD_ADDR --remove-tiflash=false
-run_sql "DROP DATABASE $DB"
-run_br restore full -s "local://$TEST_DIR/$DB/with-tiflash" --pd $PD_ADDR --remove-tiflash=false
-
-AFTER_BR_COUNT=`run_sql "SELECT count(*) FROM $DB.kv;" | sed -n "s/[^0-9]//g;/^[0-9]*$/p" | tail -n1`
-if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
-    echo "failed to restore, before: $RECORD_COUNT; after: $AFTER_BR_COUNT"
-    exit 1
-fi
-
 run_sql "DROP DATABASE $DB"
 
 echo "TEST $TEST_NAME passed!"
