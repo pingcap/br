@@ -1,8 +1,8 @@
 # config of tikv
 
 [coprocessor]
-region-max-keys = 200
-region-split-keys = 120
+region-max-keys = 100
+region-split-keys = 60
 
 [rocksdb]
 max-open-files = 4096
