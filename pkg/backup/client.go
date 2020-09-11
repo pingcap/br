@@ -537,8 +537,8 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 	for i := 0; i < 5; i++ {
 		// better backoff.
 		region, err := bc.mgr.GetPDClient().GetRegion(ctx, key)
-		if err != nil {
-			log.Warn("find leader failed", zap.Error(err))
+		if err != nil || region == nil {
+			log.Error("find leader failed", zap.Error(err), zap.Reflect("region", region))
 			time.Sleep(time.Millisecond * time.Duration(100*i))
 			continue
 		}
