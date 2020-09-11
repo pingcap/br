@@ -292,6 +292,12 @@ func (importer *FileImporter) Import(
 						if errIngest != nil {
 							break ingestRetry
 						}
+						// do not get region info, wait a second and continue
+						if newInfo == nil {
+							log.Warn("get region by key return nil", zap.Reflect("region", info.Region))
+							time.Sleep(time.Second)
+							continue
+						}
 					}
 					log.Debug("ingest sst returns not leader error, retry it",
 						utils.ZapRegion(info.Region),
