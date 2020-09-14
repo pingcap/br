@@ -62,6 +62,7 @@ const (
 type concurrencyCfg struct {
 	BatchWriteKVPairs int
 	BatchFlushKVPairs int
+	BatchFlushKVSize  int64
 	Concurrency       uint
 }
 
@@ -111,6 +112,7 @@ func NewLogRestoreClient(
 	tableFilter filter.Filter,
 	concurrency uint,
 	batchFlushPairs int,
+	batchFlushSize int64,
 	batchWriteKVPairs int,
 ) (*LogClient, error) {
 	var err error
@@ -128,6 +130,7 @@ func NewLogRestoreClient(
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
 		BatchFlushKVPairs: batchFlushPairs,
+		BatchFlushKVSize:  batchFlushSize,
 		BatchWriteKVPairs: batchWriteKVPairs,
 	}
 
@@ -1013,7 +1016,8 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 			allocs = autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, tableInfo.Meta())
 		}
 
-		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, allocs, l.concurrencyCfg.BatchFlushKVPairs)
+		l.tableBuffers[tableID] = cdclog.NewTableBuffer(tableInfo, allocs,
+			l.concurrencyCfg.BatchFlushKVPairs, l.concurrencyCfg.BatchFlushKVSize)
 	}
 	// restore files
 	return l.restoreTables(ctx, dom)

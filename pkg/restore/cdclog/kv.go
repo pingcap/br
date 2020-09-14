@@ -41,14 +41,14 @@ type Encoder interface {
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
-	) (Row, error)
+	) (Row, int, error)
 
 	// RemoveRecord encode encodes a row of SQL values into a backend-friendly format.
 	RemoveRecord(
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
-	) (Row, error)
+	) (Row, int, error)
 }
 
 // Row represents a single encoded row.
@@ -175,7 +175,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	row []types.Datum,
 	rowID int64,
 	columnPermutation []int,
-) (Row, error) {
+) (Row, int, error) {
 	cols := kvcodec.tbl.Cols()
 
 	var value types.Datum
@@ -208,7 +208,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		record = append(record, value)
@@ -236,7 +236,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			value, err = types.NewIntDatum(rowID), nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		record = append(record, value)
 		_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
@@ -248,12 +248,12 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			zap.Array("convertedRow", rowArrayMarshaler(record)),
 			zap.Error(err),
 		)
-		return nil, errors.Trace(err)
+		return nil, 0, errors.Trace(err)
 	}
 
-	pairs := kvcodec.se.takeKvPairs()
+	pairs, size := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return KvPairs(pairs), nil
+	return KvPairs(pairs), size, nil
 }
 
 // RemoveRecord encode a row of data into KV pairs.
@@ -261,7 +261,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	row []types.Datum,
 	rowID int64,
 	columnPermutation []int,
-) (Row, error) {
+) (Row, int, error) {
 	cols := kvcodec.tbl.Cols()
 
 	var value types.Datum
@@ -288,7 +288,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		record = append(record, value)
 	}
@@ -299,12 +299,12 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 			zap.Array("convertedRow", rowArrayMarshaler(record)),
 			zap.Error(err),
 		)
-		return nil, errors.Trace(err)
+		return nil, 0, errors.Trace(err)
 	}
 
-	pairs := kvcodec.se.takeKvPairs()
+	pairs, size := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return KvPairs(pairs), nil
+	return KvPairs(pairs), size, nil
 }
 
 // ClassifyAndAppend split KvPairs to data rows and index rows.

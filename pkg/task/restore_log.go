@@ -20,9 +20,11 @@ const (
 	flagBatchWriteCount = "write-kvs"
 	flagBatchFlushCount = "flush-kvs"
 
-	// represents kv size flush to storage for each table.
+	// represents kv flush to storage for each table.
 	defaultFlushKV = 5120
-	// represents kv size that write to TiKV once at at time.
+	// represents kv size flush to storage for each table.
+	defaultFlushKVSize = 5 << 20
+	// represents kv that write to TiKV once at at time.
 	defaultWriteKV = 1280
 )
 
@@ -34,6 +36,7 @@ type LogRestoreConfig struct {
 	EndTS   uint64
 
 	BatchFlushKVPairs int
+	BatchFlushKVSize  int64
 	BatchWriteKVPairs int
 }
 
@@ -78,6 +81,9 @@ func (cfg *LogRestoreConfig) adjustRestoreConfig() {
 	if cfg.BatchWriteKVPairs == 0 {
 		cfg.BatchWriteKVPairs = defaultWriteKV
 	}
+	if cfg.BatchFlushKVSize == 0 {
+		cfg.BatchFlushKVSize = defaultFlushKVSize
+	}
 	// write kv count doesn't have to excceed flush kv count.
 	if cfg.BatchWriteKVPairs > cfg.BatchFlushKVPairs {
 		cfg.BatchWriteKVPairs = cfg.BatchFlushKVPairs
@@ -117,8 +123,8 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 	}
 
 	logClient, err := restore.NewLogRestoreClient(
-		ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter,
-		uint(cfg.Concurrency), cfg.BatchFlushKVPairs, cfg.BatchWriteKVPairs)
+		ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter, uint(cfg.Concurrency),
+		cfg.BatchFlushKVPairs, cfg.BatchFlushKVSize, cfg.BatchWriteKVPairs)
 	if err != nil {
 		return err
 	}

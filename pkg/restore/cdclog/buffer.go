@@ -29,13 +29,15 @@ import (
 // this is the concurrent unit of log restore.
 type TableBuffer struct {
 	KvPairs []Row
-	Size    int64
+	count   int
+	size    int64
 
 	KvEncoderFn func(autoid.Allocators, table.Table) (Encoder, error)
 	KvEncoder   Encoder
 	tableInfo   table.Table
 	allocator   autoid.Allocators
 
+	flushKVSize  int64
 	flushKVPairs int
 
 	colNames []string
@@ -43,7 +45,7 @@ type TableBuffer struct {
 }
 
 // NewTableBuffer creates TableBuffer.
-func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs int) *TableBuffer {
+func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs int, flushKVSize int64) *TableBuffer {
 	kvEncoderFn := func(allocators autoid.Allocators, tbl table.Table) (Encoder, error) {
 		encTable, err := table.TableFromMeta(allocators, tbl.Meta())
 		if err != nil {
@@ -64,6 +66,7 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 		KvPairs:      make([]Row, 0, flushKVPairs),
 		KvEncoderFn:  kvEncoderFn,
 		flushKVPairs: flushKVPairs,
+		flushKVSize:  flushKVSize,
 	}
 	if tbl != nil {
 		tb.ReloadMeta(tbl, allocators)
@@ -127,18 +130,19 @@ func (t *TableBuffer) appendRow(
 	item *SortItem,
 	encodeFn func(row []types.Datum,
 		rowID int64,
-		columnPermutation []int) (Row, error),
+		columnPermutation []int) (Row, int, error),
 ) error {
 	cols, err := t.translateToDatum(row)
 	if err != nil {
 		return err
 	}
-	pair, err := encodeFn(cols, item.RowID, t.colPerm)
+	pair, size, err := encodeFn(cols, item.RowID, t.colPerm)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	t.KvPairs = append(t.KvPairs, pair)
-	t.Size++
+	t.size += int64(size)
+	t.count++
 	return nil
 }
 
@@ -192,17 +196,18 @@ func (t *TableBuffer) Append(item *SortItem) error {
 
 // ShouldApply tells whether we should flush memory kv buffer to storage.
 func (t *TableBuffer) ShouldApply() bool {
-	// flush when reached flush kv len
-	return int(t.Size) >= t.flushKVPairs
+	// flush when reached flush kv len or flush size
+	return t.size >= t.flushKVSize || t.count >= t.flushKVPairs
 }
 
 // IsEmpty tells buffer is empty.
 func (t *TableBuffer) IsEmpty() bool {
-	return t.Size == 0
+	return t.size == 0
 }
 
 // Clear reset the buffer.
 func (t *TableBuffer) Clear() {
 	t.KvPairs = t.KvPairs[:0]
-	t.Size = 0
+	t.count = 0
+	t.size = 0
 }
