@@ -229,10 +229,10 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 		return false, errors.AddStack(err)
 	}
 
-    // According to https://docs.aws.amazon.com/AmazonS3/latest/dev/ListingKeysUsingAPIs.html
-    // list API return in UTF-8 binary order, so the cdc log create DDL file used
-    // maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
-    // see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
+	// According to https://docs.aws.amazon.com/AmazonS3/latest/dev/ListingKeysUsingAPIs.html
+	// list API return in UTF-8 binary order, so the cdc log create DDL file used
+	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
+	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
 	if l.tsInRange(ts) {
 		return true, nil
