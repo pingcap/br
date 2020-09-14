@@ -204,16 +204,17 @@ type JSONEventBatchMixedDecoder struct {
 	mixedBytes []byte
 }
 
-func (b *JSONEventBatchMixedDecoder) decodeNextKey() (*messageKey, uint64, error) {
+func (b *JSONEventBatchMixedDecoder) decodeNextKey() (*messageKey, error) {
 	keyLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	key := b.mixedBytes[8 : keyLen+8]
 	// drop value bytes
 	msgKey := new(messageKey)
 	err := msgKey.Decode(key)
 	if err != nil {
-		return nil, 0, errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
-	return msgKey, keyLen, nil
+	b.mixedBytes = b.mixedBytes[keyLen+8:]
+	return msgKey, nil
 }
 
 // NextEvent return next item depends on type.
@@ -221,12 +222,11 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 	if !b.HasNext() {
 		return nil, nil
 	}
-	nextKey, nextKeyLen, err := b.decodeNextKey()
+	nextKey, err := b.decodeNextKey()
 	if err != nil {
 		return nil, err
 	}
 
-	b.mixedBytes = b.mixedBytes[nextKeyLen+8:]
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
 	value := b.mixedBytes[8 : valueLen+8]
 	b.mixedBytes = b.mixedBytes[valueLen+8:]
