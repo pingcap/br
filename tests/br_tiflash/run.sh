@@ -28,13 +28,13 @@ for i in $(seq 2 $RECORD_COUNT); do
 done
 run_sql "$stmt"
 
-if ! pd-ctl store --jq '.stores[].store?.labels | select (. != null) | .[].value' | grep tiflash; then
-  echo "tiflash-proxy seems doesn't started, waiting..."
+if ! run_sql "ALTER TABLE $DB.kv SET TIFLASH REPLICA 1"; then
   # 10s should be enough for tiflash-proxy get started
   sleep 10
+  run_sql "ALTER TABLE $DB.kv SET TIFLASH REPLICA 1"
 fi
 
-run_sql "ALTER TABLE $DB.kv SET TIFLASH REPLICA 1"
+
 
 i=0
 while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
