@@ -40,6 +40,7 @@ const (
 	DDL
 )
 
+// TODO let cdc import these flags
 const (
 	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1

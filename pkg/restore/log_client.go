@@ -21,19 +21,14 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
-	uuid "github.com/satori/go.uuid"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/backoff"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/keepalive"
-
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
+	uuid "github.com/satori/go.uuid"
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/restore/cdclog"
 	"github.com/pingcap/br/pkg/storage"
@@ -47,11 +42,6 @@ const (
 	metaFile      = "log.meta"
 	ddlEventsDir  = "ddls"
 	ddlFilePrefix = "ddl"
-
-	dialTimeout          = 5 * time.Second
-	gRPCKeepAliveTime    = 10 * time.Second
-	gRPCKeepAliveTimeout = 3 * time.Second
-	gRPCBackOffMaxDelay  = 3 * time.Second
 
 	maxUint64 = ^uint64(0)
 
@@ -72,19 +62,15 @@ type LogMeta struct {
 	GlobalResolvedTS uint64           `json:"global_resolved_ts"`
 }
 
-type grpcClis struct {
-	mu   sync.Mutex
-	clis map[uint64]*grpc.ClientConn
-}
-
 // LogClient sends requests to restore files.
 type LogClient struct {
 	// lock DDL execution
 	// TODO remove lock by using db session pool if necessary
 	ddlLock sync.Mutex
 
-	restoreClient *Client
-	splitClient   SplitClient
+	restoreClient  *Client
+	splitClient    SplitClient
+	importerClient ImporterClient
 
 	// range of log backup
 	startTs uint64
@@ -95,7 +81,6 @@ type LogClient struct {
 	meta         *LogMeta
 	eventPullers map[int64]*cdclog.EventPuller
 	tableBuffers map[int64]*cdclog.TableBuffer
-	grpcClis     grpcClis
 
 	tableFilter filter.Filter
 
@@ -126,6 +111,7 @@ func NewLogRestoreClient(
 	}
 
 	splitClient := NewSplitClient(restoreClient.GetPDClient(), restoreClient.GetTLSConfig())
+	importClient := NewImportClient(splitClient, restoreClient.tlsConf)
 
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
@@ -137,6 +123,7 @@ func NewLogRestoreClient(
 	lc := &LogClient{
 		restoreClient:  restoreClient,
 		splitClient:    splitClient,
+		importerClient: importClient,
 		startTs:        startTs,
 		endTs:          endTs,
 		concurrencyCfg: cfg,
@@ -145,57 +132,7 @@ func NewLogRestoreClient(
 		tableBuffers:   make(map[int64]*cdclog.TableBuffer),
 		tableFilter:    tableFilter,
 	}
-	lc.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return lc, nil
-}
-
-func (l *LogClient) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := l.splitClient.GetStore(ctx, storeID)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	opt := grpc.WithInsecure()
-	if l.restoreClient.tlsConf != nil {
-		opt = grpc.WithTransportCredentials(credentials.NewTLS(l.restoreClient.tlsConf))
-	}
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
-
-	bfConf := backoff.DefaultConfig
-	bfConf.MaxDelay = gRPCBackOffMaxDelay
-	conn, err := grpc.DialContext(
-		ctx,
-		store.GetAddress(),
-		opt,
-		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                gRPCKeepAliveTime,
-			Timeout:             gRPCKeepAliveTimeout,
-			PermitWithoutStream: true,
-		}),
-	)
-	cancel()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	// Cache the conn.
-	l.grpcClis.clis[storeID] = conn
-	return conn, nil
-}
-
-func (l *LogClient) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.ImportSSTClient, error) {
-	l.grpcClis.mu.Lock()
-	defer l.grpcClis.mu.Unlock()
-	var err error
-
-	conn, ok := l.grpcClis.clis[peer.GetStoreId()]
-	if !ok {
-		conn, err = l.getGrpcConnLocked(ctx, peer.GetStoreId())
-		if err != nil {
-			log.L().Error("could not get grpc connect ", zap.Uint64("storeId", peer.GetStoreId()))
-			return nil, err
-		}
-	}
-	return sst.NewImportSSTClient(conn), nil
 }
 
 func (l *LogClient) tsInRange(ts uint64) bool {
@@ -418,7 +355,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region 
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
 	for _, peer := range region.Region.GetPeers() {
-		cli, err := l.getImportClient(ctx, peer)
+		cli, err := l.importerClient.GetImportClient(ctx, peer.StoreId)
 		if err != nil {
 			return nil, err
 		}
@@ -524,7 +461,7 @@ func (l *LogClient) Ingest(ctx context.Context, meta *sst.SSTMeta, region *Regio
 		leader = region.Region.GetPeers()[0]
 	}
 
-	cli, err := l.getImportClient(ctx, leader)
+	cli, err := l.importerClient.GetImportClient(ctx, leader.StoreId)
 	if err != nil {
 		return nil, err
 	}
