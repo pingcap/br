@@ -525,22 +525,28 @@ func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 	}
 }
 
-func parseQuoteName(name string) (string, string) {
+// ParseQuoteName parse the quote `db`.`table` name, and split it.
+func ParseQuoteName(name string) (string, string) {
 	schemaRune := make([]rune, 0, len(name))
 	for i, c := range name {
-		schemaRune = append(schemaRune, c)
-		if i == 0 {
+		if i <= 1 {
+			schemaRune = append(schemaRune, c)
 			continue
 		}
-		if name[i] == '`' && name[i-1] != '`' {
+		if (name[i-2] != '`' || name[i+2] != '`') && (name[i-1] == '`' && name[i] == '.' && name[i+1] == '`') {
 			break
 		}
+		schemaRune = append(schemaRune, c)
 	}
 	schema := string(schemaRune)
-	return unQuoteName(schema), unQuoteName(strings.TrimPrefix(name, schema+"."))
+	table := unQuoteName(strings.TrimPrefix(name, schema+"."))
+	schema = unQuoteName(schema)
+	schema = strings.ReplaceAll(schema, "``", "`")
+	table = strings.ReplaceAll(table, "``", "`")
+	return schema, table
 }
 
 func unQuoteName(name string) string {
-	name = strings.TrimLeft(name, "`")
-	return strings.TrimRight(name, "`")
+	name = strings.TrimPrefix(name, "`")
+	return strings.TrimSuffix(name, "`")
 }

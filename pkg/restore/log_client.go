@@ -277,7 +277,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	// need collect restore tableIDs
 	tableIDs := make([]int64, 0, len(l.meta.Names))
 	for tableID, name := range l.meta.Names {
-		schema, table := parseQuoteName(name)
+		schema, table := ParseQuoteName(name)
 		if !l.tableFilter.MatchTable(schema, table) {
 			log.Info("filter tables",
 				zap.String("schema", schema),
@@ -782,7 +782,7 @@ func (l *LogClient) restoreTableFromPuller(
 		switch item.ItemType {
 		case cdclog.DDL:
 			name := l.meta.Names[tableID]
-			schema, table := parseQuoteName(name)
+			schema, table := ParseQuoteName(name)
 			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
 			if !(schema == item.Schema && (table == item.Table || l.isDBRelatedDDL(ddl))) {
@@ -924,7 +924,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	// create event puller to apply changes concurrently
 	for tableID, files := range rowChangesFiles {
 		name := l.meta.Names[tableID]
-		schema, table := parseQuoteName(name)
+		schema, table := ParseQuoteName(name)
 		log.Info("create puller for table",
 			zap.Int64("table id", tableID),
 			zap.String("schema", schema),
