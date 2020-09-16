@@ -345,7 +345,7 @@ func beforeEnd(key []byte, end []byte) bool {
 }
 
 func keyInsideRegion(region *metapb.Region, key []byte) bool {
-	return bytes.Compare(key, region.GetStartKey()) >= 0 && (beforeEnd(key, region.GetEndKey()))
+	return bytes.Compare(key, region.GetStartKey()) >= 0 && beforeEnd(key, region.GetEndKey())
 }
 
 func nextKey(key []byte) []byte {

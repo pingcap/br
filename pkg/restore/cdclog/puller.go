@@ -161,13 +161,9 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-		} else {
-			returnItem = e.currentRowChangedItem
-			e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
+			break
 		}
+		fallthrough
 	case e.currentRowChangedItem != nil:
 		returnItem = e.currentRowChangedItem
 		e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)

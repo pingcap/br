@@ -43,7 +43,7 @@ type Encoder interface {
 		columnPermutation []int,
 	) (Row, int, error)
 
-	// RemoveRecord encode encodes a row of SQL values into a backend-friendly format.
+	// RemoveRecord encode encodes a row of SQL delete values into a backend-friendly format.
 	RemoveRecord(
 		row []types.Datum,
 		rowID int64,

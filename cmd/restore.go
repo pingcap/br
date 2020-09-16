@@ -140,8 +140,8 @@ func newTableRestoreCommand() *cobra.Command {
 
 func newLogRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "log",
-		Short: "restore data from log backup",
+		Use:   "cdclog",
+		Short: "restore data from cdc log backup",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogRestoreCommand(cmd)
 		},

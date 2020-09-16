@@ -196,7 +196,7 @@ func (s *SortItem) LessThan(other *SortItem) bool {
 	if other != nil {
 		return s.TS < other.TS
 	}
-	return false
+	return true
 }
 
 // JSONEventBatchMixedDecoder decodes the byte of a batch into the original messages.

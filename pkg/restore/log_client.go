@@ -87,7 +87,7 @@ type LogClient struct {
 	splitClient   SplitClient
 
 	// range of log backup
-	startTS uint64
+	startTs uint64
 	endTs   uint64
 
 	concurrencyCfg concurrencyCfg
@@ -108,7 +108,7 @@ func NewLogRestoreClient(
 	ctx context.Context,
 	restoreClient *Client,
 	startTs uint64,
-	endTS uint64,
+	endTs uint64,
 	tableFilter filter.Filter,
 	concurrency uint,
 	batchFlushPairs int,
@@ -116,10 +116,10 @@ func NewLogRestoreClient(
 	batchWriteKVPairs int,
 ) (*LogClient, error) {
 	var err error
-	if endTS == 0 {
+	if endTs == 0 {
 		// means restore all log data,
 		// so we get current ts from restore cluster
-		endTS, err = restoreClient.GetTS(ctx)
+		endTs, err = restoreClient.GetTS(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -137,8 +137,8 @@ func NewLogRestoreClient(
 	lc := &LogClient{
 		restoreClient:  restoreClient,
 		splitClient:    splitClient,
-		startTS:        startTs,
-		endTs:          endTS,
+		startTs:        startTs,
+		endTs:          endTs,
 		concurrencyCfg: cfg,
 		meta:           new(LogMeta),
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
@@ -199,10 +199,7 @@ func (l *LogClient) getImportClient(ctx context.Context, peer *metapb.Peer) (sst
 }
 
 func (l *LogClient) tsInRange(ts uint64) bool {
-	if ts < l.startTS || ts > l.endTs {
-		return false
-	}
-	return true
+	return l.startTs <= ts && ts <= l.endTs
 }
 
 func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
@@ -234,10 +231,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
 	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
-	if l.tsInRange(ts) {
-		return true, nil
-	}
-	return false, nil
+	return l.tsInRange(ts), nil
 }
 
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
@@ -261,9 +255,7 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	sort.Slice(ddlFiles, func(i, j int) bool {
-		return ddlFiles[i] > ddlFiles[j]
-	})
+	sort.Sort(sort.Reverse(sort.StringSlice(ddlFiles)))
 	return ddlFiles, nil
 }
 
@@ -563,7 +555,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 	}
 
 	var start, end int
-	// TODO use binary sort
+	// TODO use binary search
 	for i, kv := range kvs {
 		if bytes.Compare(kv.Key, startKey) >= 0 {
 			start = i
@@ -828,7 +820,7 @@ func (l *LogClient) restoreTableFromPuller(
 		log.Debug("[restoreFromPuller] next event", zap.Any("item", item), zap.Int64("table id", tableID))
 		if !l.tsInRange(item.TS) {
 			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
-				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("start ts", l.startTs),
 				zap.Uint64("end ts", l.endTs),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
@@ -958,9 +950,9 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	}
 	log.Info("get meta from storage", zap.Binary("data", data))
 
-	if l.startTS > l.meta.GlobalResolvedTS {
+	if l.startTs > l.meta.GlobalResolvedTS {
 		return errors.Errorf("start ts:%d is greater than resolved ts:%d",
-			l.startTS, l.meta.GlobalResolvedTS)
+			l.startTs, l.meta.GlobalResolvedTS)
 	}
 	if l.endTs > l.meta.GlobalResolvedTS {
 		log.Info("end ts is greater than resolved ts,"+
