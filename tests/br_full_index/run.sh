@@ -17,7 +17,7 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
-LOG=/$TEST_DIR/$DB/backup.log
+LOG=/$TEST_DIR/backup.log
 
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"

@@ -17,7 +17,7 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DDL_COUNT=10
-LOG=/$TEST_DIR/$DB/backup.log
+LOG=/$TEST_DIR/backup.log
 
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
