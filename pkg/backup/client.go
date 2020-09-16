@@ -31,6 +31,8 @@ import (
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/glue"
@@ -43,6 +45,7 @@ import (
 // ClientMgr manages connections needed by backup.
 type ClientMgr interface {
 	GetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
+	ResetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
 	GetPDClient() pd.Client
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
@@ -59,6 +62,7 @@ type Checksum struct {
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
+	backupRetryTimes            = 5
 )
 
 // Client is a client instructs TiKV how to do a backup.
@@ -776,6 +780,10 @@ func (bc *Client) handleFineGrained(
 				respCh <- response
 			}
 			return nil
+		},
+		func() (kvproto.BackupClient, error) {
+			log.Info("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
+			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
 		return 0, err
@@ -791,34 +799,51 @@ func SendBackup(
 	client kvproto.BackupClient,
 	req kvproto.BackupRequest,
 	respFn func(*kvproto.BackupResponse) error,
+	resetFn func() (kvproto.BackupClient, error),
 ) error {
-	log.Info("try backup",
-		zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
-		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
-		zap.Uint64("storeID", storeID),
-	)
-	bcli, err := client.Backup(ctx, &req)
-	if err != nil {
-		log.Error("fail to backup", zap.Uint64("StoreID", storeID))
-		return err
-	}
-	for {
-		resp, err := bcli.Recv()
+backupLoop:
+	for retry := 0; retry < backupRetryTimes; retry++ {
+		log.Info("try backup",
+			zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
+			zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
+			zap.Uint64("storeID", storeID),
+		)
+		bcli, err := client.Backup(ctx, &req)
 		if err != nil {
-			if err == io.EOF {
-				log.Info("backup streaming finish",
-					zap.Uint64("StoreID", storeID))
-				break
-			}
-			return errors.Annotatef(err, "Store: %d close the connection", storeID)
-		}
-		// TODO: handle errors in the resp.
-		log.Info("range backuped",
-			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-			zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
-		err = respFn(resp)
-		if err != nil {
+			log.Error("fail to backup", zap.Uint64("StoreID", storeID))
 			return err
+		}
+		for {
+			resp, err := bcli.Recv()
+			if err != nil {
+				if err == io.EOF {
+					log.Info("backup streaming finish",
+						zap.Uint64("StoreID", storeID))
+					break backupLoop
+				}
+				if status.Code(err) == codes.Unavailable && retry < backupRetryTimes {
+					// current tikv is unavailable
+					log.Warn("current tikv is not available, reset the connection",
+						zap.Uint64("storeID", storeID), zap.Int("retry time", retry))
+					time.Sleep(time.Duration(retry + 1) * time.Second)
+					client, err = resetFn()
+					if err != nil {
+						log.Error("reset the connection failed, please check the tikv status",
+							zap.Uint64("storeID", storeID), zap.Error(err))
+						return err
+					}
+					break
+				}
+				return errors.Annotatef(err, "Store: %d close the connection", storeID)
+			}
+			// TODO: handle errors in the resp.
+			log.Info("range backuped",
+				zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
+				zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
+			err = respFn(resp)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil

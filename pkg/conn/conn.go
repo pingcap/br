@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	dialTimeout          = 5 * time.Second
+	dialTimeout          = 15 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
@@ -334,6 +334,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		ctx,
 		addr,
 		opt,
+		grpc.WithBlock(),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    time.Duration(keepAlive) * time.Second,
@@ -359,6 +360,23 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 		return backup.NewBackupClient(conn), nil
 	}
 
+	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return backup.NewBackupClient(conn), nil
+}
+
+// ResetBackupClient reset the connection for backup client.
+func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+	mgr.grpcClis.mu.Lock()
+	defer mgr.grpcClis.mu.Unlock()
+
+	if _, ok := mgr.grpcClis.clis[storeID]; ok {
+		// Find a cached backup client.
+		log.Info("Reset backup client", zap.Uint64("storeID", storeID))
+		delete(mgr.grpcClis.clis, storeID)
+	}
 	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
