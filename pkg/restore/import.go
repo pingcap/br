@@ -229,7 +229,7 @@ func (importer *FileImporter) Import(
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
-					switch e {
+					switch errors.Cause(e) {
 					case berrors.ErrRewriteRuleNotFound, berrors.ErrRangeIsEmpty:
 						// Skip this region
 						log.Warn("download file skipped",

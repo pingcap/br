@@ -30,14 +30,13 @@ TIFLASH_STATUS="127.0.0.1:17000"
 TIFLASH_HTTP="127.0.0.1:8125"
 
 stop_services() {
-    killall -9 tikv-server || true
-    killall -9 pd-server || true
-    killall -9 tidb-server || true
-    killall -9 tiflash || true
-
-    find "$TEST_DIR" -maxdepth 1 -not -path "$TEST_DIR" -not -name "*.log" | xargs rm -r || true
+    for svc in "tidb" "tiflash" "tikv" "pd"; do
+        # tiflash does not have "-server"
+        killall -9 $svc-server &> /dev/null || true
+        killall -9 $svc &> /dev/null || true
+        find "$TEST_DIR" -maxdepth 1 -name "${svc}*" -type d -exec echo delete {} \; -exec rm -rf {} \; 2> /dev/null
+    done
 }
-
 
 start_services() {
     max_retry=3
