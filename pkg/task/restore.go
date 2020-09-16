@@ -32,6 +32,11 @@ const (
 	defaultDDLConcurrency     = 16
 )
 
+type tidbConfig struct {
+	maxIndexLength int
+	alterPK        bool
+}
+
 // RestoreConfig is the configuration specific for restore tasks.
 type RestoreConfig struct {
 	Config
@@ -154,7 +159,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
 	// pre-set TiDB config for restore
-	enableTiDBConfig()
+	conf := enableTiDBConfig()
+	defer disableTiDBConfig(conf)
 
 	// execute DDL first
 	err = client.ExecDDLs(ddlJobs)
@@ -413,11 +419,23 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	return nil
 }
 
-func enableTiDBConfig() {
+func disableTiDBConfig(tiConf tidbConfig) {
+	// reset config
+	conf := config.GetGlobalConfig()
+	conf.MaxIndexLength = tiConf.maxIndexLength
+	conf.AlterPrimaryKey = tiConf.alterPK
+	config.StoreGlobalConfig(conf)
+}
+
+func enableTiDBConfig() tidbConfig {
 	// set max-index-length before execute DDLs and create tables
 	// we set this value to max(3072*4), otherwise we might not restore table
 	// when upstream and downstream both set this value greater than default(3072)
 	conf := config.GetGlobalConfig()
+	tiConf := tidbConfig{}
+	tiConf.maxIndexLength = conf.MaxIndexLength
+	tiConf.alterPK = conf.AlterPrimaryKey
+
 	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
 
@@ -426,6 +444,7 @@ func enableTiDBConfig() {
 	conf.AlterPrimaryKey = true
 
 	config.StoreGlobalConfig(conf)
+	return tiConf
 }
 
 // restoreTableStream blocks current goroutine and restore a stream of tables,
