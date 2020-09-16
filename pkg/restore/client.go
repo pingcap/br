@@ -174,7 +174,7 @@ func (rc *Client) IsRawKvMode() bool {
 // GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
 func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
 	if !rc.IsRawKvMode() {
-		return nil, berrors.ErrRestoreModeMismatch.FastGenByArgs("the backup data is not in raw kv mode")
+		return nil, errors.Annotate(berrors.ErrRestoreModeMismatch, "the backup data is not in raw kv mode")
 	}
 
 	for _, rawRange := range rc.backupMeta.RawRanges {
@@ -193,7 +193,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
-			return nil, berrors.ErrRestoreRangeMismatch.FastGenByArgs("the given range to restore is not fully covered by the range that was backed up")
+			return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "the given range to restore is not fully covered by the range that was backed up")
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
@@ -221,7 +221,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 		return files, nil
 	}
 
-	return nil, berrors.ErrRestoreRangeMismatch.FastGenByArgs("no backup data in the range")
+	return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "no backup data in the range")
 }
 
 // SetConcurrency sets the concurrency of dbs tables files.
@@ -764,7 +764,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Uint64("origin tidb total bytes", table.TotalBytes),
 			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
 		)
-		return berrors.ErrRestoreChecksumMismatch.FastGenByArgs("failed to validate checksum")
+		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
 	return nil
 }
@@ -913,7 +913,7 @@ func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.Table
 		}
 	}
 	if len(failedTables) > 0 {
-		return berrors.ErrPDInvalidResponse.GenWithStack("failed to delete placement rules for tables %v", failedTables)
+		return errors.Annotatef(berrors.ErrPDInvalidResponse, "failed to delete placement rules for tables %v", failedTables)
 	}
 	return nil
 }

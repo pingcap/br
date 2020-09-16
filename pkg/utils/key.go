@@ -28,7 +28,7 @@ func ParseKey(format, key string) ([]byte, error) {
 		}
 		return key, nil
 	}
-	return nil, berrors.ErrInternal.FastGenByArgs("unknown format")
+	return nil, errors.Annotate(berrors.ErrInternal, "unknown format")
 }
 
 // Ref PD: https://github.com/pingcap/pd/blob/master/tools/pd-ctl/pdctl/command/region_command.go#L334

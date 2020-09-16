@@ -83,7 +83,7 @@ func pdRequest(
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, berrors.ErrPDInvalidResponse.GenWithStack("[%d] %s %s", resp.StatusCode, res, url)
+		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, url)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -132,7 +132,7 @@ skipStore:
 				if storeBehavior == SkipTiFlash {
 					continue skipStore
 				} else if storeBehavior == ErrorOnTiFlash {
-					return nil, berrors.ErrPDInvalidResponse.GenWithStack(
+					return nil, errors.Annotatef(berrors.ErrPDInvalidResponse,
 						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 				}
 				isTiFlash = true
@@ -227,7 +227,7 @@ func NewMgr(
 		// Assume 3 replicas
 		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
 		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, berrors.ErrKVNotHealth.GenWithStackByArgs(stores)
+		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%v", stores)
 	}
 
 	dom, err := g.GetDomain(storage)
@@ -486,7 +486,7 @@ func (mgr *Mgr) UpdatePDScheduleConfig(
 			return nil
 		}
 	}
-	return berrors.ErrPDUpdateFailed.FastGenByArgs("failed to update PD schedule config")
+	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
 
 // Close closes all client in Mgr.

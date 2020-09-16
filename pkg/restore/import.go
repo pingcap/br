@@ -165,7 +165,7 @@ func NewFileImporter(
 // SetRawRange sets the range to be restored in raw kv mode.
 func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 	if !importer.isRawKvMode {
-		return berrors.ErrRestoreModeMismatch.FastGenByArgs("file importer is not in raw kv mode")
+		return errors.Annotate(berrors.ErrRestoreModeMismatch, "file importer is not in raw kv mode")
 	}
 	importer.rawStartKey = startKey
 	importer.rawEndKey = endKey

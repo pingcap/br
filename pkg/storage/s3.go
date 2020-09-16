@@ -141,12 +141,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 			return err
 		}
 		if u.Scheme == "" {
-			return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
-				"scheme not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "scheme not found in endpoint")
 		}
 		if u.Host == "" {
-			return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
-				"host not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "host not found in endpoint")
 		}
 	}
 	// In some cases, we need to set ForcePathStyle to false.
@@ -156,12 +154,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 		options.ForcePathStyle = false
 	}
 	if options.AccessKey == "" && options.SecretAccessKey != "" {
-		return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
-			"access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "access_key not found")
 	}
 	if options.AccessKey != "" && options.SecretAccessKey == "" {
-		return berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
-			"secret_access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "secret_access_key not found")
 	}
 
 	s3.Endpoint = options.Endpoint
@@ -273,7 +269,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	c := s3.New(ses)
 	err = checkS3Bucket(c, qs.Bucket)
 	if err != nil {
-		return nil, berrors.ErrStorageInvalidConfig.GenWithStack("Bucket %s is not accessible: %v", qs.Bucket, err)
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 	}
 
 	qs.Prefix += "/"

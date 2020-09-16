@@ -279,7 +279,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
 			utils.ZapFile(file))
-		return rtree.Range{}, berrors.ErrRestoreTableIDMismatch.FastGenByArgs("validateAndGetFileRange")
+		return rtree.Range{}, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "validateAndGetFileRange")
 	}
 	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
 	return r, nil
@@ -328,7 +328,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("tableID", tableID),
 			utils.ZapFile(file),
 		)
-		return berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("cannot find rewrite rule")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
 	}
 	// Check if the end key has a matched rewrite key
 	_, endRule := rewriteRawKey(file.GetEndKey(), rewriteRules)
@@ -339,7 +339,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("tableID", tableID),
 			utils.ZapFile(file),
 		)
-		return berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("cannot find rewrite rule")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
 	}
 	// the new prefix of the start rule must equal or less than the new prefix of the end rule
 	if bytes.Compare(startRule.GetNewKeyPrefix(), endRule.GetNewKeyPrefix()) > 0 {
@@ -353,7 +353,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Stringer("endRule", endRule),
 			utils.ZapFile(file),
 		)
-		return berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("unexpected rewrite rules")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "unexpected rewrite rules")
 	}
 	return nil
 }
@@ -441,12 +441,12 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 				zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
-			err = berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("cannot find rewrite rule for start key")
+			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
 			return
 		}
 		endKey, rule = rewriteRawKey(file.GetEndKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
-			err = berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("cannot find rewrite rule for end key")
+			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for end key")
 			return
 		}
 	} else {
@@ -455,7 +455,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 			zap.Int64("endID", endID),
 			zap.Stringer("startKey", utils.WrapKey(startKey)),
 			zap.Stringer("endKey", utils.WrapKey(endKey)))
-		err = berrors.ErrRestoreInvalidRewrite.GenWithStackByArgs("invalid table id")
+		err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "invalid table id")
 	}
 	return
 }
@@ -474,7 +474,7 @@ func PaginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		return nil, berrors.ErrRestoreInvalidRange.GenWithStack("startKey >= endKey, startKey %s, endkey %s",
+		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey, startKey %s, endkey %s",
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	}
 

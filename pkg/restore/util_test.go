@@ -120,7 +120,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		}},
 		rules,
 	)
-	c.Assert(err, ErrorMatches, "\\[[a-zA-Z:]+\\]restore table ID mismatch.*")
+	c.Assert(err, ErrorMatches, ".*restore table ID mismatch")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{

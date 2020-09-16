@@ -162,14 +162,13 @@ func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
-				err.Error() + "Or you should provide '--gcs.credentials_file'.")
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
 		}
 		if sendCredential {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				return nil, berrors.ErrStorageInvalidConfig.GenWithStackByArgs(
+				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
 					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}

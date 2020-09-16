@@ -135,7 +135,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		peer = regionInfo.Leader
 	} else {
 		if len(regionInfo.Region.Peers) == 0 {
-			return nil, berrors.ErrRestoreNoPeer.GenWithStack("region does not have peer")
+			return nil, errors.Annotate(berrors.ErrRestoreNoPeer, "region does not have peer")
 		}
 		peer = regionInfo.Region.Peers[0]
 	}
@@ -163,7 +163,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		return nil, err
 	}
 	if resp.RegionError != nil {
-		return nil, berrors.ErrRestoreSplitFailed.GenWithStack("region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
+		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
 	}
 
 	// BUG: Left is deprecated, it may be nil even if split is succeed!
@@ -179,7 +179,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		}
 	}
 	if newRegion == nil {
-		return nil, berrors.ErrRestoreSplitFailed.FastGenByArgs("new region is nil")
+		return nil, errors.Annotate(berrors.ErrRestoreSplitFailed, "new region is nil")
 	}
 	var leader *metapb.Peer
 	// Assume the leaders will be at the same store.
@@ -375,7 +375,7 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 	var rule placement.Rule
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return rule, berrors.ErrRestoreSplitFailed.FastGenByArgs("failed to add stores labels: no leader")
+		return rule, errors.Annotate(berrors.ErrRestoreSplitFailed, "failed to add stores labels: no leader")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
@@ -397,7 +397,7 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) error {
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return berrors.ErrPDLeaderNotFound.FastGenByArgs("failed to add stores labels")
+		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
 	}
 	m, _ := json.Marshal(rule)
 	req, _ := http.NewRequestWithContext(ctx, "POST", addr+path.Join("/pd/api/v1/config/rule"), bytes.NewReader(m))
@@ -411,7 +411,7 @@ func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) er
 func (c *pdClient) DeletePlacementRule(ctx context.Context, groupID, ruleID string) error {
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return berrors.ErrPDLeaderNotFound.FastGenByArgs("failed to add stores labels")
+		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
@@ -427,7 +427,7 @@ func (c *pdClient) SetStoresLabel(
 	b := []byte(fmt.Sprintf(`{"%s": "%s"}`, labelKey, labelValue))
 	addr := c.getPDAPIAddr()
 	if addr == "" {
-		return berrors.ErrPDLeaderNotFound.FastGenByArgs("failed to add stores labels")
+		return errors.Annotate(berrors.ErrPDLeaderNotFound, "failed to add stores labels")
 	}
 	for _, id := range stores {
 		req, _ := http.NewRequestWithContext(

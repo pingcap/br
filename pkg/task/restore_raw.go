@@ -80,7 +80,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	if !client.IsRawKvMode() {
-		return berrors.ErrRestoreModeMismatch.GenWithStack("cannot do raw restore from transactional data")
+		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do raw restore from transactional data")
 	}
 
 	files, err := client.GetFilesInRawRange(cfg.StartKey, cfg.EndKey, cfg.CF)

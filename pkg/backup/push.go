@@ -102,11 +102,11 @@ func (push *pushDown) pushBackup(
 
 				case *backup.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error", zap.Reflect("error", v))
-					return res, berrors.ErrKVClusterIDMismatch.GenWithStackByArgs(errPb)
+					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
 
 				default:
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
-					return res, berrors.ErrKVUnknown.GenWithStackByArgs(errPb)
+					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
 				}
 			}
 		case err := <-push.errCh:

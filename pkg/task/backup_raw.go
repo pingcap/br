@@ -78,7 +78,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
-		return berrors.ErrBackupInvalidRange.GenWithStackByArgs("endKey must be greater than startKey")
+		return errors.Annotate(berrors.ErrBackupInvalidRange, "endKey must be greater than startKey")
 	}
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {

@@ -101,14 +101,14 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 		switch {
 		case duration < 0:
-			return 0, berrors.ErrInvalidArgument.GenWithStackByArgs("negative timeago is not allowed")
+			return 0, errors.Annotate(berrors.ErrInvalidArgument, "negative timeago is not allowed")
 		case duration > 0:
 			log.Info("backup time ago", zap.Duration("timeago", duration))
 
 			backupTime := oracle.GetTimeFromTS(backupTS)
 			backupAgo := backupTime.Add(-duration)
 			if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
-				return 0, berrors.ErrInvalidArgument.GenWithStackByArgs("backup ts overflow please choose a smaller timeago")
+				return 0, errors.Annotate(berrors.ErrInvalidArgument, "backup ts overflow please choose a smaller timeago")
 			}
 			backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
 		}
@@ -156,14 +156,14 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
 	}
 	if exist {
-		return berrors.ErrInvalidArgument.GenWithStackByArgs("backup meta exists, may be some backup files in the path already")
+		return errors.Annotatef(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
 	}
 	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
 	if err != nil {
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
 	}
 	if exist {
-		return berrors.ErrInvalidArgument.GenWithStackByArgs("backup lock exists, may be some backup files in the path already")
+		return errors.Annotatef(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
@@ -551,7 +551,7 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, berrors.ErrBackupNoLeader.GenWithStack("can not find leader for key %s", utils.WrapKey(key))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", utils.WrapKey(key))
 }
 
 func (bc *Client) fineGrainedBackup(
@@ -687,7 +687,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, berrors.ErrKVUnknown.GenWithStackByArgs(v)
+		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "%v", v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -699,7 +699,7 @@ func onBackupResponse(
 			regionErr.StaleCommand != nil ||
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, berrors.ErrKVUnknown.GenWithStackByArgs(v)
+			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "%v", v)
 		}
 		log.Warn("backup occur region error",
 			zap.Reflect("RegionError", regionErr))
@@ -708,11 +708,11 @@ func onBackupResponse(
 		return nil, backoffMs, nil
 	case *kvproto.Error_ClusterIdError:
 		log.Error("backup occur cluster ID error", zap.Reflect("error", v))
-		return nil, 0, berrors.ErrKVClusterIDMismatch.GenWithStackByArgs(resp.Error)
+		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", resp.Error)
 	default:
 		log.Error("backup occur unknown error",
 			zap.String("error", resp.Error.GetMsg()))
-		return nil, 0, berrors.ErrKVUnknown.GenWithStackByArgs(resp.Error)
+		return nil, 0, errors.Annotatef(berrors.ErrKVUnknown, "%v", resp.Error)
 	}
 }
 
@@ -820,7 +820,7 @@ func SendBackup(
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
 func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 	if len(local) != len(backupMeta.Schemas) {
-		return berrors.ErrBackupChecksumMismatch.GenWithStack(
+		return errors.Annotatef(berrors.ErrBackupChecksumMismatch,
 			"checksum mismatch, checksum len %d, schema len %d", len(local), len(backupMeta.Schemas))
 	}
 
@@ -829,14 +829,12 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return berrors.ErrBackupChecksumMismatch.GenWithStackByArgs(
-				"failed in checksum, and cannot parse db info")
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse db info")
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return berrors.ErrBackupChecksumMismatch.GenWithStackByArgs(
-				"failed in checksum, and cannot parse table info")
+			return errors.Annotatef(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
 		if localChecksum.Crc64Xor != schema.Crc64Xor ||
 			localChecksum.TotalBytes != schema.TotalBytes ||
@@ -851,8 +849,7 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
 				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
 			// TODO enhance error
-			return berrors.ErrBackupChecksumMismatch.GenWithStackByArgs(
-				"failed in checksum, and cannot parse table info")
+			return errors.Annotatef(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
 		log.Info("checksum success",
 			zap.String("database", dbInfo.Name.L),

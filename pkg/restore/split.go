@@ -185,7 +185,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 		if respErr.GetType() == pdpb.ErrorType_REGION_NOT_FOUND {
 			return true, nil
 		}
-		return false, berrors.ErrPDInvalidResponse.GenWithStack("get operator error: %s", respErr.GetType())
+		return false, errors.Annotatef(berrors.ErrPDInvalidResponse, "get operator error: %s", respErr.GetType())
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {

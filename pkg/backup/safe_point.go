@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/pkg/tsoutil"
@@ -68,7 +69,7 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 		return nil
 	}
 	if ts <= safePoint {
-		return berrors.ErrBackupGCSafepointExceeded.GenWithStack("GC safepoint %d exceed TS %d", safePoint, ts)
+		return errors.Annotatef(berrors.ErrBackupGCSafepointExceeded, "GC safepoint %d exceed TS %d", safePoint, ts)
 	}
 	return nil
 }

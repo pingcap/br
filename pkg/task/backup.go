@@ -88,7 +88,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	if timeAgo < 0 {
-		return berrors.ErrInvalidArgument.FastGenByArgs("negative timeago is not allowed")
+		return errors.Annotate(berrors.ErrInvalidArgument, "negative timeago is not allowed")
 	}
 	cfg.TimeAgo = timeAgo
 	cfg.LastBackupTS, err = flags.GetUint64(flagLastBackupTS)
@@ -256,7 +256,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
-			return berrors.ErrInvalidArgument.FastGenByArgs("LastBackupTS is larger or equal to current TS")
+			return errors.Annotate(berrors.ErrInvalidArgument, "LastBackupTS is larger or equal to current TS")
 		}
 		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
