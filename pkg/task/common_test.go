@@ -44,7 +44,7 @@ func (*testCommonSuite) TestUrlNoQuery(c *C) {
 func (s *testCommonSuite) TestTiDBConfigUnchanged(c *C) {
 	cfg := config.GetGlobalConfig()
 	restoreConfig := enableTiDBConfig()
-	c.Assert(reflect.DeepEqual(cfg, config.GetGlobalConfig()), IsFalse)
+	c.Assert(cfg, Not(DeepEquals), config.GetGlobalConfig())
 	restoreConfig()
-	c.Assert(reflect.DeepEqual(cfg, config.GetGlobalConfig()), IsTrue)
+	c.Assert(cfg, DeepEquals, config.GetGlobalConfig())
 }
