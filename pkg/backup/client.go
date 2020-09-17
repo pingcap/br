@@ -825,7 +825,7 @@ backupLoop:
 					// current tikv is unavailable
 					log.Warn("current tikv is not available, reset the connection",
 						zap.Uint64("storeID", storeID), zap.Int("retry time", retry))
-					time.Sleep(time.Duration(retry + 1) * time.Second)
+					time.Sleep(time.Duration(retry+1) * time.Second)
 					client, err = resetFn()
 					if err != nil {
 						log.Error("reset the connection failed, please check the tikv status",
