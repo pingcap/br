@@ -32,7 +32,8 @@ var recycleChan = &bytesRecycleChan{
 	ch: make(chan []byte, 1024),
 }
 
-// Acquire ...
+// Acquire try reuse the buffer from pool or alloc 1M buffer
+// if there is nothing in pool.
 func (c *bytesRecycleChan) Acquire() []byte {
 	select {
 	case b := <-c.ch:
@@ -42,7 +43,7 @@ func (c *bytesRecycleChan) Acquire() []byte {
 	}
 }
 
-// Release ...
+// Release free the buffer or put it into pool.
 func (c *bytesRecycleChan) Release(w []byte) {
 	select {
 	case c.ch <- w:
@@ -52,7 +53,7 @@ func (c *bytesRecycleChan) Release(w []byte) {
 	}
 }
 
-// BytesBuffer ...
+// BytesBuffer represents the reuse buffer.
 type BytesBuffer struct {
 	bufs      [][]byte
 	curBuf    []byte
@@ -61,12 +62,12 @@ type BytesBuffer struct {
 	curBufLen int
 }
 
-// NewBytesBuffer ...
+// NewBytesBuffer creates the BytesBuffer.
 func NewBytesBuffer() *BytesBuffer {
 	return &BytesBuffer{bufs: make([][]byte, 0, 128), curBufIdx: -1}
 }
 
-// AddBuf ...
+// AddBuf adds buffer to BytesBuffer.
 func (b *BytesBuffer) AddBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
 		b.curBufIdx++
@@ -82,7 +83,7 @@ func (b *BytesBuffer) AddBuf() {
 	b.curIdx = 0
 }
 
-// Reset ...
+// Reset reset the buffer.
 func (b *BytesBuffer) Reset() {
 	if len(b.bufs) > 0 {
 		b.curBuf = b.bufs[0]
@@ -92,7 +93,7 @@ func (b *BytesBuffer) Reset() {
 	}
 }
 
-// Destroy ...
+// Destroy free all buffer.
 func (b *BytesBuffer) Destroy() {
 	for _, buf := range b.bufs {
 		recycleChan.Release(buf)
@@ -100,12 +101,12 @@ func (b *BytesBuffer) Destroy() {
 	b.bufs = b.bufs[:0]
 }
 
-// TotalSize ...
+// TotalSize represents the total memory size of this BytesBuffer.
 func (b *BytesBuffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
-// AddBytes ...
+// AddBytes add the bytes into this BytesBuffer.
 func (b *BytesBuffer) AddBytes(bytes []byte) []byte {
 	if len(bytes) > bigValueSize {
 		return append([]byte{}, bytes...)
