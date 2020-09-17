@@ -218,14 +218,6 @@ func newSession(options *SessionOptions) *session {
 	return s
 }
 
-func (se *session) takeKvPairs() ([]KvPair, int) {
-	pairs := se.txn.kvMemBuf.kvPairs
-	size := se.txn.kvMemBuf.Size()
-	se.txn.kvMemBuf.kvPairs = make([]KvPair, 0, len(pairs))
-	se.txn.kvMemBuf.size = 0
-	return pairs, size
-}
-
 // Txn implements the sessionctx.Context interface.
 func (se *session) Txn(active bool) (kv.Transaction, error) {
 	return &se.txn, nil
