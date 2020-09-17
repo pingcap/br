@@ -622,7 +622,6 @@ func (rc *Client) setSpeedLimit() error {
 func (rc *Client) RestoreFiles(
 	files []*backup.File,
 	rewriteRules *RewriteRules,
-	rejectStoreMap map[uint64]bool,
 	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
@@ -649,7 +648,7 @@ func (rc *Client) RestoreFiles(
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, rejectStoreMap, rewriteRules)
+				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -682,13 +681,12 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 		return errors.Trace(err)
 	}
 
-	emptyRules := &RewriteRules{}
 	for _, file := range files {
 		fileReplica := file
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, nil, emptyRules)
+				return rc.fileImporter.Import(ectx, fileReplica, EmptyRewriteRule())
 			})
 	}
 	if err := eg.Wait(); err != nil {
