@@ -269,7 +269,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	if cfg.SwitchModeInterval <= 0 {
-		return berrors.ErrInvalidArgument.FastGen("--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
+		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
 	}
 
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {

@@ -389,7 +389,7 @@ func parseCompressionType(s string) (kvproto.CompressionType, error) {
 	case "zstd":
 		ct = kvproto.CompressionType_ZSTD
 	default:
-		return kvproto.CompressionType_UNKNOWN, berrors.ErrInvalidArgument.FastGen("invalid compression type '%s'", s)
+		return kvproto.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
 	}
 	return ct, nil
 }

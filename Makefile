@@ -5,13 +5,15 @@ PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
-
 BR_PKG := github.com/pingcap/br
 
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(shell git describe --tags --dirty)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
+
+GOBUILD := CGO_ENABLED=0 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
+GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(LDFLAGS)'
 
 ifeq ("$(WITH_RACE)", "1")
 	RACEFLAG = -race
@@ -20,20 +22,19 @@ endif
 all: build check test
 
 build:
-	GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
+	$(GOBUILD) $(RACEFLAG) -o bin/br
 
 build_for_integration_test: failpoint-enable
-	(GO111MODULE=on go test -c -cover -covermode=count \
+	($(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
-		-ldflags '$(LDFLAGS)'\
 		-o bin/br.test && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
+	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
 test: failpoint-enable
-	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags leak ./... || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools failpoint-enable
