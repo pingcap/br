@@ -34,9 +34,9 @@ func (s *testRestoreUtilSuite) TestParseQuoteName(c *C) {
 	c.Assert(schema, Equals, ".")
 	c.Assert(table, Equals, ".")
 
-	// schema, table = restore.ParseQuoteName("`.``.`.`.`")
-	// c.Assert(schema, Equals, ".`.")
-	// c.Assert(table, Equals, ".")
+	schema, table = restore.ParseQuoteName("`.``.`.`.`")
+	c.Assert(schema, Equals, ".`.")
+	c.Assert(table, Equals, ".")
 }
 
 func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {

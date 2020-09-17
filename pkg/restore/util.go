@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 )
 
 var recordPrefixSep = []byte("_r")
+var quoteRegexp = regexp.MustCompile("`(?:[^`]|``)*`")
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -527,22 +529,16 @@ func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 
 // ParseQuoteName parse the quote `db`.`table` name, and split it.
 func ParseQuoteName(name string) (string, string) {
-	schemaRune := make([]rune, 0, len(name))
-	for i, c := range name {
-		if i <= 1 {
-			schemaRune = append(schemaRune, c)
-			continue
-		}
-		if (name[i-2] != '`' || name[i+2] != '`') && (name[i-1] == '`' && name[i] == '.' && name[i+1] == '`') {
-			break
-		}
-		schemaRune = append(schemaRune, c)
+	names := quoteRegexp.FindAllStringSubmatch(name, -1)
+	if len(names) != 2 {
+		log.Fatal("failed to parse schema name",
+			zap.String("origin name", name),
+			zap.Any("parsed names", names))
 	}
-	schema := string(schemaRune)
-	table := unQuoteName(strings.TrimPrefix(name, schema+"."))
-	schema = unQuoteName(schema)
-	schema = strings.ReplaceAll(schema, "``", "`")
-	table = strings.ReplaceAll(table, "``", "`")
+	schema := names[0][0]
+	table := names[1][0]
+	schema = strings.ReplaceAll(unQuoteName(schema), "``", "`")
+	table = strings.ReplaceAll(unQuoteName(table), "``", "`")
 	return schema, table
 }
 
