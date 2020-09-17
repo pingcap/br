@@ -426,8 +426,6 @@ func enableTiDBConfig() {
 	// and we can handle alter drop pk/add pk DDLs with no impact
 	conf.AlterPrimaryKey = true
 
-	conf.Experimental.AllowsExpressionIndex = true
-
 	config.StoreGlobalConfig(conf)
 }
 

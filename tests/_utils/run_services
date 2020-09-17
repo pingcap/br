@@ -43,7 +43,8 @@ start_services() {
         if start_services_impl $@; then
             return 0
         fi
-        echo "Failed to start services, but let retry it after $(( $retry_time * 30 )) seconds"
+        stop_services
+        echo "Failed to start services, but let's retry it after $(( $retry_time * 30 )) seconds"
         sleep $(( $retry_time * 30 ))
     done
     echo "Failed to start services after retry $max_retry times."
