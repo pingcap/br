@@ -615,8 +615,7 @@ WriteAndIngest:
 	return err
 }
 
-func (l *LogClient) writeRows(ctx context.Context, rows cdclog.Rows) error {
-	kvs := rows.(cdclog.KvPairs)
+func (l *LogClient) writeRows(ctx context.Context, kvs cdclog.KvPairs) error {
 	log.Info("writeRows", zap.Int("kv count", len(kvs)))
 	if len(kvs) == 0 {
 		// shouldn't happen
@@ -704,8 +703,8 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 	log.Info("apply kv changes to tikv",
 		zap.Any("table", tableID),
 	)
-	dataKVs := cdclog.MakeRowsFromKvPairs(nil)
-	indexKVs := cdclog.MakeRowsFromKvPairs(nil)
+	dataKVs := cdclog.KvPairs{}
+	indexKVs := cdclog.KvPairs{}
 
 	tableBuffer := l.tableBuffers[tableID]
 	if tableBuffer.IsEmpty() {

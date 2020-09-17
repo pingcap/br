@@ -57,23 +57,11 @@ type Row interface {
 	// encoded row, and appends these parts into the existing buffers and
 	// checksums.
 	ClassifyAndAppend(
-		data *Rows,
+		data *KvPairs,
 		dataChecksum *KVChecksum,
-		indices *Rows,
+		indices *KvPairs,
 		indexChecksum *KVChecksum,
 	)
-}
-
-// Rows represents a collection of encoded rows.
-type Rows interface {
-	// SplitIntoChunks splits the rows into multiple consecutive parts, each
-	// part having total byte size less than `splitSize`. The meaning of "byte
-	// size" should be consistent with the value used in `Row.ClassifyAndAppend`.
-	SplitIntoChunks(splitSize int) []Rows
-
-	// Clear returns a new collection with empty content. It may share the
-	// capacity with the current instance. The typical usage is `x = x.Clear()`.
-	Clear() Rows
 }
 
 type tableKVEncoder struct {
@@ -148,20 +136,6 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 
 // KvPairs represents the slice of KvPair.
 type KvPairs []KvPair
-
-// MakeRowsFromKvPairs converts a KvPair slice into a Rows instance. This is
-// mainly used for testing only. The resulting Rows instance should only be used
-// for the importer backend.
-func MakeRowsFromKvPairs(pairs []KvPair) Rows {
-	return KvPairs(pairs)
-}
-
-// MakeRowFromKvPairs converts a KvPair slice into a Row instance. This is
-// mainly used for testing only. The resulting Row instance should only be used
-// for the importer backend.
-func MakeRowFromKvPairs(pairs []KvPair) Row {
-	return KvPairs(pairs)
-}
 
 // Close ...
 func (kvcodec *tableKVEncoder) Close() {
@@ -309,13 +283,13 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 
 // ClassifyAndAppend split KvPairs to data rows and index rows.
 func (kvs KvPairs) ClassifyAndAppend(
-	data *Rows,
+	data *KvPairs,
 	dataChecksum *KVChecksum,
-	indices *Rows,
+	indices *KvPairs,
 	indexChecksum *KVChecksum,
 ) {
-	dataKVs := (*data).(KvPairs)
-	indexKVs := (*indices).(KvPairs)
+	dataKVs := *data
+	indexKVs := *indices
 
 	for _, kv := range kvs {
 		if kv.Key[tablecodec.TableSplitKeyLen+1] == 'r' {
@@ -331,30 +305,7 @@ func (kvs KvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
-// SplitIntoChunks is used in lightning.
-func (kvs KvPairs) SplitIntoChunks(splitSize int) []Rows {
-	if len(kvs) == 0 {
-		return nil
-	}
-
-	res := make([]Rows, 0, 1)
-	i := 0
-	cumSize := 0
-
-	for j, pair := range kvs {
-		size := len(pair.Key) + len(pair.Val)
-		if i < j && cumSize+size > splitSize {
-			res = append(res, kvs[i:j])
-			i = j
-			cumSize = 0
-		}
-		cumSize += size
-	}
-
-	return append(res, kvs[i:])
-}
-
 // Clear resets the KvPairs.
-func (kvs KvPairs) Clear() Rows {
+func (kvs KvPairs) Clear() KvPairs {
 	return kvs[:0]
 }
