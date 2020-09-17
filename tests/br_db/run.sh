@@ -16,6 +16,7 @@
 set -eu
 DB="$TEST_NAME"
 
+old_conf=$(run_sql "show config where name = 'alter-primary-key'")
 run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
@@ -34,7 +35,6 @@ run_sql "CREATE TABLE $DB.usertable2 ( \
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
 
 run_sql "INSERT INTO $DB.usertable2 VALUES (\"c\", \"d\");"
-
 # backup db
 echo "backup start..."
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
@@ -55,5 +55,8 @@ fi
 echo "testing DDL query..."
 curl 127.0.0.1:10080/ddl/history | grep -E '/\*from\(br\)\*/CREATE TABLE'
 curl 127.0.0.1:10080/ddl/history | grep -E '/\*from\(br\)\*/CREATE DATABASE'
+
+# test whether we have changed the cluster config.
+test "$old_conf" = "$(run_sql "show config where name = 'alter-primary-key'")"
 
 run_sql "DROP DATABASE $DB;"
