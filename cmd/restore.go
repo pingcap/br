@@ -148,6 +148,8 @@ func newLogRestoreCommand() *cobra.Command {
 	}
 	task.DefineFilterFlags(command)
 	task.DefineLogRestoreFlags(command)
+	// TODO remove hidden if it's ready.
+	command.Hidden = true
 	return command
 }
 
