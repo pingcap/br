@@ -13,7 +13,7 @@
 
 package restore
 
-import "github.com/pingcap/br/pkg/restore/manual"
+import "github.com/pingcap/br/pkg/manual"
 
 const (
 	bigValueSize = 1 << 16 // 64K

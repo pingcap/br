@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog
+package decoder
 
 import (
 	"encoding/binary"
@@ -30,7 +30,7 @@ type batchSuite struct {
 	rowDecodeItem []*SortItem
 }
 
-var updateCols = map[string]column{
+var updateCols = map[string]Column{
 	// json.Number
 	"id":   {Type: 1, Value: "1"},
 	"name": {Type: 2, Value: "test"},

@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog
+package decoder
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// ColumnFlagType represents the type of column.
+// ColumnFlagType represents the type of Column.
 type ColumnFlagType uint64
 
 // ItemType represents the type of SortItem.
@@ -44,23 +44,24 @@ const (
 const (
 	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1
-	// BinaryFlag means the column charset is binary.
+	// BinaryFlag means the Column charset is binary.
 	BinaryFlag ColumnFlagType = 1 << ColumnFlagType(iota)
-	// HandleKeyFlag means the column is selected as the handle key.
+	// HandleKeyFlag means the Column is selected as the handle key.
 	HandleKeyFlag
-	// GeneratedColumnFlag means the column is a generated column.
+	// GeneratedColumnFlag means the Column is a generated Column.
 	GeneratedColumnFlag
-	// PrimaryKeyFlag means the column is primary key.
+	// PrimaryKeyFlag means the Column is primary key.
 	PrimaryKeyFlag
-	// UniqueKeyFlag means the column is unique key.
+	// UniqueKeyFlag means the Column is unique key.
 	UniqueKeyFlag
-	// MultipleKeyFlag means the column is multiple key.
+	// MultipleKeyFlag means the Column is multiple key.
 	MultipleKeyFlag
-	// NullableFlag means the column is nullable.
+	// NullableFlag means the Column is nullable.
 	NullableFlag
 )
 
-type column struct {
+// Column represents the column data define by cdc.
+type Column struct {
 	Type byte `json:"t"`
 
 	// WhereHandle is deprecated
@@ -70,7 +71,8 @@ type column struct {
 	Value       interface{}    `json:"v"`
 }
 
-func (c column) toDatum() (types.Datum, error) {
+// ToDatum encode Column to Datum.
+func (c Column) ToDatum() (types.Datum, error) {
 	var (
 		val interface{}
 		err error
@@ -93,7 +95,7 @@ func (c column) toDatum() (types.Datum, error) {
 	return types.NewDatum(val), nil
 }
 
-func formatColumnVal(c column) column {
+func formatColumnVal(c Column) Column {
 	switch c.Type {
 	case mysql.TypeTinyBlob, mysql.TypeMediumBlob,
 		mysql.TypeLongBlob, mysql.TypeBlob:
@@ -101,14 +103,14 @@ func formatColumnVal(c column) column {
 			var err error
 			c.Value, err = base64.StdEncoding.DecodeString(s)
 			if err != nil {
-				log.Fatal("invalid column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 		}
 	case mysql.TypeBit:
 		if s, ok := c.Value.(json.Number); ok {
 			intNum, err := s.Int64()
 			if err != nil {
-				log.Fatal("invalid column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 			c.Value = uint64(intNum)
 		}
@@ -152,9 +154,9 @@ func (m *MessageDDL) Decode(data []byte) error {
 
 // MessageRow represents the row changes in same commit ts.
 type MessageRow struct {
-	Update     map[string]column `json:"u,omitempty"`
-	PreColumns map[string]column `json:"p,omitempty"`
-	Delete     map[string]column `json:"d,omitempty"`
+	Update     map[string]Column `json:"u,omitempty"`
+	PreColumns map[string]Column `json:"p,omitempty"`
+	Delete     map[string]Column `json:"d,omitempty"`
 }
 
 // Encode the Row message.

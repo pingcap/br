@@ -19,15 +19,16 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 
+	decoder "github.com/pingcap/br/pkg"
 	"github.com/pingcap/br/pkg/storage"
 )
 
 // EventPuller pulls next event in ts order.
 type EventPuller struct {
-	ddlDecoder            *JSONEventBatchMixedDecoder
-	rowChangedDecoder     *JSONEventBatchMixedDecoder
-	currentDDLItem        *SortItem
-	currentRowChangedItem *SortItem
+	ddlDecoder            *decoder.JSONEventBatchMixedDecoder
+	rowChangedDecoder     *decoder.JSONEventBatchMixedDecoder
+	currentDDLItem        *decoder.SortItem
+	currentRowChangedItem *decoder.SortItem
 
 	schema string
 	table  string
@@ -49,9 +50,9 @@ func NewEventPuller(
 	rowChangedFiles []string,
 	storage storage.ExternalStorage) (*EventPuller, error) {
 	var (
-		ddlDecoder        *JSONEventBatchMixedDecoder
+		ddlDecoder        *decoder.JSONEventBatchMixedDecoder
 		ddlFileIndex      int
-		rowChangedDecoder *JSONEventBatchMixedDecoder
+		rowChangedDecoder *decoder.JSONEventBatchMixedDecoder
 		rowFileIndex      int
 	)
 	if len(ddlFiles) == 0 {
@@ -62,7 +63,7 @@ func NewEventPuller(
 			return nil, errors.Trace(err)
 		}
 		ddlFileIndex++
-		ddlDecoder, err = NewJSONEventBatchDecoder(data)
+		ddlDecoder, err = decoder.NewJSONEventBatchDecoder(data)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -76,7 +77,7 @@ func NewEventPuller(
 			return nil, errors.Trace(err)
 		}
 		rowFileIndex++
-		rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
+		rowChangedDecoder, err = decoder.NewJSONEventBatchDecoder(data)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -100,7 +101,7 @@ func NewEventPuller(
 
 // PullOneEvent pulls one event in ts order.
 // The Next event which can be DDL item or Row changed Item depends on next commit ts.
-func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
+func (e *EventPuller) PullOneEvent(ctx context.Context) (*decoder.SortItem, error) {
 	var err error
 	// ddl exists
 	if e.ddlDecoder != nil {
@@ -113,7 +114,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			}
 			if len(data) > 0 {
 				e.ddlFileIndex++
-				e.ddlDecoder, err = NewJSONEventBatchDecoder(data)
+				e.ddlDecoder, err = decoder.NewJSONEventBatchDecoder(data)
 				if err != nil {
 					return nil, errors.Trace(err)
 				}
@@ -121,7 +122,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		}
 		// set current DDL item first
 		if e.currentDDLItem == nil {
-			e.currentDDLItem, err = e.ddlDecoder.NextEvent(DDL)
+			e.currentDDLItem, err = e.ddlDecoder.NextEvent(decoder.DDL)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -138,26 +139,26 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 			}
 			if len(data) != 0 {
 				e.rowChangedFileIndex++
-				e.rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
+				e.rowChangedDecoder, err = decoder.NewJSONEventBatchDecoder(data)
 				if err != nil {
 					return nil, errors.Trace(err)
 				}
 			}
 		}
 		if e.currentRowChangedItem == nil {
-			e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
+			e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(decoder.RowChanged)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
 		}
 	}
 
-	var returnItem *SortItem
+	var returnItem *decoder.SortItem
 	switch {
 	case e.currentDDLItem != nil:
 		if e.currentDDLItem.LessThan(e.currentRowChangedItem) {
 			returnItem = e.currentDDLItem
-			e.currentDDLItem, err = e.ddlDecoder.NextEvent(DDL)
+			e.currentDDLItem, err = e.ddlDecoder.NextEvent(decoder.DDL)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -166,7 +167,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		fallthrough
 	case e.currentRowChangedItem != nil:
 		returnItem = e.currentRowChangedItem
-		e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(RowChanged)
+		e.currentRowChangedItem, err = e.rowChangedDecoder.NextEvent(decoder.RowChanged)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

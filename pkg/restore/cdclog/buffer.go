@@ -22,6 +22,8 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
+
+	decoder "github.com/pingcap/br/pkg"
 )
 
 // TableBuffer represents the kv buffer of this table.
@@ -112,10 +114,10 @@ func (t *TableBuffer) ReloadMeta(tbl table.Table, allocator autoid.Allocators) {
 	t.KvEncoder = nil
 }
 
-func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, error) {
+func (t *TableBuffer) translateToDatum(row map[string]decoder.Column) ([]types.Datum, error) {
 	cols := make([]types.Datum, 0, len(row))
 	for _, col := range t.colNames {
-		val, err := row[col].toDatum()
+		val, err := row[col].ToDatum()
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +128,8 @@ func (t *TableBuffer) translateToDatum(row map[string]column) ([]types.Datum, er
 }
 
 func (t *TableBuffer) appendRow(
-	row map[string]column,
-	item *SortItem,
+	row map[string]decoder.Column,
+	item *decoder.SortItem,
 	encodeFn func(row []types.Datum,
 		rowID int64,
 		columnPermutation []int) (Row, int, error),
@@ -147,13 +149,13 @@ func (t *TableBuffer) appendRow(
 }
 
 // Append appends the item to this buffer.
-func (t *TableBuffer) Append(item *SortItem) error {
+func (t *TableBuffer) Append(item *decoder.SortItem) error {
 	var err error
 	log.Debug("Append item to buffer",
 		zap.Stringer("table", t.tableInfo.Meta().Name),
 		zap.Any("item", item),
 	)
-	row := item.Data.(*MessageRow)
+	row := item.Data.(*decoder.MessageRow)
 
 	if t.KvEncoder == nil {
 		// lazy create kv encoder
