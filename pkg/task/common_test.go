@@ -4,7 +4,6 @@ package task
 
 import (
 	"fmt"
-	"reflect"
 
 	"github.com/pingcap/tidb/config"
 
