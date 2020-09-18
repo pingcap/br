@@ -337,7 +337,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	return rowChangeFiles, nil
 }
 
-func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region *RegionInfo) ([]*sst.SSTMeta, error) {
+func (l *LogClient) writeToTiKV(ctx context.Context, kvs utils.KvPairs, region *RegionInfo) ([]*sst.SSTMeta, error) {
 	firstKey := codec.EncodeBytes([]byte{}, kvs[0].Key)
 	lastKey := codec.EncodeBytes([]byte{}, kvs[len(kvs)-1].Key)
 
@@ -482,7 +482,7 @@ func (l *LogClient) Ingest(ctx context.Context, meta *sst.SSTMeta, region *Regio
 	return resp, nil
 }
 
-func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, region *RegionInfo) error {
+func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs utils.KvPairs, region *RegionInfo) error {
 	var startKey, endKey []byte
 	if len(region.Region.StartKey) > 0 {
 		_, startKey, _ = codec.DecodeBytes(region.Region.StartKey, []byte{})
@@ -549,7 +549,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs cdclog.KvPairs, re
 	return nil
 }
 
-func (l *LogClient) writeAndIngestPairs(tctx context.Context, kvs cdclog.KvPairs) error {
+func (l *LogClient) writeAndIngestPairs(tctx context.Context, kvs utils.KvPairs) error {
 	var (
 		regions []*RegionInfo
 		err     error
@@ -615,7 +615,7 @@ WriteAndIngest:
 	return err
 }
 
-func (l *LogClient) writeRows(ctx context.Context, kvs cdclog.KvPairs) error {
+func (l *LogClient) writeRows(ctx context.Context, kvs utils.KvPairs) error {
 	log.Info("writeRows", zap.Int("kv count", len(kvs)))
 	if len(kvs) == 0 {
 		// shouldn't happen
@@ -629,7 +629,7 @@ func (l *LogClient) writeRows(ctx context.Context, kvs cdclog.KvPairs) error {
 	})
 
 	// remove duplicate keys, and keep the last one
-	newKvs := make([]cdclog.KvPair, 0, len(kvs))
+	newKvs := make([]utils.KvPair, 0, len(kvs))
 	for i := 0; i < len(kvs); i++ {
 		if i == len(kvs)-1 {
 			newKvs = append(newKvs, kvs[i])
@@ -703,8 +703,8 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 	log.Info("apply kv changes to tikv",
 		zap.Any("table", tableID),
 	)
-	dataKVs := cdclog.KvPairs{}
-	indexKVs := cdclog.KvPairs{}
+	dataKVs := utils.KvPairs{}
+	indexKVs := utils.KvPairs{}
 
 	tableBuffer := l.tableBuffers[tableID]
 	if tableBuffer.IsEmpty() {
@@ -712,7 +712,7 @@ func (l *LogClient) applyKVChanges(ctx context.Context, tableID int64) error {
 		return nil
 	}
 
-	var dataChecksum, indexChecksum cdclog.KVChecksum
+	var dataChecksum, indexChecksum utils.KVChecksum
 	for _, p := range tableBuffer.KvPairs {
 		p.ClassifyAndAppend(&dataKVs, &dataChecksum, &indexKVs, &indexChecksum)
 	}

@@ -5,6 +5,8 @@ package task
 import (
 	"fmt"
 
+	"github.com/pingcap/tidb/config"
+
 	. "github.com/pingcap/check"
 	"github.com/spf13/pflag"
 )
@@ -36,4 +38,12 @@ func (*testCommonSuite) TestUrlNoQuery(c *C) {
 	field := flagToZapField(flag)
 	c.Assert(field.Key, Equals, flagStorage)
 	c.Assert(field.Interface.(fmt.Stringer).String(), Equals, "s3://some/what")
+}
+
+func (s *testCommonSuite) TestTiDBConfigUnchanged(c *C) {
+	cfg := config.GetGlobalConfig()
+	restoreConfig := enableTiDBConfig()
+	c.Assert(cfg, Not(DeepEquals), config.GetGlobalConfig())
+	restoreConfig()
+	c.Assert(cfg, DeepEquals, config.GetGlobalConfig())
 }

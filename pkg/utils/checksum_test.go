@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog_test
+package utils_test
 
 import (
 	"encoding/json"
@@ -19,7 +19,7 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/br/pkg/cdclog"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type testKVChcksumSuite struct{}
@@ -36,11 +36,11 @@ func TestKVChcksum(t *testing.T) {
 func uint64NotEqual(a uint64, b uint64) bool { return a != b }
 
 func (s *testKVChcksumSuite) TestChcksum(c *C) {
-	checksum := cdclog.NewKVChecksum(0)
+	checksum := utils.NewKVChecksum(0)
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
 	// checksum on nothing
-	checksum.Update([]KvPair{})
+	checksum.Update([]utils.KvPair{})
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
 	checksum.Update(nil)
@@ -49,7 +49,7 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 	// checksum on real data
 	excpectChecksum := uint64(4850203904608948940)
 
-	kvs := []KvPair{
+	kvs := []utils.KvPair{
 		{
 			Key: []byte("Cop"),
 			Val: []byte("PingCAP"),
@@ -79,9 +79,9 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 
 func (s *testKVChcksumSuite) TestChecksumJSON(c *C) {
 	testStruct := &struct {
-		Checksum cdclog.KVChecksum
+		Checksum utils.KVChecksum
 	}{
-		Checksum: cdclog.MakeKVChecksum(123, 456, 7890),
+		Checksum: utils.MakeKVChecksum(123, 456, 7890),
 	}
 
 	res, err := json.Marshal(testStruct)
