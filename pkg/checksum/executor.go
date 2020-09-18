@@ -118,10 +118,14 @@ func buildRequest(
 				}
 			}
 			if oldIndexInfo == nil {
-				log.Panic("index not found",
-					zap.Reflect("table", tableInfo),
-					zap.Reflect("oldTable", oldTable.Info),
-					zap.Stringer("index", indexInfo.Name))
+				log.Panic("index not found in origin table, "+
+					"please check the restore table has the same index info with origin table",
+					zap.Int64("table id", tableID),
+					zap.Stringer("table name", tableInfo.Name),
+					zap.Int64("origin table id", oldTableID),
+					zap.Stringer("table name", tableInfo.Name),
+					zap.Stringer("origin table name", oldTable.Info.Name),
+					zap.Stringer("index name", indexInfo.Name))
 			}
 		}
 		req, err = buildIndexRequest(
