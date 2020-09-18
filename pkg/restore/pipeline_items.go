@@ -176,9 +176,8 @@ type BatchSender interface {
 }
 
 type tikvSender struct {
-	client         *Client
-	updateCh       glue.Progress
-	rejectStoreMap map[uint64]bool
+	client   *Client
+	updateCh glue.Progress
 
 	sink TableSink
 	inCh chan<- DrainResult
@@ -202,17 +201,15 @@ func NewTiKVSender(
 	cli *Client,
 	updateCh glue.Progress,
 ) (BatchSender, error) {
-	rejectStoreMap := make(map[uint64]bool)
 
 	inCh := make(chan DrainResult, defaultChannelSize)
 	midCh := make(chan DrainResult, defaultChannelSize)
 
 	sender := &tikvSender{
-		client:         cli,
-		updateCh:       updateCh,
-		rejectStoreMap: rejectStoreMap,
-		inCh:           inCh,
-		wg:             new(sync.WaitGroup),
+		client:   cli,
+		updateCh: updateCh,
+		inCh:     inCh,
+		wg:       new(sync.WaitGroup),
 	}
 
 	sender.wg.Add(2)
@@ -263,7 +260,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 				return
 			}
 			files := result.Files()
-			if err := b.client.RestoreFiles(files, result.RewriteRules, b.rejectStoreMap, b.updateCh); err != nil {
+			if err := b.client.RestoreFiles(files, result.RewriteRules, b.updateCh); err != nil {
 				b.sink.EmitError(err)
 				return
 			}
