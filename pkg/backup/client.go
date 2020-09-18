@@ -808,7 +808,7 @@ func SendBackup(
 					zap.Uint64("StoreID", storeID))
 				break
 			}
-			return errors.Trace(err)
+			return errors.Annotatef(err, "Store: %d close the connection", storeID)
 		}
 		// TODO: handle errors in the resp.
 		log.Info("range backuped",
