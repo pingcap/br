@@ -19,7 +19,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/br/pkg/restore/cdclog"
+	"github.com/pingcap/br/pkg/cdclog"
 )
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)

@@ -19,7 +19,7 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/br/pkg/restore/cdclog"
+	"github.com/pingcap/br/pkg/cdclog"
 	"github.com/pingcap/br/pkg/utils"
 )
 
