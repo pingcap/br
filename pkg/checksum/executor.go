@@ -123,7 +123,6 @@ func buildRequest(
 					zap.Int64("table id", tableID),
 					zap.Stringer("table name", tableInfo.Name),
 					zap.Int64("origin table id", oldTableID),
-					zap.Stringer("table name", tableInfo.Name),
 					zap.Stringer("origin table name", oldTable.Info.Name),
 					zap.Stringer("index name", indexInfo.Name))
 			}
