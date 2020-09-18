@@ -630,7 +630,7 @@ func (bc *Client) fineGrainedBackup(
 					break selectLoop
 				}
 				if resp.Error != nil {
-					log.Fatal("unexpected backup error",
+					log.Panic("unexpected backup error",
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
@@ -660,6 +660,7 @@ func (bc *Client) fineGrainedBackup(
 }
 
 func onBackupResponse(
+	storeID uint64,
 	bo *tikv.Backoffer,
 	backupTS uint64,
 	lockResolver *tikv.LockResolver,
@@ -687,7 +688,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "%v", v)
+		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -699,20 +700,20 @@ func onBackupResponse(
 			regionErr.StaleCommand != nil ||
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "%v", v)
+			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
 		}
 		log.Warn("backup occur region error",
-			zap.Reflect("RegionError", regionErr))
+			zap.Reflect("RegionError", regionErr),
+			zap.Uint64("storeID", storeID))
 		// TODO: a better backoff.
 		backoffMs = 1000 /* 1s */
 		return nil, backoffMs, nil
 	case *kvproto.Error_ClusterIdError:
-		log.Error("backup occur cluster ID error", zap.Reflect("error", v))
-		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", resp.Error)
+		log.Error("backup occur cluster ID error", zap.Reflect("error", v), zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
-		log.Error("backup occur unknown error",
-			zap.String("error", resp.Error.GetMsg()))
-		return nil, 0, errors.Annotatef(berrors.ErrKVUnknown, "%v", resp.Error)
+		log.Error("backup occur unknown error", zap.String("error", resp.Error.GetMsg()), zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Annotatef(berrors.ErrKVUnknown, "%v on storeID: %d", resp.Error, storeID)
 	}
 }
 
@@ -758,7 +759,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *kvproto.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(bo, backupTS, lockResolver, resp)
+				onBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
