@@ -154,7 +154,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
 	// pre-set TiDB config for restore
-	enableTiDBConfig()
+	restoreDBConfig := enableTiDBConfig()
+	defer restoreDBConfig()
 
 	// execute DDL first
 	err = client.ExecDDLs(ddlJobs)
@@ -413,21 +414,22 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	return nil
 }
 
-func enableTiDBConfig() {
-	// set max-index-length before execute DDLs and create tables
-	// we set this value to max(3072*4), otherwise we might not restore table
-	// when upstream and downstream both set this value greater than default(3072)
-	conf := config.GetGlobalConfig()
-	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
-	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+// enableTiDBConfig tweaks some of configs of TiDB to make the restore progress go well.
+// return a function that could restore the config to origin.
+func enableTiDBConfig() func() {
+	restoreConfig := config.RestoreFunc()
+	config.UpdateGlobal(func(conf *config.Config) {
+		// set max-index-length before execute DDLs and create tables
+		// we set this value to max(3072*4), otherwise we might not restore table
+		// when upstream and downstream both set this value greater than default(3072)
+		conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+		log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
 
-	// we need set this to true, since all create table DDLs will create with tableInfo
-	// and we can handle alter drop pk/add pk DDLs with no impact
-	conf.AlterPrimaryKey = true
-
-	conf.Experimental.AllowsExpressionIndex = true
-
-	config.StoreGlobalConfig(conf)
+		// we need set this to true, since all create table DDLs will create with tableInfo
+		// and we can handle alter drop pk/add pk DDLs with no impact
+		conf.AlterPrimaryKey = true
+	})
+	return restoreConfig
 }
 
 // restoreTableStream blocks current goroutine and restore a stream of tables,
