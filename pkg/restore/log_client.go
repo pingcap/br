@@ -30,8 +30,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pingcap/br/pkg"
-	"github.com/pingcap/br/pkg/restore/cdclog"
+	"github.com/pingcap/br/pkg/cdclog"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -140,7 +139,7 @@ func (l *LogClient) tsInRange(ts uint64) bool {
 	return l.startTs <= ts && ts <= l.endTs
 }
 
-func (l *LogClient) shouldFilter(item *decoder.SortItem) bool {
+func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
 	if val, ok := l.dropTSMap.Load(item.Schema); ok {
 		if val.(uint64) > item.TS {
 			return true
@@ -197,7 +196,7 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	return ddlFiles, nil
 }
 
-func (l *LogClient) isDBRelatedDDL(ddl *decoder.MessageDDL) bool {
+func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
 	switch ddl.Type {
 	case model.ActionDropSchema, model.ActionCreateSchema, model.ActionModifySchemaCharsetAndCollate:
 		return true
@@ -216,16 +215,16 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
-		eventDecoder, err := decoder.NewJSONEventBatchDecoder(data)
+		eventDecoder, err := cdclog.NewJSONEventBatchDecoder(data)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		for eventDecoder.HasNext() {
-			item, err := eventDecoder.NextEvent(decoder.DDL)
+			item, err := eventDecoder.NextEvent(cdclog.DDL)
 			if err != nil {
 				return errors.Trace(err)
 			}
-			ddl := item.Data.(*decoder.MessageDDL)
+			ddl := item.Data.(*cdclog.MessageDDL)
 			log.Debug("[doDBDDLJob] parse ddl", zap.String("query", ddl.Query))
 			if l.isDBRelatedDDL(ddl) && l.tsInRange(item.TS) {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
@@ -387,7 +386,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs cdclog.KvPairs, region 
 		requests = append(requests, req)
 	}
 
-	bytesBuf := NewBytesBuffer()
+	bytesBuf := utils.NewBytesBuffer()
 	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, l.concurrencyCfg.BatchWriteKVPairs)
 	count := 0
@@ -646,7 +645,7 @@ func (l *LogClient) writeRows(ctx context.Context, kvs cdclog.KvPairs) error {
 	return l.writeAndIngestPairs(ctx, newKvs)
 }
 
-func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *decoder.SortItem) error {
+func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdclog.SortItem) error {
 	err := dom.Reload()
 	if err != nil {
 		return errors.Trace(err)
@@ -780,10 +779,10 @@ func (l *LogClient) restoreTableFromPuller(
 		}
 
 		switch item.ItemType {
-		case decoder.DDL:
+		case cdclog.DDL:
 			name := l.meta.Names[tableID]
 			schema, table := ParseQuoteName(name)
-			ddl := item.Data.(*decoder.MessageDDL)
+			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
 			if !(schema == item.Schema && (table == item.Table || l.isDBRelatedDDL(ddl))) {
 				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
@@ -830,7 +829,7 @@ func (l *LogClient) restoreTableFromPuller(
 				return errors.Trace(err)
 			}
 
-		case decoder.RowChanged:
+		case cdclog.RowChanged:
 			if l.tableBuffers[tableID].TableInfo() == nil {
 				err = l.reloadTableMeta(dom, tableID, item)
 				if err != nil {

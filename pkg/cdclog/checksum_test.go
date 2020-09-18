@@ -19,7 +19,7 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/br/pkg/restore/cdclog"
+	"github.com/pingcap/br/pkg/cdclog"
 )
 
 type testKVChcksumSuite struct{}
@@ -40,7 +40,7 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
 	// checksum on nothing
-	checksum.Update([]cdclog.KvPair{})
+	checksum.Update([]KvPair{})
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
 	checksum.Update(nil)
@@ -49,7 +49,7 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 	// checksum on real data
 	excpectChecksum := uint64(4850203904608948940)
 
-	kvs := []cdclog.KvPair{
+	kvs := []KvPair{
 		{
 			Key: []byte("Cop"),
 			Val: []byte("PingCAP"),
