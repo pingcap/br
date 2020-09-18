@@ -43,7 +43,7 @@ func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 		case 0:
 			return status.Error(codes.Unavailable, "transport is closing")
 		case 1:
-			return berrors.ErrEpochNotMatch
+			return berrors.ErrKVEpochNotMatch
 		case 2:
 			return nil
 		}
@@ -63,20 +63,20 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 		case 0:
 			return gRPCError
 		case 1:
-			return berrors.ErrEpochNotMatch
+			return berrors.ErrKVEpochNotMatch
 		case 2:
-			return berrors.ErrDownloadFailed
+			return berrors.ErrKVDownloadFailed
 		case 3:
-			return berrors.ErrRangeIsEmpty
+			return berrors.ErrKVRangeIsEmpty
 		}
 		return nil
 	}, backoffer)
 	c.Assert(counter, Equals, 4)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
 		gRPCError,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrDownloadFailed,
-		berrors.ErrRangeIsEmpty,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVDownloadFailed,
+		berrors.ErrKVRangeIsEmpty,
 	})
 }
 
@@ -99,19 +99,19 @@ func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
-		return berrors.ErrEpochNotMatch
+		return berrors.ErrKVEpochNotMatch
 	}, backoffer)
 	c.Assert(counter, Equals, 10)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
-		berrors.ErrEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
+		berrors.ErrKVEpochNotMatch,
 	})
 }

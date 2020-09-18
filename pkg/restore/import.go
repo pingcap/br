@@ -230,7 +230,7 @@ func (importer *FileImporter) Import(
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
 					switch errors.Cause(e) {
-					case berrors.ErrRewriteRuleNotFound, berrors.ErrRangeIsEmpty:
+					case berrors.ErrKVRewriteRuleNotFound, berrors.ErrKVRangeIsEmpty:
 						// Skip this region
 						log.Warn("download file skipped",
 							utils.ZapFile(file),
@@ -286,7 +286,7 @@ func (importer *FileImporter) Import(
 						zap.Stringer("newLeader", newInfo.Leader))
 
 					if !checkRegionEpoch(newInfo, info) {
-						errIngest = errors.AddStack(berrors.ErrEpochNotMatch)
+						errIngest = errors.Trace(berrors.ErrKVEpochNotMatch)
 						break ingestRetry
 					}
 					ingestResp, errIngest = importer.ingestSST(ctx, downloadMeta, newInfo)
@@ -294,14 +294,14 @@ func (importer *FileImporter) Import(
 					// TODO handle epoch not match error
 					//      1. retry download if needed
 					//      2. retry ingest
-					errIngest = errors.AddStack(berrors.ErrEpochNotMatch)
+					errIngest = errors.Trace(berrors.ErrKVEpochNotMatch)
 					break ingestRetry
 				case errPb.KeyNotInRegion != nil:
-					errIngest = errors.AddStack(berrors.ErrKeyNotInRegion)
+					errIngest = errors.Trace(berrors.ErrKVKeyNotInRegion)
 					break ingestRetry
 				default:
 					// Other errors like `ServerIsBusy`, `RegionNotFound`, etc. should be retryable
-					errIngest = errors.Annotatef(berrors.ErrIngestFailed, "ingest error %s", errPb)
+					errIngest = errors.Annotatef(berrors.ErrKVIngestFailed, "ingest error %s", errPb)
 					break ingestRetry
 				}
 			}
@@ -347,7 +347,7 @@ func (importer *FileImporter) downloadSST(
 	}
 	regionRule := matchNewPrefix(key, rewriteRules)
 	if regionRule == nil {
-		return nil, errors.Trace(berrors.ErrRewriteRuleNotFound)
+		return nil, errors.Trace(berrors.ErrKVRewriteRuleNotFound)
 	}
 	rule := import_sstpb.RewriteRule{
 		OldKeyPrefix: encodeKeyPrefix(regionRule.GetOldKeyPrefix()),
@@ -373,10 +373,10 @@ func (importer *FileImporter) downloadSST(
 			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
-			return nil, errors.Annotate(berrors.ErrDownloadFailed, resp.GetError().GetMessage())
+			return nil, errors.Annotate(berrors.ErrKVDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
-			return nil, errors.Trace(berrors.ErrRangeIsEmpty)
+			return nil, errors.Trace(berrors.ErrKVRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = truncateTS(resp.Range.GetStart())
@@ -407,7 +407,7 @@ func (importer *FileImporter) downloadRawKVSST(
 		sstMeta.EndKeyExclusive = true
 	}
 	if bytes.Compare(sstMeta.Range.GetStart(), sstMeta.Range.GetEnd()) > 0 {
-		return nil, errors.Trace(berrors.ErrRangeIsEmpty)
+		return nil, errors.Trace(berrors.ErrKVRangeIsEmpty)
 	}
 
 	req := &import_sstpb.DownloadRequest{
@@ -428,10 +428,10 @@ func (importer *FileImporter) downloadRawKVSST(
 			return nil, errors.Trace(err)
 		}
 		if resp.GetError() != nil {
-			return nil, errors.Annotate(berrors.ErrDownloadFailed, resp.GetError().GetMessage())
+			return nil, errors.Annotate(berrors.ErrKVDownloadFailed, resp.GetError().GetMessage())
 		}
 		if resp.GetIsEmpty() {
-			return nil, errors.Trace(berrors.ErrRangeIsEmpty)
+			return nil, errors.Trace(berrors.ErrKVRangeIsEmpty)
 		}
 	}
 	sstMeta.Range.Start = resp.Range.GetStart()

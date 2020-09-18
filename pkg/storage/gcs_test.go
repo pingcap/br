@@ -62,8 +62,8 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	opts := fakestorage.Options{
 		NoListener: true,
 	}
-	server, err := fakestorage.NewServerWithOptions(opts)
-	c.Assert(err, IsNil)
+	server, err1 := fakestorage.NewServerWithOptions(opts)
+	c.Assert(err1, IsNil)
 	bucketName := "testbucket"
 	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
 
@@ -152,7 +152,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), true)
+		_, err := newGCSStorageWithHTTPClient(ctx, gcs, server.HTTPClient(), true)
 		c.Assert(err, NotNil)
 	}
 }

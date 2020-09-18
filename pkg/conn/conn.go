@@ -71,8 +71,8 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	url := fmt.Sprintf("%s/%s", u, prefix)
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	urlStr := fmt.Sprintf("%s/%s", u, prefix)
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -83,7 +83,7 @@ func pdRequest(
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, url)
+		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, urlStr)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -160,7 +160,6 @@ func NewMgr(
 ) (*Mgr, error) {
 	addrs := strings.Split(pdAddrs, ",")
 
-	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
 	cli := &http.Client{Timeout: 30 * time.Second}
 	if tlsConf != nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -168,6 +167,7 @@ func NewMgr(
 		cli.Transport = transport
 	}
 
+	var err error
 	processedAddrs := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
 		if addr != "" && !strings.HasPrefix("http", addr) {
@@ -178,13 +178,13 @@ func NewMgr(
 			}
 		}
 		processedAddrs = append(processedAddrs, addr)
-		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-		if failure == nil {
+		_, err = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
+		if err == nil {
 			break
 		}
 	}
-	if failure != nil {
-		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
+	if err != nil {
+		return nil, errors.Annotatef(err, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
 	maxCallMsgSize := []grpc.DialOption{
@@ -342,7 +342,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	)
 	cancel()
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, errors.Trace(err)
 	}
 	// Cache the conn.
 	mgr.grpcClis.clis[storeID] = conn

@@ -283,7 +283,7 @@ func (c *pdClient) sendSplitRegionRequest(
 						return nil, multierr.Append(splitErrors, findLeaderErr)
 					}
 					if !checkRegionEpoch(newRegionInfo, regionInfo) {
-						return nil, multierr.Append(splitErrors, berrors.ErrEpochNotMatch)
+						return nil, multierr.Append(splitErrors, berrors.ErrKVEpochNotMatch)
 					}
 					log.Info("find new leader", zap.Uint64("new leader", newRegionInfo.Leader.Id))
 					regionInfo = newRegionInfo
@@ -380,16 +380,16 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 	req, _ := http.NewRequestWithContext(ctx, "GET", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return rule, errors.WithStack(err)
+		return rule, errors.Trace(err)
 	}
 	b, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return rule, errors.WithStack(err)
+		return rule, errors.Trace(err)
 	}
 	res.Body.Close()
 	err = json.Unmarshal(b, &rule)
 	if err != nil {
-		return rule, errors.WithStack(err)
+		return rule, errors.Trace(err)
 	}
 	return rule, nil
 }
@@ -403,7 +403,7 @@ func (c *pdClient) SetPlacementRule(ctx context.Context, rule placement.Rule) er
 	req, _ := http.NewRequestWithContext(ctx, "POST", addr+path.Join("/pd/api/v1/config/rule"), bytes.NewReader(m))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.WithStack(err)
+		return errors.Trace(err)
 	}
 	return errors.Trace(res.Body.Close())
 }
@@ -416,7 +416,7 @@ func (c *pdClient) DeletePlacementRule(ctx context.Context, groupID, ruleID stri
 	req, _ := http.NewRequestWithContext(ctx, "DELETE", addr+path.Join("/pd/api/v1/config/rule", groupID, ruleID), nil)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return errors.WithStack(err)
+		return errors.Trace(err)
 	}
 	return errors.Trace(res.Body.Close())
 }
@@ -437,7 +437,7 @@ func (c *pdClient) SetStoresLabel(
 		)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return errors.WithStack(err)
+			return errors.Trace(err)
 		}
 		err = res.Body.Close()
 		if err != nil {

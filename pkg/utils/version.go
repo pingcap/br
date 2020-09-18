@@ -70,16 +70,17 @@ func removeVAndHash(v string) string {
 func checkTiFlashVersion(store *metapb.Store) error {
 	flash, err := semver.NewVersion(removeVAndHash(store.Version))
 	if err != nil {
-		return errors.Annotatef(err, "failed to parse TiFlash@[%s] version %s", store.GetPeerAddress(), store.Version)
+		return errors.Annotatef(berrors.ErrUnknown, "failed to parse TiFlash %s version %s, err %s",
+			store.GetPeerAddress(), store.Version, err)
 	}
 
 	if flash.Major == 3 && flash.LessThan(*compatibleTiFlashMajor3) {
-		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+		return errors.Annotatef(berrors.ErrVersionMismatch, "incompatible TiFlash %s version %s, try update it to %s",
 			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor3)
 	}
 
 	if flash.Major == 4 && flash.LessThan(*compatibleTiFlashMajor4) {
-		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+		return errors.Annotatef(berrors.ErrVersionMismatch, "incompatible TiFlash %s version %s, try update it to %s",
 			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor4)
 	}
 

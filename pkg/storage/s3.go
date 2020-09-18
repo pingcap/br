@@ -461,7 +461,7 @@ func (rs *S3Storage) open(
 	}
 
 	if startOffset != r.start || (endOffset != 0 && endOffset != r.end+1) {
-		return nil, r, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+		return nil, r, errors.Annotatef(berrors.ErrStorageUnknown, "open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
 
@@ -474,11 +474,11 @@ var (
 
 func parseRangeInfo(info *string) (rangeInfo, error) {
 	if info == nil || len(*info) == 0 {
-		return rangeInfo{}, errors.New("ContentRange is empty")
+		return rangeInfo{}, errors.Annotate(berrors.ErrStorageUnknown, "ContentRange is empty")
 	}
 	subMatches := contentRangeRegex.FindStringSubmatch(*info)
 	if len(subMatches) != 4 {
-		return rangeInfo{}, errors.Errorf("invalid content range: '%s'", *info)
+		return rangeInfo{}, errors.Annotatef(berrors.ErrStorageUnknown, "invalid content range: '%s'", *info)
 	}
 
 	start, err := strconv.ParseInt(subMatches[1], 10, 64)
@@ -541,7 +541,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		realOffset = r.rangeInfo.size + offset
 	default:
-		return 0, errors.Errorf("Seek: invalid whence '%d'", whence)
+		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
 	}
 
 	if realOffset == r.pos {

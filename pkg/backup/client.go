@@ -650,8 +650,8 @@ func (bc *Client) fineGrainedBackup(
 		max.mu.Unlock()
 		if ms != 0 {
 			log.Info("handle fine grained", zap.Int("backoffMs", ms))
-			err := bo.BackoffWithMaxSleep(2, /* magic boTxnLockFast */
-				ms, errors.New("TODO: attach error"))
+			err := bo.BackoffWithMaxSleep(2, /* 2 stands for boTxnLockFast */
+				ms, berrors.ErrBackupGCSafepointExceeded)
 			if err != nil {
 				return errors.Trace(err)
 			}

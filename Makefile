@@ -3,7 +3,7 @@ PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD := $(shell pwd)
 PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
-GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
+CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
@@ -72,8 +72,8 @@ check: tools check-all
 static: export GO111MODULE=on
 static: tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
-	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
+	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 
 	@# why some lints are disabled?
 	@#   gochecknoglobals - disabled because we do use quite a lot of globals
@@ -102,6 +102,12 @@ static: tools
 		--disable goerr113 \
 		--disable lll \
 		$$($(PACKAGE_DIRECTORIES))
+	@# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
+	@# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
+	@# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
+	@# TODO: allow more APIs when we need to support "workaound".
+	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
+		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
 
 lint: tools
 	@echo "linting"

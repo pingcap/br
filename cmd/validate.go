@@ -20,6 +20,7 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -111,7 +112,7 @@ func newCheckSumCommand() *cobra.Command {
 					}
 					s := sha256.Sum256(data)
 					if !bytes.Equal(s[:], file.Sha256) {
-						return errors.Errorf(`
+						return errors.Annotatef(berrors.ErrBackupChecksumMismatch, `
 backup data checksum failed: %s may be changed
 calculated sha256 is %s,
 origin sha256 is %s`,

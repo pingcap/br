@@ -459,11 +459,11 @@ func (r *testStorageSuite) TestS3Range(c *C) {
 	c.Assert(ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
 
 	_, err = parseRangeInfo(nil)
-	c.Assert(err, ErrorMatches, "ContentRange is empty")
+	c.Assert(err, ErrorMatches, "ContentRange is empty.*")
 
 	badRange := "bytes "
 	_, err = parseRangeInfo(&badRange)
-	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '")
+	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '.*")
 }
 
 type mockS3Handler struct {
