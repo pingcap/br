@@ -440,7 +440,7 @@ func (bc *Client) BackupRanges(
 		}
 		close(errCh)
 	}()
-	
+
 	for err := range errCh {
 		if err != nil {
 			return nil, err
