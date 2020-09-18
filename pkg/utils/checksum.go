@@ -11,13 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog
+package utils
 
 import (
 	"fmt"
 	"hash/crc64"
 
 	"go.uber.org/zap/zapcore"
+
+	"github.com/pingcap/br/pkg/restore/cdclog"
 )
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)
@@ -46,7 +48,7 @@ func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) KVChecksum {
 }
 
 // UpdateOne add kv with its values.
-func (c *KVChecksum) UpdateOne(kv KvPair) {
+func (c *KVChecksum) UpdateOne(kv cdclog.KvPair) {
 	sum := crc64.Update(0, ecmaTable, kv.Key)
 	sum = crc64.Update(sum, ecmaTable, kv.Val)
 
@@ -56,7 +58,7 @@ func (c *KVChecksum) UpdateOne(kv KvPair) {
 }
 
 // Update add batch of kvs with their values.
-func (c *KVChecksum) Update(kvs []KvPair) {
+func (c *KVChecksum) Update(kvs []cdclog.KvPair) {
 	var (
 		checksum uint64
 		sum      uint64
