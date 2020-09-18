@@ -8,7 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"path"
+	"reflect"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -26,10 +27,10 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-// NewValidateCommand return a debug subcommand.
-func NewValidateCommand() *cobra.Command {
+// NewDebugCommand return a debug subcommand.
+func NewDebugCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:          "validate <subcommand>",
+		Use:          "debug <subcommand>",
 		Short:        "commands to check/debug backup data",
 		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
@@ -40,6 +41,8 @@ func NewValidateCommand() *cobra.Command {
 			task.LogArguments(c)
 			return nil
 		},
+		// To be compatible with older BR.
+		Aliases: []string{"validate"},
 	}
 	meta.AddCommand(newCheckSumCommand())
 	meta.AddCommand(newBackupMetaCommand())
@@ -247,26 +250,38 @@ func decodeBackupMetaCommand() *cobra.Command {
 				return err
 			}
 
-			backupMetaJSON, err := json.Marshal(backupMeta)
+			fieldName, err := cmd.Flags().GetString("field")
 			if err != nil {
+				// No field flag, write backupmeta to external storage in JSON format.
+				backupMetaJSON, err := json.Marshal(backupMeta)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+				if err == nil {
+					cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, utils.MetaJSONFile))
+				}
 				return errors.Trace(err)
 			}
 
-			err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			field, err := cmd.Flags().GetString("field")
-			if err != nil {
-				log.Error("get field flag failed", zap.Error(err))
-				return err
-			}
-			switch field {
+			switch fieldName {
+			// To be compatible with older BR.
 			case "start-version":
-				fmt.Println(backupMeta.StartVersion)
+				fieldName = "StartVersion"
 			case "end-version":
-				fmt.Println(backupMeta.EndVersion)
+				fieldName = "EndVersion"
+			}
+
+			_, found := reflect.TypeOf(*backupMeta).FieldByName(fieldName)
+			if !found {
+				cmd.Printf("field '%s' not found\n", fieldName)
+				return nil
+			}
+			field := reflect.ValueOf(*backupMeta).FieldByName(fieldName)
+			if !field.CanInterface() {
+				cmd.Printf("field '%s' can not print\n", fieldName)
+			} else {
+				cmd.Printf("%v\n", field.Interface())
 			}
 			return nil
 		},
