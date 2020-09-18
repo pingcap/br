@@ -440,11 +440,7 @@ func (bc *Client) BackupRanges(
 		}
 		close(errCh)
 	}()
-
-	// Check GC safepoint every 5s.
-	t := time.NewTicker(time.Second * 5)
-	defer t.Stop()
-
+	
 	for err := range errCh {
 		if err != nil {
 			return nil, err
