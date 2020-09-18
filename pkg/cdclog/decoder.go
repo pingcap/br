@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // ColumnFlagType represents the type of Column.
@@ -268,7 +270,7 @@ func NewJSONEventBatchDecoder(data []byte) (*JSONEventBatchMixedDecoder, error) 
 	version := binary.BigEndian.Uint64(data[:8])
 	data = data[8:]
 	if version != BatchVersion1 {
-		return nil, errors.New("unexpected key format version")
+		return nil, errors.Annotate(berrors.ErrPITRInvalidCDCLogFormat, "unexpected key format version")
 	}
 	return &JSONEventBatchMixedDecoder{
 		mixedBytes: data,
