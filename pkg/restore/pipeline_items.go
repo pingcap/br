@@ -201,7 +201,6 @@ func NewTiKVSender(
 	cli *Client,
 	updateCh glue.Progress,
 ) (BatchSender, error) {
-
 	inCh := make(chan DrainResult, defaultChannelSize)
 	midCh := make(chan DrainResult, defaultChannelSize)
 
