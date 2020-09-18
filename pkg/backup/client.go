@@ -400,8 +400,6 @@ func (bc *Client) BackupRanges(
 	updateCh glue.Progress,
 ) ([]*kvproto.File, error) {
 	errCh := make(chan error)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
@@ -477,8 +475,6 @@ func (bc *Client) BackupRange(
 		zap.Stringer("EndKey", utils.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
@@ -491,10 +487,10 @@ func (bc *Client) BackupRange(
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
 
-	push := newPushDown(ctx, bc.mgr, len(allStores))
+	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, updateCh)
 	if err != nil {
 		return nil, err
 	}
@@ -801,8 +797,6 @@ func SendBackup(
 		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
 		zap.Uint64("storeID", storeID),
 	)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
 		log.Error("fail to backup", zap.Uint64("StoreID", storeID))
