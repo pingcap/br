@@ -389,7 +389,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 	)
 	for retry := 0; retry < resetRetryTimes; retry++ {
 		conn, err = mgr.getGrpcConnLocked(ctx, storeID)
-		if err != nil && retry < resetRetryTimes {
+		if err != nil {
 			log.Warn("failed to reset grpc connection, retry it",
 				zap.Int("retry time", retry), zap.Error(err))
 			time.Sleep(time.Duration(retry+3) * time.Second)
@@ -398,7 +398,10 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 		mgr.grpcClis.clis[storeID] = conn
 		break
 	}
-	return backup.NewBackupClient(conn), err
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return backup.NewBackupClient(conn), nil
 }
 
 // GetPDClient returns a pd client.

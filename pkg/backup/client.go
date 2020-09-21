@@ -811,13 +811,9 @@ backupLoop:
 		)
 		bcli, err := client.Backup(ctx, &req)
 		if err != nil {
-			if isRetryableError(err) {
-				continue
-			} else {
-				log.Error("fail to backup", zap.Uint64("StoreID", storeID),
-					zap.Int("retry time", retry))
-				return err
-			}
+			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
+				zap.Int("retry time", retry))
+			return errors.Trace(err)
 		}
 
 		for {
@@ -957,5 +953,5 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 
 // isRetryableError represents whether we should retry reset grpc connection
 func isRetryableError(err error) bool {
-	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
+	return status.Code(err) == codes.Unavailable
 }
