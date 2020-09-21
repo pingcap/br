@@ -259,7 +259,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 				return
 			}
 			files := result.Files()
-			if err := b.client.RestoreFiles(files, result.RewriteRules, b.updateCh); err != nil {
+			if err := b.client.RestoreFiles(ctx, files, result.RewriteRules, b.updateCh); err != nil {
 				b.sink.EmitError(err)
 				return
 			}
