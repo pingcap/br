@@ -400,8 +400,6 @@ func (bc *Client) BackupRanges(
 	updateCh glue.Progress,
 ) ([]*kvproto.File, error) {
 	errCh := make(chan error)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
@@ -441,10 +439,6 @@ func (bc *Client) BackupRanges(
 		close(errCh)
 	}()
 
-	// Check GC safepoint every 5s.
-	t := time.NewTicker(time.Second * 5)
-	defer t.Stop()
-
 	for err := range errCh {
 		if err != nil {
 			return nil, err
@@ -481,8 +475,6 @@ func (bc *Client) BackupRange(
 		zap.Stringer("EndKey", utils.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
@@ -495,10 +487,10 @@ func (bc *Client) BackupRange(
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
 
-	push := newPushDown(ctx, bc.mgr, len(allStores))
+	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, updateCh)
 	if err != nil {
 		return nil, err
 	}
@@ -639,7 +631,7 @@ func (bc *Client) fineGrainedBackup(
 					break selectLoop
 				}
 				if resp.Error != nil {
-					log.Fatal("unexpected backup error",
+					log.Panic("unexpected backup error",
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
@@ -669,6 +661,7 @@ func (bc *Client) fineGrainedBackup(
 }
 
 func onBackupResponse(
+	storeID uint64,
 	bo *tikv.Backoffer,
 	backupTS uint64,
 	lockResolver *tikv.LockResolver,
@@ -696,7 +689,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
+		return nil, backoffMs, errors.Errorf("storeID: %d onBackupResponse error %v", storeID, v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -709,23 +702,24 @@ func onBackupResponse(
 			regionErr.StoreNotMatch != nil) {
 			log.Error("unexpect region error",
 				zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, errors.Errorf("onBackupResponse error %v", v)
+			return nil, backoffMs, errors.Errorf("storeID: %d onBackupResponse error %v", storeID, v)
 		}
 		log.Warn("backup occur region error",
-			zap.Reflect("RegionError", regionErr))
+			zap.Reflect("RegionError", regionErr),
+			zap.Uint64("storeID", storeID))
 		// TODO: a better backoff.
 		backoffMs = 1000 /* 1s */
 		return nil, backoffMs, nil
 	case *kvproto.Error_ClusterIdError:
 		log.Error("backup occur cluster ID error",
-			zap.Reflect("error", v))
-		err := errors.Errorf("%v", resp.Error)
-		return nil, 0, err
+			zap.Reflect("error", v),
+			zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Errorf("%v on storeID: %d", resp.Error, storeID)
 	default:
 		log.Error("backup occur unknown error",
-			zap.String("error", resp.Error.GetMsg()))
-		err := errors.Errorf("%v", resp.Error)
-		return nil, 0, err
+			zap.String("error", resp.Error.GetMsg()),
+			zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Errorf("%v on storeID: %d", resp.Error, storeID)
 	}
 }
 
@@ -771,7 +765,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *kvproto.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(bo, backupTS, lockResolver, resp)
+				onBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
@@ -803,8 +797,6 @@ func SendBackup(
 		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
 		zap.Uint64("storeID", storeID),
 	)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	bcli, err := client.Backup(ctx, &req)
 	if err != nil {
 		log.Error("fail to backup", zap.Uint64("StoreID", storeID))

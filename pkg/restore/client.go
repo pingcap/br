@@ -47,9 +47,6 @@ const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files.
 type Client struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-
 	pdClient     pd.Client
 	toolClient   SplitClient
 	fileImporter FileImporter
@@ -84,22 +81,17 @@ type Client struct {
 
 // NewRestoreClient returns a new RestoreClient.
 func NewRestoreClient(
-	ctx context.Context,
 	g glue.Glue,
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
 ) (*Client, error) {
-	ctx, cancel := context.WithCancel(ctx)
 	db, err := NewDB(g, store)
 	if err != nil {
-		cancel()
 		return nil, errors.Trace(err)
 	}
 
 	return &Client{
-		ctx:        ctx,
-		cancel:     cancel,
 		pdClient:   pdClient,
 		toolClient: NewSplitClient(pdClient, tlsConf),
 		db:         db,
@@ -145,7 +137,6 @@ func (rc *Client) Close() {
 	if rc.db != nil {
 		rc.db.Close()
 	}
-	rc.cancel()
 	log.Info("Restore client closed")
 }
 
@@ -258,11 +249,11 @@ func (rc *Client) GetTS(ctx context.Context) (uint64, error) {
 }
 
 // ResetTS resets the timestamp of PD to a bigger value.
-func (rc *Client) ResetTS(pdAddrs []string) error {
+func (rc *Client) ResetTS(ctx context.Context, pdAddrs []string) error {
 	restoreTS := rc.backupMeta.GetEndVersion()
 	log.Info("reset pd timestamp", zap.Uint64("ts", restoreTS))
 	i := 0
-	return utils.WithRetry(rc.ctx, func() error {
+	return utils.WithRetry(ctx, func() error {
 		idx := i % len(pdAddrs)
 		i++
 		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
@@ -270,10 +261,10 @@ func (rc *Client) ResetTS(pdAddrs []string) error {
 }
 
 // GetPlacementRules return the current placement rules.
-func (rc *Client) GetPlacementRules(pdAddrs []string) ([]placement.Rule, error) {
+func (rc *Client) GetPlacementRules(ctx context.Context, pdAddrs []string) ([]placement.Rule, error) {
 	var placementRules []placement.Rule
 	i := 0
-	errRetry := utils.WithRetry(rc.ctx, func() error {
+	errRetry := utils.WithRetry(ctx, func() error {
 		var err error
 		idx := i % len(pdAddrs)
 		i++
@@ -317,12 +308,12 @@ func (rc *Client) GetTableSchema(
 }
 
 // CreateDatabase creates a database.
-func (rc *Client) CreateDatabase(db *model.DBInfo) error {
+func (rc *Client) CreateDatabase(ctx context.Context, db *model.DBInfo) error {
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create database", zap.Stringer("database", db.Name))
 		return nil
 	}
-	return rc.db.CreateDatabase(rc.ctx, db)
+	return rc.db.CreateDatabase(ctx, db)
 }
 
 // CreateTables creates multiple tables, and returns their rewrite rules.
@@ -472,14 +463,14 @@ func (rc *Client) createTablesWithDBPool(ctx context.Context,
 }
 
 // ExecDDLs executes the queries of the ddl jobs.
-func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
+func (rc *Client) ExecDDLs(ctx context.Context, ddlJobs []*model.Job) error {
 	// Sort the ddl jobs by schema version in ascending order.
 	sort.Slice(ddlJobs, func(i, j int) bool {
 		return ddlJobs[i].BinlogInfo.SchemaVersion < ddlJobs[j].BinlogInfo.SchemaVersion
 	})
 
 	for _, job := range ddlJobs {
-		err := rc.db.ExecDDL(rc.ctx, job)
+		err := rc.db.ExecDDL(ctx, job)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -491,14 +482,14 @@ func (rc *Client) ExecDDLs(ddlJobs []*model.Job) error {
 	return nil
 }
 
-func (rc *Client) setSpeedLimit() error {
+func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
-		stores, err := conn.GetAllTiKVStores(rc.ctx, rc.pdClient, conn.SkipTiFlash)
+		stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.SkipTiFlash)
 		if err != nil {
 			return err
 		}
 		for _, store := range stores {
-			err = rc.fileImporter.setDownloadSpeedLimit(rc.ctx, store.GetId())
+			err = rc.fileImporter.setDownloadSpeedLimit(ctx, store.GetId())
 			if err != nil {
 				return err
 			}
@@ -510,6 +501,7 @@ func (rc *Client) setSpeedLimit() error {
 
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
+	ctx context.Context,
 	files []*backup.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
@@ -528,8 +520,8 @@ func (rc *Client) RestoreFiles(
 	log.Debug("start to restore files",
 		zap.Int("files", len(files)),
 	)
-	eg, ectx := errgroup.WithContext(rc.ctx)
-	err = rc.setSpeedLimit()
+	eg, ectx := errgroup.WithContext(ctx)
+	err = rc.setSpeedLimit(ctx)
 	if err != nil {
 		return err
 	}
@@ -559,7 +551,9 @@ func (rc *Client) RestoreFiles(
 }
 
 // RestoreRaw tries to restore raw keys in the specified range.
-func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress) error {
+func (rc *Client) RestoreRaw(
+	ctx context.Context, startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress,
+) error {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -569,7 +563,7 @@ func (rc *Client) RestoreRaw(startKey []byte, endKey []byte, files []*backup.Fil
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
-	eg, ectx := errgroup.WithContext(rc.ctx)
+	eg, ectx := errgroup.WithContext(ctx)
 	defer close(errCh)
 
 	err := rc.fileImporter.SetRawRange(startKey, endKey)
