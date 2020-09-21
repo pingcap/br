@@ -807,10 +807,12 @@ backupLoop:
 			zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
 			zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
 			zap.Uint64("storeID", storeID),
+			zap.Int("retry time", retry),
 		)
 		bcli, err := client.Backup(ctx, &req)
 		if err != nil {
-			log.Error("fail to backup", zap.Uint64("StoreID", storeID))
+			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
+				zap.Int("retry time", retry))
 			return err
 		}
 		for {
@@ -818,7 +820,8 @@ backupLoop:
 			if err != nil {
 				if err == io.EOF {
 					log.Info("backup streaming finish",
-						zap.Uint64("StoreID", storeID))
+						zap.Uint64("StoreID", storeID),
+						zap.Int("retry time", retry))
 					break backupLoop
 				}
 				if status.Code(err) == codes.Unavailable && retry < backupRetryTimes {
@@ -828,14 +831,8 @@ backupLoop:
 					time.Sleep(time.Duration(retry+1) * time.Second)
 					client, err = resetFn()
 					if err != nil {
-						if retry == backupRetryTimes-1 {
-							log.Error("reset the connection failed, please check the tikv status",
-								zap.Uint64("storeID", storeID), zap.Error(err))
-							return errors.Annotatef(err, "failed to reset connection on store:%d "+
-								"please check the tikv status", storeID)
-						}
-						log.Warn("failed to reset connection, retry it",
-							zap.Int("retry time", retry), zap.Error(err))
+						return errors.Annotatef(err, "failed to reset connection on store:%d "+
+							"please check the tikv status", storeID)
 					}
 					break
 				}

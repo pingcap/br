@@ -42,6 +42,8 @@ const (
 	schdulerPrefix       = "pd/api/v1/schedulers"
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
+
+	resetRetryTimes = 5
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -381,11 +383,21 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 		}
 		delete(mgr.grpcClis.clis, storeID)
 	}
-	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
-	if err != nil {
-		return nil, errors.Trace(err)
+	var (
+		conn *grpc.ClientConn
+		err  error
+	)
+	for retry := 0; retry < resetRetryTimes; retry++ {
+		conn, err = mgr.getGrpcConnLocked(ctx, storeID)
+		if err != nil && retry < resetRetryTimes {
+			log.Warn("failed to reset grpc connection, retry it",
+				zap.Int("retry time", retry), zap.Error(err))
+			time.Sleep(time.Duration(retry+1) * time.Second)
+			continue
+		}
+		break
 	}
-	return backup.NewBackupClient(conn), nil
+	return backup.NewBackupClient(conn), err
 }
 
 // GetPDClient returns a pd client.
