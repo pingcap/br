@@ -227,7 +227,7 @@ func NewMgr(
 		// Assume 3 replicas
 		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
 		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%v", stores)
+		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
 	}
 
 	dom, err := g.GetDomain(storage)
