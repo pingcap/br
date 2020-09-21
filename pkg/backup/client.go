@@ -825,14 +825,15 @@ backupLoop:
 						zap.Int("retry time", retry))
 					break backupLoop
 				}
+				var errReset error
 				if isRetryableError(err) {
 					// current tikv is unavailable
 					log.Warn("current tikv is not available, reset the connection",
 						zap.Uint64("storeID", storeID), zap.Int("retry time", retry))
 					time.Sleep(time.Duration(retry+1) * time.Second)
-					client, err = resetFn()
-					if err != nil {
-						return errors.Annotatef(err, "failed to reset connection on store:%d "+
+					client, errReset = resetFn()
+					if errReset != nil {
+						return errors.Annotatef(errReset, "failed to reset connection on store:%d "+
 							"please check the tikv status", storeID)
 					}
 					break

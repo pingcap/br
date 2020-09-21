@@ -28,6 +28,26 @@ for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
+# backup full and kill tikv to test reset connection
+echo "backup with limit start..."
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-limit" --ratelimit 5 --concurrency 4 --ratelimit-unit 1024 &
+br_pid=$!
+
+# wait br start to backup
+sleep 1
+# record tikv pid
+tikv_pid=$(ps -ef | grep tikv-server | grep -v grep | awk '{print $2}')
+kill -9 $tikv_pid
+
+if ps -p $br_pid > /dev/null
+then
+   echo "$br_pid is running"
+   wait $br_pid
+else
+   echo "TEST: [$TEST_NAME] test backup reset connection failed! the backup shouldn't finished"
+   exit 1
+fi
+
 # backup full
 echo "backup with lz4 start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --ratelimit 5 --concurrency 4 --compression lz4
@@ -42,7 +62,7 @@ if [ "$size_lz4" -le "$size_zstd" ]; then
   exit -1
 fi
 
-for ct in lz4 zstd; do
+for ct in limit lz4 zstd; do
   for i in $(seq $DB_COUNT); do
       run_sql "DROP DATABASE $DB${i};"
   done
