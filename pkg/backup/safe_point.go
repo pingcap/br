@@ -123,7 +123,7 @@ func StartServiceSafePointKeeper(
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info("service safe point keeper exited")
+				log.Debug("service safe point keeper exited")
 				return
 			case <-updateTick.C:
 				update(ctx)

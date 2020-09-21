@@ -146,7 +146,7 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 
 		// don't warn if we are the master build, which always have the version v4.0.0-beta.2-*
 		if BRGitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
-			log.Warn(fmt.Sprintf("BR version is too old, please consider use version %s of BR", tikvVersionString))
+			log.Warn(fmt.Sprintf("BR version is outdated, please consider use version %s of BR", tikvVersionString))
 			break
 		}
 	}
