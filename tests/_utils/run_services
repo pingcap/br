@@ -29,6 +29,13 @@ TIKV_COUNT=3
 TIFLASH_STATUS="127.0.0.1:17000"
 TIFLASH_HTTP="127.0.0.1:8125"
 
+cleanup_data() {
+    # Clean up data
+    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
+        find "$TEST_DIR" -maxdepth 1 -name "${svc}*" -type d -exec echo delete {} \; -exec rm -rf {} \; 2> /dev/null
+    done
+}
+
 stop_services() {
     for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
         # tiflash and br do not have "-server"
@@ -53,11 +60,7 @@ start_services() {
 
 start_services_impl() {
     stop_services
-
-    # Clean up data
-    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
-        find "$TEST_DIR" -maxdepth 1 -name "${svc}*" -type d -exec echo delete {} \; -exec rm -rf {} \; 2> /dev/null
-    done
+    cleanup_data
 
     source tests/_utils/make_tiflash_config
 
@@ -163,8 +166,9 @@ start_tiflash() {
     done
 }
 
-start_services_withTLS() {
+start_services_with_tls() {
     stop_services
+    cleanup_data
 
     PD_CONFIG="$1/config/pd.toml"
     TIDB_CONFIG="$1/config/tidb.toml"
