@@ -813,9 +813,11 @@ backupLoop:
 			zap.Int("retry time", retry),
 		)
 		bcli, err := client.Backup(ctx, &req)
-		failpoint.Inject("reset-retryable-error", func() {
-			log.Debug("failpoint reset-retryable-error injected.")
-			err = status.Errorf(codes.Unavailable, "Unavailable error")
+		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
+			if val.(bool) {
+				log.Debug("failpoint reset-retryable-error injected.")
+				err = status.Errorf(codes.Unavailable, "Unavailable error")
+			}
 		})
 		if err != nil {
 			if isRetryableError(err) {
