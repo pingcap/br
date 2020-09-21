@@ -30,23 +30,9 @@ done
 
 # backup full and kill tikv to test reset connection
 echo "backup with limit start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-limit" --ratelimit 5 --concurrency 4 --ratelimit-unit 1024 &
-br_pid=$!
-
-# wait br start to backup
-sleep 1
-# record tikv pid
-tikv_pid=$(ps -ef | grep tikv-server | grep -v grep | awk '{print $2}')
-kill -9 $tikv_pid
-
-if ps -p $br_pid > /dev/null
-then
-   echo "$br_pid is running"
-   wait $br_pid
-else
-   echo "TEST: [$TEST_NAME] test backup reset connection failed! the backup shouldn't finished"
-   exit 1
-fi
+GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/reset-retryable-error"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-limit" --ratelimit 5 --concurrency 4 --ratelimit-unit 1024
+GO_FAILPOINTS=""
 
 # backup full
 echo "backup with lz4 start..."

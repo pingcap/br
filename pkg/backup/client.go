@@ -13,6 +13,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -782,7 +783,8 @@ func (bc *Client) handleFineGrained(
 			return nil
 		},
 		func() (kvproto.BackupClient, error) {
-			log.Info("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
+			log.Warn("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
+			time.Sleep(time.Second)
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
@@ -801,6 +803,7 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
+	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
 		log.Info("try backup",
@@ -810,7 +813,19 @@ backupLoop:
 			zap.Int("retry time", retry),
 		)
 		bcli, err := client.Backup(ctx, &req)
+		failpoint.Inject("reset-retryable-error", func() {
+			log.Debug("failpoint reset-retryable-error injected.")
+			err = status.Errorf(codes.Unavailable, "unavaliable error")
+		})
 		if err != nil {
+			if isRetryableError(err) {
+				client, errReset = resetFn()
+				if errReset != nil {
+					return errors.Annotatef(errReset, "failed to reset backup connection on store:%d "+
+						"please check the tikv status", storeID)
+				}
+				continue
+			}
 			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
 				zap.Int("retry time", retry))
 			return errors.Trace(err)
@@ -825,15 +840,11 @@ backupLoop:
 						zap.Int("retry time", retry))
 					break backupLoop
 				}
-				var errReset error
 				if isRetryableError(err) {
 					// current tikv is unavailable
-					log.Warn("current tikv is not available, reset the connection",
-						zap.Uint64("storeID", storeID), zap.Int("retry time", retry))
-					time.Sleep(time.Duration(retry+1) * time.Second)
 					client, errReset = resetFn()
 					if errReset != nil {
-						return errors.Annotatef(errReset, "failed to reset connection on store:%d "+
+						return errors.Annotatef(errReset, "failed to reset recv connection on store:%d "+
 							"please check the tikv status", storeID)
 					}
 					break
@@ -952,7 +963,7 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	return checksums, nil
 }
 
-// isRetryableError represents whether we should retry reset grpc connection
+// isRetryableError represents whether we should retry reset grpc connection.
 func isRetryableError(err error) bool {
-	return status.Code(err) == codes.Unavailable
+	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
 }
