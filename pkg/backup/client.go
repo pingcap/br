@@ -811,10 +811,15 @@ backupLoop:
 		)
 		bcli, err := client.Backup(ctx, &req)
 		if err != nil {
-			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
-				zap.Int("retry time", retry))
-			return err
+			if isRetryableError(err) {
+				continue
+			} else {
+				log.Error("fail to backup", zap.Uint64("StoreID", storeID),
+					zap.Int("retry time", retry))
+				return err
+			}
 		}
+
 		for {
 			resp, err := bcli.Recv()
 			if err != nil {
@@ -824,7 +829,7 @@ backupLoop:
 						zap.Int("retry time", retry))
 					break backupLoop
 				}
-				if status.Code(err) == codes.Unavailable && retry < backupRetryTimes {
+				if isRetryableError(err) {
 					// current tikv is unavailable
 					log.Warn("current tikv is not available, reset the connection",
 						zap.Uint64("storeID", storeID), zap.Int("retry time", retry))
@@ -948,4 +953,9 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
+}
+
+// isRetryableError represents whether we should retry reset grpc connection
+func isRetryableError(err error) bool {
+	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
 }
