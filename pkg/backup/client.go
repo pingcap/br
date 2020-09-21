@@ -815,7 +815,7 @@ backupLoop:
 		bcli, err := client.Backup(ctx, &req)
 		failpoint.Inject("reset-retryable-error", func() {
 			log.Debug("failpoint reset-retryable-error injected.")
-			err = status.Errorf(codes.Unavailable, "unavaliable error")
+			err = status.Errorf(codes.Unavailable, "Unavailable error")
 		})
 		if err != nil {
 			if isRetryableError(err) {
