@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	dialTimeout          = 15 * time.Second
+	dialTimeout          = 30 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
@@ -372,9 +372,13 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
 
-	if _, ok := mgr.grpcClis.clis[storeID]; ok {
+	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
 		// Find a cached backup client.
 		log.Info("Reset backup client", zap.Uint64("storeID", storeID))
+		err := conn.Close()
+		if err != nil {
+			log.Warn("close backup connection failed, ignore it", zap.Uint64("storeID", storeID))
+		}
 		delete(mgr.grpcClis.clis, storeID)
 	}
 	conn, err := mgr.getGrpcConnLocked(ctx, storeID)

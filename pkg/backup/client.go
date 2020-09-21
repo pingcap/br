@@ -828,13 +828,18 @@ backupLoop:
 					time.Sleep(time.Duration(retry+1) * time.Second)
 					client, err = resetFn()
 					if err != nil {
-						log.Error("reset the connection failed, please check the tikv status",
-							zap.Uint64("storeID", storeID), zap.Error(err))
-						return err
+						if retry == backupRetryTimes-1 {
+							log.Error("reset the connection failed, please check the tikv status",
+								zap.Uint64("storeID", storeID), zap.Error(err))
+							return errors.Annotatef(err, "failed to reset connection on store:%d "+
+								"please check the tikv status", storeID)
+						}
+						log.Warn("failed to reset connection, retry it",
+							zap.Int("retry time", retry), zap.Error(err))
 					}
 					break
 				}
-				return errors.Annotatef(err, "Store: %d close the connection", storeID)
+				return errors.Annotatef(err, "failed to connect to store: %d with retry times:%d", storeID, retry)
 			}
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
