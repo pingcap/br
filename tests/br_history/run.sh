@@ -27,7 +27,7 @@ for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
-# Make sure BR reads YCSB data 20 seconds after, as BR backups 10 seconds ago.
+# Make sure BR reads YCSB data 20 seconds after, as BR will backup with "--timeage 10s".
 sleep 20
 
 run_sql "USE ${DB}1; DROP TABLE $TABLE;"
