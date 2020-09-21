@@ -156,14 +156,14 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
 	}
 	if exist {
-		return errors.Annotatef(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
+		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
 	}
 	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
 	if err != nil {
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
 	}
 	if exist {
-		return errors.Annotatef(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
+		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
@@ -835,7 +835,7 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return errors.Annotatef(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
 		if localChecksum.Crc64Xor != schema.Crc64Xor ||
 			localChecksum.TotalBytes != schema.TotalBytes ||
@@ -850,7 +850,7 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
 				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
 			// TODO enhance error
-			return errors.Annotatef(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
 		log.Info("checksum success",
 			zap.String("database", dbInfo.Name.L),

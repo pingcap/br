@@ -73,7 +73,7 @@ func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool)
 		return newNoopStorage(), nil
 	case *backup.StorageBackend_Gcs:
 		if backend.Gcs == nil {
-			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "GCS config not found")
+			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "GCS config not found")
 		}
 		return newGCSStorage(ctx, backend.Gcs, sendCreds)
 	default:
