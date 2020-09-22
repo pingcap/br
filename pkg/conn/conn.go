@@ -36,12 +36,14 @@ import (
 )
 
 const (
-	dialTimeout          = 5 * time.Second
+	dialTimeout          = 30 * time.Second
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schdulerPrefix       = "pd/api/v1/schedulers"
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
+
+	resetRetryTimes = 3
 )
 
 // Mgr manages connections to a TiDB cluster.
@@ -334,6 +336,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		ctx,
 		addr,
 		opt,
+		grpc.WithBlock(),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    time.Duration(keepAlive) * time.Second,
@@ -344,8 +347,6 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	// Cache the conn.
-	mgr.grpcClis.clis[storeID] = conn
 	return conn, nil
 }
 
@@ -360,6 +361,43 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 	}
 
 	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	// Cache the conn.
+	mgr.grpcClis.clis[storeID] = conn
+	return backup.NewBackupClient(conn), nil
+}
+
+// ResetBackupClient reset the connection for backup client.
+func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+	mgr.grpcClis.mu.Lock()
+	defer mgr.grpcClis.mu.Unlock()
+
+	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
+		// Find a cached backup client.
+		log.Info("Reset backup client", zap.Uint64("storeID", storeID))
+		err := conn.Close()
+		if err != nil {
+			log.Warn("close backup connection failed, ignore it", zap.Uint64("storeID", storeID))
+		}
+		delete(mgr.grpcClis.clis, storeID)
+	}
+	var (
+		conn *grpc.ClientConn
+		err  error
+	)
+	for retry := 0; retry < resetRetryTimes; retry++ {
+		conn, err = mgr.getGrpcConnLocked(ctx, storeID)
+		if err != nil {
+			log.Warn("failed to reset grpc connection, retry it",
+				zap.Int("retry time", retry), zap.Error(err))
+			time.Sleep(time.Duration(retry+3) * time.Second)
+			continue
+		}
+		mgr.grpcClis.clis[storeID] = conn
+		break
+	}
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
