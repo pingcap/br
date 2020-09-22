@@ -784,7 +784,6 @@ func (bc *Client) handleFineGrained(
 		},
 		func() (kvproto.BackupClient, error) {
 			log.Warn("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
-			time.Sleep(time.Second)
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
@@ -821,6 +820,7 @@ backupLoop:
 		})
 		if err != nil {
 			if isRetryableError(err) {
+				time.Sleep(3 * time.Second)
 				client, errReset = resetFn()
 				if errReset != nil {
 					return errors.Annotatef(errReset, "failed to reset backup connection on store:%d "+
@@ -843,6 +843,7 @@ backupLoop:
 					break backupLoop
 				}
 				if isRetryableError(err) {
+					time.Sleep(3 * time.Second)
 					// current tikv is unavailable
 					client, errReset = resetFn()
 					if errReset != nil {

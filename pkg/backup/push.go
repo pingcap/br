@@ -5,7 +5,6 @@ package backup
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -66,7 +65,6 @@ func (push *pushDown) pushBackup(
 				},
 				func() (backup.BackupClient, error) {
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
-					time.Sleep(3 * time.Second)
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
 			if err != nil {
