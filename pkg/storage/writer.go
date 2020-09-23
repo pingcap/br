@@ -43,11 +43,7 @@ func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
 	}
 	b := u.buf.Bytes()
 	u.buf.Reset()
-	err := u.uploader.UploadPart(ctx, b)
-	if err != nil {
-		return err
-	}
-	return nil
+	return u.uploader.UploadPart(ctx, b)
 }
 
 func (u *uploaderWriter) Close(ctx context.Context) error {
