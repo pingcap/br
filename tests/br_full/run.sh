@@ -28,13 +28,19 @@ for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
+# backup full and kill tikv to test reset connection
+echo "backup with limit start..."
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/reset-retryable-error=1*return(true)"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-limit" --concurrency 4
+export GO_FAILPOINTS=""
+
 # backup full
 echo "backup with lz4 start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --ratelimit 5 --concurrency 4 --compression lz4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --concurrency 4 --compression lz4
 size_lz4=$(du -d 0 $TEST_DIR/$DB-lz4 | awk '{print $1}')
 
 echo "backup with zstd start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-zstd" --ratelimit 5 --concurrency 4 --compression zstd --compression-level 6
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-zstd" --concurrency 4 --compression zstd --compression-level 6
 size_zstd=$(du -d 0 $TEST_DIR/$DB-zstd | awk '{print $1}')
 
 if [ "$size_lz4" -le "$size_zstd" ]; then
@@ -42,7 +48,7 @@ if [ "$size_lz4" -le "$size_zstd" ]; then
   exit -1
 fi
 
-for ct in lz4 zstd; do
+for ct in limit lz4 zstd; do
   for i in $(seq $DB_COUNT); do
       run_sql "DROP DATABASE $DB${i};"
   done
