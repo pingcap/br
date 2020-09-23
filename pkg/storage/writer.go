@@ -5,12 +5,12 @@ import (
 	"context"
 )
 
-type UploaderWriter struct {
+type uploaderWriter struct {
 	buf      *bytes.Buffer
 	uploader Uploader
 }
 
-func (u *UploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
+func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 	bytesWritten := 0
 	for u.buf.Len()+len(p) > u.buf.Cap() {
 		// We won't fit p in this chunk
@@ -37,7 +37,7 @@ func (u *UploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return bytesWritten, err
 }
 
-func (u *UploaderWriter) uploadChunk(ctx context.Context) error {
+func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
 	if u.buf.Len() == 0 {
 		return nil
 	}
@@ -50,7 +50,7 @@ func (u *UploaderWriter) uploadChunk(ctx context.Context) error {
 	return nil
 }
 
-func (u *UploaderWriter) Close(ctx context.Context) error {
+func (u *uploaderWriter) Close(ctx context.Context) error {
 	err := u.uploadChunk(ctx)
 	if err != nil {
 		return err
@@ -58,8 +58,14 @@ func (u *UploaderWriter) Close(ctx context.Context) error {
 	return u.uploader.CompleteUpload(ctx)
 }
 
-func NewUploaderWriter(uploader Uploader, chunkSize int) *UploaderWriter {
-	return &UploaderWriter{
+// NewUploaderWriter wraps the Writer interface over an uploader
+func NewUploaderWriter(uploader Uploader, chunkSize int) Writer {
+	return newUploaderWriter(uploader, chunkSize)
+}
+
+// newUploaderWriter is used for testing only
+func newUploaderWriter(uploader Uploader, chunkSize int) *uploaderWriter {
+	return &uploaderWriter{
 		uploader: uploader,
 		buf:      bytes.NewBuffer(make([]byte, 0, chunkSize))}
 }
