@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -74,8 +73,6 @@ func NewUploaderWriter(uploader Uploader, chunkSize int) *UploaderWriter {
 
 func (r *testStorageSuite) TestUploaderWriter(c *C) {
 	dir := c.MkDir()
-	backend, err := ParseBackend("local:///"+dir, nil)
-	c.Assert(err, IsNil)
 
 	type testcase struct {
 		name      string
@@ -84,6 +81,8 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
+		backend, err := ParseBackend("local:///"+dir, nil)
+		c.Assert(err, IsNil)
 		ctx := context.Background()
 		storage, err := Create(ctx, backend, true)
 		c.Assert(err, IsNil)
