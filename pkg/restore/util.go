@@ -121,9 +121,10 @@ func GetSSTMetaFromFile(
 	}
 
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
-		log.Fatal("range start exceed range end",
-			zap.Stringer("start", utils.WrapKey(rangeStart)),
-			zap.Stringer("end", utils.WrapKey(rangeEnd)))
+		log.Panic("range start exceed range end",
+			utils.ZapFile(file),
+			zap.Stringer("rangeStart", utils.WrapKey(rangeStart)),
+			zap.Stringer("rangeEnd", utils.WrapKey(rangeEnd)))
 	}
 
 	log.Debug("get sstMeta",
@@ -302,7 +303,7 @@ func AttachFilesToRanges(
 			EndKey:   f.GetEndKey(),
 		})
 		if rg == nil {
-			log.Fatal("range not found",
+			log.Panic("range not found",
 				zap.Stringer("startKey", utils.WrapKey(f.GetStartKey())),
 				zap.Stringer("endKey", utils.WrapKey(f.GetEndKey())))
 		}
@@ -310,7 +311,7 @@ func AttachFilesToRanges(
 		rg.Files = append(rg.Files, &file)
 	}
 	if rangeTree.Len() != len(ranges) {
-		log.Fatal("ranges overlapped",
+		log.Panic("ranges overlapped",
 			zap.Int("ranges length", len(ranges)),
 			zap.Int("tree length", rangeTree.Len()))
 	}
