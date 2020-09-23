@@ -452,6 +452,13 @@ func (r *testStorageSuite) TestS3Others(c *C) {
 	defineS3Flags(&pflag.FlagSet{})
 }
 
+func (r *testStorageSuite) TestS3URI(c *C) {
+	backend, err := ParseBackend("s3://bucket/prefix/", nil)
+	storage, err := Create(context.Background(), backend, true)
+	c.Assert(err, IsNil)
+	c.Assert(storage.URI(), Equals, "s3://bucket/prefix/")
+}
+
 func (r *testStorageSuite) TestS3Range(c *C) {
 	contentRange := "bytes 0-9/443"
 	ri, err := parseRangeInfo(&contentRange)

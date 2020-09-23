@@ -67,6 +67,11 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 	})
 }
 
+// URI returns the base path as an URI with a file:/// prefix
+func (l *LocalStorage) URI() string {
+	return "file:///" + l.base
+}
+
 // CreateUploader implements ExternalStorage interface.
 func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	panic("local storage not support multi-upload")
