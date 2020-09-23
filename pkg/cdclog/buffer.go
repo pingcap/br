@@ -23,19 +23,19 @@ import (
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/kv"
 )
 
 // TableBuffer represents the kv buffer of this table.
 // we restore one tableBuffer in one goroutine.
 // this is the concurrent unit of log restore.
 type TableBuffer struct {
-	KvPairs []utils.Row
+	KvPairs []kv.Row
 	count   int
 	size    int64
 
-	KvEncoderFn func(autoid.Allocators, table.Table) (utils.Encoder, error)
-	KvEncoder   utils.Encoder
+	KvEncoderFn func(autoid.Allocators, table.Table) (kv.Encoder, error)
+	KvEncoder   kv.Encoder
 	tableInfo   table.Table
 	allocator   autoid.Allocators
 
@@ -48,12 +48,12 @@ type TableBuffer struct {
 
 // NewTableBuffer creates TableBuffer.
 func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs int, flushKVSize int64) *TableBuffer {
-	kvEncoderFn := func(allocators autoid.Allocators, tbl table.Table) (utils.Encoder, error) {
+	kvEncoderFn := func(allocators autoid.Allocators, tbl table.Table) (kv.Encoder, error) {
 		encTable, err := table.TableFromMeta(allocators, tbl.Meta())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		return utils.NewTableKVEncoder(encTable, &utils.SessionOptions{
+		return kv.NewTableKVEncoder(encTable, &kv.SessionOptions{
 			Timestamp: time.Now().Unix(),
 			// TODO get the version from TiDB cluster
 			// currently TiDB only support v1 and v2, and since 4.0
@@ -65,7 +65,7 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 	}
 
 	tb := &TableBuffer{
-		KvPairs:      make([]utils.Row, 0, flushKVPairs),
+		KvPairs:      make([]kv.Row, 0, flushKVPairs),
 		KvEncoderFn:  kvEncoderFn,
 		flushKVPairs: flushKVPairs,
 		flushKVSize:  flushKVSize,
@@ -101,7 +101,7 @@ func (t *TableBuffer) ReloadMeta(tbl table.Table, allocator autoid.Allocators) {
 		colNames = append(colNames, col.Name.String())
 		colPerm = append(colPerm, i)
 	}
-	if utils.TableHasAutoRowID(tbl.Meta()) {
+	if kv.TableHasAutoRowID(tbl.Meta()) {
 		colPerm = append(colPerm, -1)
 	}
 	if t.allocator == nil {
@@ -132,7 +132,7 @@ func (t *TableBuffer) appendRow(
 	item *SortItem,
 	encodeFn func(row []types.Datum,
 		rowID int64,
-		columnPermutation []int) (utils.Row, int, error),
+		columnPermutation []int) (kv.Row, int, error),
 ) error {
 	cols, err := t.translateToDatum(row)
 	if err != nil {

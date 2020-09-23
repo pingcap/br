@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package kv
 
 import (
 	"github.com/pingcap/errors"
@@ -57,10 +57,10 @@ type Row interface {
 	// encoded row, and appends these parts into the existing buffers and
 	// checksums.
 	ClassifyAndAppend(
-		data *KvPairs,
-		dataChecksum *KVChecksum,
-		indices *KvPairs,
-		indexChecksum *KVChecksum,
+		data *Pairs,
+		dataChecksum *Checksum,
+		indices *Pairs,
+		indexChecksum *Checksum,
 	)
 }
 
@@ -134,8 +134,8 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 	return nil
 }
 
-// KvPairs represents the slice of KvPair.
-type KvPairs []KvPair
+// Pairs represents the slice of Pair.
+type Pairs []Pair
 
 // Close ...
 func (kvcodec *tableKVEncoder) Close() {
@@ -227,7 +227,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 
 	pairs, size := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return KvPairs(pairs), size, nil
+	return Pairs(pairs), size, nil
 }
 
 // RemoveRecord encode a row of data into KV pairs.
@@ -278,15 +278,15 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 
 	pairs, size := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return KvPairs(pairs), size, nil
+	return Pairs(pairs), size, nil
 }
 
-// ClassifyAndAppend split KvPairs to data rows and index rows.
-func (kvs KvPairs) ClassifyAndAppend(
-	data *KvPairs,
-	dataChecksum *KVChecksum,
-	indices *KvPairs,
-	indexChecksum *KVChecksum,
+// ClassifyAndAppend split Pairs to data rows and index rows.
+func (kvs Pairs) ClassifyAndAppend(
+	data *Pairs,
+	dataChecksum *Checksum,
+	indices *Pairs,
+	indexChecksum *Checksum,
 ) {
 	dataKVs := *data
 	indexKVs := *indices
@@ -305,7 +305,7 @@ func (kvs KvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
-// Clear resets the KvPairs.
-func (kvs KvPairs) Clear() KvPairs {
+// Clear resets the Pairs.
+func (kvs Pairs) Clear() Pairs {
 	return kvs[:0]
 }

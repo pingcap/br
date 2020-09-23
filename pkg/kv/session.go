@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package kv
 
 import (
 	"context"
@@ -25,8 +25,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 )
 
-// KvPair is a pair of key and value.
-type KvPair struct {
+// Pair is a pair of key and value.
+type Pair struct {
 	// Key is the key of the KV pair
 	Key []byte
 	// Val is the value of the KV pair
@@ -56,12 +56,12 @@ func (*invalidIterator) Close() {
 
 type kvMemBuf struct {
 	kv.MemBuffer
-	kvPairs []KvPair
+	kvPairs []Pair
 	size    int
 }
 
 func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
-	mb.kvPairs = append(mb.kvPairs, KvPair{
+	mb.kvPairs = append(mb.kvPairs, Pair{
 		Key: k.Clone(),
 		Val: append([]byte{}, v...),
 	})
@@ -74,7 +74,7 @@ func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
 }
 
 func (mb *kvMemBuf) Delete(k kv.Key) error {
-	mb.kvPairs = append(mb.kvPairs, KvPair{
+	mb.kvPairs = append(mb.kvPairs, Pair{
 		Key:      k.Clone(),
 		Val:      []byte{},
 		IsDelete: true,
@@ -218,10 +218,10 @@ func newSession(options *SessionOptions) *session {
 	return s
 }
 
-func (se *session) takeKvPairs() ([]KvPair, int) {
+func (se *session) takeKvPairs() ([]Pair, int) {
 	pairs := se.txn.kvMemBuf.kvPairs
 	size := se.txn.kvMemBuf.Size()
-	se.txn.kvMemBuf.kvPairs = make([]KvPair, 0, len(pairs))
+	se.txn.kvMemBuf.kvPairs = make([]Pair, 0, len(pairs))
 	se.txn.kvMemBuf.size = 0
 	return pairs, size
 }
