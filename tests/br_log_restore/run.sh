@@ -66,6 +66,9 @@ for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
+# sleep wait cdc log sync to storage
+sleep 5
+
 # remove the change feed, because we don't want to record the drop ddl.
 echo "Y" | bin/cdc cli unsafe reset --pd=http://$PD_ADDR
 
@@ -79,7 +82,7 @@ RESTORE_LOG="restore.log"
 rm -f $RESTORE_LOG
 unset BR_LOG_TO_TERM
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
-    --log-file $RESTORE_LOG || \
+    --log-file $RESTORE_LOG --log-file "info" || \
     ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 )
 cat $RESTORE_LOG
 BR_LOG_TO_TERM=1
