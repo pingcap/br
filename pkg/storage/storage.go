@@ -33,7 +33,7 @@ type Uploader interface {
 	CompleteUpload(ctx context.Context) error
 }
 
-// Writer is like io.Writer but with Context, create a new writer on top of Uploader with NewUploaderWriter
+// Writer is like io.Writer but with Context, create a new writer on top of Uploader with NewUploaderWriter.
 type Writer interface {
 	// Write writes to buffer and if chunk is filled will upload it
 	Write(ctx context.Context, p []byte) (int, error)

@@ -54,50 +54,50 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 	return u.uploader.CompleteUpload(ctx)
 }
 
-// NewUploaderWriter wraps the Writer interface over an uploader
+// NewUploaderWriter wraps the Writer interface over an uploader.
 func NewUploaderWriter(uploader Uploader, chunkSize int) Writer {
 	return newUploaderWriter(uploader, chunkSize)
 }
 
-// newUploaderWriter is used for testing only
+// newUploaderWriter is used for testing only.
 func newUploaderWriter(uploader Uploader, chunkSize int) *uploaderWriter {
 	return &uploaderWriter{
 		uploader: uploader,
 		buf:      bytes.NewBuffer(make([]byte, 0, chunkSize))}
 }
 
-// BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing
+// BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
 type BufferWriter struct {
 	buf *bytes.Buffer
 }
 
-// Write delegates to bytes.Buffer
+// Write delegates to bytes.Buffer.
 func (u *BufferWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return u.buf.Write(p)
 }
 
-// Close delegates to bytes.Buffer
+// Close delegates to bytes.Buffer.
 func (u *BufferWriter) Close(ctx context.Context) error {
 	// noop
 	return nil
 }
 
-// Bytes delegates to bytes.Buffer
+// Bytes delegates to bytes.Buffer.
 func (u *BufferWriter) Bytes() []byte {
 	return u.buf.Bytes()
 }
 
-// String delegates to bytes.Buffer
+// String delegates to bytes.Buffer.
 func (u *BufferWriter) String() string {
 	return u.buf.String()
 }
 
-// Reset delegates to bytes.Buffer
+// Reset delegates to bytes.Buffer.
 func (u *BufferWriter) Reset() {
 	u.buf.Reset()
 }
 
-// NewBufferWriter creates a Writer that simply writes to a buffer (useful for testing)
+// NewBufferWriter creates a Writer that simply writes to a buffer (useful for testing).
 func NewBufferWriter() *BufferWriter {
 	return &BufferWriter{buf: &bytes.Buffer{}}
 }
