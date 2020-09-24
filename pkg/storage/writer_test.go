@@ -32,8 +32,8 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		writer := newUploaderWriter(uploader, test.chunkSize)
 		for _, str := range test.content {
 			p := []byte(str)
-			written, err := writer.Write(ctx, p)
-			c.Assert(err, IsNil)
+			written, err2 := writer.Write(ctx, p)
+			c.Assert(err2, IsNil)
 			c.Assert(written, Equals, len(p))
 		}
 		err = writer.Close(ctx)
