@@ -454,6 +454,7 @@ func (r *testStorageSuite) TestS3Others(c *C) {
 
 func (r *testStorageSuite) TestS3URI(c *C) {
 	backend, err := ParseBackend("s3://bucket/prefix/", nil)
+	c.Assert(err, IsNil)
 	storage, err := Create(context.Background(), backend, true)
 	c.Assert(err, IsNil)
 	c.Assert(storage.URI(), Equals, "s3://bucket/prefix/")
