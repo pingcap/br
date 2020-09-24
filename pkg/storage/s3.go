@@ -349,15 +349,28 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 	if err != nil {
 		if aerr, ok := err.(awserr.Error); ok {
 			switch aerr.Code() {
-			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
+			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey:
 				return false, nil
+			case notFound:
+				// check if the file exists as a folder,
+				// s3 doesn't have related API,
+				// so we choose to use listObjects to check
+				// if the file is the prefix of a object
+				listReq := &s3.ListObjectsV2Input{
+					Bucket: aws.String(rs.options.Bucket),
+					Prefix: aws.String(rs.options.Prefix),
+				}
+				_, lerr := rs.svc.ListObjectsV2WithContext(ctx, listReq)
+				if lerr != nil {
+					return false, lerr
+				}
+				return true, nil
 			default:
-				return true, err
+				return false, err
 			}
 		}
 	}
-
-	return true, err
+	return true, nil
 }
 
 // WalkDir traverse all the files in a dir.
