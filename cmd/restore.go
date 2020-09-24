@@ -27,6 +27,19 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 	return nil
 }
 
+func runLogRestoreCommand(command *cobra.Command) error {
+	cfg := task.LogRestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
+	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
+		command.SilenceUsage = false
+		return err
+	}
+	if err := task.RunLogRestore(GetDefaultContext(), tidbGlue, &cfg); err != nil {
+		log.Error("failed to restore", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
 func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RestoreRawConfig{
 		RawKvConfig: task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}},
@@ -80,6 +93,7 @@ func NewRestoreCommand() *cobra.Command {
 		newFullRestoreCommand(),
 		newDbRestoreCommand(),
 		newTableRestoreCommand(),
+		newLogRestoreCommand(),
 		newRawRestoreCommand(),
 		newTiflashReplicaRestoreCommand(),
 	)
@@ -121,6 +135,21 @@ func newTableRestoreCommand() *cobra.Command {
 		},
 	}
 	task.DefineTableFlags(command)
+	return command
+}
+
+func newLogRestoreCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "cdclog",
+		Short: "restore data from cdc log backup",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runLogRestoreCommand(cmd)
+		},
+	}
+	task.DefineFilterFlags(command)
+	task.DefineLogRestoreFlags(command)
+	// TODO remove hidden if it's ready.
+	command.Hidden = true
 	return command
 }
 
