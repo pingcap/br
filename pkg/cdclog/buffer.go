@@ -34,7 +34,7 @@ type TableBuffer struct {
 	count   int
 	size    int64
 
-	KvEncoderFn func(autoid.Allocators, table.Table) (kv.Encoder, error)
+	kvEncoderFn func(autoid.Allocators, table.Table) (kv.Encoder, error)
 	KvEncoder   kv.Encoder
 	tableInfo   table.Table
 	allocator   autoid.Allocators
@@ -66,7 +66,7 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 
 	tb := &TableBuffer{
 		KvPairs:      make([]kv.Row, 0, flushKVPairs),
-		KvEncoderFn:  kvEncoderFn,
+		kvEncoderFn:  kvEncoderFn,
 		flushKVPairs: flushKVPairs,
 		flushKVSize:  flushKVSize,
 	}
@@ -161,7 +161,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		// lazy create kv encoder
 		log.Debug("create kv encoder lazily",
 			zap.Any("alloc", t.allocator), zap.Any("tbl", t.tableInfo))
-		t.KvEncoder, err = t.KvEncoderFn(t.allocator, t.tableInfo)
+		t.KvEncoder, err = t.kvEncoderFn(t.allocator, t.tableInfo)
 		if err != nil {
 			return errors.Trace(err)
 		}

@@ -355,6 +355,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	leaderID := region.Leader.GetId()
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
+	commitTs := oracle.ComposeTS(time.Now().Unix()*1000, 0)
 	for _, peer := range region.Region.GetPeers() {
 		cli, err := l.importerClient.GetImportClient(ctx, peer.StoreId)
 		if err != nil {
@@ -380,7 +381,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 				// FIXME we should discuss about the commit ts
 				// 1. give a batch of kv a specify commit ts
 				// 2. give each kv the backup commit ts
-				CommitTs: oracle.ComposeTS(time.Now().Unix()*1000, 0),
+				CommitTs: commitTs,
 			},
 		}
 		clients = append(clients, wstream)
