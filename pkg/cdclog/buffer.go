@@ -34,10 +34,9 @@ type TableBuffer struct {
 	count   int
 	size    int64
 
-	kvEncoderFn func(autoid.Allocators, table.Table) (kv.Encoder, error)
-	KvEncoder   kv.Encoder
-	tableInfo   table.Table
-	allocator   autoid.Allocators
+	KvEncoder kv.Encoder
+	tableInfo table.Table
+	allocator autoid.Allocators
 
 	flushKVSize  int64
 	flushKVPairs int
@@ -46,27 +45,26 @@ type TableBuffer struct {
 	colPerm  []int
 }
 
+func newKVEncoder(allocators autoid.Allocators, tbl table.Table) (kv.Encoder, error) {
+	encTable, err := table.TableFromMeta(allocators, tbl.Meta())
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return kv.NewTableKVEncoder(encTable, &kv.SessionOptions{
+		Timestamp: time.Now().Unix(),
+		// TODO get the version from TiDB cluster
+		// currently TiDB only support v1 and v2, and since 4.0
+		// the default RowFormatVersion is 2, so I think
+		// we can implement the row version retrieve from cluster in the future
+		// when TiDB decide to support v3 RowFormatVersion.
+		RowFormatVersion: "2",
+	}), nil
+}
+
 // NewTableBuffer creates TableBuffer.
 func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs int, flushKVSize int64) *TableBuffer {
-	kvEncoderFn := func(allocators autoid.Allocators, tbl table.Table) (kv.Encoder, error) {
-		encTable, err := table.TableFromMeta(allocators, tbl.Meta())
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return kv.NewTableKVEncoder(encTable, &kv.SessionOptions{
-			Timestamp: time.Now().Unix(),
-			// TODO get the version from TiDB cluster
-			// currently TiDB only support v1 and v2, and since 4.0
-			// the default RowFormatVersion is 2, so I think
-			// we can implement the row version retrieve from cluster in the future
-			// when TiDB decide to support v3 RowFormatVersion.
-			RowFormatVersion: "2",
-		}), nil
-	}
-
 	tb := &TableBuffer{
 		KvPairs:      make([]kv.Row, 0, flushKVPairs),
-		kvEncoderFn:  kvEncoderFn,
 		flushKVPairs: flushKVPairs,
 		flushKVSize:  flushKVSize,
 	}
@@ -161,7 +159,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		// lazy create kv encoder
 		log.Debug("create kv encoder lazily",
 			zap.Any("alloc", t.allocator), zap.Any("tbl", t.tableInfo))
-		t.KvEncoder, err = t.kvEncoderFn(t.allocator, t.tableInfo)
+		t.KvEncoder, err = newKVEncoder(t.allocator, t.tableInfo)
 		if err != nil {
 			return errors.Trace(err)
 		}
