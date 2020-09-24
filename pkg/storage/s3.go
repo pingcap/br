@@ -407,7 +407,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	return nil
 }
 
-// URI returns s3://<base>/<prefix>
+// URI returns s3://<base>/<prefix>.
 func (rs *S3Storage) URI() string {
 	return "s3://" + rs.options.Bucket + "/" + rs.options.Prefix
 }
