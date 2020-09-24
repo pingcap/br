@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog
+package kv
 
 import (
 	"context"
@@ -24,8 +24,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 )
 
-// KvPair is a pair of key and value.
-type KvPair struct {
+// Pair is a pair of key and value.
+type Pair struct {
 	// Key is the key of the KV pair
 	Key []byte
 	// Val is the value of the KV pair
@@ -51,6 +51,73 @@ func (*invalidIterator) Valid() bool {
 
 // Close implements the kv.Iterator interface.
 func (*invalidIterator) Close() {
+}
+
+type kvMemBuf struct {
+	kv.MemBuffer
+	kvPairs []Pair
+	size    int
+}
+
+func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
+	mb.kvPairs = append(mb.kvPairs, Pair{
+		Key: k.Clone(),
+		Val: append([]byte{}, v...),
+	})
+	mb.size += len(k) + len(v)
+	return nil
+}
+
+func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
+	return mb.Set(k, v)
+}
+
+func (mb *kvMemBuf) Delete(k kv.Key) error {
+	mb.kvPairs = append(mb.kvPairs, Pair{
+		Key:      k.Clone(),
+		Val:      []byte{},
+		IsDelete: true,
+	})
+	mb.size += len(k)
+	return nil
+}
+
+// Release publish all modifications in the latest staging buffer to upper level.
+func (mb *kvMemBuf) Release(h kv.StagingHandle) {
+}
+
+func (mb *kvMemBuf) Staging() kv.StagingHandle {
+	return 0
+}
+
+// Cleanup cleanup the resources referenced by the StagingHandle.
+// If the changes are not published by `Release`, they will be discarded.
+func (mb *kvMemBuf) Cleanup(h kv.StagingHandle) {}
+
+// Size returns sum of keys and values length.
+func (mb *kvMemBuf) Size() int {
+	return mb.size
+}
+
+// Len returns the number of entries in the DB.
+func (t *transaction) Len() int {
+	return t.GetMemBuffer().Len()
+}
+
+type kvUnionStore struct {
+	kvMemBuf
+	kv.UnionStore
+}
+
+func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
+	return &s.kvMemBuf
+}
+
+func (s *kvUnionStore) GetIndexName(tableID, indexID int64) string {
+	panic("Unsupported Operation")
+}
+
+func (s *kvUnionStore) CacheIndexName(tableID, indexID int64, name string) {
 }
 
 // transaction is a trimmed down Transaction type which only supports adding a
@@ -151,6 +218,14 @@ func newSession(options *SessionOptions) *session {
 	}
 
 	return s
+}
+
+func (se *session) takeKvPairs() ([]Pair, int) {
+	pairs := se.txn.kvMemBuf.kvPairs
+	size := se.txn.kvMemBuf.Size()
+	se.txn.kvMemBuf.kvPairs = make([]Pair, 0, len(pairs))
+	se.txn.kvMemBuf.size = 0
+	return pairs, size
 }
 
 // Txn implements the sessionctx.Context interface.

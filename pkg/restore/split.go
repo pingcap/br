@@ -10,6 +10,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/tablecodec"
@@ -337,4 +338,29 @@ func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.
 	}
 
 	return s, nil
+}
+
+func beforeEnd(key []byte, end []byte) bool {
+	return bytes.Compare(key, end) < 0 || len(end) == 0
+}
+
+func keyInsideRegion(region *metapb.Region, key []byte) bool {
+	return bytes.Compare(key, region.GetStartKey()) >= 0 && beforeEnd(key, region.GetEndKey())
+}
+
+func nextKey(key []byte) []byte {
+	if len(key) == 0 {
+		return []byte{}
+	}
+	res := make([]byte, 0, len(key)+1)
+	pos := 0
+	for i := len(key) - 1; i >= 0; i-- {
+		if key[i] != '\xff' {
+			pos = i
+			break
+		}
+	}
+	s, e := key[:pos], key[pos]+1
+	res = append(append(res, s...), e)
+	return res
 }
