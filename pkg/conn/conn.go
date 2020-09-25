@@ -3,13 +3,10 @@
 package conn
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,11 +45,7 @@ const (
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
-	pdClient pd.Client
-	pdHTTP   struct {
-		addrs []string
-		cli   *http.Client
-	}
+	PdMgr    *PdController
 	tlsConf  *tls.Config
 	dom      *domain.Domain
 	storage  tikv.Storage
@@ -61,38 +54,6 @@ type Mgr struct {
 		clis map[uint64]*grpc.ClientConn
 	}
 	ownsStorage bool
-}
-
-type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
-
-func pdRequest(
-	ctx context.Context,
-	addr string, prefix string,
-	cli *http.Client, method string, body io.Reader) ([]byte, error) {
-	u, err := url.Parse(addr)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	url := fmt.Sprintf("%s/%s", u, prefix)
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, url)
-	}
-
-	r, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return r, nil
 }
 
 // StoreBehavior is the action to do in GetAllTiKVStores when a non-TiKV
@@ -238,27 +199,29 @@ func NewMgr(
 	}
 
 	mgr := &Mgr{
-		pdClient:    pdClient,
+		PdMgr: &PdController{
+			pdClient: pdClient,
+		},
 		storage:     storage,
 		dom:         dom,
 		tlsConf:     tlsConf,
 		ownsStorage: g.OwnsStorage(),
 	}
-	mgr.pdHTTP.addrs = processedAddrs
-	mgr.pdHTTP.cli = cli
+	mgr.PdMgr.addrs = processedAddrs
+	mgr.PdMgr.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return mgr, nil
 }
 
 // SetPDHTTP set pd addrs and cli for test.
 func (mgr *Mgr) SetPDHTTP(addrs []string, cli *http.Client) {
-	mgr.pdHTTP.addrs = addrs
-	mgr.pdHTTP.cli = cli
+	mgr.PdMgr.addrs = addrs
+	mgr.PdMgr.cli = cli
 }
 
 // SetPDClient set pd addrs and cli for test.
 func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
-	mgr.pdClient = pdClient
+	mgr.PdMgr.pdClient = pdClient
 }
 
 // GetClusterVersion returns the current cluster version.
@@ -268,8 +231,8 @@ func (mgr *Mgr) GetClusterVersion(ctx context.Context) (string, error) {
 
 func (mgr *Mgr) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
 	var err error
-	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := get(ctx, addr, clusterVersionPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
+	for _, addr := range mgr.PdMgr.addrs {
+		v, e := get(ctx, addr, clusterVersionPrefix, mgr.PdMgr.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -295,11 +258,11 @@ func (mgr *Mgr) getRegionCountWith(
 		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
 	}
 	var err error
-	for _, addr := range mgr.pdHTTP.addrs {
+	for _, addr := range mgr.PdMgr.addrs {
 		query := fmt.Sprintf(
 			"%s?start_key=%s&end_key=%s",
 			regionCountPrefix, start, end)
-		v, e := get(ctx, addr, query, mgr.pdHTTP.cli, http.MethodGet, nil)
+		v, e := get(ctx, addr, query, mgr.PdMgr.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -315,7 +278,7 @@ func (mgr *Mgr) getRegionCountWith(
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := mgr.pdClient.GetStore(ctx, storeID)
+	store, err := mgr.PdMgr.pdClient.GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -406,7 +369,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 
 // GetPDClient returns a pd client.
 func (mgr *Mgr) GetPDClient() pd.Client {
-	return mgr.pdClient
+	return mgr.PdMgr.pdClient
 }
 
 // GetTiKV returns a tikv storage.
@@ -427,104 +390,6 @@ func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
 // GetDomain returns a tikv storage.
 func (mgr *Mgr) GetDomain() *domain.Domain {
 	return mgr.dom
-}
-
-// RemoveScheduler remove pd scheduler.
-func (mgr *Mgr) RemoveScheduler(ctx context.Context, scheduler string) error {
-	return mgr.removeSchedulerWith(ctx, scheduler, pdRequest)
-}
-
-func (mgr *Mgr) removeSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
-	for _, addr := range mgr.pdHTTP.addrs {
-		prefix := fmt.Sprintf("%s/%s", schdulerPrefix, scheduler)
-		_, err = delete(ctx, addr, prefix, mgr.pdHTTP.cli, http.MethodDelete, nil)
-		if err != nil {
-			continue
-		}
-		return nil
-	}
-	return err
-}
-
-// AddScheduler add pd scheduler.
-func (mgr *Mgr) AddScheduler(ctx context.Context, scheduler string) error {
-	return mgr.addSchedulerWith(ctx, scheduler, pdRequest)
-}
-
-func (mgr *Mgr) addSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
-	for _, addr := range mgr.pdHTTP.addrs {
-		body := bytes.NewBuffer([]byte(`{"name":"` + scheduler + `"}`))
-		_, err = post(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodPost, body)
-		if err != nil {
-			continue
-		}
-		return nil
-	}
-	return err
-}
-
-// ListSchedulers list all pd scheduler.
-func (mgr *Mgr) ListSchedulers(ctx context.Context) ([]string, error) {
-	return mgr.listSchedulersWith(ctx, pdRequest)
-}
-
-func (mgr *Mgr) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]string, error) {
-	var err error
-	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := get(ctx, addr, schdulerPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
-		if e != nil {
-			err = e
-			continue
-		}
-		d := make([]string, 0)
-		err = json.Unmarshal(v, &d)
-		if err != nil {
-			return nil, err
-		}
-		return d, nil
-	}
-	return nil, err
-}
-
-// GetPDScheduleConfig returns PD schedule config value associated with the key.
-// It returns nil if there is no such config item.
-func (mgr *Mgr) GetPDScheduleConfig(
-	ctx context.Context,
-) (map[string]interface{}, error) {
-	var err error
-	for _, addr := range mgr.pdHTTP.addrs {
-		v, e := pdRequest(
-			ctx, addr, scheduleConfigPrefix, mgr.pdHTTP.cli, http.MethodGet, nil)
-		if e != nil {
-			err = e
-			continue
-		}
-		cfg := make(map[string]interface{})
-		err = json.Unmarshal(v, &cfg)
-		if err != nil {
-			return nil, err
-		}
-		return cfg, nil
-	}
-	return nil, err
-}
-
-// UpdatePDScheduleConfig updates PD schedule config value associated with the key.
-func (mgr *Mgr) UpdatePDScheduleConfig(
-	ctx context.Context, cfg map[string]interface{},
-) error {
-	for _, addr := range mgr.pdHTTP.addrs {
-		reqData, err := json.Marshal(cfg)
-		if err != nil {
-			return err
-		}
-		_, e := pdRequest(ctx, addr, scheduleConfigPrefix,
-			mgr.pdHTTP.cli, http.MethodPost, bytes.NewBuffer(reqData))
-		if e == nil {
-			return nil
-		}
-	}
-	return errors.New("update PD schedule config failed")
 }
 
 // Close closes all client in Mgr.
@@ -549,5 +414,5 @@ func (mgr *Mgr) Close() {
 		mgr.storage.Close()
 	}
 
-	mgr.pdClient.Close()
+	mgr.PdMgr.Close()
 }

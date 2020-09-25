@@ -344,7 +344,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 	// Switch TiKV cluster to import mode (adjust rocksdb configuration).
 	client.SwitchToImportMode(ctx)
 
-	return mgr.RemoveSchedulers(ctx)
+	return mgr.PdMgr.RemoveSchedulers(ctx)
 }
 
 // restorePostWork executes some post work after restore.

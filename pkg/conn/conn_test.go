@@ -46,7 +46,7 @@ func (s *testClientSuite) TearDownSuite(c *C) {
 }
 
 func (s *testClientSuite) TestGetClusterVersion(c *C) {
-	s.mgr.pdHTTP.addrs = []string{"", ""} // two endpoints
+	s.mgr.PdMgr.addrs = []string{"", ""} // two endpoints
 	counter := 0
 	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		counter++
@@ -136,7 +136,7 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 		c.Assert(err, IsNil)
 		return ret, nil
 	}
-	s.mgr.pdHTTP.addrs = []string{"http://mock"}
+	s.mgr.PdMgr.addrs = []string{"http://mock"}
 	ctx := context.Background()
 	resp, err := s.mgr.getRegionCountWith(ctx, mock, []byte{}, []byte{})
 	c.Assert(err, IsNil)
