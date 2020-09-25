@@ -49,6 +49,7 @@ var (
 	}
 )
 
+// PdController manage get/update config from pd.
 type PdController struct {
 	addrs    []string
 	cli      *http.Client
@@ -299,6 +300,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	return undo, p.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
 }
 
+// Close close the connection to pd.
 func (p *PdController) Close() {
 	p.pdClient.Close()
 }
