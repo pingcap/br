@@ -72,6 +72,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 // URI returns the base path as an URI with a file:/// prefix.
 func (l *LocalStorage) URI() string {
 	return "file:///" + l.base
+}
 
 type localStorageUploader struct {
 	file io.WriteCloser
