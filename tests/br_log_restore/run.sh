@@ -78,19 +78,8 @@ done
 
 # restore full
 echo "restore start..."
-RESTORE_LOG="restore.log"
-rm -f $RESTORE_LOG
-unset BR_LOG_TO_TERM
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
-    --log-file $RESTORE_LOG --log-file "info" || \
-    ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 )
-cat $RESTORE_LOG
-BR_LOG_TO_TERM=1
-
-if grep -i $MINIO_SECRET_KEY $RESTORE_LOG; then
-    echo "Secret key logged in log. Please remove them."
-    exit 1
-fi
+    --log-file "restore.log" --log-file "info"
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
