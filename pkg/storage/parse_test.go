@@ -105,6 +105,9 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Bucket, Equals, "bucket4")
 	c.Assert(gcs.Prefix, Equals, "backup/")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCreds2")
+
+	_, err = ParseBackend("/test", nil)
+	c.Assert(err, IsNil)
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
