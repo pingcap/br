@@ -33,6 +33,10 @@ func (*noopStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string
 	return nil
 }
 
+func (s *noopStorage) URI() string {
+	return "noop:///"
+}
+
 // CreateUploader implenments ExternalStorage interface.
 func (*noopStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	panic("noop storage not support multi-upload")
