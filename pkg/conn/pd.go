@@ -95,6 +95,7 @@ type PdController struct {
 	pdClient pd.Client
 }
 
+// NewPdController creates a new PdController.
 func NewPdController(
 	ctx context.Context,
 	pdAddrs string,
@@ -144,7 +145,7 @@ func NewPdController(
 	}
 
 	return &PdController{
-		addrs:    addrs,
+		addrs:    processedAddrs,
 		cli:      cli,
 		pdClient: pdClient,
 	}, nil
