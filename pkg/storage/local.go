@@ -4,6 +4,7 @@ package storage
 
 import (
 	"context"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -71,11 +72,28 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 // URI returns the base path as an URI with a file:/// prefix.
 func (l *LocalStorage) URI() string {
 	return "file:///" + l.base
+
+type localStorageUploader struct {
+	file io.WriteCloser
+}
+
+func (l *localStorageUploader) UploadPart(ctx context.Context, data []byte) error {
+	_, err := l.file.Write(data)
+	return err
+}
+
+func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
+	return l.file.Close()
 }
 
 // CreateUploader implements ExternalStorage interface.
 func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	panic("local storage not support multi-upload")
+	path := filepath.Join(l.base, name)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return nil, err
+	}
+	return &localStorageUploader{file: f}, nil
 }
 
 // Open a Reader by file path, path is a relative path to base path.
