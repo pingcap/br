@@ -37,7 +37,7 @@ type testClientSuite struct {
 
 func (s *testClientSuite) SetUpSuite(c *C) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.mgr = &Mgr{}
+	s.mgr = &Mgr{PdController: &PdController{}}
 	s.regions = core.NewRegionsInfo()
 }
 
@@ -46,7 +46,7 @@ func (s *testClientSuite) TearDownSuite(c *C) {
 }
 
 func (s *testClientSuite) TestGetClusterVersion(c *C) {
-	s.mgr.PdMgr.addrs = []string{"", ""} // two endpoints
+	s.mgr.PdController.addrs = []string{"", ""} // two endpoints
 	counter := 0
 	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		counter++
@@ -105,7 +105,7 @@ func (s *testClientSuite) TestRegionCount(c *C) {
 		c.Assert(err, IsNil)
 		return ret, nil
 	}
-	s.mgr.PdMgr.addrs = []string{"http://mock"}
+	s.mgr.PdController.addrs = []string{"http://mock"}
 	ctx := context.Background()
 	resp, err := s.mgr.getRegionCountWith(ctx, mock, []byte{}, []byte{})
 	c.Assert(err, IsNil)

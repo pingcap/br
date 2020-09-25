@@ -45,11 +45,11 @@ const (
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
-	PdMgr    *PdController
-	tlsConf  *tls.Config
-	dom      *domain.Domain
-	storage  tikv.Storage
-	grpcClis struct {
+	PdController *PdController
+	tlsConf      *tls.Config
+	dom          *domain.Domain
+	storage      tikv.Storage
+	grpcClis     struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
@@ -199,7 +199,7 @@ func NewMgr(
 	}
 
 	mgr := &Mgr{
-		PdMgr: &PdController{
+		PdController: &PdController{
 			pdClient: pdClient,
 		},
 		storage:     storage,
@@ -207,21 +207,21 @@ func NewMgr(
 		tlsConf:     tlsConf,
 		ownsStorage: g.OwnsStorage(),
 	}
-	mgr.PdMgr.addrs = processedAddrs
-	mgr.PdMgr.cli = cli
+	mgr.PdController.addrs = processedAddrs
+	mgr.PdController.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return mgr, nil
 }
 
 // SetPDHTTP set pd addrs and cli for test.
 func (mgr *Mgr) SetPDHTTP(addrs []string, cli *http.Client) {
-	mgr.PdMgr.addrs = addrs
-	mgr.PdMgr.cli = cli
+	mgr.PdController.addrs = addrs
+	mgr.PdController.cli = cli
 }
 
 // SetPDClient set pd addrs and cli for test.
 func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
-	mgr.PdMgr.pdClient = pdClient
+	mgr.PdController.pdClient = pdClient
 }
 
 // GetClusterVersion returns the current cluster version.
@@ -231,8 +231,8 @@ func (mgr *Mgr) GetClusterVersion(ctx context.Context) (string, error) {
 
 func (mgr *Mgr) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
 	var err error
-	for _, addr := range mgr.PdMgr.addrs {
-		v, e := get(ctx, addr, clusterVersionPrefix, mgr.PdMgr.cli, http.MethodGet, nil)
+	for _, addr := range mgr.PdController.addrs {
+		v, e := get(ctx, addr, clusterVersionPrefix, mgr.PdController.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -258,11 +258,11 @@ func (mgr *Mgr) getRegionCountWith(
 		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
 	}
 	var err error
-	for _, addr := range mgr.PdMgr.addrs {
+	for _, addr := range mgr.PdController.addrs {
 		query := fmt.Sprintf(
 			"%s?start_key=%s&end_key=%s",
 			regionCountPrefix, start, end)
-		v, e := get(ctx, addr, query, mgr.PdMgr.cli, http.MethodGet, nil)
+		v, e := get(ctx, addr, query, mgr.PdController.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue
@@ -278,7 +278,7 @@ func (mgr *Mgr) getRegionCountWith(
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := mgr.PdMgr.pdClient.GetStore(ctx, storeID)
+	store, err := mgr.PdController.pdClient.GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -369,7 +369,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 
 // GetPDClient returns a pd client.
 func (mgr *Mgr) GetPDClient() pd.Client {
-	return mgr.PdMgr.pdClient
+	return mgr.PdController.pdClient
 }
 
 // GetTiKV returns a tikv storage.
@@ -414,5 +414,5 @@ func (mgr *Mgr) Close() {
 		mgr.storage.Close()
 	}
 
-	mgr.PdMgr.Close()
+	mgr.PdController.Close()
 }
