@@ -3,9 +3,10 @@ package conn
 import (
 	"context"
 	"errors"
-	. "github.com/pingcap/check"
 	"io"
 	"net/http"
+
+	. "github.com/pingcap/check"
 )
 
 type testPdMgrSuite struct {
