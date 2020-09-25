@@ -45,6 +45,7 @@ func NewValidateCommand() *cobra.Command {
 	meta.AddCommand(newBackupMetaCommand())
 	meta.AddCommand(decodeBackupMetaCommand())
 	meta.AddCommand(encodeBackupMetaCommand())
+	meta.AddCommand(setPDConfigCommand())
 	meta.Hidden = true
 
 	return meta
@@ -322,4 +323,57 @@ func encodeBackupMetaCommand() *cobra.Command {
 		},
 	}
 	return encodeBackupMetaCmd
+}
+
+func setPDConfigCommand() *cobra.Command {
+	pdConfigCmd := &cobra.Command{
+		Use:   "reset-pd-config-as-default",
+		Short: "reset pd scheduler and config adjusted by BR to default value",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			// these schedulers open by default
+			defaultSchedulers := []string{
+				"balance-leader-scheduler",
+				"balance-hot-region-scheduler",
+				"balance-region-scheduler",
+			}
+			for _, sche := range defaultSchedulers {
+				err := mgr.AddScheduler(ctx, sche)
+				if err != nil {
+					return err
+				}
+			}
+			log.Info("add pd schedulers succeed",
+				zap.Strings("schedulers", defaultSchedulers))
+
+			// set default config find by
+			// https://github.com/tikv/pd/blob/master/conf/config.toml
+			defaultMergeCfg := map[string]interface{}{
+				"max-merge-region-keys": 200000,
+				"max-merge-region-size": 20,
+				"leader-schedule-limit": 4,
+				"region-schedule-limit": 2048,
+				"max-snapshot-count":    3,
+			}
+			if err := mgr.UpdatePDScheduleConfig(ctx, defaultMergeCfg); err != nil {
+				return errors.Annotate(err, "fail to update PD merge config")
+			}
+			log.Info("add pd configs succeed", zap.Any("config", defaultMergeCfg))
+			return nil
+		},
+	}
+	return pdConfigCmd
 }
