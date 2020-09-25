@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -121,50 +120,13 @@ func NewMgr(
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
 ) (*Mgr, error) {
-	addrs := strings.Split(pdAddrs, ",")
-
-	failure := errors.Errorf("pd address (%s) has wrong format", pdAddrs)
-	cli := &http.Client{Timeout: 30 * time.Second}
-	if tlsConf != nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = tlsConf
-		cli.Transport = transport
-	}
-
-	processedAddrs := make([]string, 0, len(addrs))
-	for _, addr := range addrs {
-		if addr != "" && !strings.HasPrefix("http", addr) {
-			if tlsConf != nil {
-				addr = "https://" + addr
-			} else {
-				addr = "http://" + addr
-			}
-		}
-		processedAddrs = append(processedAddrs, addr)
-		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-		if failure == nil {
-			break
-		}
-	}
-	if failure != nil {
-		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
-	}
-
-	maxCallMsgSize := []grpc.DialOption{
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
-		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
-	}
-	pdClient, err := pd.NewClientWithContext(
-		ctx, addrs, securityOption,
-		pd.WithGRPCDialOptions(maxCallMsgSize...),
-		pd.WithCustomTimeoutOption(10*time.Second),
-	)
+	controller, err := NewPdController(ctx, pdAddrs, tlsConf, securityOption)
 	if err != nil {
-		log.Error("fail to create pd client", zap.Error(err))
+		log.Error("fail to create pd controller", zap.Error(err))
 		return nil, err
 	}
 	if checkRequirements {
-		err = utils.CheckClusterVersion(ctx, pdClient)
+		err = utils.CheckClusterVersion(ctx, controller.pdClient)
 		if err != nil {
 			errMsg := "running BR in incompatible version of cluster, " +
 				"if you believe it's OK, use --check-requirements=false to skip."
@@ -174,7 +136,7 @@ func NewMgr(
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := GetAllTiKVStores(ctx, pdClient, storeBehavior)
+	stores, err := GetAllTiKVStores(ctx, controller.pdClient, storeBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err
@@ -199,16 +161,12 @@ func NewMgr(
 	}
 
 	mgr := &Mgr{
-		PdController: &PdController{
-			pdClient: pdClient,
-		},
-		storage:     storage,
-		dom:         dom,
-		tlsConf:     tlsConf,
-		ownsStorage: g.OwnsStorage(),
+		PdController: controller,
+		storage:      storage,
+		dom:          dom,
+		tlsConf:      tlsConf,
+		ownsStorage:  g.OwnsStorage(),
 	}
-	mgr.PdController.addrs = processedAddrs
-	mgr.PdController.cli = cli
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
 	return mgr, nil
 }

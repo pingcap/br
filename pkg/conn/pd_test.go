@@ -3,44 +3,46 @@ package conn
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
 	. "github.com/pingcap/check"
 )
 
-type testPdMgrSuite struct {
+type testPDControllerSuite struct {
 }
 
-var _ = Suite(&testPdMgrSuite{})
+var _ = Suite(&testPDControllerSuite{})
 
-func (s *testPdMgrSuite) TestScheduler(c *C) {
+func (s *testPDControllerSuite) TestScheduler(c *C) {
 	ctx := context.Background()
 
 	scheduler := "balance-leader-scheduler"
 	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return nil, errors.New("failed")
 	}
-	pdMgr := &PdController{}
-	err := pdMgr.removeSchedulerWith(ctx, scheduler, mock)
+	pdController := &PdController{addrs: []string{"", ""}}
+	err := pdController.removeSchedulerWith(ctx, scheduler, mock)
+	fmt.Printf("err: %v\n", err)
 	c.Assert(err, ErrorMatches, "failed")
 
-	err = pdMgr.addSchedulerWith(ctx, scheduler, mock)
+	err = pdController.addSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
-	_, err = pdMgr.listSchedulersWith(ctx, mock)
+	_, err = pdController.listSchedulersWith(ctx, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`["` + scheduler + `"]`), nil
 	}
-	err = pdMgr.removeSchedulerWith(ctx, scheduler, mock)
+	err = pdController.removeSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
-	err = pdMgr.addSchedulerWith(ctx, scheduler, mock)
+	err = pdController.addSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
-	schedulers, err := pdMgr.listSchedulersWith(ctx, mock)
+	schedulers, err := pdController.listSchedulersWith(ctx, mock)
 	c.Assert(err, IsNil)
 	c.Assert(schedulers, HasLen, 1)
 	c.Assert(schedulers[0], Equals, scheduler)

@@ -5,6 +5,7 @@ package conn
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,12 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
+	"time"
+
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
+	"google.golang.org/grpc"
 
 	"github.com/pingcap/errors"
 	pd "github.com/tikv/pd/client"
@@ -49,13 +56,6 @@ var (
 	}
 )
 
-// PdController manage get/update config from pd.
-type PdController struct {
-	addrs    []string
-	cli      *http.Client
-	pdClient pd.Client
-}
-
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
 
 func pdRequest(
@@ -86,6 +86,68 @@ func pdRequest(
 		return nil, errors.Trace(err)
 	}
 	return r, nil
+}
+
+// PdController manage get/update config from pd.
+type PdController struct {
+	addrs    []string
+	cli      *http.Client
+	pdClient pd.Client
+}
+
+func NewPdController(
+	ctx context.Context,
+	pdAddrs string,
+	tlsConf *tls.Config,
+	securityOption pd.SecurityOption,
+) (*PdController, error) {
+	cli := &http.Client{Timeout: 30 * time.Second}
+	if tlsConf != nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConf
+		cli.Transport = transport
+	}
+
+	addrs := strings.Split(pdAddrs, ",")
+	processedAddrs := make([]string, 0, len(addrs))
+	var failure error
+	for _, addr := range addrs {
+		if addr != "" && !strings.HasPrefix("http", addr) {
+			if tlsConf != nil {
+				addr = "https://" + addr
+			} else {
+				addr = "http://" + addr
+			}
+		}
+		processedAddrs = append(processedAddrs, addr)
+		_, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
+		if failure == nil {
+			break
+		}
+	}
+	if failure != nil {
+		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
+	}
+
+	maxCallMsgSize := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
+	}
+	pdClient, err := pd.NewClientWithContext(
+		ctx, addrs, securityOption,
+		pd.WithGRPCDialOptions(maxCallMsgSize...),
+		pd.WithCustomTimeoutOption(10*time.Second),
+	)
+	if err != nil {
+		log.Error("fail to create pd client", zap.Error(err))
+		return nil, err
+	}
+
+	return &PdController{
+		addrs:    addrs,
+		cli:      cli,
+		pdClient: pdClient,
+	}, nil
 }
 
 // RemoveScheduler remove pd scheduler.
