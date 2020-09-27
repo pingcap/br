@@ -444,11 +444,11 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 			return nil, closeErr
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
-			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
+			log.Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
-	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
+	log.Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size),
 		zap.Int64("buf_size", bytesBuf.TotalSize()))
@@ -513,16 +513,16 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
-		log.L().Warn("write to tikv failed", zap.Error(err))
+		log.Warn("write to tikv failed", zap.Error(err))
 		return err
 	}
 
 	for _, meta := range metas {
 		for i := 0; i < maxRetryTimes; i++ {
-			log.L().Debug("ingest meta", zap.Reflect("meta", meta))
+			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.L().Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
+				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				continue
 			}
@@ -532,7 +532,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.L().Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
+				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
@@ -541,7 +541,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.L().Warn("retry ingest due to",
+				log.Warn("retry ingest due to",
 					zap.Reflect("meta", meta), zap.Reflect("region", region),
 					zap.Reflect("new region", newRegion), zap.Error(errIngest))
 				return errIngest
@@ -576,14 +576,14 @@ WriteAndIngest:
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, l.splitClient, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
-			log.L().Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
+			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
 			continue WriteAndIngest
 		}
 
 		shouldWait := false
 		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
-			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
+			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
@@ -605,7 +605,7 @@ WriteAndIngest:
 			err1 := eg.Wait()
 			if err1 != nil {
 				err = err1
-				log.L().Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
+				log.Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
 				continue WriteAndIngest
 			}
 		}

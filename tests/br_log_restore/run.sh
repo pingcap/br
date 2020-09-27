@@ -72,7 +72,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 # sleep wait cdc log sync to storage
-sleep 5
+sleep 20
 
 # remove the change feed, because we don't want to record the drop ddl.
 echo "Y" | bin/cdc cli unsafe reset --pd=http://$PD_ADDR
