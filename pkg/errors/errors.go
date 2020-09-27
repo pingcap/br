@@ -30,6 +30,11 @@ var (
 	ErrRestoreInvalidRewrite   = errors.Normalize("invalid rewrite rule", errors.RFCCodeText("BR:Restore:ErrRestoreInvalidRewrite"))
 	ErrRestoreInvalidBackup    = errors.Normalize("invalid backup", errors.RFCCodeText("BR:Restore:ErrRestoreInvalidBackup"))
 	ErrRestoreInvalidRange     = errors.Normalize("invalid restore range", errors.RFCCodeText("BR:Restore:ErrRestoreInvalidRange"))
+	ErrRestoreWriteAndIngest   = errors.Normalize("failed to write and ingest", errors.RFCCodeText("BR:Restore:ErrRestoreWriteAndIngest"))
+	ErrRestoreSchemaNotExists  = errors.Normalize("schema not exists", errors.RFCCodeText("BR:Restore:ErrRestoreSchemaNotExists"))
+
+	// TODO maybe it belongs to PiTR
+	ErrRestoreRTsConstrain = errors.Normalize("resolved ts constrain violation", errors.RFCCodeText("BR:Restore:ErrRestoreResolvedTsConstrain"))
 
 	ErrStorageUnknown       = errors.Normalize("unknown external storage error", errors.RFCCodeText("BR:ExternalStorage:ErrStorageUnknown"))
 	ErrStorageInvalidConfig = errors.Normalize("invalid external storage config", errors.RFCCodeText("BR:ExternalStorage:ErrStorageInvalidConfig"))
@@ -40,6 +45,7 @@ var (
 	ErrKVUnknown           = errors.Normalize("unknown tikv error", errors.RFCCodeText("BR:PD:ErrKVUnknown"))
 	ErrKVClusterIDMismatch = errors.Normalize("tikv cluster ID mismatch", errors.RFCCodeText("BR:PD:ErrKVClusterIDMismatch"))
 	ErrKVNotHealth         = errors.Normalize("tikv cluster not health", errors.RFCCodeText("BR:KV:ErrKVNotHealth"))
+	ErrKVNotLeader         = errors.Normalize("not leader", errors.RFCCodeText("BR:KV:ErrKVNotLeader"))
 	// ErrKVEpochNotMatch is the error raised when ingestion failed with "epoch
 	// not match". This error is retryable.
 	ErrKVEpochNotMatch = errors.Normalize("epoch not match", errors.RFCCodeText("BR:KV:ErrEpochNotMatch"))
