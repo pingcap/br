@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package conn
+package pdutil
 
 import (
 	"bytes"
@@ -16,14 +16,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/utils"
+)
+
+const (
+	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
+	regionCountPrefix    = "pd/api/v1/stats/region"
+	schedulerPrefix      = "pd/api/v1/schedulers"
+	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
+	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -56,8 +65,10 @@ var (
 	}
 )
 
+// pdHTTPRequest defines the interface to send a request to pd and return the result in bytes.
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
 
+// pdRequest is a func to send a HTTP to pd and return the result bytes.
 func pdRequest(
 	ctx context.Context,
 	addr string, prefix string,
@@ -66,8 +77,8 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	url := fmt.Sprintf("%s/%s", u, prefix)
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	reqURL := fmt.Sprintf("%s/%s", u, prefix)
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -78,7 +89,7 @@ func pdRequest(
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, url)
+		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, reqURL)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -151,6 +162,75 @@ func NewPdController(
 	}, nil
 }
 
+// SetHTTP set pd addrs and cli for test.
+func (p *PdController) SetHTTP(addrs []string, cli *http.Client) {
+	p.addrs = addrs
+	p.cli = cli
+}
+
+// SetPDClient set pd addrs and cli for test.
+func (p *PdController) SetPDClient(pdClient pd.Client) {
+	p.pdClient = pdClient
+}
+
+// GetPDClient set pd addrs and cli for test.
+func (p *PdController) GetPDClient() pd.Client {
+	return p.pdClient
+}
+
+// GetClusterVersion returns the current cluster version.
+func (p *PdController) GetClusterVersion(ctx context.Context) (string, error) {
+	return p.getClusterVersionWith(ctx, pdRequest)
+}
+
+func (p *PdController) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
+	var err error
+	for _, addr := range p.addrs {
+		v, e := get(ctx, addr, clusterVersionPrefix, p.cli, http.MethodGet, nil)
+		if e != nil {
+			err = e
+			continue
+		}
+		return string(v), nil
+	}
+
+	return "", err
+}
+
+// GetRegionCount returns the region count in the specified range.
+func (p *PdController) GetRegionCount(ctx context.Context, startKey, endKey []byte) (int, error) {
+	return p.getRegionCountWith(ctx, pdRequest, startKey, endKey)
+}
+
+func (p *PdController) getRegionCountWith(
+	ctx context.Context, get pdHTTPRequest, startKey, endKey []byte,
+) (int, error) {
+	// TiKV reports region start/end keys to PD in memcomparable-format.
+	var start, end string
+	start = url.QueryEscape(string(codec.EncodeBytes(nil, startKey)))
+	if len(endKey) != 0 { // Empty end key means the max.
+		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
+	}
+	var err error
+	for _, addr := range p.addrs {
+		query := fmt.Sprintf(
+			"%s?start_key=%s&end_key=%s",
+			regionCountPrefix, start, end)
+		v, e := get(ctx, addr, query, p.cli, http.MethodGet, nil)
+		if e != nil {
+			err = e
+			continue
+		}
+		regionsMap := make(map[string]interface{})
+		err = json.Unmarshal(v, &regionsMap)
+		if err != nil {
+			return 0, err
+		}
+		return int(regionsMap["count"].(float64)), nil
+	}
+	return 0, err
+}
+
 // RemoveScheduler remove pd scheduler.
 func (p *PdController) RemoveScheduler(ctx context.Context, scheduler string) error {
 	return p.removeSchedulerWith(ctx, scheduler, pdRequest)
@@ -158,7 +238,7 @@ func (p *PdController) RemoveScheduler(ctx context.Context, scheduler string) er
 
 func (p *PdController) removeSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
 	for _, addr := range p.addrs {
-		prefix := fmt.Sprintf("%s/%s", schdulerPrefix, scheduler)
+		prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
 		_, err = delete(ctx, addr, prefix, p.cli, http.MethodDelete, nil)
 		if err != nil {
 			continue
@@ -176,7 +256,7 @@ func (p *PdController) AddScheduler(ctx context.Context, scheduler string) error
 func (p *PdController) addSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
 	for _, addr := range p.addrs {
 		body := bytes.NewBuffer([]byte(`{"name":"` + scheduler + `"}`))
-		_, err = post(ctx, addr, schdulerPrefix, p.cli, http.MethodPost, body)
+		_, err = post(ctx, addr, schedulerPrefix, p.cli, http.MethodPost, body)
 		if err != nil {
 			continue
 		}
@@ -193,7 +273,7 @@ func (p *PdController) ListSchedulers(ctx context.Context) ([]string, error) {
 func (p *PdController) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]string, error) {
 	var err error
 	for _, addr := range p.addrs {
-		v, e := get(ctx, addr, schdulerPrefix, p.cli, http.MethodGet, nil)
+		v, e := get(ctx, addr, schedulerPrefix, p.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
 			continue

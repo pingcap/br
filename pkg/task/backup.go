@@ -272,7 +272,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	approximateRegions := 0
 	for _, r := range ranges {
 		var regionCount int
-		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
+		regionCount, err = mgr.PdController.GetRegionCount(ctx, r.StartKey, r.EndKey)
 		if err != nil {
 			return err
 		}

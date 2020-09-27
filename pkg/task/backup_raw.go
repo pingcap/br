@@ -154,7 +154,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	}
 
 	// The number of regions need to backup
-	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
+	approximateRegions, err := mgr.PdController.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
 	if err != nil {
 		return err
 	}

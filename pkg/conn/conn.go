@@ -5,10 +5,6 @@ package conn
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,7 +15,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -28,23 +23,19 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
-	dialTimeout          = 30 * time.Second
-	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
-	regionCountPrefix    = "pd/api/v1/stats/region"
-	schdulerPrefix       = "pd/api/v1/schedulers"
-	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
-	scheduleConfigPrefix = "pd/api/v1/config/schedule"
+	dialTimeout = 30 * time.Second
 
 	resetRetryTimes = 3
 )
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
-	PdController *PdController
+	PdController *pdutil.PdController
 	tlsConf      *tls.Config
 	dom          *domain.Domain
 	storage      tikv.Storage
@@ -120,13 +111,13 @@ func NewMgr(
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
 ) (*Mgr, error) {
-	controller, err := NewPdController(ctx, pdAddrs, tlsConf, securityOption)
+	controller, err := pdutil.NewPdController(ctx, pdAddrs, tlsConf, securityOption)
 	if err != nil {
 		log.Error("fail to create pd controller", zap.Error(err))
 		return nil, err
 	}
 	if checkRequirements {
-		err = utils.CheckClusterVersion(ctx, controller.pdClient)
+		err = utils.CheckClusterVersion(ctx, controller.GetPDClient())
 		if err != nil {
 			errMsg := "running BR in incompatible version of cluster, " +
 				"if you believe it's OK, use --check-requirements=false to skip."
@@ -136,7 +127,7 @@ func NewMgr(
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
 
 	// Check live tikv.
-	stores, err := GetAllTiKVStores(ctx, controller.pdClient, storeBehavior)
+	stores, err := GetAllTiKVStores(ctx, controller.GetPDClient(), storeBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
 		return nil, err
@@ -171,72 +162,13 @@ func NewMgr(
 	return mgr, nil
 }
 
-// SetPDHTTP set pd addrs and cli for test.
-func (mgr *Mgr) SetPDHTTP(addrs []string, cli *http.Client) {
-	mgr.PdController.addrs = addrs
-	mgr.PdController.cli = cli
-}
-
-// SetPDClient set pd addrs and cli for test.
-func (mgr *Mgr) SetPDClient(pdClient pd.Client) {
-	mgr.PdController.pdClient = pdClient
-}
-
-// GetClusterVersion returns the current cluster version.
-func (mgr *Mgr) GetClusterVersion(ctx context.Context) (string, error) {
-	return mgr.getClusterVersionWith(ctx, pdRequest)
-}
-
-func (mgr *Mgr) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
-	var err error
-	for _, addr := range mgr.PdController.addrs {
-		v, e := get(ctx, addr, clusterVersionPrefix, mgr.PdController.cli, http.MethodGet, nil)
-		if e != nil {
-			err = e
-			continue
-		}
-		return string(v), nil
-	}
-
-	return "", err
-}
-
-// GetRegionCount returns the region count in the specified range.
-func (mgr *Mgr) GetRegionCount(ctx context.Context, startKey, endKey []byte) (int, error) {
-	return mgr.getRegionCountWith(ctx, pdRequest, startKey, endKey)
-}
-
-func (mgr *Mgr) getRegionCountWith(
-	ctx context.Context, get pdHTTPRequest, startKey, endKey []byte,
-) (int, error) {
-	// TiKV reports region start/end keys to PD in memcomparable-format.
-	var start, end string
-	start = url.QueryEscape(string(codec.EncodeBytes(nil, startKey)))
-	if len(endKey) != 0 { // Empty end key means the max.
-		end = url.QueryEscape(string(codec.EncodeBytes(nil, endKey)))
-	}
-	var err error
-	for _, addr := range mgr.PdController.addrs {
-		query := fmt.Sprintf(
-			"%s?start_key=%s&end_key=%s",
-			regionCountPrefix, start, end)
-		v, e := get(ctx, addr, query, mgr.PdController.cli, http.MethodGet, nil)
-		if e != nil {
-			err = e
-			continue
-		}
-		regionsMap := make(map[string]interface{})
-		err = json.Unmarshal(v, &regionsMap)
-		if err != nil {
-			return 0, err
-		}
-		return int(regionsMap["count"].(float64)), nil
-	}
-	return 0, err
+// GetPDClient set pd addrs and cli for test.
+func (mgr *Mgr) GetPDClient() pd.Client {
+	return mgr.PdController.GetPDClient()
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := mgr.PdController.pdClient.GetStore(ctx, storeID)
+	store, err := mgr.PdController.GetPDClient().GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -323,11 +255,6 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 		return nil, errors.Trace(err)
 	}
 	return backup.NewBackupClient(conn), nil
-}
-
-// GetPDClient returns a pd client.
-func (mgr *Mgr) GetPDClient() pd.Client {
-	return mgr.PdController.pdClient
 }
 
 // GetTiKV returns a tikv storage.
