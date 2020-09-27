@@ -59,6 +59,9 @@ type ExternalStorage interface {
 	// by path.
 	WalkDir(ctx context.Context, opt *WalkOption, fn func(path string, size int64) error) error
 
+	// URI returns the base path as a URI
+	URI() string
+
 	// CreateUploader create a uploader that will upload chunks data to storage.
 	// It's design for s3 multi-part upload currently. e.g. cdc log backup use this to do multi part upload
 	// to avoid generate small fragment files.
