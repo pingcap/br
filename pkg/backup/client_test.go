@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pingcap/br/pkg/pdutil"
-
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/pdutil"
 )
 
 type testBackup struct {
