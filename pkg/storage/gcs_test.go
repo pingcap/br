@@ -54,6 +54,8 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	exist, err = stg.FileExists(ctx, "key_not_exist")
 	c.Assert(err, IsNil)
 	c.Assert(exist, IsFalse)
+
+	c.Assert(stg.URI(), Equals, "gcs://testbucket/a/b/")
 }
 
 func (r *testStorageSuite) TestNewGCSStorage(c *C) {
