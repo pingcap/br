@@ -53,6 +53,11 @@ stop_tmp_server() {
 }
 trap stop_tmp_server EXIT
 
+# TODO: remove this after TiCDC supports TiDB clustered index
+run_sql "set @@global.tidb_enable_clustered_index=0"
+# TiDB global variables cache 2 seconds
+sleep 2
+
 # create change feed for s3 log
 bin/cdc cli changefeed create --pd=http://$PD_ADDR --sink-uri="s3://$BUCKET/$DB?endpoint=http://$S3_ENDPOINT" --changefeed-id="simple-replication-task"
 
