@@ -409,6 +409,11 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	return nil
 }
 
+// URI returns s3://<base>/<prefix>.
+func (rs *S3Storage) URI() string {
+	return "s3://" + rs.options.Bucket + "/" + rs.options.Prefix
+}
+
 // Open a Reader by file path.
 func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
 	reader, r, err := rs.open(ctx, path, 0, 0)

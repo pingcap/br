@@ -13,6 +13,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -31,6 +32,8 @@ import (
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -44,6 +47,7 @@ import (
 // ClientMgr manages connections needed by backup.
 type ClientMgr interface {
 	GetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
+	ResetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
 	GetPDClient() pd.Client
 	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
@@ -60,6 +64,7 @@ type Checksum struct {
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
+	backupRetryTimes            = 5
 )
 
 // Client is a client instructs TiKV how to do a backup.
@@ -770,6 +775,10 @@ func (bc *Client) handleFineGrained(
 				respCh <- response
 			}
 			return nil
+		},
+		func() (kvproto.BackupClient, error) {
+			log.Warn("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
+			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
 		return 0, err
@@ -785,34 +794,68 @@ func SendBackup(
 	client kvproto.BackupClient,
 	req kvproto.BackupRequest,
 	respFn func(*kvproto.BackupResponse) error,
+	resetFn func() (kvproto.BackupClient, error),
 ) error {
-	log.Info("try backup",
-		zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
-		zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
-		zap.Uint64("storeID", storeID),
-	)
-	bcli, err := client.Backup(ctx, &req)
-	if err != nil {
-		log.Error("fail to backup", zap.Uint64("StoreID", storeID))
-		return err
-	}
-	for {
-		resp, err := bcli.Recv()
-		if err != nil {
-			if err == io.EOF {
-				log.Info("backup streaming finish",
-					zap.Uint64("StoreID", storeID))
-				break
+	var errReset error
+backupLoop:
+	for retry := 0; retry < backupRetryTimes; retry++ {
+		log.Info("try backup",
+			zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
+			zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
+			zap.Uint64("storeID", storeID),
+			zap.Int("retry time", retry),
+		)
+		bcli, err := client.Backup(ctx, &req)
+		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
+			if val.(bool) {
+				log.Debug("failpoint reset-retryable-error injected.")
+				err = status.Errorf(codes.Unavailable, "Unavailable error")
 			}
-			return errors.Annotatef(err, "Store: %d close the connection", storeID)
-		}
-		// TODO: handle errors in the resp.
-		log.Info("range backuped",
-			zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-			zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
-		err = respFn(resp)
+		})
 		if err != nil {
-			return err
+			if isRetryableError(err) {
+				time.Sleep(3 * time.Second)
+				client, errReset = resetFn()
+				if errReset != nil {
+					return errors.Annotatef(errReset, "failed to reset backup connection on store:%d "+
+						"please check the tikv status", storeID)
+				}
+				continue
+			}
+			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
+				zap.Int("retry time", retry))
+			return errors.Trace(err)
+		}
+
+		for {
+			resp, err := bcli.Recv()
+			if err != nil {
+				if err == io.EOF {
+					log.Info("backup streaming finish",
+						zap.Uint64("StoreID", storeID),
+						zap.Int("retry time", retry))
+					break backupLoop
+				}
+				if isRetryableError(err) {
+					time.Sleep(3 * time.Second)
+					// current tikv is unavailable
+					client, errReset = resetFn()
+					if errReset != nil {
+						return errors.Annotatef(errReset, "failed to reset recv connection on store:%d "+
+							"please check the tikv status", storeID)
+					}
+					break
+				}
+				return errors.Annotatef(err, "failed to connect to store: %d with retry times:%d", storeID, retry)
+			}
+			// TODO: handle errors in the resp.
+			log.Info("range backuped",
+				zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
+				zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
+			err = respFn(resp)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -914,4 +957,9 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
+}
+
+// isRetryableError represents whether we should retry reset grpc connection.
+func isRetryableError(err error) bool {
+	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
 }

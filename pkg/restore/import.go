@@ -19,15 +19,22 @@ import (
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
 
-const importScanRegionTime = 10 * time.Second
-const scanRegionPaginationLimit = int(128)
+const (
+	importScanRegionTime      = 10 * time.Second
+	scanRegionPaginationLimit = int(128)
+	gRPCKeepAliveTime         = 10 * time.Second
+	gRPCKeepAliveTimeout      = 3 * time.Second
+	gRPCBackOffMaxDelay       = 3 * time.Second
+)
 
 // ImporterClient is used to import a file to TiKV.
 type ImporterClient interface {
@@ -48,6 +55,11 @@ type ImporterClient interface {
 		storeID uint64,
 		req *import_sstpb.SetDownloadSpeedLimitRequest,
 	) (*import_sstpb.SetDownloadSpeedLimitResponse, error)
+
+	GetImportClient(
+		ctx context.Context,
+		storeID uint64,
+	) (import_sstpb.ImportSSTClient, error)
 }
 
 type importClient struct {
@@ -71,7 +83,7 @@ func (ic *importClient) DownloadSST(
 	storeID uint64,
 	req *import_sstpb.DownloadRequest,
 ) (*import_sstpb.DownloadResponse, error) {
-	client, err := ic.getImportClient(ctx, storeID)
+	client, err := ic.GetImportClient(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +95,7 @@ func (ic *importClient) SetDownloadSpeedLimit(
 	storeID uint64,
 	req *import_sstpb.SetDownloadSpeedLimitRequest,
 ) (*import_sstpb.SetDownloadSpeedLimitResponse, error) {
-	client, err := ic.getImportClient(ctx, storeID)
+	client, err := ic.GetImportClient(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,14 +107,14 @@ func (ic *importClient) IngestSST(
 	storeID uint64,
 	req *import_sstpb.IngestRequest,
 ) (*import_sstpb.IngestResponse, error) {
-	client, err := ic.getImportClient(ctx, storeID)
+	client, err := ic.GetImportClient(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
 	return client.Ingest(ctx, req)
 }
 
-func (ic *importClient) getImportClient(
+func (ic *importClient) GetImportClient(
 	ctx context.Context,
 	storeID uint64,
 ) (import_sstpb.ImportSSTClient, error) {
@@ -124,7 +136,19 @@ func (ic *importClient) getImportClient(
 	if addr == "" {
 		addr = store.GetAddress()
 	}
-	conn, err := grpc.Dial(addr, opt)
+	bfConf := backoff.DefaultConfig
+	bfConf.MaxDelay = gRPCBackOffMaxDelay
+	conn, err := grpc.DialContext(
+		ctx,
+		addr,
+		opt,
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                gRPCKeepAliveTime,
+			Timeout:             gRPCKeepAliveTimeout,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}
