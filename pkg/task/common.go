@@ -277,8 +277,8 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	return cfg.TLS.ParseFromFlags(flags)
 }
 
-// newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context,
+// NewMgr creates a new mgr at the given PD address.
+func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	checkRequirements bool) (*conn.Mgr, error) {
