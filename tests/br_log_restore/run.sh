@@ -84,7 +84,7 @@ done
 # restore full
 echo "restore start..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
-    --log-file "restore.log" --log-file "info"
+    --log-file "restore.log" --log-level "info"
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
