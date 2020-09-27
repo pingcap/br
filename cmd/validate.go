@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -344,34 +346,21 @@ func setPDConfigCommand() *cobra.Command {
 			}
 			defer mgr.Close()
 
-			// these schedulers open by default
-			defaultSchedulers := []string{
-				"balance-leader-scheduler",
-				"balance-hot-region-scheduler",
-				"balance-region-scheduler",
-			}
-			for _, sche := range defaultSchedulers {
-				err := mgr.AddScheduler(ctx, sche)
-				if err != nil {
-					return err
+			for scheduler := range conn.Schedulers {
+				if strings.HasPrefix(scheduler, "balance") {
+					err := mgr.AddScheduler(ctx, scheduler)
+					if err != nil {
+						return err
+					}
+					log.Info("add pd schedulers succeed",
+						zap.String("schedulers", scheduler))
 				}
 			}
-			log.Info("add pd schedulers succeed",
-				zap.Strings("schedulers", defaultSchedulers))
 
-			// set default config find by
-			// https://github.com/tikv/pd/blob/master/conf/config.toml
-			defaultMergeCfg := map[string]interface{}{
-				"max-merge-region-keys": 200000,
-				"max-merge-region-size": 20,
-				"leader-schedule-limit": 4,
-				"region-schedule-limit": 2048,
-				"max-snapshot-count":    3,
-			}
-			if err := mgr.UpdatePDScheduleConfig(ctx, defaultMergeCfg); err != nil {
+			if err := mgr.UpdatePDScheduleConfig(ctx, conn.DefaultPDCfg); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
 			}
-			log.Info("add pd configs succeed", zap.Any("config", defaultMergeCfg))
+			log.Info("add pd configs succeed", zap.Any("config", conn.DefaultPDCfg))
 			return nil
 		},
 	}
