@@ -109,14 +109,15 @@ run_br validate reset-pd-config-as-default
 
 # max-merge-region-size set to default 20
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep "20" || ((pd_settings--))
+
 # max-merge-region-keys set to default 200000
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep "200000" || ((pd_settings--))
 # balance-region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep '"disable": false' || ((pd_settings--))
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-region")}' | grep '"disable": false' || ((pd_settings--))
 # balance-leader scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][1]' | grep '"disable": false' || ((pd_settings--))
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
 # hot region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][2]' | grep '"disable": false' || ((pd_settings--))
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
 
 if [ "$pd_settings" -ne "5" ];then
     echo "TEST: [$TEST_NAME] test validate reset pd config failed!"
