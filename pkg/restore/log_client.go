@@ -298,11 +298,6 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 			SubDir:    dir,
 			ListCount: -1,
 		}
-		if ok, err := l.restoreClient.storage.FileExists(ctx, opt.SubDir); !ok {
-			// this could happen after duplicate create drop table
-			log.Debug("path not exists", zap.String("path", opt.SubDir), zap.Error(err))
-			continue
-		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
 			shouldRestore, err := l.needRestoreRowChange(fileName)
