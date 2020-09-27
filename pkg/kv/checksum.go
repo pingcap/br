@@ -11,36 +11,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package kv
 
 import (
 	"fmt"
 	"hash/crc64"
 
 	"go.uber.org/zap/zapcore"
-
-	"github.com/pingcap/br/pkg/cdclog"
 )
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)
 
-// KVChecksum represents the field needs checksum.
-type KVChecksum struct {
+// Checksum represents the field needs checksum.
+type Checksum struct {
 	bytes    uint64
 	kvs      uint64
 	checksum uint64
 }
 
-// NewKVChecksum creates KVChecksum.
-func NewKVChecksum(checksum uint64) *KVChecksum {
-	return &KVChecksum{
+// NewKVChecksum creates Checksum.
+func NewKVChecksum(checksum uint64) *Checksum {
+	return &Checksum{
 		checksum: checksum,
 	}
 }
 
-// MakeKVChecksum creates KVChecksum.
-func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) KVChecksum {
-	return KVChecksum{
+// MakeKVChecksum creates Checksum.
+func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) Checksum {
+	return Checksum{
 		bytes:    bytes,
 		kvs:      kvs,
 		checksum: checksum,
@@ -48,7 +46,7 @@ func MakeKVChecksum(bytes uint64, kvs uint64, checksum uint64) KVChecksum {
 }
 
 // UpdateOne add kv with its values.
-func (c *KVChecksum) UpdateOne(kv cdclog.KvPair) {
+func (c *Checksum) UpdateOne(kv Pair) {
 	sum := crc64.Update(0, ecmaTable, kv.Key)
 	sum = crc64.Update(sum, ecmaTable, kv.Val)
 
@@ -58,7 +56,7 @@ func (c *KVChecksum) UpdateOne(kv cdclog.KvPair) {
 }
 
 // Update add batch of kvs with their values.
-func (c *KVChecksum) Update(kvs []cdclog.KvPair) {
+func (c *Checksum) Update(kvs []Pair) {
 	var (
 		checksum uint64
 		sum      uint64
@@ -80,29 +78,29 @@ func (c *KVChecksum) Update(kvs []cdclog.KvPair) {
 }
 
 // Add other checksum.
-func (c *KVChecksum) Add(other *KVChecksum) {
+func (c *Checksum) Add(other *Checksum) {
 	c.bytes += other.bytes
 	c.kvs += other.kvs
 	c.checksum ^= other.checksum
 }
 
 // Sum returns the checksum.
-func (c *KVChecksum) Sum() uint64 {
+func (c *Checksum) Sum() uint64 {
 	return c.checksum
 }
 
 // SumSize returns the bytes.
-func (c *KVChecksum) SumSize() uint64 {
+func (c *Checksum) SumSize() uint64 {
 	return c.bytes
 }
 
 // SumKVS returns the kv count.
-func (c *KVChecksum) SumKVS() uint64 {
+func (c *Checksum) SumKVS() uint64 {
 	return c.kvs
 }
 
 // MarshalLogObject implements the zapcore.ObjectMarshaler interface.
-func (c *KVChecksum) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+func (c *Checksum) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	encoder.AddUint64("cksum", c.checksum)
 	encoder.AddUint64("size", c.bytes)
 	encoder.AddUint64("kvs", c.kvs)
@@ -110,7 +108,7 @@ func (c *KVChecksum) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 }
 
 // MarshalJSON implements the json.Marshaler interface.
-func (c KVChecksum) MarshalJSON() ([]byte, error) {
+func (c Checksum) MarshalJSON() ([]byte, error) {
 	result := fmt.Sprintf(`{"checksum":%d,"size":%d,"kvs":%d}`, c.checksum, c.bytes, c.kvs)
 	return []byte(result), nil
 }

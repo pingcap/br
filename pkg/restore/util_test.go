@@ -21,6 +21,24 @@ var _ = Suite(&testRestoreUtilSuite{})
 type testRestoreUtilSuite struct {
 }
 
+func (s *testRestoreUtilSuite) TestParseQuoteName(c *C) {
+	schema, table := restore.ParseQuoteName("`a`.`b`")
+	c.Assert(schema, Equals, "a")
+	c.Assert(table, Equals, "b")
+
+	schema, table = restore.ParseQuoteName("`a``b`.``````")
+	c.Assert(schema, Equals, "a`b")
+	c.Assert(table, Equals, "``")
+
+	schema, table = restore.ParseQuoteName("`.`.`.`")
+	c.Assert(schema, Equals, ".")
+	c.Assert(table, Equals, ".")
+
+	schema, table = restore.ParseQuoteName("`.``.`.`.`")
+	c.Assert(schema, Equals, ".`.")
+	c.Assert(table, Equals, ".")
+}
+
 func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 	file := &backup.File{
 		Name:     "file_write.sst",

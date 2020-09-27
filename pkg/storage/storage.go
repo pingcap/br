@@ -33,6 +33,14 @@ type Uploader interface {
 	CompleteUpload(ctx context.Context) error
 }
 
+// Writer is like io.Writer but with Context, create a new writer on top of Uploader with NewUploaderWriter.
+type Writer interface {
+	// Write writes to buffer and if chunk is filled will upload it
+	Write(ctx context.Context, p []byte) (int, error)
+	// Close writes final chunk and completes the upload
+	Close(ctx context.Context) error
+}
+
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
 	// Write file to storage
@@ -50,6 +58,9 @@ type ExternalStorage interface {
 	// function; the argument `size` is the size in byte of the file determined
 	// by path.
 	WalkDir(ctx context.Context, opt *WalkOption, fn func(path string, size int64) error) error
+
+	// URI returns the base path as a URI
+	URI() string
 
 	// CreateUploader create a uploader that will upload chunks data to storage.
 	// It's design for s3 multi-part upload currently. e.g. cdc log backup use this to do multi part upload
