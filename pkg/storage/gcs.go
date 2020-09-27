@@ -140,6 +140,10 @@ func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	panic("Unsupported Operation")
 }
 
+func (s *gcsStorage) URI() string {
+	return "gcs://" + s.gcs.Bucket + "/" + s.gcs.Prefix
+}
+
 // CreateUploader implenments ExternalStorage interface.
 func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	// TODO, implement this if needed
