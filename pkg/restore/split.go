@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -185,7 +186,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 		if respErr.GetType() == pdpb.ErrorType_REGION_NOT_FOUND {
 			return true, nil
 		}
-		return false, errors.Errorf("get operator error: %s", respErr.GetType())
+		return false, errors.Annotatef(berrors.ErrPDInvalidResponse, "get operator error: %s", respErr.GetType())
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {

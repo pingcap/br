@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	uuid "github.com/google/uuid"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -26,11 +27,11 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
-	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/cdclog"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -161,7 +162,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
 
 	// According to https://docs.aws.amazon.com/AmazonS3/latest/dev/ListingKeysUsingAPIs.html
@@ -261,7 +262,7 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
 	if l.tsInRange(ts) {
 		return true, nil
@@ -337,8 +338,9 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	firstKey := codec.EncodeBytes([]byte{}, kvs[0].Key)
 	lastKey := codec.EncodeBytes([]byte{}, kvs[len(kvs)-1].Key)
 
+	uid := uuid.New()
 	meta := &sst.SSTMeta{
-		Uuid:        uuid.NewV4().Bytes(),
+		Uuid:        uid[:],
 		RegionId:    region.Region.GetId(),
 		RegionEpoch: region.Region.GetRegionEpoch(),
 		Range: &sst.Range{
@@ -607,7 +609,7 @@ WriteAndIngest:
 		return nil
 	}
 	if err == nil {
-		err = errors.New("all retry failed")
+		err = errors.Annotate(berrors.ErrRestoreWriteAndIngest, "all retry failed")
 	}
 	return err
 }
@@ -679,7 +681,7 @@ func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdc
 
 	dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(item.Schema))
 	if !ok {
-		return errors.Errorf("[restoreFromPuller] schema %s not exists", item.Schema)
+		return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", item.Schema)
 	}
 	allocs := autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, newTableInfo.Meta())
 
@@ -884,8 +886,8 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	log.Info("get meta from storage", zap.Binary("data", data))
 
 	if l.startTs > l.meta.GlobalResolvedTS {
-		return errors.Errorf("start ts:%d is greater than resolved ts:%d",
-			l.startTs, l.meta.GlobalResolvedTS)
+		return errors.Annotatef(berrors.ErrRestoreRTsConstrain,
+			"start ts:%d is greater than resolved ts:%d", l.startTs, l.meta.GlobalResolvedTS)
 	}
 	if l.endTs > l.meta.GlobalResolvedTS {
 		log.Info("end ts is greater than resolved ts,"+
@@ -941,7 +943,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 			}
 			dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(schema))
 			if !ok {
-				return errors.Errorf("schema %s not exists", schema)
+				return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", schema)
 			}
 			allocs = autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, tableInfo.Meta())
 		}
@@ -966,7 +968,7 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				Leader: newLeader,
 				Region: region.Region,
 			}
-			return true, newRegion, errors.Errorf("not leader: %s", errPb.GetMessage())
+			return true, newRegion, errors.Annotatef(berrors.ErrKVNotLeader, "not leader: %s", errPb.GetMessage())
 		}
 	case errPb.EpochNotMatch != nil:
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
@@ -993,9 +995,9 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				}
 			}
 		}
-		return true, newRegion, errors.Errorf("epoch not match: %s", errPb.GetMessage())
+		return true, newRegion, errors.Annotatef(berrors.ErrKVEpochNotMatch, "epoch not match: %s", errPb.GetMessage())
 	}
-	return false, nil, errors.Errorf("non retryable error: %s", resp.GetError().GetMessage())
+	return false, nil, errors.Annotatef(berrors.ErrKVUnknown, "non retryable error: %s", resp.GetError().GetMessage())
 }
 
 func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {

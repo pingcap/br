@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 )
@@ -101,18 +102,15 @@ func (push *pushDown) pushBackup(
 					log.Warn("backup occur kv error", zap.Reflect("error", v))
 
 				case *backup.Error_RegionError:
-					log.Warn("backup occur region error",
-						zap.Reflect("error", v))
+					log.Warn("backup occur region error", zap.Reflect("error", v))
 
 				case *backup.Error_ClusterIdError:
-					log.Error("backup occur cluster ID error",
-						zap.Reflect("error", v))
-					return res, errors.Errorf("%v", errPb)
+					log.Error("backup occur cluster ID error", zap.Reflect("error", v))
+					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
 
 				default:
-					log.Error("backup occur unknown error",
-						zap.String("error", errPb.GetMsg()))
-					return res, errors.Errorf("%v", errPb)
+					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
+					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
 				}
 			}
 		case err := <-push.errCh:
