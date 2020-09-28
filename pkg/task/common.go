@@ -23,6 +23,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -200,7 +201,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	if len(cfg.PD) == 0 {
-		return errors.New("must provide at least one PD server address")
+		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
 	}
 	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
 	if err != nil {
@@ -236,12 +237,12 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	} else if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
 		db := dbFlag.Value.String()
 		if len(db) == 0 {
-			return errors.New("empty database name is not allowed")
+			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
-				return errors.New("empty table name is not allowed")
+				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
@@ -268,7 +269,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	if cfg.SwitchModeInterval <= 0 {
-		return errors.Errorf("--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
+		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
 	}
 
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
@@ -288,7 +289,7 @@ func NewMgr(ctx context.Context,
 	)
 	pdAddress := strings.Join(pds, ",")
 	if len(pdAddress) == 0 {
-		return nil, errors.New("pd address can not be empty")
+		return nil, errors.Annotate(berrors.ErrInvalidArgument, "pd address can not be empty")
 	}
 
 	securityOption := pd.SecurityOption{}

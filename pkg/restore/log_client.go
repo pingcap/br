@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	uuid "github.com/google/uuid"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -26,11 +27,11 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
-	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/cdclog"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -161,7 +162,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
 
 	// According to https://docs.aws.amazon.com/AmazonS3/latest/dev/ListingKeysUsingAPIs.html
@@ -261,7 +262,7 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
 	if l.tsInRange(ts) {
 		return true, nil
@@ -297,11 +298,6 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		opt := &storage.WalkOption{
 			SubDir:    dir,
 			ListCount: -1,
-		}
-		if ok, err := l.restoreClient.storage.FileExists(ctx, opt.SubDir); !ok {
-			// this could happen after duplicate create drop table
-			log.Debug("path not exists", zap.String("path", opt.SubDir), zap.Error(err))
-			continue
 		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
@@ -342,8 +338,9 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	firstKey := codec.EncodeBytes([]byte{}, kvs[0].Key)
 	lastKey := codec.EncodeBytes([]byte{}, kvs[len(kvs)-1].Key)
 
+	uid := uuid.New()
 	meta := &sst.SSTMeta{
-		Uuid:        uuid.NewV4().Bytes(),
+		Uuid:        uid[:],
 		RegionId:    region.Region.GetId(),
 		RegionEpoch: region.Region.GetRegionEpoch(),
 		Range: &sst.Range{
@@ -444,11 +441,11 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 			return nil, closeErr
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
-			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
+			log.Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
-	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
+	log.Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size),
 		zap.Int64("buf_size", bytesBuf.TotalSize()))
@@ -513,16 +510,16 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
-		log.L().Warn("write to tikv failed", zap.Error(err))
+		log.Warn("write to tikv failed", zap.Error(err))
 		return err
 	}
 
 	for _, meta := range metas {
 		for i := 0; i < maxRetryTimes; i++ {
-			log.L().Debug("ingest meta", zap.Reflect("meta", meta))
+			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.L().Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
+				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				continue
 			}
@@ -532,7 +529,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.L().Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
+				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
@@ -541,7 +538,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.L().Warn("retry ingest due to",
+				log.Warn("retry ingest due to",
 					zap.Reflect("meta", meta), zap.Reflect("region", region),
 					zap.Reflect("new region", newRegion), zap.Error(errIngest))
 				return errIngest
@@ -576,14 +573,14 @@ WriteAndIngest:
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, l.splitClient, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
-			log.L().Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
+			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
 			continue WriteAndIngest
 		}
 
 		shouldWait := false
 		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
-			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
+			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
@@ -605,14 +602,14 @@ WriteAndIngest:
 			err1 := eg.Wait()
 			if err1 != nil {
 				err = err1
-				log.L().Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
+				log.Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
 				continue WriteAndIngest
 			}
 		}
 		return nil
 	}
 	if err == nil {
-		err = errors.New("all retry failed")
+		err = errors.Annotate(berrors.ErrRestoreWriteAndIngest, "all retry failed")
 	}
 	return err
 }
@@ -684,7 +681,7 @@ func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdc
 
 	dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(item.Schema))
 	if !ok {
-		return errors.Errorf("[restoreFromPuller] schema %s not exists", item.Schema)
+		return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", item.Schema)
 	}
 	allocs := autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, newTableInfo.Meta())
 
@@ -889,8 +886,8 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	log.Info("get meta from storage", zap.Binary("data", data))
 
 	if l.startTs > l.meta.GlobalResolvedTS {
-		return errors.Errorf("start ts:%d is greater than resolved ts:%d",
-			l.startTs, l.meta.GlobalResolvedTS)
+		return errors.Annotatef(berrors.ErrRestoreRTsConstrain,
+			"start ts:%d is greater than resolved ts:%d", l.startTs, l.meta.GlobalResolvedTS)
 	}
 	if l.endTs > l.meta.GlobalResolvedTS {
 		log.Info("end ts is greater than resolved ts,"+
@@ -946,7 +943,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 			}
 			dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(schema))
 			if !ok {
-				return errors.Errorf("schema %s not exists", schema)
+				return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", schema)
 			}
 			allocs = autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, tableInfo.Meta())
 		}
@@ -971,7 +968,7 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				Leader: newLeader,
 				Region: region.Region,
 			}
-			return true, newRegion, errors.Errorf("not leader: %s", errPb.GetMessage())
+			return true, newRegion, errors.Annotatef(berrors.ErrKVNotLeader, "not leader: %s", errPb.GetMessage())
 		}
 	case errPb.EpochNotMatch != nil:
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
@@ -998,9 +995,9 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				}
 			}
 		}
-		return true, newRegion, errors.Errorf("epoch not match: %s", errPb.GetMessage())
+		return true, newRegion, errors.Annotatef(berrors.ErrKVEpochNotMatch, "epoch not match: %s", errPb.GetMessage())
 	}
-	return false, nil, errors.Errorf("non retryable error: %s", resp.GetError().GetMessage())
+	return false, nil, errors.Annotatef(berrors.ErrKVUnknown, "non retryable error: %s", resp.GetError().GetMessage())
 }
 
 func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {

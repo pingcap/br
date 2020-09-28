@@ -58,6 +58,7 @@ func main() {
 
 	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
+		log.Error("br failed", zap.Error(err))
 		os.Exit(1)
 	}
 }

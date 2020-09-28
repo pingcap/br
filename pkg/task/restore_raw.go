@@ -6,9 +6,11 @@ import (
 	"context"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
@@ -86,7 +88,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	if !client.IsRawKvMode() {
-		return errors.New("cannot do raw restore from transactional data")
+		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do raw restore from transactional data")
 	}
 
 	files, err := client.GetFilesInRawRange(cfg.StartKey, cfg.EndKey, cfg.CF)
@@ -95,7 +97,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	if len(files) == 0 {
-		return errors.New("all files are filtered out from the backup archive, nothing to restore")
+		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		return nil
 	}
 	summary.CollectInt("restore files", len(files))
 
