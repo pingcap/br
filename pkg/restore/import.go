@@ -360,10 +360,8 @@ func (importer *FileImporter) downloadSST(
 	file *backup.File,
 	rewriteRules *RewriteRules,
 ) (*import_sstpb.SSTMeta, error) {
-	id, err := uuid.New().MarshalBinary()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+	uid := uuid.New()
+	id := uid[:]
 	// Assume one region reflects to one rewrite rule
 	_, key, err := codec.DecodeBytes(regionInfo.Region.GetStartKey())
 	if err != nil {
@@ -413,10 +411,8 @@ func (importer *FileImporter) downloadRawKVSST(
 	regionInfo *RegionInfo,
 	file *backup.File,
 ) (*import_sstpb.SSTMeta, error) {
-	id, err := uuid.New().MarshalBinary()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+	uid := uuid.New()
+	id := uid[:]
 	// Empty rule
 	var rule import_sstpb.RewriteRule
 	sstMeta := GetSSTMetaFromFile(id, file, regionInfo.Region, &rule)
@@ -441,10 +437,8 @@ func (importer *FileImporter) downloadRawKVSST(
 		RewriteRule:    rule,
 		IsRawKv:        true,
 	}
-	log.Debug("download SST",
-		utils.ZapSSTMeta(&sstMeta),
-		utils.ZapRegion(regionInfo.Region),
-	)
+	log.Debug("download SST", utils.ZapSSTMeta(&sstMeta), utils.ZapRegion(regionInfo.Region))
+	var err error
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
 		resp, err = importer.importClient.DownloadSST(ctx, peer.GetStoreId(), req)

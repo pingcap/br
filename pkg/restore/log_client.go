@@ -343,8 +343,9 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	firstKey := codec.EncodeBytes([]byte{}, kvs[0].Key)
 	lastKey := codec.EncodeBytes([]byte{}, kvs[len(kvs)-1].Key)
 
+	uid := uuid.New()
 	meta := &sst.SSTMeta{
-		Uuid:        []byte(uuid.New().String()),
+		Uuid:        uid[:],
 		RegionId:    region.Region.GetId(),
 		RegionEpoch: region.Region.GetRegionEpoch(),
 		Range: &sst.Range{
