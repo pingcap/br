@@ -44,19 +44,27 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return cfg.RawKvConfig.ParseFromFlags(flags)
 }
 
+func (cfg *RestoreRawConfig) adjust() {
+	if cfg.Concurrency == 0 {
+		cfg.Concurrency = defaultRestoreConcurrency
+	}
+}
+
 // RunRestoreRaw starts a raw kv restore task inside the current goroutine.
 func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) (err error) {
+	cfg.adjust()
+
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -116,7 +124,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	defer restorePostWork(ctx, client, restoreSchedulers)
 
-	err = client.RestoreRaw(cfg.StartKey, cfg.EndKey, files, updateCh)
+	err = client.RestoreRaw(ctx, cfg.StartKey, cfg.EndKey, files, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}

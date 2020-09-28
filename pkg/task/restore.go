@@ -93,13 +93,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -154,10 +154,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
 	// pre-set TiDB config for restore
-	enableTiDBConfig()
+	restoreDBConfig := enableTiDBConfig()
+	defer restoreDBConfig()
 
 	// execute DDL first
-	err = client.ExecDDLs(ddlJobs)
+	err = client.ExecDDLs(ctx, ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -171,7 +172,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	for _, db := range dbs {
-		err = client.CreateDatabase(db.Info)
+		err = client.CreateDatabase(ctx, db.Info)
 		if err != nil {
 			return err
 		}
@@ -225,7 +226,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
 	if !client.IsIncremental() {
-		if err = client.ResetTS(cfg.PD); err != nil {
+		if err = client.ResetTS(ctx, cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
 			return err
 		}
@@ -368,7 +369,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -413,21 +414,22 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	return nil
 }
 
-func enableTiDBConfig() {
-	// set max-index-length before execute DDLs and create tables
-	// we set this value to max(3072*4), otherwise we might not restore table
-	// when upstream and downstream both set this value greater than default(3072)
-	conf := config.GetGlobalConfig()
-	conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
-	log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
+// enableTiDBConfig tweaks some of configs of TiDB to make the restore progress go well.
+// return a function that could restore the config to origin.
+func enableTiDBConfig() func() {
+	restoreConfig := config.RestoreFunc()
+	config.UpdateGlobal(func(conf *config.Config) {
+		// set max-index-length before execute DDLs and create tables
+		// we set this value to max(3072*4), otherwise we might not restore table
+		// when upstream and downstream both set this value greater than default(3072)
+		conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
+		log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
 
-	// we need set this to true, since all create table DDLs will create with tableInfo
-	// and we can handle alter drop pk/add pk DDLs with no impact
-	conf.AlterPrimaryKey = true
-
-	conf.Experimental.AllowsExpressionIndex = true
-
-	config.StoreGlobalConfig(conf)
+		// we need set this to true, since all create table DDLs will create with tableInfo
+		// and we can handle alter drop pk/add pk DDLs with no impact
+		conf.AlterPrimaryKey = true
+	})
+	return restoreConfig
 }
 
 // restoreTableStream blocks current goroutine and restore a stream of tables,

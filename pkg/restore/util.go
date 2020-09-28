@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 )
 
 var recordPrefixSep = []byte("_r")
+var quoteRegexp = regexp.MustCompile("`(?:[^`]|``)*`")
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -119,9 +121,10 @@ func GetSSTMetaFromFile(
 	}
 
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
-		log.Fatal("range start exceed range end",
-			zap.Stringer("start", utils.WrapKey(rangeStart)),
-			zap.Stringer("end", utils.WrapKey(rangeEnd)))
+		log.Panic("range start exceed range end",
+			utils.ZapFile(file),
+			zap.Stringer("rangeStart", utils.WrapKey(rangeStart)),
+			zap.Stringer("rangeEnd", utils.WrapKey(rangeEnd)))
 	}
 
 	log.Debug("get sstMeta",
@@ -300,7 +303,7 @@ func AttachFilesToRanges(
 			EndKey:   f.GetEndKey(),
 		})
 		if rg == nil {
-			log.Fatal("range not found",
+			log.Panic("range not found",
 				zap.Stringer("startKey", utils.WrapKey(f.GetStartKey())),
 				zap.Stringer("endKey", utils.WrapKey(f.GetEndKey())))
 		}
@@ -308,7 +311,7 @@ func AttachFilesToRanges(
 		rg.Files = append(rg.Files, &file)
 	}
 	if rangeTree.Len() != len(ranges) {
-		log.Fatal("ranges overlapped",
+		log.Panic("ranges overlapped",
 			zap.Int("ranges length", len(ranges)),
 			zap.Int("tree length", rangeTree.Len()))
 	}
@@ -523,4 +526,24 @@ func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 		zap.Uint64("total kv", totalKV),
 		zap.Uint64("total size", totalSize),
 	}
+}
+
+// ParseQuoteName parse the quote `db`.`table` name, and split it.
+func ParseQuoteName(name string) (string, string) {
+	names := quoteRegexp.FindAllStringSubmatch(name, -1)
+	if len(names) != 2 {
+		log.Fatal("failed to parse schema name",
+			zap.String("origin name", name),
+			zap.Any("parsed names", names))
+	}
+	schema := names[0][0]
+	table := names[1][0]
+	schema = strings.ReplaceAll(unQuoteName(schema), "``", "`")
+	table = strings.ReplaceAll(unQuoteName(table), "``", "`")
+	return schema, table
+}
+
+func unQuoteName(name string) string {
+	name = strings.TrimPrefix(name, "`")
+	return strings.TrimSuffix(name, "`")
 }
