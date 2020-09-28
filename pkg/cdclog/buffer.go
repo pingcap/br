@@ -119,7 +119,6 @@ func (t *TableBuffer) translateToDatum(row map[string]Column) ([]types.Datum, er
 		if err != nil {
 			return nil, err
 		}
-		log.Debug("translate to datum", zap.String("col", col), zap.Stringer("val", val))
 		cols = append(cols, val)
 	}
 	return cols, nil
