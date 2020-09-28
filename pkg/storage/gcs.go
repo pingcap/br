@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -164,13 +166,13 @@ func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			return nil, errors.New(err.Error() + "Or you should provide '--gcs.credentials_file'.")
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
 		}
 		if sendCredential {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				return nil, errors.New(
+				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
 					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}

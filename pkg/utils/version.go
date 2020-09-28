@@ -18,6 +18,8 @@ import (
 	"github.com/pingcap/tidb/util/israce"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // Version information.
@@ -68,16 +70,17 @@ func removeVAndHash(v string) string {
 func checkTiFlashVersion(store *metapb.Store) error {
 	flash, err := semver.NewVersion(removeVAndHash(store.Version))
 	if err != nil {
-		return errors.Annotatef(err, "failed to parse TiFlash@[%s] version %s", store.GetPeerAddress(), store.Version)
+		return errors.Annotatef(berrors.ErrVersionMismatch, "failed to parse TiFlash %s version %s, err %s",
+			store.GetPeerAddress(), store.Version, err)
 	}
 
 	if flash.Major == 3 && flash.LessThan(*compatibleTiFlashMajor3) {
-		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+		return errors.Annotatef(berrors.ErrVersionMismatch, "incompatible TiFlash %s version %s, try update it to %s",
 			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor3)
 	}
 
 	if flash.Major == 4 && flash.LessThan(*compatibleTiFlashMajor4) {
-		return errors.Errorf("incompatible TiFlash@[%s] version %s, try update it to %s",
+		return errors.Annotatef(berrors.ErrVersionMismatch, "incompatible TiFlash %s version %s, try update it to %s",
 			store.GetPeerAddress(), store.Version, compatibleTiFlashMajor4)
 	}
 
@@ -88,7 +91,7 @@ func checkTiFlashVersion(store *metapb.Store) error {
 func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 	BRVersion, err := semver.NewVersion(removeVAndHash(BRReleaseVersion))
 	if err != nil {
-		return errors.Annotate(err, "invalid BR version, please recompile using `git fetch origin --tags && make build`")
+		return errors.Annotatef(berrors.ErrVersionMismatch, "%s: invalid BR version, please recompile using `git fetch origin --tags && make build`", err)
 	}
 	stores, err := client.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
@@ -111,16 +114,16 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		tikvVersionString := removeVAndHash(s.Version)
 		tikvVersion, err := semver.NewVersion(tikvVersionString)
 		if err != nil {
-			return errors.Annotatef(err, "TiKV node %s version %s is invalid", s.Address, tikvVersionString)
+			return errors.Annotatef(berrors.ErrVersionMismatch, "%s: TiKV node %s version %s is invalid", err, s.Address, tikvVersionString)
 		}
 
 		if tikvVersion.Compare(*minTiKVVersion) < 0 {
-			return errors.Errorf("TiKV node %s version %s don't support BR, please upgrade cluster to %s",
+			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s don't support BR, please upgrade cluster to %s",
 				s.Address, tikvVersionString, BRReleaseVersion)
 		}
 
 		if tikvVersion.Major != BRVersion.Major {
-			return errors.Errorf("TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
+			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
 				s.Address, tikvVersionString, BRReleaseVersion)
 		}
 
@@ -129,21 +132,21 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		// These incompatible version is 3.1.0 and 4.0.0-rc.1
 		if tikvVersion.Major == 3 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
-				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
 					s.Address, tikvVersionString, BRReleaseVersion)
 			}
 		}
 
 		if tikvVersion.Major == 4 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
-				return errors.Errorf("TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
 					s.Address, tikvVersionString, BRReleaseVersion)
 			}
 		}
 
 		// don't warn if we are the master build, which always have the version v4.0.0-beta.2-*
 		if BRGitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
-			log.Warn(fmt.Sprintf("BR version is too old, please consider use version %s of BR", tikvVersionString))
+			log.Warn(fmt.Sprintf("BR version is outdated, please consider use version %s of BR", tikvVersionString))
 			break
 		}
 	}

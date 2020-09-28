@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -99,7 +100,7 @@ func pdRequest(
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Errorf("[%d] %s %s", resp.StatusCode, res, reqURL)
+		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 	}
 
 	r, err := ioutil.ReadAll(resp.Body)
@@ -336,7 +337,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 			return nil
 		}
 	}
-	return errors.New("update PD schedule config failed")
+	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
 
 func addPDLeaderScheduler(ctx context.Context, pd *PdController, removedSchedulers []string) error {

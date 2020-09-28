@@ -23,7 +23,7 @@ TABLE="usertable1"
 TABLE2="usertable2"
 
 echo "Restart cluster with tls"
-start_services_withTLS "$cur"
+start_services_with_tls "$cur"
 
 run_sql "DROP DATABASE IF EXISTS $DB;"
 run_sql "CREATE DATABASE $DB;"

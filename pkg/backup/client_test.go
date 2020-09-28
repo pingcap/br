@@ -78,11 +78,11 @@ func (r *testBackup) TestGetTS(c *C) {
 
 	// timeago = "-1m"
 	_, err = r.backupClient.GetTS(r.ctx, -time.Minute, 0)
-	c.Assert(err, ErrorMatches, "negative timeago is not allowed")
+	c.Assert(err, ErrorMatches, "negative timeago is not allowed.*")
 
 	// timeago = "1000000h" overflows
 	_, err = r.backupClient.GetTS(r.ctx, 1000000*time.Hour, 0)
-	c.Assert(err, ErrorMatches, "backup ts overflow.*")
+	c.Assert(err, ErrorMatches, ".*backup ts overflow.*")
 
 	// timeago = "10h" exceed GCSafePoint
 	p, l, err := r.mockPDClient.GetTS(r.ctx)
@@ -91,7 +91,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	_, err = r.mockPDClient.UpdateGCSafePoint(r.ctx, now)
 	c.Assert(err, IsNil)
 	_, err = r.backupClient.GetTS(r.ctx, 10*time.Hour, 0)
-	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
+	c.Assert(err, ErrorMatches, ".*GC safepoint [0-9]+ exceed TS [0-9]+.*")
 
 	// timeago and backupts both exists, use backupts
 	backupts := oracle.ComposeTS(p+10, l)
