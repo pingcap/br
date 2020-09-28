@@ -65,7 +65,7 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 			EndKey: append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...), Files: nil},
 	}
 	_, err = restore.SortRanges(ranges2, rewriteRules)
-	c.Assert(err, ErrorMatches, ".*table id does not match.*")
+	c.Assert(err, ErrorMatches, "table id mismatch.*")
 
 	ranges3 := initRanges()
 	rewriteRules1 := initRewriteRules()

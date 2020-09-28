@@ -25,7 +25,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, ErrorMatches, "parse (.*)1invalid:(.*): first path segment in URL cannot contain colon")
 
 	_, err = ParseBackend("net:storage", nil)
-	c.Assert(err, ErrorMatches, "storage net not support yet")
+	c.Assert(err, ErrorMatches, "storage net not support yet.*")
 
 	s, err := ParseBackend("local:///tmp/storage", nil)
 	c.Assert(err, IsNil)
@@ -40,7 +40,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s.GetNoop(), NotNil)
 
 	_, err = ParseBackend("s3:///bucket/more/prefix/", &BackendOptions{})
-	c.Assert(err, ErrorMatches, `please specify the bucket for s3 in s3:///bucket/more/prefix/`)
+	c.Assert(err, ErrorMatches, `please specify the bucket for s3 in s3:///bucket/more/prefix/.*`)
 
 	s3opt := &BackendOptions{
 		S3: S3BackendOptions{

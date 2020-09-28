@@ -41,7 +41,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 				Region:          "us-west-2",
 				SecretAccessKey: "cd",
 			},
-			errMsg:    "access_key not found",
+			errMsg:    "access_key not found.*",
 			errReturn: true,
 		},
 		{
@@ -50,7 +50,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 				Region:    "us-west-2",
 				AccessKey: "ab",
 			},
-			errMsg:    "secret_access_key not found",
+			errMsg:    "secret_access_key not found.*",
 			errReturn: true,
 		},
 		{
@@ -58,7 +58,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "12345",
 			},
-			errMsg:    "scheme not found in endpoint",
+			errMsg:    "scheme not found in endpoint.*",
 			errReturn: true,
 		},
 		{
@@ -66,7 +66,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "http:12345",
 			},
-			errMsg:    "host not found in endpoint",
+			errMsg:    "host not found in endpoint.*",
 			errReturn: true,
 		},
 		{
@@ -74,7 +74,7 @@ func (r *testStorageSuite) TestApply(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "!http:12345",
 			},
-			errMsg:    "parse (.*)!http:12345(.*): first path segment in URL cannot contain colon",
+			errMsg:    "parse (.*)!http:12345(.*): first path segment in URL cannot contain colon.*",
 			errReturn: true,
 		},
 	}
@@ -467,11 +467,11 @@ func (r *testStorageSuite) TestS3Range(c *C) {
 	c.Assert(ri, Equals, rangeInfo{start: 0, end: 9, size: 443})
 
 	_, err = parseRangeInfo(nil)
-	c.Assert(err, ErrorMatches, "ContentRange is empty")
+	c.Assert(err, ErrorMatches, "ContentRange is empty.*")
 
 	badRange := "bytes "
 	_, err = parseRangeInfo(&badRange)
-	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '")
+	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '.*")
 }
 
 type mockS3Handler struct {

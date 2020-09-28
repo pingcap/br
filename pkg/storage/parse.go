@@ -11,6 +11,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // BackendOptions further configures the storage backend not expressed by the
@@ -24,7 +26,7 @@ type BackendOptions struct {
 // storage URL.
 func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBackend, error) {
 	if len(rawURL) == 0 {
-		return nil, errors.New("empty store is not allowed")
+		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
 
 	u, err := url.Parse(rawURL)
@@ -35,7 +37,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 	case "":
 		absPath, err := filepath.Abs(rawURL)
 		if err != nil {
-			return nil, errors.Annotatef(err, "covert data-source-dir '%s' to absolute path failed", rawURL)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "covert data-source-dir '%s' to absolute path failed", rawURL)
 		}
 		local := &backup.Local{Path: absPath}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Local{Local: local}}, nil
@@ -50,7 +52,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 
 	case "s3":
 		if u.Host == "" {
-			return nil, errors.Errorf("please specify the bucket for s3 in %s", rawURL)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for s3 in %s", rawURL)
 		}
 		prefix := strings.Trim(u.Path, "/")
 		s3 := &backup.S3{Bucket: u.Host, Prefix: prefix}
@@ -75,7 +77,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Gcs{Gcs: gcs}}, nil
 
 	default:
-		return nil, errors.Errorf("storage %s not support yet", u.Scheme)
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "storage %s not support yet", u.Scheme)
 	}
 }
 

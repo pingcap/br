@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // ParseKey parse key by given format.
@@ -22,11 +24,11 @@ func ParseKey(format, key string) ([]byte, error) {
 	case "hex":
 		key, err := hex.DecodeString(key)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return nil, errors.Trace(err)
 		}
 		return key, nil
 	}
-	return nil, errors.New("unknown format")
+	return nil, errors.Annotate(berrors.ErrInvalidArgument, "unknown format")
 }
 
 // Ref PD: https://github.com/pingcap/pd/blob/master/tools/pd-ctl/pdctl/command/region_command.go#L334
@@ -37,7 +39,7 @@ func unescapedKey(text string) ([]byte, error) {
 		c, err := r.ReadByte()
 		if err != nil {
 			if err != io.EOF {
-				return nil, errors.WithStack(err)
+				return nil, errors.Trace(err)
 			}
 			break
 		}
@@ -63,7 +65,7 @@ func unescapedKey(text string) ([]byte, error) {
 			n = append(n, r.Next(2)...)
 			_, err := fmt.Sscanf(string(n), "%03o", &c)
 			if err != nil {
-				return nil, errors.WithStack(err)
+				return nil, errors.Trace(err)
 			}
 			buf = append(buf, c)
 		}

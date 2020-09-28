@@ -50,7 +50,7 @@ func (s *testSafePointSuite) TestCheckGCSafepoint(c *C) {
 	}
 	{
 		err := backup.CheckGCSafePoint(ctx, pdClient, 0)
-		c.Assert(err, ErrorMatches, "GC safepoint 2333 exceed TS 0")
+		c.Assert(err, ErrorMatches, ".*GC safepoint 2333 exceed TS 0.*")
 	}
 }
 
