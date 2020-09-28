@@ -19,6 +19,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/pdutil"
 )
 
 type testBackup struct {
@@ -39,9 +40,9 @@ func (r *testBackup) SetUpSuite(c *C) {
 	mvccStore := mocktikv.MustNewMVCCStore()
 	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
 	r.ctx, r.cancel = context.WithCancel(context.Background())
-	mockMgr := &conn.Mgr{}
+	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
 	mockMgr.SetPDClient(r.mockPDClient)
-	mockMgr.SetPDHTTP([]string{"test"}, nil)
+	mockMgr.SetHTTP([]string{"test"}, nil)
 	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)

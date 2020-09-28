@@ -21,7 +21,7 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -346,7 +346,7 @@ func setPDConfigCommand() *cobra.Command {
 			}
 			defer mgr.Close()
 
-			for scheduler := range conn.Schedulers {
+			for scheduler := range pdutil.Schedulers {
 				if strings.HasPrefix(scheduler, "balance") {
 					err := mgr.AddScheduler(ctx, scheduler)
 					if err != nil {
@@ -357,10 +357,10 @@ func setPDConfigCommand() *cobra.Command {
 				}
 			}
 
-			if err := mgr.UpdatePDScheduleConfig(ctx, conn.DefaultPDCfg); err != nil {
+			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
 			}
-			log.Info("add pd configs succeed", zap.Any("config", conn.DefaultPDCfg))
+			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
 			return nil
 		},
 	}
