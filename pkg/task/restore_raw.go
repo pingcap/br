@@ -44,8 +44,16 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return cfg.RawKvConfig.ParseFromFlags(flags)
 }
 
+func (cfg *RestoreRawConfig) adjust() {
+	if cfg.Concurrency == 0 {
+		cfg.Concurrency = defaultRestoreConcurrency
+	}
+}
+
 // RunRestoreRaw starts a raw kv restore task inside the current goroutine.
 func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreRawConfig) (err error) {
+	cfg.adjust()
+
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
