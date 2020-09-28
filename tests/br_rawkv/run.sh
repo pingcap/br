@@ -58,7 +58,7 @@ fi
 
 # restore rawkv
 echo "restore start..."
-run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 31 --end 3130303030303030 --format hex --concurrency 4
+run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 31 --end 3130303030303030 --format hex
 
 checksum_new=$(checksum 31 3130303030303030)
 
