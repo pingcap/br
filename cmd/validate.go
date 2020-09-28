@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -45,6 +47,7 @@ func NewValidateCommand() *cobra.Command {
 	meta.AddCommand(newBackupMetaCommand())
 	meta.AddCommand(decodeBackupMetaCommand())
 	meta.AddCommand(encodeBackupMetaCommand())
+	meta.AddCommand(setPDConfigCommand())
 	meta.Hidden = true
 
 	return meta
@@ -322,4 +325,44 @@ func encodeBackupMetaCommand() *cobra.Command {
 		},
 	}
 	return encodeBackupMetaCmd
+}
+
+func setPDConfigCommand() *cobra.Command {
+	pdConfigCmd := &cobra.Command{
+		Use:   "reset-pd-config-as-default",
+		Short: "reset pd scheduler and config adjusted by BR to default value",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			for scheduler := range pdutil.Schedulers {
+				if strings.HasPrefix(scheduler, "balance") {
+					err := mgr.AddScheduler(ctx, scheduler)
+					if err != nil {
+						return err
+					}
+					log.Info("add pd schedulers succeed",
+						zap.String("schedulers", scheduler))
+				}
+			}
+
+			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
+				return errors.Annotate(err, "fail to update PD merge config")
+			}
+			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
+			return nil
+		},
+	}
+	return pdConfigCmd
 }

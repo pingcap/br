@@ -45,7 +45,8 @@ type clusterConfig struct {
 }
 
 var (
-	schedulers = map[string]struct{}{
+	// Schedulers represent region/leader schedulers which can impact on performance.
+	Schedulers = map[string]struct{}{
 		"balance-leader-scheduler":     {},
 		"balance-hot-region-scheduler": {},
 		"balance-region-scheduler":     {},
@@ -62,6 +63,15 @@ var (
 		"leader-schedule-limit",
 		"region-schedule-limit",
 		"max-snapshot-count",
+	}
+
+	// DefaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
+	DefaultPDCfg = map[string]interface{}{
+		"max-merge-region-keys": 200000,
+		"max-merge-region-size": 20,
+		"leader-schedule-limit": 4,
+		"region-schedule-limit": 2048,
+		"max-snapshot-count":    3,
 	}
 )
 
@@ -389,7 +399,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	}
 	needRemoveSchedulers := make([]string, 0, len(existSchedulers))
 	for _, s := range existSchedulers {
-		if _, ok := schedulers[s]; ok {
+		if _, ok := Schedulers[s]; ok {
 			needRemoveSchedulers = append(needRemoveSchedulers, s)
 		}
 	}
