@@ -354,12 +354,11 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
 			default:
-				return true, err
+				return false, err
 			}
 		}
 	}
-
-	return true, err
+	return true, nil
 }
 
 // WalkDir traverse all the files in a dir.

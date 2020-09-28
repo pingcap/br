@@ -58,6 +58,7 @@ bins:
 	@which bin/br
 	@which bin/tiflash
 	@which bin/libtiflash_proxy.so
+	@which bin/cdc
 	if [ ! -d bin/flash_cluster_manager ]; then echo "flash_cluster_manager not exist"; exit 1; fi
 
 tools:
