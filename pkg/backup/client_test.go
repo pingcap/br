@@ -41,8 +41,8 @@ func (r *testBackup) SetUpSuite(c *C) {
 	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
-	mockMgr.PdController.SetPDClient(r.mockPDClient)
-	mockMgr.PdController.SetHTTP([]string{"test"}, nil)
+	mockMgr.SetPDClient(r.mockPDClient)
+	mockMgr.SetHTTP([]string{"test"}, nil)
 	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)

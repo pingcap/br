@@ -36,7 +36,6 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	}
 	pdController := &PdController{addrs: []string{"", ""}}
 	err := pdController.removeSchedulerWith(ctx, scheduler, mock)
-	fmt.Printf("err: %v\n", err)
 	c.Assert(err, ErrorMatches, "failed")
 
 	err = pdController.addSchedulerWith(ctx, scheduler, mock)

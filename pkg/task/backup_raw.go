@@ -142,7 +142,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
 
 	if cfg.RemoveSchedulers {
-		restore, e := mgr.PdController.RemoveSchedulers(ctx)
+		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {
 			if restoreE := restore(ctx); restoreE != nil {
 				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
@@ -154,7 +154,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	}
 
 	// The number of regions need to backup
-	approximateRegions, err := mgr.PdController.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
+	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
 	if err != nil {
 		return err
 	}

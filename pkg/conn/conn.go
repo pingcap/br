@@ -35,11 +35,11 @@ const (
 
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
-	PdController *pdutil.PdController
-	tlsConf      *tls.Config
-	dom          *domain.Domain
-	storage      tikv.Storage
-	grpcClis     struct {
+	*pdutil.PdController
+	tlsConf  *tls.Config
+	dom      *domain.Domain
+	storage  tikv.Storage
+	grpcClis struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
@@ -162,13 +162,8 @@ func NewMgr(
 	return mgr, nil
 }
 
-// GetPDClient set pd addrs and cli for test.
-func (mgr *Mgr) GetPDClient() pd.Client {
-	return mgr.PdController.GetPDClient()
-}
-
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := mgr.PdController.GetPDClient().GetStore(ctx, storeID)
+	store, err := mgr.GetPDClient().GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
