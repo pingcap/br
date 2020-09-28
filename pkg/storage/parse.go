@@ -4,6 +4,7 @@ package storage
 
 import (
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -32,7 +33,12 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 	}
 	switch u.Scheme {
 	case "":
-		return nil, errors.Errorf("please specify the storage type (e.g. --storage 'local://%s')", u.Path)
+		absPath, err := filepath.Abs(rawURL)
+		if err != nil {
+			return nil, errors.Annotatef(err, "covert data-source-dir '%s' to absolute path failed", rawURL)
+		}
+		local := &backup.Local{Path: absPath}
+		return &backup.StorageBackend{Backend: &backup.StorageBackend_Local{Local: local}}, nil
 
 	case "local", "file":
 		local := &backup.Local{Path: u.Path}
