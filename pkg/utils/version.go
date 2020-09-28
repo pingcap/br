@@ -70,7 +70,7 @@ func removeVAndHash(v string) string {
 func checkTiFlashVersion(store *metapb.Store) error {
 	flash, err := semver.NewVersion(removeVAndHash(store.Version))
 	if err != nil {
-		return errors.Annotatef(berrors.ErrUnknown, "failed to parse TiFlash %s version %s, err %s",
+		return errors.Annotatef(berrors.ErrVersionMismatch, "failed to parse TiFlash %s version %s, err %s",
 			store.GetPeerAddress(), store.Version, err)
 	}
 

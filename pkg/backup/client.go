@@ -655,8 +655,9 @@ func (bc *Client) fineGrainedBackup(
 		max.mu.Unlock()
 		if ms != 0 {
 			log.Info("handle fine grained", zap.Int("backoffMs", ms))
-			err := bo.BackoffWithMaxSleep(2, /* 2 stands for boTxnLockFast */
-				ms, berrors.ErrBackupGCSafepointExceeded)
+			// 2 means tikv.boTxnLockFast
+			// TODO: fill a meaningful error.
+			err := bo.BackoffWithMaxSleep(2, ms, berrors.ErrUnknown)
 			if err != nil {
 				return errors.Trace(err)
 			}

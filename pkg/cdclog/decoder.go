@@ -270,7 +270,7 @@ func NewJSONEventBatchDecoder(data []byte) (*JSONEventBatchMixedDecoder, error) 
 	version := binary.BigEndian.Uint64(data[:8])
 	data = data[8:]
 	if version != BatchVersion1 {
-		return nil, errors.Annotate(berrors.ErrPITRInvalidCDCLogFormat, "unexpected key format version")
+		return nil, errors.Annotate(berrors.ErrPiTRInvalidCDCLogFormat, "unexpected key format version")
 	}
 	return &JSONEventBatchMixedDecoder{
 		mixedBytes: data,
