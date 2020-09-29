@@ -173,10 +173,11 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
 		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
-	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1, defaults to using the AWS_REGION env var")
+	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1, "+
+		"defaults to using the AWS_REGION env var")
 	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
 	flags.String(s3SseOption, "", "Set S3 server-side encryption, e.g. aws:kms")
-	flags.String(s3SseKmsKeyIDOption, "", "KMS CMK key id to use with S3 server-side encryption."+
+	flags.String(s3SseKmsKeyIDOption, "", "KMS CMK key id to use with S3 server-side encryption. "+
 		"Leave empty to use S3 owned key.")
 	flags.String(s3ACLOption, "", "(experimental) Set the S3 canned ACLs, e.g. authenticated-read")
 	flags.String(s3ProviderOption, "", "(experimental) Set the S3 provider, e.g. aws, alibaba, ceph")
