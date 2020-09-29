@@ -109,7 +109,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "",
 			},
 			s3: &backup.S3{
-				Region: "us-east-1",
+				Region: "",
 				Bucket: "bucket",
 				Prefix: "prefix",
 			},
@@ -131,7 +131,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "https://s3.us-west-2",
 			},
 			s3: &backup.S3{
-				Region:   "us-east-1",
+				Region:   "",
 				Endpoint: "https://s3.us-west-2",
 				Bucket:   "bucket",
 				Prefix:   "prefix",
@@ -143,7 +143,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 				Endpoint: "http://s3.us-west-2",
 			},
 			s3: &backup.S3{
-				Region:   "us-east-1",
+				Region:   "",
 				Endpoint: "http://s3.us-west-2",
 				Bucket:   "bucket",
 				Prefix:   "prefix",

@@ -130,9 +130,6 @@ type S3BackendOptions struct {
 
 // Apply apply s3 options on backup.S3.
 func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
-	if options.Region == "" {
-		options.Region = "us-east-1"
-	}
 	if options.Endpoint != "" {
 		u, err := url.Parse(options.Endpoint)
 		if err != nil {
@@ -176,7 +173,7 @@ func defineS3Flags(flags *pflag.FlagSet) {
 	// TODO: remove experimental tag if it's stable
 	flags.String(s3EndpointOption, "",
 		"(experimental) Set the S3 endpoint URL, please specify the http or https scheme explicitly")
-	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1")
+	flags.String(s3RegionOption, "", "(experimental) Set the S3 region, e.g. us-east-1, defaults to using the AWS_REGION env var")
 	flags.String(s3StorageClassOption, "", "(experimental) Set the S3 storage class, e.g. STANDARD")
 	flags.String(s3SseOption, "", "Set S3 server-side encryption, e.g. aws:kms")
 	flags.String(s3SseKmsKeyIDOption, "", "KMS CMK key id to use with S3 server-side encryption."+
