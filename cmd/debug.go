@@ -247,25 +247,26 @@ func decodeBackupMetaCommand() *cobra.Command {
 
 			var cfg task.Config
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
-			fieldName, err := cmd.Flags().GetString("field")
-			if err != nil {
+			fieldName, _ := cmd.Flags().GetString("field")
+			if fieldName == "" {
 				// No field flag, write backupmeta to external storage in JSON format.
 				backupMetaJSON, err := json.Marshal(backupMeta)
 				if err != nil {
 					return errors.Trace(err)
 				}
 				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
-				if err == nil {
-					cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, utils.MetaJSONFile))
+				if err != nil {
+					return errors.Trace(err)
 				}
-				return errors.Trace(err)
+				cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, utils.MetaJSONFile))
+				return nil
 			}
 
 			switch fieldName {
