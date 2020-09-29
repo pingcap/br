@@ -228,8 +228,10 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	qs := *backend
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
-		WithS3ForcePathStyle(qs.ForcePathStyle).
-		WithRegion(qs.Region)
+		WithS3ForcePathStyle(qs.ForcePathStyle)
+	if qs.Region != "" {
+		awsConfig.WithRegion(qs.Region)
+	}
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
 	}
