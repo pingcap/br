@@ -159,6 +159,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"the interval of pinging the server, must keep same value with TiKV and PD")
 	flags.Duration(flagGrpcKeepaliveTimeout, defaultGRPCKeepaliveTimeout,
 		"the max time a grpc conn can keep idel before killed, must keep same value with TiKV and PD")
+	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
+	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
 
 	storage.DefineFlags(flags)
 }
