@@ -33,6 +33,12 @@ done
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
+# Test debug decode
+run_br -s "local://$TEST_DIR/$DB" debug decode --field "Schemas"
+run_br -s "local://$TEST_DIR/$DB" debug decode --field "EndVersion"
+# Ensure compatibility
+run_br -s "local://$TEST_DIR/$DB" validate decode --field "end-version"
+
 # Test validate backupmeta
 run_br validate backupmeta -s "local://$TEST_DIR/$DB"
 run_br validate backupmeta -s "local://$TEST_DIR/$DB" --offset 100
@@ -61,7 +67,6 @@ GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPR
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
 # record last backup pid
 _pid=$!
-
 
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
@@ -93,7 +98,7 @@ else
    exit 1
 fi
 
-# make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it. 
+# make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
 sleep 5
 if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": false'
