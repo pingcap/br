@@ -357,7 +357,7 @@ func setPDConfigCommand() *cobra.Command {
 				return err
 			}
 
-			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, task.GetKeepalive(&cfg), cfg.CheckRequirements)
 			if err != nil {
 				return err
 			}
