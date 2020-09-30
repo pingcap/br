@@ -139,6 +139,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.String(flagCert, "", "Certificate path for TLS connection")
 	flags.String(flagKey, "", "Private key path for TLS connection")
 	flags.Uint(flagChecksumConcurrency, variable.DefDistSQLScanConcurrency, "The concurrency of table checksumming")
+	_ = flags.MarkHidden(flagChecksumConcurrency)
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
