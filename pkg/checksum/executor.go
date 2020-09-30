@@ -26,6 +26,8 @@ type ExecutorBuilder struct {
 	ts    uint64
 
 	oldTable *utils.Table
+
+	concurrency uint
 }
 
 // NewExecutorBuilder returns a new executor builder.
@@ -33,12 +35,19 @@ func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 	return &ExecutorBuilder{
 		table: table,
 		ts:    ts,
+
+		concurrency: variable.DefDistSQLScanConcurrency,
 	}
 }
 
 // SetOldTable set a old table info to the builder.
 func (builder *ExecutorBuilder) SetOldTable(oldTable *utils.Table) *ExecutorBuilder {
 	builder.oldTable = oldTable
+	return builder
+}
+
+func (builder *ExecutorBuilder) Concurrency(conc uint) *ExecutorBuilder {
+	builder.concurrency = conc
 	return builder
 }
 
@@ -132,6 +141,7 @@ func buildRequest(
 		if err != nil {
 			return nil, err
 		}
+		req.NotFillCache = true
 		reqs = append(reqs, req)
 	}
 
@@ -166,7 +176,7 @@ func buildTableRequest(
 	return builder.SetTableRanges(tableID, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		SetConcurrency(builder.Concurrency).
 		Build()
 }
 
@@ -198,7 +208,7 @@ func buildIndexRequest(
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(variable.DefDistSQLScanConcurrency).
+		SetConcurrency(builder.Concurrency).
 		Build()
 }
 

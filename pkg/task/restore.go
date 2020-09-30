@@ -262,7 +262,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Checksum
 	if cfg.Checksum {
 		finish = client.GoValidateChecksum(
-			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh, cfg.ChecksumConcurrency)
 	} else {
 		// when user skip checksum, just collect tables, and drop them.
 		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)

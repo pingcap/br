@@ -15,6 +15,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -46,15 +47,16 @@ const (
 	flagDatabase = "db"
 	flagTable    = "table"
 
-	flagRateLimit          = "ratelimit"
-	flagRateLimitUnit      = "ratelimit-unit"
-	flagConcurrency        = "concurrency"
-	flagChecksum           = "checksum"
-	flagFilter             = "filter"
-	flagCaseSensitive      = "case-sensitive"
-	flagRemoveTiFlash      = "remove-tiflash"
-	flagCheckRequirement   = "check-requirements"
-	flagSwitchModeInterval = "switch-mode-interval"
+	flagChecksumConcurrency = "checksum-concurrency"
+	flagRateLimit           = "ratelimit"
+	flagRateLimitUnit       = "ratelimit-unit"
+	flagConcurrency         = "concurrency"
+	flagChecksum            = "checksum"
+	flagFilter              = "filter"
+	flagCaseSensitive       = "case-sensitive"
+	flagRemoveTiFlash       = "remove-tiflash"
+	flagCheckRequirement    = "check-requirements"
+	flagSwitchModeInterval  = "switch-mode-interval"
 
 	defaultSwitchInterval = 5 * time.Minute
 )
@@ -89,13 +91,14 @@ func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 type Config struct {
 	storage.BackendOptions
 
-	Storage     string    `json:"storage" toml:"storage"`
-	PD          []string  `json:"pd" toml:"pd"`
-	TLS         TLSConfig `json:"tls" toml:"tls"`
-	RateLimit   uint64    `json:"rate-limit" toml:"rate-limit"`
-	Concurrency uint32    `json:"concurrency" toml:"concurrency"`
-	Checksum    bool      `json:"checksum" toml:"checksum"`
-	SendCreds   bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
+	Storage             string    `json:"storage" toml:"storage"`
+	PD                  []string  `json:"pd" toml:"pd"`
+	TLS                 TLSConfig `json:"tls" toml:"tls"`
+	RateLimit           uint64    `json:"rate-limit" toml:"rate-limit"`
+	Concurrency         uint32    `json:"concurrency" toml:"concurrency"`
+	Checksum            bool      `json:"checksum" toml:"checksum"`
+	ChecksumConcurrency uint      `json:"checksum-concurrency" toml:"checksum-concurrency"`
+	SendCreds           bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
@@ -123,6 +126,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")
 	flags.String(flagKey, "", "Private key path for TLS connection")
+	flags.Uint(flagChecksumConcurrency, variable.DefDistSQLScanConcurrency, "The concurrency of table checksumming")
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
@@ -208,6 +212,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.Checksum, err = flags.GetBool(flagChecksum)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency)
 	if err != nil {
 		return errors.Trace(err)
 	}
