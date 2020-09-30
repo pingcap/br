@@ -47,6 +47,8 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 func (cfg *RestoreRawConfig) adjust() {
+	cfg.Config.adjust()
+
 	if cfg.Concurrency == 0 {
 		cfg.Concurrency = defaultRestoreConcurrency
 	}
@@ -60,7 +62,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
