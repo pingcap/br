@@ -21,6 +21,7 @@ import (
 	pd "github.com/tikv/pd/client"
 	"go.etcd.io/etcd/pkg/transport"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -55,8 +56,14 @@ const (
 	flagRemoveTiFlash      = "remove-tiflash"
 	flagCheckRequirement   = "check-requirements"
 	flagSwitchModeInterval = "switch-mode-interval"
+	// flagGrpcKeepaliveTime is the interval of pinging the server.
+	flagGrpcKeepaliveTime = "grpc-keepalive-time"
+	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
+	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
 
-	defaultSwitchInterval = 5 * time.Minute
+	defaultSwitchInterval       = 5 * time.Minute
+	defaultGRPCKeepaliveTime    = 10 * time.Second
+	defaultGRPCKeepaliveTimeout = 3 * time.Second
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -98,6 +105,11 @@ type Config struct {
 	SendCreds   bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
+
+	// GrpcKeepaliveTime is the interval of pinging the server.
+	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
+	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
+	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
 
 	// CaseSensitive should not be used.
 	//
@@ -143,6 +155,10 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.Bool(flagCheckRequirement, true,
 		"Whether start version check before execute command")
 	flags.Duration(flagSwitchModeInterval, defaultSwitchInterval, "maintain import mode on TiKV during restore")
+	flags.Duration(flagGrpcKeepaliveTime, defaultGRPCKeepaliveTime,
+		"the interval of pinging the server, must keep same value with TiKV and PD")
+	flags.Duration(flagGrpcKeepaliveTimeout, defaultGRPCKeepaliveTimeout,
+		"the max time a grpc conn can keep idel before killed, must keep same value with TiKV and PD")
 
 	storage.DefineFlags(flags)
 }
@@ -267,6 +283,14 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.GRPCKeepaliveTime, err = flags.GetDuration(flagGrpcKeepaliveTime)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.GRPCKeepaliveTimeout, err = flags.GetDuration(flagGrpcKeepaliveTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if cfg.SwitchModeInterval <= 0 {
 		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
@@ -282,6 +306,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
+	keepalive keepalive.ClientParameters,
 	checkRequirements bool) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
@@ -312,7 +337,7 @@ func NewMgr(ctx context.Context,
 	// Is it necessary to remove `StoreBehavior`?
 	return conn.NewMgr(ctx, g,
 		pdAddress, store.(tikv.Storage),
-		tlsConf, securityOption,
+		tlsConf, securityOption, keepalive,
 		conn.SkipTiFlash, checkRequirements)
 }
 
@@ -377,4 +402,12 @@ func LogArguments(cmd *cobra.Command) {
 		}
 	})
 	log.Info("arguments", fields...)
+}
+
+// GetKeepalive get the keepalive info from the config
+func GetKeepalive(cfg *Config) keepalive.ClientParameters {
+	return keepalive.ClientParameters{
+		Time:    cfg.GRPCKeepaliveTime,
+		Timeout: cfg.GRPCKeepaliveTimeout,
+	}
 }

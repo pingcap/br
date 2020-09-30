@@ -44,6 +44,7 @@ type Mgr struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+	keepalive   keepalive.ClientParameters
 	ownsStorage bool
 }
 
@@ -109,6 +110,7 @@ func NewMgr(
 	storage tikv.Storage,
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
+	keepalive keepalive.ClientParameters,
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
 ) (*Mgr, error) {
@@ -159,6 +161,7 @@ func NewMgr(
 		ownsStorage:  g.OwnsStorage(),
 	}
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
+	mgr.keepalive = keepalive
 	return mgr, nil
 }
 
@@ -172,8 +175,6 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		opt = grpc.WithTransportCredentials(credentials.NewTLS(mgr.tlsConf))
 	}
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
-	keepAlive := 10
-	keepAliveTimeout := 3
 	bfConf := backoff.DefaultConfig
 	bfConf.MaxDelay = time.Second * 3
 	addr := store.GetPeerAddress()
@@ -186,10 +187,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		opt,
 		grpc.WithBlock(),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    time.Duration(keepAlive) * time.Second,
-			Timeout: time.Duration(keepAliveTimeout) * time.Second,
-		}),
+		grpc.WithKeepaliveParams(mgr.keepalive),
 	)
 	cancel()
 	if err != nil {
