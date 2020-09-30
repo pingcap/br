@@ -156,9 +156,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"Whether start version check before execute command")
 	flags.Duration(flagSwitchModeInterval, defaultSwitchInterval, "maintain import mode on TiKV during restore")
 	flags.Duration(flagGrpcKeepaliveTime, defaultGRPCKeepaliveTime,
-		"the interval of pinging the server, must keep same value with TiKV and PD")
+		"the interval of pinging gRPC peer, must keep the same value with TiKV and PD")
 	flags.Duration(flagGrpcKeepaliveTimeout, defaultGRPCKeepaliveTimeout,
-		"the max time a grpc conn can keep idel before killed, must keep same value with TiKV and PD")
+		"the max time a gRPC connection can keep idle before killed, must keep the same value with TiKV and PD")
 	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
 	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
 
