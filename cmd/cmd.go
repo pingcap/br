@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -70,7 +71,7 @@ func AddFlags(cmd *cobra.Command) {
 	_ = cmd.PersistentFlags().MarkHidden(FlagSlowLogFile)
 }
 
-// Init ...
+// Init initializes BR cli.
 func Init(cmd *cobra.Command) (err error) {
 	initOnce.Do(func() {
 		// Initialize the logger.
@@ -95,7 +96,8 @@ func Init(cmd *cobra.Command) (err error) {
 		if len(conf.File.Filename) != 0 {
 			atomic.StoreUint64(&hasLogFile, 1)
 			summary.InitCollector(true)
-			cmd.Printf("Detial BR log in %s\n", conf.File.Filename)
+			// cmd.PrintErr prints to stderr, but PrintErrf prints to stdout.
+			cmd.PrintErr(fmt.Sprintf("Detail BR log in %s \n", conf.File.Filename))
 		}
 		lg, p, e := log.InitLogger(conf)
 		if e != nil {
