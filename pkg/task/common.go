@@ -106,11 +106,6 @@ type Config struct {
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
-	// GrpcKeepaliveTime is the interval of pinging the server.
-	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
-	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
-	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
-
 	// CaseSensitive should not be used.
 	//
 	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
@@ -125,6 +120,11 @@ type Config struct {
 	TableFilter        filter.Filter `json:"-" toml:"-"`
 	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
+
+	// GrpcKeepaliveTime is the interval of pinging the server.
+	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
+	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
+	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -404,7 +404,7 @@ func LogArguments(cmd *cobra.Command) {
 	log.Info("arguments", fields...)
 }
 
-// GetKeepalive get the keepalive info from the config
+// GetKeepalive get the keepalive info from the config.
 func GetKeepalive(cfg *Config) keepalive.ClientParameters {
 	return keepalive.ClientParameters{
 		Time:    cfg.GRPCKeepaliveTime,
