@@ -4,10 +4,10 @@ package checksum
 
 import (
 	"context"
-	"log"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/kv"
@@ -54,7 +54,7 @@ func (builder *ExecutorBuilder) SetConcurrency(conc uint) *ExecutorBuilder {
 
 // Build builds a checksum executor.
 func (builder *ExecutorBuilder) Build() (*Executor, error) {
-	reqs, err := buildChecksumRequest(builder.table, builder.oldTable, builder.ts)
+	reqs, err := buildChecksumRequest(builder.table, builder.oldTable, builder.ts, builder.concurrency)
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +65,7 @@ func buildChecksumRequest(
 	newTable *model.TableInfo,
 	oldTable *utils.Table,
 	startTS uint64,
+	concurrency uint,
 ) ([]*kv.Request, error) {
 	var partDefs []model.PartitionDefinition
 	if part := newTable.Partition; part != nil {
@@ -76,7 +77,7 @@ func buildChecksumRequest(
 	if oldTable != nil {
 		oldTableID = oldTable.Info.ID
 	}
-	rs, err := buildRequest(newTable, newTable.ID, oldTable, oldTableID, startTS)
+	rs, err := buildRequest(newTable, newTable.ID, oldTable, oldTableID, startTS, concurrency)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +92,7 @@ func buildChecksumRequest(
 				}
 			}
 		}
-		rs, err := buildRequest(newTable, partDef.ID, oldTable, oldPartID, startTS)
+		rs, err := buildRequest(newTable, partDef.ID, oldTable, oldPartID, startTS, concurrency)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -107,9 +108,10 @@ func buildRequest(
 	oldTable *utils.Table,
 	oldTableID int64,
 	startTS uint64,
+	concurrency uint,
 ) ([]*kv.Request, error) {
 	reqs := make([]*kv.Request, 0)
-	req, err := buildTableRequest(tableID, oldTable, oldTableID, startTS)
+	req, err := buildTableRequest(tableID, oldTable, oldTableID, startTS, concurrency)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +140,10 @@ func buildRequest(
 			}
 		}
 		req, err = buildIndexRequest(
-			tableID, indexInfo, oldTableID, oldIndexInfo, startTS)
+			tableID, indexInfo, oldTableID, oldIndexInfo, startTS, concurrency)
 		if err != nil {
 			return nil, err
 		}
-		req.NotFillCache = true
 		reqs = append(reqs, req)
 	}
 
@@ -154,6 +155,7 @@ func buildTableRequest(
 	oldTable *utils.Table,
 	oldTableID int64,
 	startTS uint64,
+	concurrency uint,
 ) (*kv.Request, error) {
 	var rule *tipb.ChecksumRewriteRule
 	if oldTable != nil {
@@ -177,7 +179,7 @@ func buildTableRequest(
 	return builder.SetTableRanges(tableID, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(builder.Concurrency).
+		SetConcurrency(int(concurrency)).
 		Build()
 }
 
@@ -187,6 +189,7 @@ func buildIndexRequest(
 	oldTableID int64,
 	oldIndexInfo *model.IndexInfo,
 	startTS uint64,
+	concurrency uint,
 ) (*kv.Request, error) {
 	var rule *tipb.ChecksumRewriteRule
 	if oldIndexInfo != nil {
@@ -209,7 +212,7 @@ func buildIndexRequest(
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
-		SetConcurrency(builder.Concurrency).
+		SetConcurrency(int(concurrency)).
 		Build()
 }
 
@@ -261,6 +264,17 @@ type Executor struct {
 // Len returns the total number of checksum requests.
 func (exec *Executor) Len() int {
 	return len(exec.reqs)
+}
+
+// Each executes the function to each requests in the executor.
+func (exec *Executor) Each(f func(*kv.Request) error) error {
+	for _, req := range exec.reqs {
+		err := f(req)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RawRequests extracts the raw requests associated with this executor.
