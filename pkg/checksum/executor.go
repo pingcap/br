@@ -46,7 +46,8 @@ func (builder *ExecutorBuilder) SetOldTable(oldTable *utils.Table) *ExecutorBuil
 	return builder
 }
 
-func (builder *ExecutorBuilder) Concurrency(conc uint) *ExecutorBuilder {
+// SetConcurrency set the concurrency of the checksum executing.
+func (builder *ExecutorBuilder) SetConcurrency(conc uint) *ExecutorBuilder {
 	builder.concurrency = conc
 	return builder
 }

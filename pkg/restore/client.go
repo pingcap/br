@@ -740,7 +740,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	}
 	exe, err := checksum.NewExecutorBuilder(tbl.Table, startTS).
 		SetOldTable(tbl.OldTable).
-		Concurrency(concurrency).
+		SetConcurrency(concurrency).
 		Build()
 	if err != nil {
 		return errors.Trace(err)

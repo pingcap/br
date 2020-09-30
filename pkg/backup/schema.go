@@ -148,7 +148,7 @@ func calculateChecksum(
 	concurrency uint,
 ) (*tipb.ChecksumResponse, error) {
 	exe, err := checksum.NewExecutorBuilder(table, backupTS).
-		Concurrency(concurrency).
+		SetConcurrency(concurrency).
 		Build()
 	if err != nil {
 		return nil, errors.Trace(err)

@@ -95,9 +95,9 @@ type Config struct {
 	PD                  []string  `json:"pd" toml:"pd"`
 	TLS                 TLSConfig `json:"tls" toml:"tls"`
 	RateLimit           uint64    `json:"rate-limit" toml:"rate-limit"`
+	ChecksumConcurrency uint      `json:"checksum-concurrency" toml:"checksum-concurrency"`
 	Concurrency         uint32    `json:"concurrency" toml:"concurrency"`
 	Checksum            bool      `json:"checksum" toml:"checksum"`
-	ChecksumConcurrency uint      `json:"checksum-concurrency" toml:"checksum-concurrency"`
 	SendCreds           bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
