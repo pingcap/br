@@ -78,6 +78,8 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 // we should set proper value in this function.
 // so that both binary and TiDB will use same default value.
 func (cfg *RestoreConfig) adjustRestoreConfig() {
+	cfg.adjust()
+
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
 	}

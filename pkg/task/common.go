@@ -413,3 +413,14 @@ func GetKeepalive(cfg *Config) keepalive.ClientParameters {
 		Timeout: cfg.GRPCKeepaliveTimeout,
 	}
 }
+
+// adjust adjusts the abnormal config value in the current config.
+// useful when not starting BR from CLI (e.g. from BRIE in SQL).
+func (cfg *Config) adjust() {
+	if cfg.GRPCKeepaliveTime == 0 {
+		cfg.GRPCKeepaliveTime = defaultGRPCKeepaliveTime
+	}
+	if cfg.GRPCKeepaliveTimeout == 0 {
+		cfg.GRPCKeepaliveTimeout = defaultGRPCKeepaliveTimeout
+	}
+}

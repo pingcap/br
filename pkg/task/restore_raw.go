@@ -47,6 +47,8 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 func (cfg *RestoreRawConfig) adjust() {
+	cfg.Config.adjust()
+
 	if cfg.Concurrency == 0 {
 		cfg.Concurrency = defaultRestoreConcurrency
 	}
