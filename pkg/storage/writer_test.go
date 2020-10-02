@@ -29,14 +29,14 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt"
 		uploader, err := storage.CreateUploader(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize)
+		writer := newUploaderWriter(ctx, uploader, test.chunkSize)
 		for _, str := range test.content {
 			p := []byte(str)
-			written, err2 := writer.Write(ctx, p)
+			written, err2 := writer.Write(p)
 			c.Assert(err2, IsNil)
 			c.Assert(written, Equals, len(p))
 		}
-		err = writer.Close(ctx)
+		err = writer.Close()
 		c.Assert(err, IsNil)
 		content, err := ioutil.ReadFile(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
