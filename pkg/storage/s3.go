@@ -16,9 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/errors"
@@ -43,37 +43,16 @@ const (
 	maxSkipOffsetByRead = 1 << 16 //64KB
 )
 
-// s3Handlers make it easy to inject test functions.
-type s3Handlers interface {
-	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
-	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
-	PutObjectWithContext(context.Context, *s3.PutObjectInput, ...request.Option) (*s3.PutObjectOutput, error)
-	ListObjectsWithContext(context.Context, *s3.ListObjectsInput, ...request.Option) (*s3.ListObjectsOutput, error)
-	HeadBucketWithContext(context.Context, *s3.HeadBucketInput, ...request.Option) (*s3.HeadBucketOutput, error)
-	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
-
-	ListObjectsV2WithContext(context.Context, *s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error)
-	CreateMultipartUploadWithContext(
-		context.Context,
-		*s3.CreateMultipartUploadInput,
-		...request.Option) (*s3.CreateMultipartUploadOutput, error)
-	CompleteMultipartUploadWithContext(
-		context.Context,
-		*s3.CompleteMultipartUploadInput,
-		...request.Option) (*s3.CompleteMultipartUploadOutput, error)
-	UploadPartWithContext(context.Context, *s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error)
-}
-
 // S3Storage info for s3 storage.
 type S3Storage struct {
 	session *session.Session
-	svc     s3Handlers
+	svc     s3iface.S3API
 	options *backup.S3
 }
 
 // S3Uploader does multi-part upload to s3.
 type S3Uploader struct {
-	svc           s3Handlers
+	svc           s3iface.S3API
 	createOutput  *s3.CreateMultipartUploadOutput
 	completeParts []*s3.CompletedPart
 }
