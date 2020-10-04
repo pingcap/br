@@ -201,11 +201,29 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+// NewS3StorageForTest creates a new S3Storage for testing only.
+func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
+	return &S3Storage{
+		session: nil,
+		svc:     svc,
+		options: options,
+	}
+}
+
 // NewS3Storage initialize a new s3 storage for metadata.
+//
+// Deprecated: Create the storage via `New()` instead of using this.
 func NewS3Storage( // revive:disable-line:flag-parameter
 	backend *backup.S3,
 	sendCredential bool,
 ) (*S3Storage, error) {
+	return newS3Storage(backend, &ExternalStorageOptions{
+		SendCredentials: sendCredential,
+		SkipCheckPath:   false,
+	})
+}
+
+func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
@@ -213,6 +231,9 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 		WithRegion(qs.Region)
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
+	}
+	if opts.HTTPClient != nil {
+		awsConfig.WithHTTPClient(opts.HTTPClient)
 	}
 	var cred *credentials.Credentials
 	if qs.AccessKey != "" && qs.SecretAccessKey != "" {
@@ -230,7 +251,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 		return nil, err
 	}
 
-	if !sendCredential {
+	if !opts.SendCredentials {
 		// Clear the credentials if exists so that they will not be sent to TiKV
 		backend.AccessKey = ""
 		backend.SecretAccessKey = ""
@@ -246,9 +267,11 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	}
 
 	c := s3.New(ses)
-	err = checkS3Bucket(c, qs.Bucket)
-	if err != nil {
-		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
+	if !opts.SkipCheckPath {
+		err = checkS3Bucket(c, qs.Bucket)
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
+		}
 	}
 
 	qs.Prefix += "/"
@@ -260,7 +283,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 }
 
 // checkBucket checks if a bucket exists.
-var checkS3Bucket = func(svc *s3.S3, bucket string) error {
+func checkS3Bucket(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	}

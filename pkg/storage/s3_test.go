@@ -1,24 +1,57 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package storage
+package storage_test
 
 import (
+	"bytes"
 	"context"
 	"io/ioutil"
 	"os"
-	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/spf13/pflag"
+
+	"github.com/pingcap/br/pkg/mock"
+	. "github.com/pingcap/br/pkg/storage"
 )
 
-func (r *testStorageSuite) TestApply(c *C) {
+type s3Suite struct {
+	controller *gomock.Controller
+	s3         *mock.MockS3API
+	storage    *S3Storage
+}
+
+var _ = Suite(&s3Suite{})
+
+// FIXME: Cannot use the real SetUpTest/TearDownTest to set up the mock
+// otherwise the mock error will be ignored.
+
+func (s *s3Suite) setUpTest(c gomock.TestReporter) {
+	s.controller = gomock.NewController(c)
+	s.s3 = mock.NewMockS3API(s.controller)
+	s.storage = NewS3StorageForTest(
+		s.s3,
+		&backup.S3{
+			Region:       "us-west-2",
+			Bucket:       "bucket",
+			Prefix:       "prefix/",
+			Acl:          "acl",
+			Sse:          "sse",
+			StorageClass: "sc",
+		},
+	)
+}
+
+func (s *s3Suite) tearDownTest() {
+	s.controller.Finish()
+}
+
+func (s *s3Suite) TestApply(c *C) {
 	type testcase struct {
 		name      string
 		options   S3BackendOptions
@@ -82,7 +115,8 @@ func (r *testStorageSuite) TestApply(c *C) {
 		testFn(&tests[i], c)
 	}
 }
-func (r *testStorageSuite) TestApplyUpdate(c *C) {
+
+func (s *s3Suite) TestApplyUpdate(c *C) {
 	type testcase struct {
 		name    string
 		options S3BackendOptions
@@ -227,7 +261,7 @@ func (r *testStorageSuite) TestApplyUpdate(c *C) {
 	}
 }
 
-func (r *testStorageSuite) TestS3Storage(c *C) {
+func (s *s3Suite) TestS3Storage(c *C) {
 	type testcase struct {
 		name           string
 		s3             *backup.S3
@@ -238,25 +272,24 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
 		ctx := aws.BackgroundContext()
-		sendCredential := test.sendCredential
-		if test.hackCheck {
-			checkS3Bucket = func(svc *s3.S3, bucket string) error { return nil }
-		}
 		s3 := &backup.StorageBackend{
 			Backend: &backup.StorageBackend_S3{
 				S3: test.s3,
 			},
 		}
-		_, err := Create(ctx, s3, sendCredential)
+		_, err := New(ctx, s3, &ExternalStorageOptions{
+			SendCredentials: test.sendCredential,
+			SkipCheckPath:   test.hackCheck,
+		})
 		if test.errReturn {
 			c.Assert(err, NotNil)
 			return
 		}
 		c.Assert(err, IsNil)
-		if sendCredential {
-			c.Assert(len(test.s3.AccessKey) > 0, IsTrue)
+		if test.sendCredential {
+			c.Assert(len(test.s3.AccessKey), Greater, 0)
 		} else {
-			c.Assert(len(test.s3.AccessKey) == 0, IsTrue)
+			c.Assert(len(test.s3.AccessKey), Equals, 0)
 		}
 	}
 	tests := []testcase{
@@ -371,96 +404,16 @@ func (r *testStorageSuite) TestS3Storage(c *C) {
 		testFn(&tests[i], c)
 	}
 }
-func (r *testStorageSuite) TestS3Handlers(c *C) {
-	type testcase struct {
-		name    string
-		mh      *mockS3Handler
-		options *backup.S3
-	}
 
-	testFn := func(test *testcase, c *C) {
-		c.Log(test.name)
-		ctx := aws.BackgroundContext()
-		ms3 := S3Storage{
-			svc:     test.mh,
-			options: test.options,
-		}
-		err := ms3.Write(ctx, "file", []byte("test"))
-		c.Assert(err, Equals, test.mh.err)
-		_, err = ms3.Read(ctx, "file")
-		c.Assert(err, Equals, test.mh.err)
-		_, err = ms3.FileExists(ctx, "file")
-		if err != nil {
-			c.Assert(err, Equals, test.mh.err)
-		}
-	}
-	tests := []testcase{
-		{
-			name: "no error",
-			mh: &mockS3Handler{
-				err: nil,
-			},
-			options: &backup.S3{
-				Region:       "us-west-2",
-				Bucket:       "bucket",
-				Prefix:       "prefix",
-				Acl:          "acl",
-				Sse:          "sse",
-				StorageClass: "sc",
-			},
-		},
-		{
-			name: "error",
-			mh: &mockS3Handler{
-				err: errors.New("write error"),
-			},
-			options: &backup.S3{
-				Region: "us-west-2",
-				Bucket: "bucket",
-				Prefix: "prefix",
-			},
-		},
-		{
-			name: "aws not found error",
-			mh: &mockS3Handler{
-				err: awserr.New(notFound, notFound, errors.New("not found")),
-			},
-			options: &backup.S3{
-				Region: "us-west-2",
-				Bucket: "bucket",
-				Prefix: "prefix",
-			},
-		},
-		{
-			name: "aws other error",
-			mh: &mockS3Handler{
-				err: awserr.New("other", "other", errors.New("other")),
-			},
-			options: &backup.S3{
-				Region: "us-west-2",
-				Bucket: "bucket",
-				Prefix: "prefix",
-			},
-		},
-	}
-	for i := range tests {
-		testFn(&tests[i], c)
-	}
-}
-
-func (r *testStorageSuite) TestS3Others(c *C) {
-	defineS3Flags(&pflag.FlagSet{})
-}
-
-func (r *testStorageSuite) TestS3URI(c *C) {
+func (s *s3Suite) TestS3URI(c *C) {
 	backend, err := ParseBackend("s3://bucket/prefix/", nil)
 	c.Assert(err, IsNil)
-	storage, err := Create(context.Background(), backend, true)
+	storage, err := New(context.Background(), backend, &ExternalStorageOptions{SkipCheckPath: true})
 	c.Assert(err, IsNil)
 	c.Assert(storage.URI(), Equals, "s3://bucket/prefix/")
 }
 
-func (r *testStorageSuite) TestS3Range(c *C) {
+func (s *s3Suite) TestS3Range(c *C) {
 	contentRange := "bytes 0-9/443"
 	ri, err := ParseRangeInfo(&contentRange)
 	c.Assert(err, IsNil)
@@ -474,69 +427,141 @@ func (r *testStorageSuite) TestS3Range(c *C) {
 	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '.*")
 }
 
-type mockS3Handler struct {
-	err error
+// TestWriteNoError ensures the Write API issues a PutObject request and wait
+// until the object is available in the S3 bucket.
+func (s *s3Suite) TestWriteNoError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	putCall := s.s3.EXPECT().
+		PutObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.PutObjectInput) (*s3.PutObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Key), Equals, "prefix/file")
+			c.Assert(aws.StringValue(input.ACL), Equals, "acl")
+			c.Assert(aws.StringValue(input.ServerSideEncryption), Equals, "sse")
+			c.Assert(aws.StringValue(input.StorageClass), Equals, "sc")
+			body, err := ioutil.ReadAll(input.Body)
+			c.Assert(err, IsNil)
+			c.Assert(body, DeepEquals, []byte("test"))
+			return &s3.PutObjectOutput{}, nil
+		})
+	s.s3.EXPECT().
+		WaitUntilObjectExistsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.HeadObjectInput) error {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Key), Equals, "prefix/file")
+			return nil
+		}).
+		After(putCall)
+
+	err := s.storage.Write(ctx, "file", []byte("test"))
+	c.Assert(err, IsNil)
 }
 
-func (c *mockS3Handler) HeadObjectWithContext(ctx context.Context,
-	input *s3.HeadObjectInput, opts ...request.Option) (*s3.HeadObjectOutput, error) {
-	return nil, c.err
+// TestReadNoError ensures the Read API issues a GetObject request and correctly
+// read the entire body.
+func (s *s3Suite) TestReadNoError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Key), Equals, "prefix/file")
+			return &s3.GetObjectOutput{
+				Body: ioutil.NopCloser(bytes.NewReader([]byte("test"))),
+			}, nil
+		})
+
+	content, err := s.storage.Read(ctx, "file")
+	c.Assert(err, IsNil)
+	c.Assert(content, DeepEquals, []byte("test"))
 }
-func (c *mockS3Handler) GetObjectWithContext(ctx context.Context,
-	input *s3.GetObjectInput, opts ...request.Option) (*s3.GetObjectOutput, error) {
-	if c.err != nil {
-		return nil, c.err
-	}
-	return &s3.GetObjectOutput{
-		Body: ioutil.NopCloser(strings.NewReader("HappyFace.jpg")),
-	}, nil
+
+// TestFileExistsNoError ensures the FileExists API issues a HeadObject request
+// and reports a file exists.
+func (s *s3Suite) TestFileExistsNoError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	s.s3.EXPECT().
+		HeadObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.HeadObjectInput) (*s3.HeadObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Key), Equals, "prefix/file")
+			return &s3.HeadObjectOutput{}, nil
+		})
+
+	exists, err := s.storage.FileExists(ctx, "file")
+	c.Assert(err, IsNil)
+	c.Assert(exists, IsTrue)
 }
-func (c *mockS3Handler) PutObjectWithContext(ctx context.Context,
-	input *s3.PutObjectInput, opts ...request.Option) (*s3.PutObjectOutput, error) {
-	return nil, c.err
+
+// TestFileExistsNoSuckKey ensures FileExists API reports file missing if S3's
+// HeadObject request replied NoSuchKey.
+func (s *s3Suite) TestFileExistsMissing(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	s.s3.EXPECT().
+		HeadObjectWithContext(ctx, gomock.Any()).
+		Return(nil, awserr.New(s3.ErrCodeNoSuchKey, "no such key", nil))
+
+	exists, err := s.storage.FileExists(ctx, "file-missing")
+	c.Assert(err, IsNil)
+	c.Assert(exists, IsFalse)
 }
-func (c *mockS3Handler) ListObjectsWithContext(
-	context.Context,
-	*s3.ListObjectsInput,
-	...request.Option,
-) (*s3.ListObjectsOutput, error) {
-	if c.err != nil {
-		return nil, c.err
-	}
-	truncated := false
-	key := "/HappyFace.jpg"
-	size := int64(13)
-	return &s3.ListObjectsOutput{
-		Contents: []*s3.Object{
-			{
-				Key:  &key,
-				Size: &size,
-			},
-		},
-		IsTruncated: &truncated,
-	}, nil
+
+// TestWriteError checks that a PutObject error is propagated.
+func (s *s3Suite) TestWriteError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	expectedErr := awserr.New(s3.ErrCodeNoSuchBucket, "no such bucket", nil)
+
+	s.s3.EXPECT().
+		PutObjectWithContext(ctx, gomock.Any()).
+		Return(nil, expectedErr)
+
+	err := s.storage.Write(ctx, "file2", []byte("test"))
+	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
 }
-func (c *mockS3Handler) HeadBucketWithContext(ctx context.Context,
-	input *s3.HeadBucketInput, opts ...request.Option) (*s3.HeadBucketOutput, error) {
-	return nil, c.err
+
+// TestWriteError checks that a GetObject error is propagated.
+func (s *s3Suite) TestReadError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	expectedErr := awserr.New(s3.ErrCodeNoSuchKey, "no such key", nil)
+
+	s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		Return(nil, expectedErr)
+
+	_, err := s.storage.Read(ctx, "file-missing")
+	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
 }
-func (c *mockS3Handler) WaitUntilObjectExistsWithContext(ctx context.Context,
-	input *s3.HeadObjectInput, opts ...request.WaiterOption) error {
-	return c.err
-}
-func (c *mockS3Handler) ListObjectsV2WithContext(context.Context,
-	*s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error) {
-	return nil, c.err
-}
-func (c *mockS3Handler) CreateMultipartUploadWithContext(context.Context,
-	*s3.CreateMultipartUploadInput, ...request.Option) (*s3.CreateMultipartUploadOutput, error) {
-	return nil, c.err
-}
-func (c *mockS3Handler) CompleteMultipartUploadWithContext(context.Context,
-	*s3.CompleteMultipartUploadInput, ...request.Option) (*s3.CompleteMultipartUploadOutput, error) {
-	return nil, c.err
-}
-func (c *mockS3Handler) UploadPartWithContext(context.Context,
-	*s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error) {
-	return nil, c.err
+
+// TestFileExistsError checks that a HeadObject error is propagated.
+func (s *s3Suite) TestFileExistsError(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	expectedErr := errors.New("just some unrelated error")
+
+	s.s3.EXPECT().
+		HeadObjectWithContext(ctx, gomock.Any()).
+		Return(nil, expectedErr)
+
+	_, err := s.storage.FileExists(ctx, "file3")
+	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
 }
