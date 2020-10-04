@@ -355,10 +355,9 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 			switch aerr.Code() {
 			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
-			default:
-				return false, err
 			}
 		}
+		return false, err
 	}
 	return true, nil
 }
