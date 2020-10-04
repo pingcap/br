@@ -407,10 +407,18 @@ func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, err
 	}, nil
 }
 
-type rangeInfo struct {
-	start int64
-	end   int64
-	size  int64
+// RangeInfo represents the an HTTP Content-Range header value
+// of the form `bytes [Start]-[End]/[Size]`.
+type RangeInfo struct {
+	// Start is the absolute position of the first byte of the byte range,
+	// starting from 0.
+	Start int64
+	// End is the absolute position of the last byte of the byte range. This end
+	// offset is inclusive, e.g. if the Size is 1000, the maximum value of End
+	// would be 999.
+	End int64
+	// Size is the total size of the original file.
+	Size int64
 }
 
 // if endOffset > startOffset, should return reader for bytes in [startOffset, endOffset).
@@ -418,7 +426,7 @@ func (rs *S3Storage) open(
 	ctx context.Context,
 	path string,
 	startOffset, endOffset int64,
-) (io.ReadCloser, rangeInfo, error) {
+) (io.ReadCloser, RangeInfo, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + path),
@@ -435,15 +443,15 @@ func (rs *S3Storage) open(
 	input.Range = rangeOffset
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, rangeInfo{}, err
+		return nil, RangeInfo{}, err
 	}
 
-	r, err := parseRangeInfo(result.ContentRange)
+	r, err := ParseRangeInfo(result.ContentRange)
 	if err != nil {
-		return nil, rangeInfo{}, errors.Trace(err)
+		return nil, RangeInfo{}, errors.Trace(err)
 	}
 
-	if startOffset != r.start || (endOffset != 0 && endOffset != r.end+1) {
+	if startOffset != r.Start || (endOffset != 0 && endOffset != r.End+1) {
 		return nil, r, errors.Annotatef(berrors.ErrStorageUnknown, "open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
@@ -455,31 +463,34 @@ var (
 	contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
 )
 
-func parseRangeInfo(info *string) (rangeInfo, error) {
+// ParseRangeInfo parses the Content-Range header and returns the offsets.
+func ParseRangeInfo(info *string) (ri RangeInfo, err error) {
 	if info == nil || len(*info) == 0 {
-		return rangeInfo{}, errors.Annotate(berrors.ErrStorageUnknown, "ContentRange is empty")
+		err = errors.Annotate(berrors.ErrStorageUnknown, "ContentRange is empty")
+		return
 	}
 	subMatches := contentRangeRegex.FindStringSubmatch(*info)
 	if len(subMatches) != 4 {
-		return rangeInfo{}, errors.Annotatef(berrors.ErrStorageUnknown, "invalid content range: '%s'", *info)
+		err = errors.Annotatef(berrors.ErrStorageUnknown, "invalid content range: '%s'", *info)
+		return
 	}
 
-	start, err := strconv.ParseInt(subMatches[1], 10, 64)
+	ri.Start, err = strconv.ParseInt(subMatches[1], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		err = errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		return
 	}
-	end, err := strconv.ParseInt(subMatches[2], 10, 64)
+	ri.End, err = strconv.ParseInt(subMatches[2], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		err = errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		return
 	}
-	size, err := strconv.ParseInt(subMatches[3], 10, 64)
+	ri.Size, err = strconv.ParseInt(subMatches[3], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		err = errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		return
 	}
-	return rangeInfo{start: start, end: end, size: size}, nil
+	return
 }
 
 // s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method.
@@ -488,7 +499,7 @@ type s3ObjectReader struct {
 	name      string
 	reader    io.ReadCloser
 	pos       int64
-	rangeInfo rangeInfo
+	rangeInfo RangeInfo
 	// reader context used for implement `io.Seek`
 	// currently, lightning depends on package `xitongsys/parquet-go` to read parquet file and it needs `io.Seeker`
 	// See: https://github.com/xitongsys/parquet-go/blob/207a3cee75900b2b95213627409b7bac0f190bb3/source/source.go#L9-L10
@@ -497,7 +508,7 @@ type s3ObjectReader struct {
 
 // Read implement the io.Reader interface.
 func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
-	maxCnt := r.rangeInfo.end + 1 - r.pos
+	maxCnt := r.rangeInfo.End + 1 - r.pos
 	if maxCnt > int64(len(p)) {
 		maxCnt = int64(len(p))
 	}
@@ -522,7 +533,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		realOffset = r.pos + offset
 	case io.SeekEnd:
-		realOffset = r.rangeInfo.size + offset
+		realOffset = r.rangeInfo.Size + offset
 	default:
 		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
 	}
