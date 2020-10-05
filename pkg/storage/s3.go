@@ -372,8 +372,10 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
-	var marker *string
 	prefix := rs.options.Prefix + opt.SubDir
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
 	maxKeys := int64(1000)
 	if opt.ListCount > 0 {
 		maxKeys = opt.ListCount
@@ -385,7 +387,9 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 		MaxKeys: aws.Int64(maxKeys),
 	}
 	for {
-		req.Marker = marker
+		// FIXME: We can't use ListObjectsV2, it is not universally supported.
+		// (Ceph RGW supported ListObjectsV2 since v15.1.0, released 2020 Jan 30th)
+		// (as of 2020, DigitalOcean Spaces still does not support V2 - https://developers.digitalocean.com/documentation/spaces/#list-bucket-contents)
 		res, err := rs.svc.ListObjectsWithContext(ctx, req)
 		if err != nil {
 			return err
@@ -398,10 +402,19 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 			if err = fn(path, *r.Size); err != nil {
 				return err
 			}
+
+			// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjects.html#AmazonS3-ListObjects-response-NextMarker -
+			//
+			// `res.NextMarker` is populated only if we specify req.Delimiter.
+			// Aliyun OSS and minio will populate NextMarker no matter what,
+			// but this documented behavior does apply to AWS S3:
+			//
+			// "If response does not include the NextMarker and it is truncated,
+			// you can use the value of the last Key in the response as the marker
+			// in the subsequent request to get the next set of object keys."
+			req.Marker = r.Key
 		}
-		if res.IsTruncated != nil && *res.IsTruncated {
-			marker = res.NextMarker
-		} else {
+		if !aws.BoolValue(res.IsTruncated) {
 			break
 		}
 	}

@@ -17,7 +17,17 @@ import (
 type WalkOption struct {
 	// walk on SubDir of specify directory
 	SubDir string
-	// number of list count, default 1000
+	// ListCount is the number of entries per page.
+	//
+	// In cloud storages such as S3 and GCS, the files listed and sent in pages.
+	// Typically a page contains 1000 files, and if a folder has 3000 descendant
+	// files, one would need 3 requests to retrieve all of them. This parameter
+	// controls this size. Note that both S3 and GCS limits the maximum to 1000.
+	//
+	// Typically you want to leave this field unassigned (zero) to use the
+	// default value (1000) to minimize the number of requests, unless you want
+	// to reduce the possibility of timeout on an extremely slow connection, or
+	// perform testing.
 	ListCount int64
 }
 
