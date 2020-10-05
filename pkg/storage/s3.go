@@ -534,7 +534,7 @@ func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 	if maxCnt > int64(len(p)) {
 		maxCnt = int64(len(p))
 	}
-	n, err = io.ReadFull(r.reader, p[:maxCnt])
+	n, err = r.reader.Read(p[:maxCnt])
 	r.pos += int64(n)
 	return
 }

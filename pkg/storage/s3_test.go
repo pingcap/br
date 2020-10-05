@@ -3,9 +3,12 @@
 package storage_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -564,4 +567,155 @@ func (s *s3Suite) TestFileExistsError(c *C) {
 
 	_, err := s.storage.FileExists(ctx, "file3")
 	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
+}
+
+// TestOpenAsBufio checks that we can open a file for reading via bufio.
+func (s *s3Suite) TestOpenAsBufio(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Range), Equals, "bytes=0-")
+			return &s3.GetObjectOutput{
+				Body:         ioutil.NopCloser(bytes.NewReader([]byte("plain text\ncontent"))),
+				ContentRange: aws.String("bytes 0-17/18"),
+			}, nil
+		})
+
+	reader, err := s.storage.Open(ctx, "plain-text-file")
+	c.Assert(err, IsNil)
+	defer c.Assert(reader.Close(), IsNil)
+	bufReader := bufio.NewReaderSize(reader, 5)
+	content, err := bufReader.ReadString('\n')
+	c.Assert(err, IsNil)
+	c.Assert(content, Equals, "plain text\n")
+	content, err = bufReader.ReadString('\n')
+	c.Assert(err, ErrorMatches, "EOF")
+	c.Assert(content, Equals, "content")
+}
+
+// alphabetReader is used in TestOpenReadSlowly. This Reader produces a single
+// upper case letter one Read() at a time.
+type alphabetReader struct{ character byte }
+
+func (r *alphabetReader) Read(buf []byte) (int, error) {
+	if r.character > 'Z' {
+		return 0, io.EOF
+	}
+	if len(buf) == 0 {
+		return 0, nil
+	}
+	buf[0] = r.character
+	r.character++
+	return 1, nil
+}
+
+func (r *alphabetReader) Close() error {
+	return nil
+}
+
+// TestOpenReadSlowly checks that we can open a file for reading, even if the
+// reader emits content one byte at a time.
+func (s *s3Suite) TestOpenReadSlowly(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		Return(&s3.GetObjectOutput{
+			Body:         &alphabetReader{character: 'A'},
+			ContentRange: aws.String("bytes 0-25/26"),
+		}, nil)
+
+	reader, err := s.storage.Open(ctx, "alphabets")
+	c.Assert(err, IsNil)
+	res, err := ioutil.ReadAll(reader)
+	c.Assert(err, IsNil)
+	c.Assert(res, DeepEquals, []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
+}
+
+// TestOpenSeek checks that Seek is implemented correctly.
+func (s *s3Suite) TestOpenSeek(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	someRandomBytes := make([]byte, 1000000)
+	rand.Read(someRandomBytes) //nolint:gosec
+	// ^ we just want some random bytes for testing, we don't care about its security.
+
+	// The first call should serve the first 64 KiB.
+	firstCall := s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Range), Equals, "bytes=0-")
+			return &s3.GetObjectOutput{
+				Body:         ioutil.NopCloser(bytes.NewReader(someRandomBytes)),
+				ContentRange: aws.String("bytes 0-999999/1000000"),
+			}, nil
+		})
+
+	secondCall := s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Range), Equals, "bytes=998000-")
+			return &s3.GetObjectOutput{
+				Body:         ioutil.NopCloser(bytes.NewReader(someRandomBytes[998000:])),
+				ContentRange: aws.String("bytes 998000-999999/1000000"),
+			}, nil
+		}).
+		After(firstCall)
+
+	s.s3.EXPECT().
+		GetObjectWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+			c.Assert(aws.StringValue(input.Range), Equals, "bytes=990100-")
+			return &s3.GetObjectOutput{
+				Body:         ioutil.NopCloser(bytes.NewReader(someRandomBytes[990100:])),
+				ContentRange: aws.String("bytes 990100-999999/1000000"),
+			}, nil
+		}).
+		After(secondCall)
+
+	reader, err := s.storage.Open(ctx, "random")
+	c.Assert(err, IsNil)
+	defer reader.Close()
+
+	// first do some simple read...
+	slice := make([]byte, 100)
+	n, err := io.ReadFull(reader, slice)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 100)
+	c.Assert(slice, DeepEquals, someRandomBytes[:100])
+
+	// a short seek will not result in a different GetObject request.
+	offset, err := reader.Seek(2000, io.SeekStart)
+	c.Assert(err, IsNil)
+	c.Assert(offset, Equals, int64(2000))
+	n, err = io.ReadFull(reader, slice)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 100)
+	c.Assert(slice, DeepEquals, someRandomBytes[2000:2100])
+
+	// a long seek will perform a new GetObject request
+	offset, err = reader.Seek(-2000, io.SeekEnd)
+	c.Assert(err, IsNil)
+	c.Assert(offset, Equals, int64(998000))
+	n, err = io.ReadFull(reader, slice)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 100)
+	c.Assert(slice, DeepEquals, someRandomBytes[998000:998100])
+
+	// jumping backward should be fine, but would perform a new GetObject request.
+	offset, err = reader.Seek(-8000, io.SeekCurrent)
+	c.Assert(err, IsNil)
+	c.Assert(offset, Equals, int64(990100))
+	n, err = io.ReadFull(reader, slice)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 100)
+	c.Assert(slice, DeepEquals, someRandomBytes[990100:990200])
 }
