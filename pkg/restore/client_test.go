@@ -43,7 +43,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	client, err := restore.NewRestoreClient(context.Background(), gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
 	c.Assert(err, IsNil)
 
-	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxInt64)
+	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxUint64)
 	c.Assert(err, IsNil)
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
