@@ -65,4 +65,11 @@ if [ ! -e "$BIN/minio" ]; then
     chmod a+x "$BIN/minio"
 fi
 
+if [ ! -e "$BIN/cdc" ]; then
+    echo "Downloading cdc..."
+    curl -L -f -o "$BIN/cdc.tar.gz" "https://download.pingcap.org/ticdc-nightly-linux-amd64.tar.gz"
+    tar -x -f "$BIN/cdc.tar.gz" -C "$BIN/" ticdc-nightly-linux-amd64/bin/cdc
+    mv "$BIN"/ticdc-nightly-linux-amd64/bin/cdc "$BIN/cdc"
+fi
+
 echo "All binaries are now available."

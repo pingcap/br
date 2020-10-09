@@ -11,27 +11,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/utils"
-)
-
-var (
-	// ErrEpochNotMatch is the error raised when ingestion failed with "epoch
-	// not match". This error is retryable.
-	ErrEpochNotMatch = errors.NewNoStackError("epoch not match")
-	// ErrKeyNotInRegion is the error raised when ingestion failed with "key not
-	// in region". This error cannot be retried.
-	ErrKeyNotInRegion = errors.NewNoStackError("key not in region")
-	// ErrRewriteRuleNotFound is the error raised when download failed with
-	// "rewrite rule not found". This error cannot be retried
-	ErrRewriteRuleNotFound = errors.NewNoStackError("rewrite rule not found")
-	// ErrRangeIsEmpty is the error raised when download failed with "range is
-	// empty". This error cannot be retried.
-	ErrRangeIsEmpty = errors.NewNoStackError("range is empty")
-	// ErrDownloadFailed indicates a generic download error, expected to be
-	// retryable.
-	ErrDownloadFailed = errors.NewNoStackError("download sst failed")
-	// ErrIngestFailed indicates a generic, retryable ingest error.
-	ErrIngestFailed = errors.NewNoStackError("ingest sst failed")
 )
 
 const (
@@ -73,10 +54,10 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
 	switch errors.Cause(err) {
-	case ErrEpochNotMatch, ErrDownloadFailed, ErrIngestFailed:
+	case berrors.ErrKVEpochNotMatch, berrors.ErrKVDownloadFailed, berrors.ErrKVIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
-	case ErrRangeIsEmpty, ErrRewriteRuleNotFound:
+	case berrors.ErrKVRangeIsEmpty, berrors.ErrKVRewriteRuleNotFound:
 		// Excepted error, finish the operation
 		bo.delayTime = 0
 		bo.attempt = 0

@@ -23,6 +23,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -139,10 +141,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 			return err
 		}
 		if u.Scheme == "" {
-			return errors.New("scheme not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "scheme not found in endpoint")
 		}
 		if u.Host == "" {
-			return errors.New("host not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "host not found in endpoint")
 		}
 	}
 	// In some cases, we need to set ForcePathStyle to false.
@@ -152,10 +154,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 		options.ForcePathStyle = false
 	}
 	if options.AccessKey == "" && options.SecretAccessKey != "" {
-		return errors.New("access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "access_key not found")
 	}
 	if options.AccessKey != "" && options.SecretAccessKey == "" {
-		return errors.New("secret_access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "secret_access_key not found")
 	}
 
 	s3.Endpoint = options.Endpoint
@@ -267,7 +269,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	c := s3.New(ses)
 	err = checkS3Bucket(c, qs.Bucket)
 	if err != nil {
-		return nil, errors.Errorf("Bucket %s is not accessible: %v", qs.Bucket, err)
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 	}
 
 	qs.Prefix += "/"
@@ -352,12 +354,11 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
 			default:
-				return true, err
+				return false, err
 			}
 		}
 	}
-
-	return true, err
+	return true, nil
 }
 
 // WalkDir traverse all the files in a dir.
@@ -464,7 +465,7 @@ func (rs *S3Storage) open(
 	}
 
 	if startOffset != r.start || (endOffset != 0 && endOffset != r.end+1) {
-		return nil, r, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+		return nil, r, errors.Annotatef(berrors.ErrStorageUnknown, "open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
 
@@ -477,11 +478,11 @@ var (
 
 func parseRangeInfo(info *string) (rangeInfo, error) {
 	if info == nil || len(*info) == 0 {
-		return rangeInfo{}, errors.New("ContentRange is empty")
+		return rangeInfo{}, errors.Annotate(berrors.ErrStorageUnknown, "ContentRange is empty")
 	}
 	subMatches := contentRangeRegex.FindStringSubmatch(*info)
 	if len(subMatches) != 4 {
-		return rangeInfo{}, errors.Errorf("invalid content range: '%s'", *info)
+		return rangeInfo{}, errors.Annotatef(berrors.ErrStorageUnknown, "invalid content range: '%s'", *info)
 	}
 
 	start, err := strconv.ParseInt(subMatches[1], 10, 64)
@@ -544,7 +545,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekEnd:
 		realOffset = r.rangeInfo.size + offset
 	default:
-		return 0, errors.Errorf("Seek: invalid whence '%d'", whence)
+		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
 	}
 
 	if realOffset == r.pos {

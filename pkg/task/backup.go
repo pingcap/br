@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -87,7 +88,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	if timeAgo < 0 {
-		return errors.New("negative timeago is not allowed")
+		return errors.Annotate(berrors.ErrInvalidArgument, "negative timeago is not allowed")
 	}
 	cfg.TimeAgo = timeAgo
 	cfg.LastBackupTS, err = flags.GetUint64(flagLastBackupTS)
@@ -147,6 +148,7 @@ func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
 // we should set proper value in this function.
 // so that both binary and TiDB will use same default value.
 func (cfg *BackupConfig) adjustBackupConfig() {
+	cfg.adjust()
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
@@ -175,7 +177,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -255,7 +257,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
-			return errors.New("LastBackupTS is larger or equal to current TS")
+			return errors.Annotate(berrors.ErrInvalidArgument, "LastBackupTS is larger or equal to current TS")
 		}
 		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
@@ -347,14 +349,9 @@ func checkChecksums(backupMeta *kvproto.BackupMeta) error {
 	if err != nil {
 		return err
 	}
-	var matches bool
-	matches, err = backup.ChecksumMatches(backupMeta, checksums)
+	err = backup.ChecksumMatches(backupMeta, checksums)
 	if err != nil {
 		return err
-	}
-	if !matches {
-		log.Error("backup FastChecksum mismatch!")
-		return errors.New("mismatched checksum")
 	}
 	return nil
 }
@@ -393,7 +390,7 @@ func parseCompressionType(s string) (kvproto.CompressionType, error) {
 	case "zstd":
 		ct = kvproto.CompressionType_ZSTD
 	default:
-		return kvproto.CompressionType_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
+		return kvproto.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
 	}
 	return ct, nil
 }
