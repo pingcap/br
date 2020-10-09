@@ -254,7 +254,7 @@ func (p *PdController) RemoveScheduler(ctx context.Context, scheduler string) er
 
 // TODO add an integration test to test pause scheduler succeed when pd support related api.
 // see details at https://github.com/tikv/pd/issues/3052
-func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
+func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
 	// pause this scheduler in 300 seconds
 	body, err := json.Marshal(pauseSchedulerBody{Delay: pauseTimeout})
 	if err != nil {
