@@ -85,6 +85,21 @@ func (keys zapArrayMarshalKeysMixIn) MarshalLogArray(enc zapcore.ArrayEncoder) e
 	return nil
 }
 
+type files []*backup.File
+
+func (fs files) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	totalKVs := uint64(0)
+	totalSize := uint64(0)
+	for _, file := range fs {
+		totalKVs += file.GetTotalKvs()
+		totalSize += file.GetTotalBytes()
+	}
+	encoder.AddUint64("totalKVs", totalKVs)
+	encoder.AddUint64("totalBytes", totalSize)
+	encoder.AddInt("totalFileCount", len(fs))
+	return nil
+}
+
 // WrapKey wrap a key as a Stringer that can print proper upper hex format.
 func WrapKey(key []byte) fmt.Stringer {
 	return kv.Key(key)
@@ -113,4 +128,9 @@ func ZapFile(file *backup.File) zapcore.Field {
 // ZapSSTMeta make the zap fields for a SST meta.
 func ZapSSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
 	return zap.Object("sstMeta", zapMarshalSSTMetaMixIn{sstMeta})
+}
+
+// ZapFiles make the zap field for a set of file.
+func ZapFiles(fs []*backup.File) zapcore.Field {
+	return zap.Object("fs", files(fs))
 }
