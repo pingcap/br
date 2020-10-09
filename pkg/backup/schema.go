@@ -60,6 +60,7 @@ func (pending *Schemas) Start(
 	store kv.Storage,
 	backupTS uint64,
 	concurrency uint,
+	copConcurrency uint,
 	updateCh glue.Progress,
 ) {
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
@@ -78,7 +79,7 @@ func (pending *Schemas) Start(
 					return err
 				}
 				checksumResp, err := calculateChecksum(
-					ectx, &table, store.GetClient(), backupTS)
+					ectx, &table, store.GetClient(), backupTS, copConcurrency)
 				if err != nil {
 					return err
 				}
@@ -144,8 +145,11 @@ func calculateChecksum(
 	table *model.TableInfo,
 	client kv.Client,
 	backupTS uint64,
+	concurrency uint,
 ) (*tipb.ChecksumResponse, error) {
-	exe, err := checksum.NewExecutorBuilder(table, backupTS).Build()
+	exe, err := checksum.NewExecutorBuilder(table, backupTS).
+		SetConcurrency(concurrency).
+		Build()
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

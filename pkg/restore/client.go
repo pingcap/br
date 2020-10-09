@@ -689,6 +689,7 @@ func (rc *Client) GoValidateChecksum(
 	kvClient kv.Client,
 	errCh chan<- error,
 	updateCh glue.Progress,
+	concurrency uint,
 ) <-chan struct{} {
 	log.Info("Start to validate checksum")
 	outCh := make(chan struct{}, 1)
@@ -717,7 +718,7 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
-					err := rc.execChecksum(ectx, tbl, kvClient)
+					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return err
 					}
@@ -730,7 +731,7 @@ func (rc *Client) GoValidateChecksum(
 	return outCh
 }
 
-func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client, concurrency uint) error {
 	if tbl.OldTable.NoChecksum() {
 		log.Warn("table has no checksum, skipping checksum",
 			zap.Stringer("table", tbl.OldTable.Info.Name),
@@ -745,6 +746,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	}
 	exe, err := checksum.NewExecutorBuilder(tbl.Table, startTS).
 		SetOldTable(tbl.OldTable).
+		SetConcurrency(concurrency).
 		Build()
 	if err != nil {
 		return errors.Trace(err)
