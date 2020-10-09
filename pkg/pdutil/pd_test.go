@@ -37,7 +37,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 		return nil, errors.New("failed")
 	}
 	pdController := &PdController{addrs: []string{"", ""}}
-	err := pdController.removeSchedulerWith(ctx, scheduler, mock)
+	err := pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	err = pdController.addSchedulerWith(ctx, scheduler, mock)
@@ -49,7 +49,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`["` + scheduler + `"]`), nil
 	}
-	err = pdController.removeSchedulerWith(ctx, scheduler, mock)
+	err = pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
 	err = pdController.addSchedulerWith(ctx, scheduler, mock)

@@ -34,6 +34,7 @@ const (
 	schedulerPrefix      = "pd/api/v1/schedulers"
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
+	pauseTimeout         = 300000000000
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -43,6 +44,10 @@ type clusterConfig struct {
 	scheduler []string
 	// Original scheudle configuration
 	scheduleCfg map[string]interface{}
+}
+
+type pauseSchedulerBody struct {
+	Delay int64 `json:"delay"`
 }
 
 var (
@@ -244,19 +249,57 @@ func (p *PdController) getRegionCountWith(
 
 // RemoveScheduler remove pd scheduler.
 func (p *PdController) RemoveScheduler(ctx context.Context, scheduler string) error {
-	return p.removeSchedulerWith(ctx, scheduler, pdRequest)
+	return p.pauseSchedulerWith(ctx, scheduler, pdRequest)
 }
 
-func (p *PdController) removeSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
+// TODO add an integration test to test pause scheduler succeed when pd support related api.
+// see details at https://github.com/tikv/pd/issues/3052
+func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string, delete pdHTTPRequest) (err error) {
+	// pause this scheduler in 300 seconds
+	body, err := json.Marshal(pauseSchedulerBody{Delay: pauseTimeout})
+	if err != nil {
+		return err
+	}
+
+	// first pause this scheduler, if the first time failed. we should return the error
+	// so put first time out of for loop. and in for loop we could ignore other failed pause.
 	for _, addr := range p.addrs {
 		prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-		_, err = delete(ctx, addr, prefix, p.cli, http.MethodDelete, nil)
+		_, err = delete(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
 		if err != nil {
 			continue
 		}
-		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	log.Info("pause scheduler at beginning", zap.String("name", scheduler))
+
+	go func() {
+		tick := time.NewTicker(2 * time.Minute)
+		defer tick.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				for _, addr := range p.addrs {
+					prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
+					_, err = delete(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+					if err != nil {
+						continue
+					}
+				}
+				if err == nil {
+					log.Info("pause scheduler", zap.String("name", scheduler))
+				} else {
+					log.Warn("pause scheduler failed, ignore it and wait next time pause", zap.Error(err))
+				}
+			}
+		}
+	}()
+	return nil
 }
 
 // AddScheduler add pd scheduler.
@@ -404,12 +447,10 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 			needRemoveSchedulers = append(needRemoveSchedulers, s)
 		}
 	}
-	scheduler, err := removePDLeaderScheduler(ctx, p, needRemoveSchedulers)
+	err = removePDLeaderScheduler(ctx, p, needRemoveSchedulers)
 	if err != nil {
 		return
 	}
-
-	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler})
 
 	stores, err := p.pdClient.GetAllStores(ctx)
 	if err != nil {
@@ -420,7 +461,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		return
 	}
 
-	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler, scheduleCfg: scheduleCfg})
+	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduleCfg: scheduleCfg})
 
 	disableMergeCfg := make(map[string]interface{})
 	for _, cfgKey := range pdRegionMergeCfg {
@@ -459,14 +500,12 @@ func (p *PdController) Close() {
 	p.pdClient.Close()
 }
 
-func removePDLeaderScheduler(ctx context.Context, pd *PdController, existSchedulers []string) ([]string, error) {
-	removedSchedulers := make([]string, 0, len(existSchedulers))
+func removePDLeaderScheduler(ctx context.Context, pd *PdController, existSchedulers []string) error {
 	for _, scheduler := range existSchedulers {
 		err := pd.RemoveScheduler(ctx, scheduler)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		removedSchedulers = append(removedSchedulers, scheduler)
 	}
-	return removedSchedulers, nil
+	return nil
 }
