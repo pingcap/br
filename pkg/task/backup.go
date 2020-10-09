@@ -306,7 +306,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		updateCh = g.StartProgress(
 			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
 		backupSchemas.Start(
-			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
 		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
 		if err != nil {
 			return err

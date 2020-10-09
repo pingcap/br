@@ -8,7 +8,8 @@ import (
 	"sync/atomic"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/tidb-tools/pkg/table-filter"
+	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
@@ -90,7 +91,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 	updateCh := new(simpleProgress)
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, updateCh)
+	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, updateCh)
 	schemas, err := backupSchemas.FinishTableChecksum()
 	c.Assert(updateCh.get(), Equals, int64(1))
 	c.Assert(err, IsNil)
@@ -110,7 +111,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	updateCh.reset()
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, updateCh)
+	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, updateCh)
 	schemas, err = backupSchemas.FinishTableChecksum()
 	c.Assert(updateCh.get(), Equals, int64(2))
 	c.Assert(err, IsNil)
