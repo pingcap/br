@@ -338,9 +338,9 @@ func (importer *FileImporter) Import(
 					zap.Error(errIngest))
 				return errIngest
 			}
-			summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
-			summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		}
+		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
+		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		return nil
 	}, newImportSSTBackoffer())
 	return err
