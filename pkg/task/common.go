@@ -432,4 +432,7 @@ func (cfg *Config) adjust() {
 	if cfg.GRPCKeepaliveTimeout == 0 {
 		cfg.GRPCKeepaliveTimeout = defaultGRPCKeepaliveTimeout
 	}
+	if cfg.ChecksumConcurrency == 0 {
+		cfg.ChecksumConcurrency = variable.DefChecksumTableConcurrency
+	}
 }
