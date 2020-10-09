@@ -34,7 +34,7 @@ const (
 	schedulerPrefix      = "pd/api/v1/schedulers"
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
-	pauseTimeout         = 300000000000
+	pauseTimeout         = 5 * time.Minute
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -256,7 +256,7 @@ func (p *PdController) RemoveScheduler(ctx context.Context, scheduler string) er
 // see details at https://github.com/tikv/pd/issues/3052
 func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
 	// pause this scheduler in 300 seconds
-	body, err := json.Marshal(pauseSchedulerBody{Delay: pauseTimeout})
+	body, err := json.Marshal(pauseSchedulerBody{Delay: int64(pauseTimeout)})
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 	// so put first time out of for loop. and in for loop we could ignore other failed pause.
 	for _, addr := range p.addrs {
 		prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-		_, err = delete(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+		_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
 		if err != nil {
 			continue
 		}
@@ -276,7 +276,7 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 	log.Info("pause scheduler at beginning", zap.String("name", scheduler))
 
 	go func() {
-		tick := time.NewTicker(2 * time.Minute)
+		tick := time.NewTicker(pauseTimeout / 3)
 		defer tick.Stop()
 
 		for {
@@ -286,7 +286,7 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 			case <-tick.C:
 				for _, addr := range p.addrs {
 					prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-					_, err = delete(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+					_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
 					if err != nil {
 						continue
 					}
