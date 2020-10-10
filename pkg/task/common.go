@@ -230,16 +230,6 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.PD, err = flags.GetStringSlice(flagPD)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(cfg.PD) == 0 {
-		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
-	}
-	if err2 := cfg.normalizePDURLs(); err2 != nil {
-		return err2
-	}
 	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
 	if err != nil {
 		return errors.Trace(err)
@@ -324,7 +314,17 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
-	return cfg.TLS.ParseFromFlags(flags)
+	if err := cfg.TLS.ParseFromFlags(flags); err != nil {
+		return err
+	}
+	cfg.PD, err = flags.GetStringSlice(flagPD)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(cfg.PD) == 0 {
+		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
+	}
+	return cfg.normalizePDURLs()
 }
 
 // NewMgr creates a new mgr at the given PD address.
