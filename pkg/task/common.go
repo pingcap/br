@@ -208,6 +208,17 @@ func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+func (cfg *Config) normalizePDURLs() error {
+	for i := range cfg.PD {
+		var err error
+		cfg.PD[i], err = normalizePDURL(cfg.PD[i], cfg.TLS.IsEnabled())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ParseFromFlags parses the config from the flag set.
 func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
@@ -225,6 +236,9 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	if len(cfg.PD) == 0 {
 		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
+	}
+	if err2 := cfg.normalizePDURLs(); err2 != nil {
+		return err2
 	}
 	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
 	if err != nil {
@@ -435,4 +449,18 @@ func (cfg *Config) adjust() {
 	if cfg.ChecksumConcurrency == 0 {
 		cfg.ChecksumConcurrency = variable.DefChecksumTableConcurrency
 	}
+}
+
+func normalizePDURL(pd string, useTLS bool) (string, error) {
+	startsWithHTTP := strings.HasPrefix(pd, "http://")
+	startsWithHTTPS := strings.HasPrefix(pd, "https://")
+	if useTLS && startsWithHTTP {
+		return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with http while TLS enabled")
+	}
+	if !useTLS && startsWithHTTPS {
+		return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with https while TLS disabled")
+	}
+
+	striped := strings.TrimPrefix(strings.TrimPrefix(pd, "https://"), "http://")
+	return striped, nil
 }

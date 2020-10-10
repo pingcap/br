@@ -247,7 +247,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {
 				return nil, multierr.Append(splitErrors,
-					errors.Errorf("region[%d] doesn't have any peer", regionInfo.Region.GetId()))
+					errors.Annotatef(berrors.ErrKVUnknown, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
@@ -272,7 +272,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		}
 		if resp.RegionError != nil {
 			splitErrors = multierr.Append(splitErrors,
-				errors.Errorf("split region failed: region=%v, err=%v",
+				errors.Annotatef(berrors.ErrRestoreSplitFailed, "split region failed: region=%v, err=%v",
 					regionInfo.Region, resp.RegionError))
 			if nl := resp.RegionError.NotLeader; nl != nil {
 				if leader := nl.GetLeader(); leader != nil {

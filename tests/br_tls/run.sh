@@ -47,7 +47,9 @@ run_sql "INSERT INTO $DB.$TABLE2 VALUES (\"c\", \"d\");"
 
 # backup db
 echo "backup start..."
-run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --ca $cur/certificates/ca.pem --cert $cur/certificates/client.pem --key $cur/certificates/client-key.pem
+# should fail when use http with TLS
+! run_br --pd "http://$PD_ADDR" backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --ca $cur/certificates/ca.pem --cert $cur/certificates/client.pem --key $cur/certificates/client-key.pem
+run_br --pd "https://$PD_ADDR" backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --ca $cur/certificates/ca.pem --cert $cur/certificates/client.pem --key $cur/certificates/client-key.pem
 
 run_sql "DROP DATABASE $DB;"
 
