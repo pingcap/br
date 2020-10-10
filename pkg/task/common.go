@@ -452,15 +452,17 @@ func (cfg *Config) adjust() {
 }
 
 func normalizePDURL(pd string, useTLS bool) (string, error) {
-	startsWithHTTP := strings.HasPrefix(pd, "http://")
-	startsWithHTTPS := strings.HasPrefix(pd, "https://")
-	if useTLS && startsWithHTTP {
-		return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with http while TLS enabled")
+	if strings.HasPrefix(pd, "http://") {
+		if useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with http while TLS enabled")
+		}
+		return strings.TrimPrefix(pd, "http://"), nil
 	}
-	if !useTLS && startsWithHTTPS {
-		return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with https while TLS disabled")
+	if strings.HasPrefix(pd, "https://") {
+		if !useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with https while TLS disabled")
+		}
+		return strings.TrimPrefix(pd, "https://"), nil
 	}
-
-	striped := strings.TrimPrefix(strings.TrimPrefix(pd, "https://"), "http://")
-	return striped, nil
+	return pd, nil
 }
