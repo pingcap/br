@@ -311,10 +311,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
 	}
 
-	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
+	if err = cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
-	if err := cfg.TLS.ParseFromFlags(flags); err != nil {
+	if err = cfg.TLS.ParseFromFlags(flags); err != nil {
 		return err
 	}
 	cfg.PD, err = flags.GetStringSlice(flagPD)
