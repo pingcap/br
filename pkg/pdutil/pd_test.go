@@ -36,10 +36,15 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return nil, errors.New("failed")
 	}
-	pdController := &PdController{addrs: []string{"", ""}}
+	schedulerPauseCh := make(map[string]chan struct{})
+	pdController := &PdController{addrs: []string{"", ""}, schedulerPauseCh: schedulerPauseCh}
+	schedulerPauseCh[scheduler] = make(chan struct{})
 	err := pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
+	go func() {
+		<-schedulerPauseCh[scheduler]
+	}()
 	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
@@ -52,6 +57,9 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	err = pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
+	go func() {
+		<-schedulerPauseCh[scheduler]
+	}()
 	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 

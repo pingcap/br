@@ -276,7 +276,6 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 		return err
 	}
 	log.Info("pause scheduler at beginning", zap.String("name", scheduler))
-
 	p.schedulerPauseCh[scheduler] = make(chan struct{})
 
 	go func() {
@@ -301,7 +300,6 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 					log.Warn("pause scheduler failed, ignore it and wait next time pause", zap.Error(err))
 				}
 			case <-p.schedulerPauseCh[scheduler]:
-				close(p.schedulerPauseCh[scheduler])
 				log.Info("exit pause scheduler successful", zap.String("name", scheduler))
 				return
 			}
@@ -516,6 +514,10 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 // Close close the connection to pd.
 func (p *PdController) Close() {
 	p.pdClient.Close()
+
+	for _, ch := range p.schedulerPauseCh {
+		close(ch)
+	}
 }
 
 func removePDLeaderScheduler(ctx context.Context, pd *PdController, existSchedulers []string) ([]string, error) {
