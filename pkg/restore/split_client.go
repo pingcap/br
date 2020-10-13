@@ -247,7 +247,7 @@ func (c *pdClient) sendSplitRegionRequest(
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {
 				return nil, multierr.Append(splitErrors,
-					errors.Annotatef(berrors.ErrKVUnknown, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
+					errors.Annotatef(berrors.ErrRestoreNoPeer, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
 			}
 			peer = regionInfo.Region.Peers[0]
 		}
