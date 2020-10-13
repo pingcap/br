@@ -88,6 +88,13 @@ if [ "$backup_fail" -ne "1" ];then
     exit 1
 fi
 
+# check is there still exists scheduler not in pause.
+pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedules?status="paused" | grep "scheduler" | wc -l)
+if [ "$pause_schedulers" -ne "3" ];then
+  echo "TEST: [$TEST_NAME] failed because scheduler there are not enough in paused"
+  exit 1
+fi
+
 if ps -p $_pid > /dev/null
 then
    echo "$_pid is running"
@@ -101,14 +108,29 @@ fi
 # make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
 sleep 5
-if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": false'
+if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": true'
 then
-  echo "TEST: [$TEST_NAME] failed because scheduler has not been removed"
+  echo "TEST: [$TEST_NAME] failed because scheduler has been removed"
   exit 1
 fi
 
 pd_settings=5
-# we need reset pd scheduler/config to default
+
+# check is there still exists scheduler in pause after BR closed.
+if curl http://$PD_ADDR/pd/api/v1/schedules?status="paused" | grep "scheduler"
+then
+  echo "TEST: [$TEST_NAME] failed because scheduler has been paused"
+  exit 1
+fi
+
+# balance-region scheduler enabled
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-region")}' | grep '"disable": false' || ((pd_settings--))
+# balance-leader scheduler enabled
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
+# hot region scheduler enabled
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
+
+# we need reset pd config to default
 # until pd has the solution to temporary set these scheduler/configs.
 run_br validate reset-pd-config-as-default
 
@@ -117,12 +139,6 @@ curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' |
 
 # max-merge-region-keys set to default 200000
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep "200000" || ((pd_settings--))
-# balance-region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-region")}' | grep '"disable": false' || ((pd_settings--))
-# balance-leader scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
-# hot region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
 
 if [ "$pd_settings" -ne "5" ];then
     echo "TEST: [$TEST_NAME] test validate reset pd config failed!"
