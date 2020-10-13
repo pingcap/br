@@ -47,3 +47,19 @@ func (s *testCommonSuite) TestTiDBConfigUnchanged(c *C) {
 	restoreConfig()
 	c.Assert(cfg, DeepEquals, config.GetGlobalConfig())
 }
+
+func (s *testCommonSuite) TestStripingPDURL(c *C) {
+	nor1, err := normalizePDURL("https://pd:5432", true)
+	c.Assert(err, IsNil)
+	c.Assert(nor1, Equals, "pd:5432")
+	_, err = normalizePDURL("https://pd.pingcap.com", false)
+	c.Assert(err, ErrorMatches, ".*pd url starts with https while TLS disabled.*")
+	_, err = normalizePDURL("http://127.0.0.1:2379", true)
+	c.Assert(err, ErrorMatches, ".*pd url starts with http while TLS enabled.*")
+	nor, err := normalizePDURL("http://127.0.0.1", false)
+	c.Assert(nor, Equals, "127.0.0.1")
+	c.Assert(err, IsNil)
+	noChange, err := normalizePDURL("127.0.0.1:2379", false)
+	c.Assert(err, IsNil)
+	c.Assert(noChange, Equals, "127.0.0.1:2379")
+}
