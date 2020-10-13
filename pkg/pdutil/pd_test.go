@@ -40,7 +40,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	err := pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
-	err = pdController.addSchedulerWith(ctx, scheduler, mock)
+	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	_, err = pdController.listSchedulersWith(ctx, mock)
@@ -52,7 +52,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	err = pdController.pauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
-	err = pdController.addSchedulerWith(ctx, scheduler, mock)
+	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
 	c.Assert(err, IsNil)
 
 	schedulers, err := pdController.listSchedulersWith(ctx, mock)

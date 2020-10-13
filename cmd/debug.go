@@ -365,7 +365,7 @@ func setPDConfigCommand() *cobra.Command {
 
 			for scheduler := range pdutil.Schedulers {
 				if strings.HasPrefix(scheduler, "balance") {
-					err := mgr.AddScheduler(ctx, scheduler)
+					err := mgr.StopPauseScheduler(ctx, scheduler)
 					if err != nil {
 						return err
 					}
