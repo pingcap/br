@@ -147,12 +147,24 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
 
+	restoreTS, err := client.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+
+	sp := utils.BRServiceSafePoint{
+		BackupTS: restoreTS,
+		TTL:      utils.DefaultBRGCSafePointTTL,
+		ID:       utils.MakeSafePointID(),
+	}
+	// restore checksum will check safe point with its start ts, see details at
+	// https://github.com/pingcap/tidb/blob/180c02127105bed73712050594da6ead4d70a85f/store/tikv/kv.go#L186-L190
+	// so, we should keep the safe point unchangeable. to avoid GC life time is shorter than transaction duration.
+	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+
 	var newTS uint64
 	if client.IsIncremental() {
-		newTS, err = client.GetTS(ctx)
-		if err != nil {
-			return err
-		}
+		newTS = restoreTS
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
