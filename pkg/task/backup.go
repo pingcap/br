@@ -70,7 +70,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		" use for incremental backup, support TSO only")
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
-	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
+	flags.Int64(flagGCTTL, utils.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 	flags.String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 	flags.Int32(flagCompressionLevel, 0, "compression level used for sst file compression")
@@ -157,7 +157,7 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 	}
 
 	if cfg.GCTTL == 0 {
-		cfg.GCTTL = backup.DefaultBRGCSafePointTTL
+		cfg.GCTTL = utils.DefaultBRGCSafePointTTL
 	}
 	// Use zstd as default
 	if cfg.CompressionType == kvproto.CompressionType_UNKNOWN {
@@ -201,10 +201,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return err
 	}
 	g.Record("BackupTS", backupTS)
-	sp := backup.BRServiceSafePoint{
+	sp := utils.BRServiceSafePoint{
 		BackupTS: backupTS,
 		TTL:      client.GetGCTTL(),
-		ID:       backup.MakeSafePointID(),
+		ID:       utils.MakeSafePointID(),
 	}
 	// use lastBackupTS as safePoint if exists
 	if cfg.LastBackupTS > 0 {
@@ -213,7 +213,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	log.Info("current backup safePoint job",
 		zap.Object("safePoint", sp))
-	backup.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
@@ -259,7 +259,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("LastBackupTS is larger or equal to current TS")
 			return errors.Annotate(berrors.ErrInvalidArgument, "LastBackupTS is larger or equal to current TS")
 		}
-		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
+		err = utils.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return err

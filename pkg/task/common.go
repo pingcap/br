@@ -208,6 +208,17 @@ func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+func (cfg *Config) normalizePDURLs() error {
+	for i := range cfg.PD {
+		var err error
+		cfg.PD[i], err = normalizePDURL(cfg.PD[i], cfg.TLS.IsEnabled())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ParseFromFlags parses the config from the flag set.
 func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
@@ -218,13 +229,6 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	cfg.SendCreds, err = flags.GetBool(flagSendCreds)
 	if err != nil {
 		return errors.Trace(err)
-	}
-	cfg.PD, err = flags.GetStringSlice(flagPD)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(cfg.PD) == 0 {
-		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
 	}
 	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
 	if err != nil {
@@ -307,10 +311,20 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
 	}
 
-	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
+	if err = cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
-	return cfg.TLS.ParseFromFlags(flags)
+	if err = cfg.TLS.ParseFromFlags(flags); err != nil {
+		return err
+	}
+	cfg.PD, err = flags.GetStringSlice(flagPD)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(cfg.PD) == 0 {
+		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
+	}
+	return cfg.normalizePDURLs()
 }
 
 // NewMgr creates a new mgr at the given PD address.
@@ -435,4 +449,20 @@ func (cfg *Config) adjust() {
 	if cfg.ChecksumConcurrency == 0 {
 		cfg.ChecksumConcurrency = variable.DefChecksumTableConcurrency
 	}
+}
+
+func normalizePDURL(pd string, useTLS bool) (string, error) {
+	if strings.HasPrefix(pd, "http://") {
+		if useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with http while TLS enabled")
+		}
+		return strings.TrimPrefix(pd, "http://"), nil
+	}
+	if strings.HasPrefix(pd, "https://") {
+		if !useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with https while TLS disabled")
+		}
+		return strings.TrimPrefix(pd, "https://"), nil
+	}
+	return pd, nil
 }

@@ -120,7 +120,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 	}
 
 	// check backup time do not exceed GCSafePoint
-	err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	err = utils.CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -138,7 +138,7 @@ func (bc *Client) SetLockFile(ctx context.Context) error {
 // SetGCTTL set gcTTL for client.
 func (bc *Client) SetGCTTL(ttl int64) {
 	if ttl <= 0 {
-		ttl = DefaultBRGCSafePointTTL
+		ttl = utils.DefaultBRGCSafePointTTL
 	}
 	bc.gcTTL = ttl
 }

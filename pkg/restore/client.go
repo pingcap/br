@@ -60,12 +60,12 @@ type Client struct {
 	// TODO Remove this field or replace it with a []*DB,
 	// since https://github.com/pingcap/br/pull/377 needs more DBs to speed up DDL execution.
 	// And for now, we must inject a pool of DBs to `Client.GoCreateTables`, otherwise there would be a race condition.
-	// Which is dirty: why we need DBs from different sources?
+	// This is dirty: why we need DBs from different sources?
 	// By replace it with a []*DB, we can remove the dirty parameter of `Client.GoCreateTable`,
 	// along with them in some private functions.
 	// Before you do it, you can firstly read discussions at
 	// https://github.com/pingcap/br/pull/377#discussion_r446594501,
-	// this probably isn't as easy and it seems like (however, not hard, too :D)
+	// this probably isn't as easy as it seems like (however, not hard, too :D)
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
@@ -511,8 +511,9 @@ func (rc *Client) RestoreFiles(
 	defer func() {
 		elapsed := time.Since(start)
 		if err == nil {
-			log.Info("Restore Files",
-				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+			log.Info("Restore files",
+				zap.Duration("take", elapsed),
+				utils.ZapFiles(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
@@ -530,7 +531,12 @@ func (rc *Client) RestoreFiles(
 		fileReplica := file
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
-				defer updateCh.Inc()
+				fileStart := time.Now()
+				defer func() {
+					log.Info("import file done", utils.ZapFile(fileReplica),
+						zap.Duration("take", time.Since(fileStart)))
+					updateCh.Inc()
+				}()
 				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
 			})
 	}
