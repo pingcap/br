@@ -14,6 +14,8 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-re
 
 GOBUILD := CGO_ENABLED=0 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
 GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(LDFLAGS)'
+PREPARE_MOD := cp go.mod1 go.mod && cp go.sum1 go.sum
+FINISH_MOD := cp go.mod go.mod1 && cp go.sum go.sum1
 
 ifeq ("$(WITH_RACE)", "1")
 	RACEFLAG = -race
@@ -21,8 +23,12 @@ endif
 
 all: build check test
 
-build:
+prepare:
+	$(PREPARE_MOD)
+
+build: prepare
 	$(GOBUILD) $(RACEFLAG) -o bin/br
+	$(FINISH_MOD)
 
 build_for_integration_test: failpoint-enable
 	($(GOTEST) -c -cover -covermode=count \
@@ -61,7 +67,7 @@ bins:
 	@which bin/cdc
 	if [ ! -d bin/flash_cluster_manager ]; then echo "flash_cluster_manager not exist"; exit 1; fi
 
-tools:
+tools: prepare
 	@echo "install tools..."
 	@cd tools && make
 
@@ -114,10 +120,11 @@ lint: tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
 
-tidy:
+tidy: prepare
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
 	git diff --quiet go.mod go.sum
+	$(FINISH_MOD)
 
 failpoint-enable: tools
 	tools/bin/failpoint-ctl enable
