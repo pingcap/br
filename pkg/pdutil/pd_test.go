@@ -36,16 +36,15 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	mock := func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return nil, errors.New("failed")
 	}
-	schedulerPauseCh := make(map[string]chan struct{})
+	schedulerPauseCh := make(chan struct{})
 	pdController := &PdController{addrs: []string{"", ""}, schedulerPauseCh: schedulerPauseCh}
-	schedulerPauseCh[scheduler] = make(chan struct{})
-	err := pdController.pauseSchedulerWith(ctx, scheduler, mock)
+	_, err := pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	go func() {
-		<-schedulerPauseCh[scheduler]
+		<-schedulerPauseCh
 	}()
-	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
+	err = pdController.resumeSchedulerWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	_, err = pdController.listSchedulersWith(ctx, mock)
@@ -54,13 +53,13 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`["` + scheduler + `"]`), nil
 	}
-	err = pdController.pauseSchedulerWith(ctx, scheduler, mock)
+	_, err = pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, IsNil)
 
 	go func() {
-		<-schedulerPauseCh[scheduler]
+		<-schedulerPauseCh
 	}()
-	err = pdController.stopPauseSchedulerWith(ctx, scheduler, mock)
+	err = pdController.resumeSchedulerWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, IsNil)
 
 	schedulers, err := pdController.listSchedulersWith(ctx, mock)

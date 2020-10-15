@@ -122,7 +122,7 @@ type PdController struct {
 	pdClient pd.Client
 
 	// control the pause schedulers goroutine
-	schedulerPauseCh map[string]chan struct{}
+	schedulerPauseCh chan struct{}
 }
 
 // NewPdController creates a new PdController.
@@ -178,7 +178,7 @@ func NewPdController(
 		addrs:            processedAddrs,
 		cli:              cli,
 		pdClient:         pdClient,
-		schedulerPauseCh: make(map[string]chan struct{}),
+		schedulerPauseCh: make(chan struct{}),
 	}, nil
 }
 
@@ -251,32 +251,37 @@ func (p *PdController) getRegionCountWith(
 	return 0, err
 }
 
-// PauseScheduler remove pd scheduler temporarily.
-func (p *PdController) PauseScheduler(ctx context.Context, scheduler string) error {
-	return p.pauseSchedulerWith(ctx, scheduler, pdRequest)
+// PauseSchedulers remove pd scheduler temporarily.
+func (p *PdController) PauseSchedulers(ctx context.Context, schedulers []string) ([]string, error) {
+	return p.pauseSchedulersWith(ctx, schedulers, pdRequest)
 }
 
-func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
+func (p *PdController) pauseSchedulersWith(ctx context.Context, schedulers []string, post pdHTTPRequest) ([]string, error) {
+	removedSchedulers := make([]string, 0, len(schedulers))
 	// pause this scheduler with 300 seconds
 	body, err := json.Marshal(pauseSchedulerBody{Delay: int64(pauseTimeout)})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// first pause this scheduler, if the first time failed. we should return the error
 	// so put first time out of for loop. and in for loop we could ignore other failed pause.
-	for _, addr := range p.addrs {
+	for _, scheduler := range schedulers {
 		prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-		_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+		for _, addr := range p.addrs {
+			_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+			if err == nil {
+				removedSchedulers = append(removedSchedulers, scheduler)
+				break
+			}
+		}
 		if err != nil {
-			continue
+			log.Error("failed to pause scheduler at beginning",
+				zap.Strings("name", schedulers), zap.Error(err))
+			return nil, err
 		}
 	}
-	if err != nil {
-		return err
-	}
-	log.Info("pause scheduler at beginning", zap.String("name", scheduler))
-	p.schedulerPauseCh[scheduler] = make(chan struct{})
+	log.Info("pause scheduler successful at beginning", zap.Strings("name", schedulers))
 
 	go func() {
 		tick := time.NewTicker(pauseTimeout / 3)
@@ -287,51 +292,59 @@ func (p *PdController) pauseSchedulerWith(ctx context.Context, scheduler string,
 			case <-ctx.Done():
 				return
 			case <-tick.C:
-				for _, addr := range p.addrs {
+				for _, scheduler := range schedulers {
 					prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-					_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
-					if err != nil {
-						continue
+					for _, addr := range p.addrs {
+						_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+						if err == nil {
+							break
+						}
+					}
+					if err == nil {
+						log.Info("pause scheduler", zap.String("name", scheduler))
+					} else {
+						log.Warn("pause scheduler failed, ignore it and wait next time pause", zap.Error(err))
 					}
 				}
-				if err == nil {
-					log.Info("pause scheduler", zap.String("name", scheduler))
-				} else {
-					log.Warn("pause scheduler failed, ignore it and wait next time pause", zap.Error(err))
-				}
-			case <-p.schedulerPauseCh[scheduler]:
-				log.Info("exit pause scheduler successful", zap.String("name", scheduler))
+			case <-p.schedulerPauseCh:
+				log.Info("exit pause scheduler successful")
 				return
 			}
 		}
 	}()
-	return nil
+	return removedSchedulers, nil
 }
 
-// StopPauseScheduler add pd scheduler.
-func (p *PdController) StopPauseScheduler(ctx context.Context, scheduler string) error {
-	return p.stopPauseSchedulerWith(ctx, scheduler, pdRequest)
+// ResumeSchedulers resume pd scheduler.
+func (p *PdController) ResumeSchedulers(ctx context.Context, schedulers []string) error {
+	return p.resumeSchedulerWith(ctx, schedulers, pdRequest)
 }
 
-func (p *PdController) stopPauseSchedulerWith(ctx context.Context, scheduler string, post pdHTTPRequest) (err error) {
-	log.Info("stop pause scheduler", zap.String("scheduler", scheduler))
-	p.schedulerPauseCh[scheduler] <- struct{}{}
+func (p *PdController) resumeSchedulerWith(ctx context.Context, schedulers []string, post pdHTTPRequest) (err error) {
+	log.Info("resume scheduler", zap.Strings("schedulers", schedulers))
+	p.schedulerPauseCh <- struct{}{}
 
 	// 0 means stop pause.
 	body, err := json.Marshal(pauseSchedulerBody{Delay: 0})
 	if err != nil {
 		return err
 	}
-	prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
-
-	for _, addr := range p.addrs {
-		_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
-		if err != nil {
-			continue
+	for _, scheduler := range schedulers {
+		prefix := fmt.Sprintf("%s/%s", schedulerPrefix, scheduler)
+		for _, addr := range p.addrs {
+			_, err = post(ctx, addr, prefix, p.cli, http.MethodPost, bytes.NewBuffer(body))
+			if err == nil {
+				break
+			}
 		}
-		return nil
+		if err != nil {
+			log.Error("failed to resume scheduler after retry, you may reset this scheduler manually",
+				zap.String("scheduler", scheduler))
+		} else {
+			log.Info("resume scheduler successful", zap.String("scheduler", scheduler))
+		}
 	}
-	return err
+	return nil
 }
 
 // ListSchedulers list all pd scheduler.
@@ -398,18 +411,8 @@ func (p *PdController) UpdatePDScheduleConfig(
 	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
 
-func addPDLeaderScheduler(ctx context.Context, pd *PdController, removedSchedulers []string) error {
-	for _, scheduler := range removedSchedulers {
-		err := pd.StopPauseScheduler(ctx, scheduler)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg clusterConfig) error {
-	if err := addPDLeaderScheduler(ctx, pd, clusterCfg.scheduler); err != nil {
+	if err := pd.ResumeSchedulers(ctx, clusterCfg.scheduler); err != nil {
 		return errors.Annotate(err, "fail to add PD schedulers")
 	}
 	mergeCfg := make(map[string]interface{})
@@ -462,7 +465,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 			needRemoveSchedulers = append(needRemoveSchedulers, s)
 		}
 	}
-	removedSchedulers, err := removePDLeaderScheduler(ctx, p, needRemoveSchedulers)
+	removedSchedulers, err := p.PauseSchedulers(ctx, needRemoveSchedulers)
 	if err != nil {
 		return
 	}
@@ -514,20 +517,5 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 // Close close the connection to pd.
 func (p *PdController) Close() {
 	p.pdClient.Close()
-
-	for _, ch := range p.schedulerPauseCh {
-		close(ch)
-	}
-}
-
-func removePDLeaderScheduler(ctx context.Context, pd *PdController, existSchedulers []string) ([]string, error) {
-	removedSchedulers := make([]string, 0, len(existSchedulers))
-	for _, scheduler := range existSchedulers {
-		err := pd.PauseScheduler(ctx, scheduler)
-		if err != nil {
-			return nil, err
-		}
-		removedSchedulers = append(removedSchedulers, scheduler)
-	}
-	return removedSchedulers, nil
+	close(p.schedulerPauseCh)
 }
