@@ -381,6 +381,11 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 	if err := pd.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
 		return errors.Annotate(err, "fail to update PD schedule config")
 	}
+	if locationPlacement, ok := clusterCfg.scheduleCfg["enable-location-replacement"]; ok {
+		if err := pd.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": locationPlacement}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -423,6 +428,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	}
 
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler, scheduleCfg: scheduleCfg})
+	log.Debug("saved PD config", zap.Any("config", scheduleCfg))
 
 	disableMergeCfg := make(map[string]interface{})
 	for _, cfgKey := range pdRegionMergeCfg {
@@ -439,9 +445,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		return
 	}
 
-	scheduleLimitCfg := map[string]interface{}{
-		"enable-location-replacement": "false",
-	}
+	scheduleLimitCfg := make(map[string]interface{})
 	for _, cfgKey := range pdScheduleLimitCfg {
 		value := scheduleCfg[cfgKey]
 		if value == nil {
@@ -455,7 +459,10 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		limit := int(value.(float64))
 		scheduleLimitCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
 	}
-	return undo, p.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
+	if err := p.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
+		return undo, err
+	}
+	return undo, p.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": "false"})
 }
 
 // Close close the connection to pd.
