@@ -64,22 +64,22 @@ fi
 echo "backup start to test lock file"
 PPROF_PORT=6080
 GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >$TEST_DIR/background-br.log &
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
 # record last backup pid
 _pid=$!
 
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
-# pkill -10 -P $_pid
+pkill -10 -P $_pid
 echo "starting pprof..."
 
 # give the former backup some time to write down lock file (and start pprof server).
 sleep 1
-# curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
+curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
 
-curl -s http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
-curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
+curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": false'
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
@@ -90,7 +90,7 @@ fi
 
 # check is there still exists scheduler not in pause.
 pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
-if [ "$pause_schedulers" -ne "3" ];then
+if [ "$pause_schedulers" -lt "3" ];then
   echo "TEST: [$TEST_NAME] failed because paused scheduler are not enough"
   exit 1
 fi
@@ -117,8 +117,8 @@ fi
 pd_settings=6
 
 # check is there still exists scheduler in pause.
-pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
-if [ "$pause_schedulers" -ne "3" ];then
+pause_schedulers_after=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
+if [ "$pause_schedulers" -ne "$pause_schedulers_after" ];then
   echo "TEST: [$TEST_NAME] failed because paused scheduler has changed"
   exit 1
 fi
