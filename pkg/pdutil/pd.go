@@ -489,7 +489,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		return
 	}
 
-	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: scheduler, scheduleCfg: scheduleCfg})
+	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
 	log.Debug("saved PD config", zap.Any("config", scheduleCfg))
 
 	disableMergeCfg := make(map[string]interface{})
