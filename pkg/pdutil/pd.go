@@ -338,12 +338,13 @@ func (p *PdController) resumeSchedulerWith(ctx context.Context, schedulers []str
 			}
 		}
 		if err != nil {
-			log.Error("failed to resume scheduler after retry, you may reset this scheduler manually",
-				zap.String("scheduler", scheduler))
+			log.Error("failed to resume scheduler after retry, you may reset this scheduler manually"+
+				"or just wait this scheduler pause timeout", zap.String("scheduler", scheduler))
 		} else {
 			log.Info("resume scheduler successful", zap.String("scheduler", scheduler))
 		}
 	}
+	// no need to return error, because the pause will timeout.
 	return nil
 }
 

@@ -45,7 +45,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 		<-schedulerPauseCh
 	}()
 	err = pdController.resumeSchedulerWith(ctx, []string{scheduler}, mock)
-	c.Assert(err, ErrorMatches, "failed")
+	c.Assert(err, IsNil)
 
 	_, err = pdController.listSchedulersWith(ctx, mock)
 	c.Assert(err, ErrorMatches, "failed")
