@@ -79,7 +79,7 @@ curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
 
 curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
-
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
@@ -101,13 +101,14 @@ fi
 # make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
 sleep 5
-if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": false'
+if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": false' || \
+  curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 then
-  echo "TEST: [$TEST_NAME] failed because scheduler has not been removed"
+  echo "TEST: [$TEST_NAME] failed because scheduler has not been removed, or location replacement"
   exit 1
 fi
 
-pd_settings=5
+pd_settings=6
 # we need reset pd scheduler/config to default
 # until pd has the solution to temporary set these scheduler/configs.
 run_br validate reset-pd-config-as-default
@@ -123,8 +124,10 @@ curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disab
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
 # hot region scheduler enabled
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
+# location replacement enabled
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "true" || ((pd_settings--))
 
-if [ "$pd_settings" -ne "5" ];then
+if [ "$pd_settings" -ne "6" ];then
     echo "TEST: [$TEST_NAME] test validate reset pd config failed!"
     exit 1
 fi

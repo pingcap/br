@@ -68,11 +68,12 @@ var (
 
 	// DefaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
 	DefaultPDCfg = map[string]interface{}{
-		"max-merge-region-keys": 200000,
-		"max-merge-region-size": 20,
-		"leader-schedule-limit": 4,
-		"region-schedule-limit": 2048,
-		"max-snapshot-count":    3,
+		"max-merge-region-keys":       200000,
+		"max-merge-region-size":       20,
+		"leader-schedule-limit":       4,
+		"region-schedule-limit":       2048,
+		"max-snapshot-count":          3,
+		"enable-location-replacement": false,
 	}
 )
 
@@ -367,7 +368,9 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 		return errors.Annotate(err, "fail to update PD merge config")
 	}
 
-	scheduleLimitCfg := make(map[string]interface{})
+	scheduleLimitCfg := map[string]interface{}{
+		"enable-location-replacement": false,
+	}
 	for _, cfgKey := range pdScheduleLimitCfg {
 		value := clusterCfg.scheduleCfg[cfgKey]
 		if value == nil {
