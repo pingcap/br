@@ -64,18 +64,18 @@ fi
 echo "backup start to test lock file"
 PPROF_PORT=6080
 GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >$TEST_DIR/background-br.log &
 # record last backup pid
 _pid=$!
 
 # give the former backup some time to write down lock file (and initialize signal listener).
 sleep 1
-pkill -10 -P $_pid
+# pkill -10 -P $_pid
 echo "starting pprof..."
 
 # give the former backup some time to write down lock file (and start pprof server).
 sleep 1
-curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
+# curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
 
 curl -s http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
@@ -107,6 +107,8 @@ then
   echo "TEST: [$TEST_NAME] failed because scheduler has not been removed, or location replacement is disabled."
   echo "current config:"
   curl http://$PD_ADDR/pd/api/v1/config/schedule
+  echo "log of background br":
+  cat "$TEST_DIR/background-br.log"
   exit 1
 fi
 
