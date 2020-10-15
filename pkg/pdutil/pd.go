@@ -382,6 +382,7 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 		return errors.Annotate(err, "fail to update PD schedule config")
 	}
 	if locationPlacement, ok := clusterCfg.scheduleCfg["enable-location-replacement"]; ok {
+		log.Debug("restoring config enable-location-replacement", zap.Any("enable-location-placement", locationPlacement))
 		if err := pd.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": locationPlacement}); err != nil {
 			return err
 		}

@@ -78,7 +78,7 @@ sleep 1
 curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
 
-curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
+curl -s http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
 curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
@@ -104,7 +104,9 @@ sleep 5
 if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": false' || \
   curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 then
-  echo "TEST: [$TEST_NAME] failed because scheduler has not been removed, or location replacement"
+  echo "TEST: [$TEST_NAME] failed because scheduler has not been removed, or location replacement is disabled."
+  echo "current config:"
+  curl http://$PD_ADDR/pd/api/v1/config/schedule
   exit 1
 fi
 
