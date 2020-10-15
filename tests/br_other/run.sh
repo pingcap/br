@@ -92,7 +92,7 @@ if ps -p $_pid
 then
    echo "$_pid is running"
    # kill last backup progress (Don't send SIGKILL, or we might stuck PD in no scheduler state.)
-   pkill -P $_pid
+   kill $_pid
 else
    echo "TEST: [$TEST_NAME] test backup lock file failed! the last backup finished"
    exit 1
