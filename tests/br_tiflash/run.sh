@@ -52,9 +52,8 @@ run_br backup full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 run_sql "DROP DATABASE $DB"
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
-# FIXME after stopping schedulers, tiflash takes more time to sync, this test may fail in slower computers
-sleep 30
-AFTER_BR_COUNT=`run_sql "SELECT count(*) FROM $DB.kv;" | sed -n "s/[^0-9]//g;/^[0-9]*$/p" | tail -n1`
+# FIXME after stopping schedulers, tiflash takes many time to sync with TiKV(even 30s isn't enough).
+AFTER_BR_COUNT=`run_sql "SELECT count(*) /*+ READ_FROM_STORAGE(TIKV[$DB.kv]) */ FROM $DB.kv;" | sed -n "s/[^0-9]//g;/^[0-9]*$/p" | tail -n1`
 if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
     echo "failed to restore, before: $RECORD_COUNT; after: $AFTER_BR_COUNT"
     exit 1
