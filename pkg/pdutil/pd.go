@@ -73,7 +73,7 @@ var (
 		"leader-schedule-limit":       4,
 		"region-schedule-limit":       2048,
 		"max-snapshot-count":          3,
-		"enable-location-replacement": false,
+		"enable-location-replacement": "true",
 	}
 )
 
@@ -337,6 +337,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 		if e == nil {
 			return nil
 		}
+		log.Warn("failed to update PD config, will try next", zap.Error(e), zap.String("pd", addr))
 	}
 	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
@@ -439,7 +440,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	}
 
 	scheduleLimitCfg := map[string]interface{}{
-		"enable-location-replacement": false,
+		"enable-location-replacement": "false",
 	}
 	for _, cfgKey := range pdScheduleLimitCfg {
 		value := scheduleCfg[cfgKey]
