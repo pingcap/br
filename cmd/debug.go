@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"path"
 	"reflect"
-	"strings"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -347,7 +346,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 func setPDConfigCommand() *cobra.Command {
 	pdConfigCmd := &cobra.Command{
 		Use:   "reset-pd-config-as-default",
-		Short: "reset pd scheduler and config adjusted by BR to default value",
+		Short: "reset pd config adjusted by BR to default value",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -362,17 +361,6 @@ func setPDConfigCommand() *cobra.Command {
 				return err
 			}
 			defer mgr.Close()
-
-			for scheduler := range pdutil.Schedulers {
-				if strings.HasPrefix(scheduler, "balance") {
-					err := mgr.AddScheduler(ctx, scheduler)
-					if err != nil {
-						return err
-					}
-					log.Info("add pd schedulers succeed",
-						zap.String("schedulers", scheduler))
-				}
-			}
 
 			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
