@@ -368,9 +368,7 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 		return errors.Annotate(err, "fail to update PD merge config")
 	}
 
-	scheduleLimitCfg := map[string]interface{}{
-		"enable-location-replacement": false,
-	}
+	scheduleLimitCfg := make(map[string]interface{})
 	for _, cfgKey := range pdScheduleLimitCfg {
 		value := clusterCfg.scheduleCfg[cfgKey]
 		if value == nil {
@@ -440,7 +438,9 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		return
 	}
 
-	scheduleLimitCfg := make(map[string]interface{})
+	scheduleLimitCfg := map[string]interface{}{
+		"enable-location-replacement": false,
+	}
 	for _, cfgKey := range pdScheduleLimitCfg {
 		value := scheduleCfg[cfgKey]
 		if value == nil {

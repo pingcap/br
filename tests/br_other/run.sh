@@ -79,7 +79,7 @@ curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
 echo "pprof started..."
 
 curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": true'
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
+curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
