@@ -9,7 +9,9 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/prometheus/common/log"
 	pd "github.com/tikv/pd/client"
+	"github.com/uber-go/atomic"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
@@ -48,7 +50,7 @@ func (Glue) OwnsStorage() bool {
 
 // StartProgress implements glue.Glue.
 func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
-	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog)}
+	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog), closed: new(atomic.Bool)}
 }
 
 // Record implements glue.Glue.
@@ -57,15 +59,27 @@ func (Glue) Record(name string, val uint64) {
 }
 
 type progress struct {
-	ch chan<- struct{}
+	ch     chan<- struct{}
+	closed *atomic.Bool
 }
 
 // Inc implements glue.Progress.
 func (p progress) Inc() {
+	if p.closed.Load() {
+		log.Warn("proposing a closed progress")
+		return
+	}
+	// there might be buggy if the thread is yielded here.
+	// however, there should not be gosched, at most time.
+	// so send here probably is safe, but not totally safe.
+	// but adding an extra lock should be costly, so just be optimistic.
 	p.ch <- struct{}{}
 }
 
 // Close implements glue.Progress.
 func (p progress) Close() {
+	// set closed to true firstly,
+	// so we won't see a state that the channel is closed and the p.closed is false.
+	p.closed.Store(true)
 	close(p.ch)
 }

@@ -124,7 +124,7 @@ default_pd_values='{
 }'
 
 for key in $(echo $default_pd_values | jq 'keys[]'); do
-  if ! curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq ".[$key]" | grep -q $(echo $default_pd_values | jq ".[$key]"); 
+  if ! curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq ".[$key]" | grep -q $(echo $default_pd_values | jq ".[$key]"); then
     curl -s http://$PD_ADDR/pd/api/v1/config/schedule
     echo "[$TEST_NAME] failed due to PD config isn't reset after restore"
     exit 1
