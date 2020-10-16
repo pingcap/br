@@ -15,6 +15,7 @@ package kv
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/pingcap/parser/model"
@@ -124,11 +125,11 @@ func (s *kvUnionStore) CacheIndexName(tableID, indexID int64, name string) {
 // new KV pair.
 type transaction struct {
 	kv.Transaction
-	kvPairs []KvPair
+	kvUnionStore
 }
 
-func (t *transaction) NewStagingBuffer() kv.MemBuffer {
-	return t
+func (t *transaction) GetMemBuffer() kv.MemBuffer {
+	return &t.kvUnionStore.kvMemBuf
 }
 
 func (t *transaction) Discard() {
@@ -155,20 +156,12 @@ func (t *transaction) Iter(k kv.Key, upperBound kv.Key) (kv.Iterator, error) {
 
 // Set implements the kv.Mutator interface.
 func (t *transaction) Set(k kv.Key, v []byte) error {
-	t.kvPairs = append(t.kvPairs, KvPair{
-		Key: k.Clone(),
-		Val: append([]byte{}, v...),
-	})
-	return nil
+	return t.kvMemBuf.Set(k, v)
 }
 
 // Delete implements the kv.Mutator interface.
 func (t *transaction) Delete(k kv.Key) error {
-	t.kvPairs = append(t.kvPairs, KvPair{
-		Key: k.Clone(),
-		Val: []byte{},
-	})
-	return nil
+	return t.kvMemBuf.Delete(k)
 }
 
 // SetOption implements the kv.Transaction interface.
@@ -180,6 +173,10 @@ func (t *transaction) DelOption(kv.Option) {}
 // SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
+func (t *transaction) GetUnionStore() kv.UnionStore {
+	return &t.kvUnionStore
+}
+
 // session is a trimmed down Session type which only wraps our own trimmed-down
 // transaction type and provides the session variables to the TiDB library
 // optimized for Lightning.
@@ -187,6 +184,8 @@ type session struct {
 	sessionctx.Context
 	txn  transaction
 	vars *variable.SessionVars
+	// currently, we only set `CommonAddRecordCtx`
+	values map[fmt.Stringer]interface{}
 }
 
 // SessionOptions is the initial configuration of the session.
@@ -213,8 +212,8 @@ func newSession(options *SessionOptions) *session {
 	vars.TxnCtx = nil
 
 	s := &session{
-		txn:  transaction{},
-		vars: vars,
+		vars:   vars,
+		values: make(map[fmt.Stringer]interface{}, 1),
 	}
 
 	return s
@@ -236,6 +235,16 @@ func (se *session) Txn(active bool) (kv.Transaction, error) {
 // GetSessionVars implements the sessionctx.Context interface.
 func (se *session) GetSessionVars() *variable.SessionVars {
 	return se.vars
+}
+
+// SetValue saves a value associated with this context for key.
+func (se *session) SetValue(key fmt.Stringer, value interface{}) {
+	se.values[key] = value
+}
+
+// Value returns the value associated with this context for key.
+func (se *session) Value(key fmt.Stringer) interface{} {
+	return se.values[key]
 }
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface.
