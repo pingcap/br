@@ -30,14 +30,7 @@ func main() {
 		sig := <-sc
 		fmt.Printf("\nGot signal [%v] to exit.\n", sig)
 		log.Warn("received signal to exit", zap.Stringer("signal", sig))
-		switch sig {
-		case syscall.SIGTERM:
-			cancel()
-			os.Exit(0)
-		default:
-			cancel()
-			os.Exit(1)
-		}
+		cancel()
 	}()
 
 	rootCmd := &cobra.Command{

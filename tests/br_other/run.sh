@@ -105,6 +105,7 @@ else
    exit 1
 fi
 
+
 # make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
 sleep 5
@@ -113,6 +114,22 @@ then
   echo "TEST: [$TEST_NAME] failed because scheduler has been removed"
   exit 1
 fi
+
+default_pd_values='{
+  "max-merge-region-keys": 200000,
+  "max-merge-region-size": 20,
+  "leader-schedule-limit": 4,
+  "region-schedule-limit": 2048,
+  "max-snapshot-count":    3
+}'
+
+for key in $(echo $default_pd_values | jq 'keys[]'); do
+  if ! curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq ".[$key]" | grep -q $(echo $default_pd_values | jq ".[$key]"); 
+    curl -s http://$PD_ADDR/pd/api/v1/config/schedule
+    echo "[$TEST_NAME] failed due to PD config isn't reset after restore"
+    exit 1
+  fi
+done
 
 pd_settings=5
 
