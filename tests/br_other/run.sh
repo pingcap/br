@@ -64,7 +64,9 @@ fi
 echo "backup start to test lock file"
 PPROF_PORT=6080
 GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 >/dev/null &
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 > $TEST_DIR/br-other-stdout.log &
+trap "cat $TEST_DIR/br-other-stdout.log" EXIT
+
 # record last backup pid
 _pid=$!
 
