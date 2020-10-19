@@ -267,6 +267,9 @@ func (b *JSONEventBatchMixedDecoder) HasNext() bool {
 
 // NewJSONEventBatchDecoder creates a new JSONEventBatchDecoder.
 func NewJSONEventBatchDecoder(data []byte) (*JSONEventBatchMixedDecoder, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
 	version := binary.BigEndian.Uint64(data[:8])
 	data = data[8:]
 	if version != BatchVersion1 {

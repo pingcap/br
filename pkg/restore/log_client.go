@@ -170,7 +170,11 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
 	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
-	return l.tsInRange(ts), nil
+	if l.tsInRange(ts) {
+		return true, nil
+	}
+	log.Info("filter ddl file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
+	return false, nil
 }
 
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
