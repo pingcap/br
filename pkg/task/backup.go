@@ -250,6 +250,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		if err2 != nil {
 			return err2
 		}
+		log.Warn("N0thing to backup, maybe connected to cluster for restoring")
 		return client.SaveBackupMeta(ctx, &backupMeta)
 	}
 

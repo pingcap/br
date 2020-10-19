@@ -268,6 +268,11 @@ func BuildBackupRangeAndSchema(
 		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
+		if len(dbInfo.Tables) == 0 {
+			log.Warn("It's not necessary for backing up empty database",
+				zap.Stringer("db", dbInfo.Name))
+			continue
+		}
 		for _, tableInfo := range dbInfo.Tables {
 			if !tableFilter.MatchTable(dbInfo.Name.O, tableInfo.Name.O) {
 				// Skip tables other than the given table.
