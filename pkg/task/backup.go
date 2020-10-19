@@ -222,10 +222,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {
 			if ctx.Err() != nil {
-				var cancel context.CancelFunc
-				log.Warn("context canceled, doing clean work with another context with timeout")
-				ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
+				log.Warn("context canceled, doing clean work with background context")
+				ctx = context.Background()
 			}
 			if restoreE := restore(ctx); restoreE != nil {
 				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))

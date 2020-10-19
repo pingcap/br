@@ -368,10 +368,8 @@ func restorePostWork(
 	ctx context.Context, client *restore.Client, restoreSchedulers utils.UndoFunc,
 ) {
 	if ctx.Err() != nil {
-		var cancel context.CancelFunc
-		log.Warn("context canceled, doing clean work with another context with timeout")
-		ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		log.Warn("context canceled, doing clean work with background context")
+		ctx = context.Background()
 	}
 	if client.IsOnline() {
 		return

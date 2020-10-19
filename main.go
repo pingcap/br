@@ -31,6 +31,11 @@ func main() {
 		fmt.Printf("\nGot signal [%v] to exit.\n", sig)
 		log.Warn("received signal to exit", zap.Stringer("signal", sig))
 		cancel()
+		fmt.Println("gracefully shuting down, press ^C again to force exit")
+		<-sc
+		// Even user use SIGTERM to exit, there isn't any checkpoint for resuming,
+		// hence returning fail exit code.
+		os.Exit(1)
 	}()
 
 	rootCmd := &cobra.Command{

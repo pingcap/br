@@ -51,7 +51,7 @@ func (Glue) OwnsStorage() bool {
 
 // StartProgress implements glue.Glue.
 func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redirectLog bool) glue.Progress {
-	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog), closed: new(atomic.Bool)}
+	return progress{ch: utils.StartProgress(ctx, cmdName, total, redirectLog), closed: 0}
 }
 
 // Record implements glue.Glue.
