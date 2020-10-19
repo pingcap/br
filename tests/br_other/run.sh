@@ -17,6 +17,8 @@ set -eu
 DB="$TEST_NAME"
 
 run_sql "CREATE DATABASE $DB;"
+trap "run_sql \"DROP DATABASE $DB;\"" EXIT
+
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
   YCSB_KEY varchar(64) NOT NULL, \
@@ -101,7 +103,8 @@ if ps -p $_pid > /dev/null
 then
    echo "$_pid is running"
    # kill last backup progress (Don't send SIGKILL, or we might stuck PD in no scheduler state.)
-   kill $_pid
+   pkill -P $_pid
+   echo "$_pid is killed @ $(date)"
 else
    echo "TEST: [$TEST_NAME] test backup lock file failed! the last backup finished"
    exit 1
@@ -110,7 +113,7 @@ fi
 
 # make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
-sleep 5
+sleep 30
 if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": true'
 then
   echo "TEST: [$TEST_NAME] failed because scheduler has been removed"
@@ -137,7 +140,8 @@ pd_settings=5
 
 # check is there still exists scheduler in pause.
 pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
-if [ "$pause_schedulers" -ne "3" ];then
+# There shouldn't be any paused schedulers since BR gracfully shutdown.
+if [ "$pause_schedulers" -ne "0" ];then
   echo "TEST: [$TEST_NAME] failed because paused scheduler has changed"
   exit 1
 fi
@@ -164,7 +168,6 @@ if [ "$pd_settings" -ne "5" ];then
     exit 1
 fi
 
-run_sql "DROP DATABASE $DB;"
 
 # Test version
 run_br --version
