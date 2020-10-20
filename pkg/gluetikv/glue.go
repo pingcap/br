@@ -4,7 +4,6 @@ package gluetikv
 
 import (
 	"context"
-
 	"sync/atomic"
 
 	"github.com/pingcap/tidb/config"

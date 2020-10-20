@@ -148,7 +148,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {
 			if ctx.Err() != nil {
-				log.Warn("context canceled, doing clean work with background context")
+				log.Warn("context canceled, try shutdown")
 				ctx = context.Background()
 			}
 			if restoreE := restore(ctx); restoreE != nil {
