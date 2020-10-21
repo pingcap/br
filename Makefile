@@ -71,7 +71,7 @@ tools: prepare
 	@echo "install tools..."
 	@cd tools && make
 
-check-all: static lint tidy
+check-all: static lint tidy errdoc
 	@echo "checking"
 
 check: tools check-all
@@ -123,10 +123,15 @@ lint: tools
 tidy: prepare
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
-	# tidy isn't a read-only task for go.mod, run FINISH_MOD always, 
+	cd tools && GO111MODULE=on go mod tidy
+	# tidy isn't a read-only task for go.mod, run FINISH_MOD always,
 	# so our go.mod1 won't stick in old state
-	git diff --quiet go.mod go.sum || ("$(FINISH_MOD)" && exit 1)
+	git diff --quiet go.mod go.sum go.mod1 go.sum1 || ("$(FINISH_MOD)" && exit 1)
 	$(FINISH_MOD)
+
+errdoc: tools
+	@echo "generator errors.toml"
+	./tools/check-errdoc.sh
 
 failpoint-enable: tools
 	tools/bin/failpoint-ctl enable
