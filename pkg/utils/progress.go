@@ -44,6 +44,9 @@ func NewProgressPrinter(
 		name:        name,
 		total:       total,
 		redirectLog: redirectLog,
+		cancel: func() {
+			log.Warn("canceling non-started progress printer")
+		},
 	}
 }
 
