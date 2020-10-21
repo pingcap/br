@@ -141,15 +141,13 @@ func newTableRestoreCommand() *cobra.Command {
 func newLogRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "cdclog",
-		Short: "restore data from cdc log backup",
+		Short: "(experimental) restore data from cdc log backup",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogRestoreCommand(cmd)
 		},
 	}
 	task.DefineFilterFlags(command)
 	task.DefineLogRestoreFlags(command)
-	// TODO remove hidden if it's ready.
-	command.Hidden = true
 	return command
 }
 
