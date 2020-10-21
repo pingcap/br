@@ -61,3 +61,6 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0 // indirect
 )
+
+// golang/protobuf v1.4.3 does not compatible with gogo/protobuf v1.3.1 and fails tests.
+replace github.com/golang/protobuf => github.com/golang/protobuf v1.3.4
