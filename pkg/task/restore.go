@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
@@ -77,6 +78,8 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 // we should set proper value in this function.
 // so that both binary and TiDB will use same default value.
 func (cfg *RestoreConfig) adjustRestoreConfig() {
+	cfg.adjust()
+
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
 	}
@@ -93,7 +96,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -136,20 +139,32 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	if client.IsRawKvMode() {
-		return errors.New("cannot do transactional restore from raw kv data")
+		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do transactional restore from raw kv data")
 	}
 
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
-		return errors.New("invalid backup, contain tables but no databases")
+		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
+
+	restoreTS, err := client.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+
+	sp := utils.BRServiceSafePoint{
+		BackupTS: restoreTS,
+		TTL:      utils.DefaultBRGCSafePointTTL,
+		ID:       utils.MakeSafePointID(),
+	}
+	// restore checksum will check safe point with its start ts, see details at
+	// https://github.com/pingcap/tidb/blob/180c02127105bed73712050594da6ead4d70a85f/store/tikv/kv.go#L186-L190
+	// so, we should keep the safe point unchangeable. to avoid GC life time is shorter than transaction duration.
+	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
 
 	var newTS uint64
 	if client.IsIncremental() {
-		newTS, err = client.GetTS(ctx)
-		if err != nil {
-			return err
-		}
+		newTS = restoreTS
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
@@ -261,7 +276,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Checksum
 	if cfg.Checksum {
 		finish = client.GoValidateChecksum(
-			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh)
+			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh, cfg.ChecksumConcurrency)
 	} else {
 		// when user skip checksum, just collect tables, and drop them.
 		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)
@@ -369,7 +384,7 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}

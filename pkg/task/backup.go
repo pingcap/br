@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -69,7 +70,7 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		" use for incremental backup, support TSO only")
 	flags.String(flagBackupTS, "", "the backup ts support TSO or datetime,"+
 		" e.g. '400036290571534337', '2018-05-11 01:42:23'")
-	flags.Int64(flagGCTTL, backup.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
+	flags.Int64(flagGCTTL, utils.DefaultBRGCSafePointTTL, "the TTL (in seconds) that PD holds for BR's GC safepoint")
 	flags.String(flagCompressionType, "zstd",
 		"backup sst file compression algorithm, value can be one of 'lz4|zstd|snappy'")
 	flags.Int32(flagCompressionLevel, 0, "compression level used for sst file compression")
@@ -87,7 +88,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	if timeAgo < 0 {
-		return errors.New("negative timeago is not allowed")
+		return errors.Annotate(berrors.ErrInvalidArgument, "negative timeago is not allowed")
 	}
 	cfg.TimeAgo = timeAgo
 	cfg.LastBackupTS, err = flags.GetUint64(flagLastBackupTS)
@@ -147,6 +148,7 @@ func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
 // we should set proper value in this function.
 // so that both binary and TiDB will use same default value.
 func (cfg *BackupConfig) adjustBackupConfig() {
+	cfg.adjust()
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
 	}
@@ -155,7 +157,7 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 	}
 
 	if cfg.GCTTL == 0 {
-		cfg.GCTTL = backup.DefaultBRGCSafePointTTL
+		cfg.GCTTL = utils.DefaultBRGCSafePointTTL
 	}
 	// Use zstd as default
 	if cfg.CompressionType == kvproto.CompressionType_UNKNOWN {
@@ -175,7 +177,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return err
 	}
-	mgr, err := newMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
@@ -199,10 +201,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return err
 	}
 	g.Record("BackupTS", backupTS)
-	sp := backup.BRServiceSafePoint{
+	sp := utils.BRServiceSafePoint{
 		BackupTS: backupTS,
 		TTL:      client.GetGCTTL(),
-		ID:       backup.MakeSafePointID(),
+		ID:       utils.MakeSafePointID(),
 	}
 	// use lastBackupTS as safePoint if exists
 	if cfg.LastBackupTS > 0 {
@@ -211,7 +213,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	log.Info("current backup safePoint job",
 		zap.Object("safePoint", sp))
-	backup.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
@@ -255,9 +257,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
-			return errors.New("LastBackupTS is larger or equal to current TS")
+			return errors.Annotate(berrors.ErrInvalidArgument, "LastBackupTS is larger or equal to current TS")
 		}
-		err = backup.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
+		err = utils.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return err
@@ -304,7 +306,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		updateCh = g.StartProgress(
 			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
 		backupSchemas.Start(
-			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), updateCh)
+			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
 		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
 		if err != nil {
 			return err
@@ -351,14 +353,9 @@ func checkChecksums(backupMeta *kvproto.BackupMeta) error {
 	if err != nil {
 		return err
 	}
-	var matches bool
-	matches, err = backup.ChecksumMatches(backupMeta, checksums)
+	err = backup.ChecksumMatches(backupMeta, checksums)
 	if err != nil {
 		return err
-	}
-	if !matches {
-		log.Error("backup FastChecksum mismatch!")
-		return errors.New("mismatched checksum")
 	}
 	return nil
 }
@@ -397,7 +394,7 @@ func parseCompressionType(s string) (kvproto.CompressionType, error) {
 	case "zstd":
 		ct = kvproto.CompressionType_ZSTD
 	default:
-		return kvproto.CompressionType_UNKNOWN, errors.Errorf("invalid compression type '%s'", s)
+		return kvproto.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
 	}
 	return ct, nil
 }

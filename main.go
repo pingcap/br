@@ -49,12 +49,16 @@ func main() {
 	cmd.AddFlags(rootCmd)
 	cmd.SetDefaultContext(ctx)
 	rootCmd.AddCommand(
-		cmd.NewValidateCommand(),
+		cmd.NewDebugCommand(),
 		cmd.NewBackupCommand(),
 		cmd.NewRestoreCommand(),
 	)
+	// Ouputs cmd.Print to stdout.
+	rootCmd.SetOut(os.Stdout)
+
 	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
+		log.Error("br failed", zap.Error(err))
 		os.Exit(1)
 	}
 }

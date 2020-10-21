@@ -8,7 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"path"
+	"reflect"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
@@ -20,16 +21,18 @@ import (
 	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
 )
 
-// NewValidateCommand return a debug subcommand.
-func NewValidateCommand() *cobra.Command {
+// NewDebugCommand return a debug subcommand.
+func NewDebugCommand() *cobra.Command {
 	meta := &cobra.Command{
-		Use:          "validate <subcommand>",
+		Use:          "debug <subcommand>",
 		Short:        "commands to check/debug backup data",
 		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
@@ -40,11 +43,14 @@ func NewValidateCommand() *cobra.Command {
 			task.LogArguments(c)
 			return nil
 		},
+		// To be compatible with older BR.
+		Aliases: []string{"validate"},
 	}
 	meta.AddCommand(newCheckSumCommand())
 	meta.AddCommand(newBackupMetaCommand())
 	meta.AddCommand(decodeBackupMetaCommand())
 	meta.AddCommand(encodeBackupMetaCommand())
+	meta.AddCommand(setPDConfigCommand())
 	meta.Hidden = true
 
 	return meta
@@ -111,7 +117,7 @@ func newCheckSumCommand() *cobra.Command {
 					}
 					s := sha256.Sum256(data)
 					if !bytes.Equal(s[:], file.Sha256) {
-						return errors.Errorf(`
+						return errors.Annotatef(berrors.ErrBackupChecksumMismatch, `
 backup data checksum failed: %s may be changed
 calculated sha256 is %s,
 origin sha256 is %s`,
@@ -240,33 +246,46 @@ func decodeBackupMetaCommand() *cobra.Command {
 
 			var cfg task.Config
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				return err
-			}
-
-			backupMetaJSON, err := json.Marshal(backupMeta)
-			if err != nil {
 				return errors.Trace(err)
 			}
 
-			err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
-			if err != nil {
-				return errors.Trace(err)
+			fieldName, _ := cmd.Flags().GetString("field")
+			if fieldName == "" {
+				// No field flag, write backupmeta to external storage in JSON format.
+				backupMetaJSON, err := json.Marshal(backupMeta)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, utils.MetaJSONFile))
+				return nil
 			}
 
-			field, err := cmd.Flags().GetString("field")
-			if err != nil {
-				log.Error("get field flag failed", zap.Error(err))
-				return err
-			}
-			switch field {
+			switch fieldName {
+			// To be compatible with older BR.
 			case "start-version":
-				fmt.Println(backupMeta.StartVersion)
+				fieldName = "StartVersion"
 			case "end-version":
-				fmt.Println(backupMeta.EndVersion)
+				fieldName = "EndVersion"
+			}
+
+			_, found := reflect.TypeOf(*backupMeta).FieldByName(fieldName)
+			if !found {
+				cmd.Printf("field '%s' not found\n", fieldName)
+				return nil
+			}
+			field := reflect.ValueOf(*backupMeta).FieldByName(fieldName)
+			if !field.CanInterface() {
+				cmd.Printf("field '%s' can not print\n", fieldName)
+			} else {
+				cmd.Printf("%v\n", field.Interface())
 			}
 			return nil
 		},
@@ -322,4 +341,33 @@ func encodeBackupMetaCommand() *cobra.Command {
 		},
 	}
 	return encodeBackupMetaCmd
+}
+
+func setPDConfigCommand() *cobra.Command {
+	pdConfigCmd := &cobra.Command{
+		Use:   "reset-pd-config-as-default",
+		Short: "reset pd config adjusted by BR to default value",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
+			var cfg task.Config
+			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, task.GetKeepalive(&cfg), cfg.CheckRequirements)
+			if err != nil {
+				return err
+			}
+			defer mgr.Close()
+
+			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
+				return errors.Annotate(err, "fail to update PD merge config")
+			}
+			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
+			return nil
+		},
+	}
+	return pdConfigCmd
 }

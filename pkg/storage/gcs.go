@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
-	"net/http"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
@@ -14,6 +13,8 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -140,33 +141,28 @@ func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	panic("Unsupported Operation")
 }
 
+func (s *gcsStorage) URI() string {
+	return "gcs://" + s.gcs.Bucket + "/" + s.gcs.Prefix
+}
+
 // CreateUploader implenments ExternalStorage interface.
 func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	// TODO, implement this if needed
 	panic("gcs storage not support multi-upload")
 }
 
-func newGCSStorage(ctx context.Context, gcs *backup.GCS, sendCredential bool) (*gcsStorage, error) {
-	return newGCSStorageWithHTTPClient(ctx, gcs, nil, sendCredential)
-}
-
-func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
-	ctx context.Context,
-	gcs *backup.GCS,
-	hclient *http.Client,
-	sendCredential bool,
-) (*gcsStorage, error) {
+func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			return nil, errors.New(err.Error() + "Or you should provide '--gcs.credentials_file'.")
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
 		}
-		if sendCredential {
+		if opts.SendCredentials {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				return nil, errors.New(
+				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
 					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}
@@ -178,24 +174,26 @@ func newGCSStorageWithHTTPClient( // revive:disable-line:flag-parameter
 	if gcs.Endpoint != "" {
 		clientOps = append(clientOps, option.WithEndpoint(gcs.Endpoint))
 	}
-	if hclient != nil {
-		clientOps = append(clientOps, option.WithHTTPClient(hclient))
+	if opts.HTTPClient != nil {
+		clientOps = append(clientOps, option.WithHTTPClient(opts.HTTPClient))
 	}
 	client, err := storage.NewClient(ctx, clientOps...)
 	if err != nil {
 		return nil, err
 	}
 
-	if !sendCredential {
+	if !opts.SendCredentials {
 		// Clear the credentials if exists so that they will not be sent to TiKV
 		gcs.CredentialsBlob = ""
 	}
 
 	bucket := client.Bucket(gcs.Bucket)
-	// check bucket exists
-	_, err = bucket.Attrs(ctx)
-	if err != nil {
-		return nil, err
+	if !opts.SkipCheckPath {
+		// check bucket exists
+		_, err = bucket.Attrs(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
 }

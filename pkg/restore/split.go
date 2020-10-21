@@ -10,12 +10,14 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -184,7 +186,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 		if respErr.GetType() == pdpb.ErrorType_REGION_NOT_FOUND {
 			return true, nil
 		}
-		return false, errors.Errorf("get operator error: %s", respErr.GetType())
+		return false, errors.Annotatef(berrors.ErrPDInvalidResponse, "get operator error: %s", respErr.GetType())
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {
@@ -337,4 +339,29 @@ func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.
 	}
 
 	return s, nil
+}
+
+func beforeEnd(key []byte, end []byte) bool {
+	return bytes.Compare(key, end) < 0 || len(end) == 0
+}
+
+func keyInsideRegion(region *metapb.Region, key []byte) bool {
+	return bytes.Compare(key, region.GetStartKey()) >= 0 && beforeEnd(key, region.GetEndKey())
+}
+
+func nextKey(key []byte) []byte {
+	if len(key) == 0 {
+		return []byte{}
+	}
+	res := make([]byte, 0, len(key)+1)
+	pos := 0
+	for i := len(key) - 1; i >= 0; i-- {
+		if key[i] != '\xff' {
+			pos = i
+			break
+		}
+	}
+	s, e := key[:pos], key[pos]+1
+	res = append(append(res, s...), e)
+	return res
 }

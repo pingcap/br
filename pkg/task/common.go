@@ -15,14 +15,17 @@ import (
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	pd "github.com/tikv/pd/client"
 	"go.etcd.io/etcd/pkg/transport"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -45,17 +48,24 @@ const (
 	flagDatabase = "db"
 	flagTable    = "table"
 
-	flagRateLimit          = "ratelimit"
-	flagRateLimitUnit      = "ratelimit-unit"
-	flagConcurrency        = "concurrency"
-	flagChecksum           = "checksum"
-	flagFilter             = "filter"
-	flagCaseSensitive      = "case-sensitive"
-	flagRemoveTiFlash      = "remove-tiflash"
-	flagCheckRequirement   = "check-requirements"
-	flagSwitchModeInterval = "switch-mode-interval"
+	flagChecksumConcurrency = "checksum-concurrency"
+	flagRateLimit           = "ratelimit"
+	flagRateLimitUnit       = "ratelimit-unit"
+	flagConcurrency         = "concurrency"
+	flagChecksum            = "checksum"
+	flagFilter              = "filter"
+	flagCaseSensitive       = "case-sensitive"
+	flagRemoveTiFlash       = "remove-tiflash"
+	flagCheckRequirement    = "check-requirements"
+	flagSwitchModeInterval  = "switch-mode-interval"
+	// flagGrpcKeepaliveTime is the interval of pinging the server.
+	flagGrpcKeepaliveTime = "grpc-keepalive-time"
+	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
+	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
 
-	defaultSwitchInterval = 5 * time.Minute
+	defaultSwitchInterval       = 5 * time.Minute
+	defaultGRPCKeepaliveTime    = 10 * time.Second
+	defaultGRPCKeepaliveTimeout = 3 * time.Second
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -88,13 +98,14 @@ func (tls *TLSConfig) ToTLSConfig() (*tls.Config, error) {
 type Config struct {
 	storage.BackendOptions
 
-	Storage     string    `json:"storage" toml:"storage"`
-	PD          []string  `json:"pd" toml:"pd"`
-	TLS         TLSConfig `json:"tls" toml:"tls"`
-	RateLimit   uint64    `json:"rate-limit" toml:"rate-limit"`
-	Concurrency uint32    `json:"concurrency" toml:"concurrency"`
-	Checksum    bool      `json:"checksum" toml:"checksum"`
-	SendCreds   bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
+	Storage             string    `json:"storage" toml:"storage"`
+	PD                  []string  `json:"pd" toml:"pd"`
+	TLS                 TLSConfig `json:"tls" toml:"tls"`
+	RateLimit           uint64    `json:"rate-limit" toml:"rate-limit"`
+	ChecksumConcurrency uint      `json:"checksum-concurrency" toml:"checksum-concurrency"`
+	Concurrency         uint32    `json:"concurrency" toml:"concurrency"`
+	Checksum            bool      `json:"checksum" toml:"checksum"`
+	SendCreds           bool      `json:"send-credentials-to-tikv" toml:"send-credentials-to-tikv"`
 	// LogProgress is true means the progress bar is printed to the log instead of stdout.
 	LogProgress bool `json:"log-progress" toml:"log-progress"`
 
@@ -112,6 +123,11 @@ type Config struct {
 	TableFilter        filter.Filter `json:"-" toml:"-"`
 	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
+
+	// GrpcKeepaliveTime is the interval of pinging the server.
+	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
+	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
+	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -122,6 +138,8 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.String(flagCA, "", "CA certificate path for TLS connection")
 	flags.String(flagCert, "", "Certificate path for TLS connection")
 	flags.String(flagKey, "", "Private key path for TLS connection")
+	flags.Uint(flagChecksumConcurrency, variable.DefChecksumTableConcurrency, "The concurrency of table checksumming")
+	_ = flags.MarkHidden(flagChecksumConcurrency)
 
 	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
@@ -142,6 +160,12 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.Bool(flagCheckRequirement, true,
 		"Whether start version check before execute command")
 	flags.Duration(flagSwitchModeInterval, defaultSwitchInterval, "maintain import mode on TiKV during restore")
+	flags.Duration(flagGrpcKeepaliveTime, defaultGRPCKeepaliveTime,
+		"the interval of pinging gRPC peer, must keep the same value with TiKV and PD")
+	flags.Duration(flagGrpcKeepaliveTimeout, defaultGRPCKeepaliveTimeout,
+		"the max time a gRPC connection can keep idle before killed, must keep the same value with TiKV and PD")
+	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
+	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
 
 	storage.DefineFlags(flags)
 }
@@ -184,6 +208,17 @@ func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+func (cfg *Config) normalizePDURLs() error {
+	for i := range cfg.PD {
+		var err error
+		cfg.PD[i], err = normalizePDURL(cfg.PD[i], cfg.TLS.IsEnabled())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ParseFromFlags parses the config from the flag set.
 func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
@@ -195,18 +230,15 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.PD, err = flags.GetStringSlice(flagPD)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	if len(cfg.PD) == 0 {
-		return errors.New("must provide at least one PD server address")
-	}
 	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	cfg.Checksum, err = flags.GetBool(flagChecksum)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -236,12 +268,12 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	} else if dbFlag := flags.Lookup(flagDatabase); dbFlag != nil {
 		db := dbFlag.Value.String()
 		if len(db) == 0 {
-			return errors.New("empty database name is not allowed")
+			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
-				return errors.New("empty table name is not allowed")
+				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
@@ -266,21 +298,40 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.GRPCKeepaliveTime, err = flags.GetDuration(flagGrpcKeepaliveTime)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.GRPCKeepaliveTimeout, err = flags.GetDuration(flagGrpcKeepaliveTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if cfg.SwitchModeInterval <= 0 {
-		return errors.Errorf("--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
+		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
 	}
 
-	if err := cfg.BackendOptions.ParseFromFlags(flags); err != nil {
+	if err = cfg.BackendOptions.ParseFromFlags(flags); err != nil {
 		return err
 	}
-	return cfg.TLS.ParseFromFlags(flags)
+	if err = cfg.TLS.ParseFromFlags(flags); err != nil {
+		return err
+	}
+	cfg.PD, err = flags.GetStringSlice(flagPD)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if len(cfg.PD) == 0 {
+		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
+	}
+	return cfg.normalizePDURLs()
 }
 
-// newMgr creates a new mgr at the given PD address.
-func newMgr(ctx context.Context,
+// NewMgr creates a new mgr at the given PD address.
+func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
+	keepalive keepalive.ClientParameters,
 	checkRequirements bool) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
@@ -288,7 +339,7 @@ func newMgr(ctx context.Context,
 	)
 	pdAddress := strings.Join(pds, ",")
 	if len(pdAddress) == 0 {
-		return nil, errors.New("pd address can not be empty")
+		return nil, errors.Annotate(berrors.ErrInvalidArgument, "pd address can not be empty")
 	}
 
 	securityOption := pd.SecurityOption{}
@@ -311,7 +362,7 @@ func newMgr(ctx context.Context,
 	// Is it necessary to remove `StoreBehavior`?
 	return conn.NewMgr(ctx, g,
 		pdAddress, store.(tikv.Storage),
-		tlsConf, securityOption,
+		tlsConf, securityOption, keepalive,
 		conn.SkipTiFlash, checkRequirements)
 }
 
@@ -376,4 +427,42 @@ func LogArguments(cmd *cobra.Command) {
 		}
 	})
 	log.Info("arguments", fields...)
+}
+
+// GetKeepalive get the keepalive info from the config.
+func GetKeepalive(cfg *Config) keepalive.ClientParameters {
+	return keepalive.ClientParameters{
+		Time:    cfg.GRPCKeepaliveTime,
+		Timeout: cfg.GRPCKeepaliveTimeout,
+	}
+}
+
+// adjust adjusts the abnormal config value in the current config.
+// useful when not starting BR from CLI (e.g. from BRIE in SQL).
+func (cfg *Config) adjust() {
+	if cfg.GRPCKeepaliveTime == 0 {
+		cfg.GRPCKeepaliveTime = defaultGRPCKeepaliveTime
+	}
+	if cfg.GRPCKeepaliveTimeout == 0 {
+		cfg.GRPCKeepaliveTimeout = defaultGRPCKeepaliveTimeout
+	}
+	if cfg.ChecksumConcurrency == 0 {
+		cfg.ChecksumConcurrency = variable.DefChecksumTableConcurrency
+	}
+}
+
+func normalizePDURL(pd string, useTLS bool) (string, error) {
+	if strings.HasPrefix(pd, "http://") {
+		if useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with http while TLS enabled")
+		}
+		return strings.TrimPrefix(pd, "http://"), nil
+	}
+	if strings.HasPrefix(pd, "https://") {
+		if !useTLS {
+			return "", errors.Annotate(berrors.ErrInvalidArgument, "pd url starts with https while TLS disabled")
+		}
+		return strings.TrimPrefix(pd, "https://"), nil
+	}
+	return pd, nil
 }

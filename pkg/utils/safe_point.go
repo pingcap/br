@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package backup
+package utils
 
 import (
 	"context"
@@ -14,6 +14,8 @@ import (
 	"github.com/tikv/pd/pkg/tsoutil"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -67,7 +69,7 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 		return nil
 	}
 	if ts <= safePoint {
-		return errors.Errorf("GC safepoint %d exceed TS %d", safePoint, ts)
+		return errors.Annotatef(berrors.ErrBackupGCSafepointExceeded, "GC safepoint %d exceed TS %d", safePoint, ts)
 	}
 	return nil
 }
@@ -121,7 +123,7 @@ func StartServiceSafePointKeeper(
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info("service safe point keeper exited")
+				log.Debug("service safe point keeper exited")
 				return
 			case <-updateTick.C:
 				update(ctx)

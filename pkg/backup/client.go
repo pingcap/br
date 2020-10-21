@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
@@ -105,21 +106,21 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 		switch {
 		case duration < 0:
-			return 0, errors.New("negative timeago is not allowed")
+			return 0, errors.Annotate(berrors.ErrInvalidArgument, "negative timeago is not allowed")
 		case duration > 0:
 			log.Info("backup time ago", zap.Duration("timeago", duration))
 
 			backupTime := oracle.GetTimeFromTS(backupTS)
 			backupAgo := backupTime.Add(-duration)
 			if backupTS < oracle.ComposeTS(oracle.GetPhysical(backupAgo), l) {
-				return 0, errors.New("backup ts overflow please choose a smaller timeago")
+				return 0, errors.Annotate(berrors.ErrInvalidArgument, "backup ts overflow please choose a smaller timeago")
 			}
 			backupTS = oracle.ComposeTS(oracle.GetPhysical(backupAgo), l)
 		}
 	}
 
 	// check backup time do not exceed GCSafePoint
-	err = CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
+	err = utils.CheckGCSafePoint(ctx, bc.mgr.GetPDClient(), backupTS)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -137,7 +138,7 @@ func (bc *Client) SetLockFile(ctx context.Context) error {
 // SetGCTTL set gcTTL for client.
 func (bc *Client) SetGCTTL(ttl int64) {
 	if ttl <= 0 {
-		ttl = DefaultBRGCSafePointTTL
+		ttl = utils.DefaultBRGCSafePointTTL
 	}
 	bc.gcTTL = ttl
 }
@@ -160,14 +161,14 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
 	}
 	if exist {
-		return errors.New("backup meta exists, may be some backup files in the path already")
+		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
 	}
 	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
 	if err != nil {
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
 	}
 	if exist {
-		return errors.New("backup lock exists, may be some backup files in the path already")
+		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
@@ -538,9 +539,7 @@ func (bc *Client) BackupRange(
 	return files, nil
 }
 
-func (bc *Client) findRegionLeader(
-	ctx context.Context,
-	key []byte) (*metapb.Peer, error) {
+func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Peer, error) {
 	// Keys are saved in encoded format in TiKV, so the key must be encoded
 	// in order to find the correct region.
 	key = codec.EncodeBytes([]byte{}, key)
@@ -561,7 +560,7 @@ func (bc *Client) findRegionLeader(
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Errorf("can not find leader for key %v", key)
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", utils.WrapKey(key))
 }
 
 func (bc *Client) fineGrainedBackup(
@@ -660,8 +659,9 @@ func (bc *Client) fineGrainedBackup(
 		max.mu.Unlock()
 		if ms != 0 {
 			log.Info("handle fine grained", zap.Int("backoffMs", ms))
-			err := bo.BackoffWithMaxSleep(2, /* magic boTxnLockFast */
-				ms, errors.New("TODO: attach error"))
+			// 2 means tikv.boTxnLockFast
+			// TODO: fill a meaningful error.
+			err := bo.BackoffWithMaxSleep(2, ms, berrors.ErrUnknown)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -698,7 +698,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, errors.Errorf("storeID: %d onBackupResponse error %v", storeID, v)
+		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -709,9 +709,8 @@ func onBackupResponse(
 			regionErr.ServerIsBusy != nil ||
 			regionErr.StaleCommand != nil ||
 			regionErr.StoreNotMatch != nil) {
-			log.Error("unexpect region error",
-				zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, errors.Errorf("storeID: %d onBackupResponse error %v", storeID, v)
+			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
+			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
 		}
 		log.Warn("backup occur region error",
 			zap.Reflect("RegionError", regionErr),
@@ -720,15 +719,11 @@ func onBackupResponse(
 		backoffMs = 1000 /* 1s */
 		return nil, backoffMs, nil
 	case *kvproto.Error_ClusterIdError:
-		log.Error("backup occur cluster ID error",
-			zap.Reflect("error", v),
-			zap.Uint64("storeID", storeID))
-		return nil, 0, errors.Errorf("%v on storeID: %d", resp.Error, storeID)
+		log.Error("backup occur cluster ID error", zap.Reflect("error", v), zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
-		log.Error("backup occur unknown error",
-			zap.String("error", resp.Error.GetMsg()),
-			zap.Uint64("storeID", storeID))
-		return nil, 0, errors.Errorf("%v on storeID: %d", resp.Error, storeID)
+		log.Error("backup occur unknown error", zap.String("error", resp.Error.GetMsg()), zap.Uint64("storeID", storeID))
+		return nil, 0, errors.Annotatef(berrors.ErrKVUnknown, "%v on storeID: %d", resp.Error, storeID)
 	}
 }
 
@@ -874,9 +869,10 @@ backupLoop:
 }
 
 // ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) (bool, error) {
+func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) error {
 	if len(local) != len(backupMeta.Schemas) {
-		return false, nil
+		return errors.Annotatef(berrors.ErrBackupChecksumMismatch,
+			"checksum mismatch, checksum len %d, schema len %d", len(local), len(backupMeta.Schemas))
 	}
 
 	for i, schema := range backupMeta.Schemas {
@@ -884,19 +880,17 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) (bool, er
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			log.Error("failed in fast checksum, and cannot parse db info.")
-			return false, err
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse db info")
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			log.Error("failed in fast checksum, and cannot parse table info.")
-			return false, err
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
 		if localChecksum.Crc64Xor != schema.Crc64Xor ||
 			localChecksum.TotalBytes != schema.TotalBytes ||
 			localChecksum.TotalKvs != schema.TotalKvs {
-			log.Error("failed in fast checksum",
+			log.Error("checksum mismatch",
 				zap.Stringer("db", dbInfo.Name),
 				zap.Stringer("table", tblInfo.Name),
 				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
@@ -904,15 +898,15 @@ func ChecksumMatches(backupMeta *kvproto.BackupMeta, local []Checksum) (bool, er
 				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
 				zap.Uint64("calculated total kvs", localChecksum.TotalKvs),
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
-				zap.Uint64("calculated total bytes", localChecksum.TotalBytes),
-			)
-			return false, nil
+				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
+			// TODO enhance error
+			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
 		}
-		log.Info("fast checksum success",
+		log.Info("checksum success",
 			zap.String("database", dbInfo.Name.L),
 			zap.String("table", tblInfo.Name.L))
 	}
-	return true, nil
+	return nil
 }
 
 // collectFileInfo collects ungrouped file summary information, like kv count and size.

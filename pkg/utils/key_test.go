@@ -29,7 +29,7 @@ func (r *testKeySuite) TestParseKey(c *C) {
 	c.Assert(parsedKey, BytesEquals, []byte("1234"))
 
 	_, err = ParseKey("notSupport", rawKey)
-	c.Assert(err, ErrorMatches, "*unknown format*")
+	c.Assert(err, ErrorMatches, "unknown format.*")
 }
 
 func (r *testKeySuite) TestCompareEndKey(c *C) {

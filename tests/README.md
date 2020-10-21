@@ -13,6 +13,7 @@ programs.
 	* `bin/go-ycsb`
 	* `bin/minio`
     * `bin/tiflash`
+    * `bin/cdc`
 
     The versions must be ≥2.1.0 as usual.
 

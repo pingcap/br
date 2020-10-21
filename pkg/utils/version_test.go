@@ -42,7 +42,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return tiflash("v4.0.0-rc.1")
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, `incompatible.*version v4.0.0-rc.1, try update it to 4.0.0`)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v4.0.0-rc.1, try update it to 4.0.0.*`)
 	}
 
 	{
@@ -51,7 +51,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return tiflash("v3.1.0-beta.1")
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.1.0-beta.1, try update it to 3.1.0`)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.1.0-beta.1, try update it to 3.1.0.*`)
 	}
 
 	{
@@ -60,7 +60,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return tiflash("v3.0.15")
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.0.15, try update it to 3.1.0`)
+		c.Assert(err, check.ErrorMatches, `incompatible.*version v3.0.15, try update it to 3.1.0.*`)
 	}
 
 	{
@@ -79,7 +79,7 @@ func (s *versionSuite) TestCheckClusterVersion(c *check.C) {
 			return []*metapb.Store{{Version: `v2.1.0`}}
 		}
 		err := CheckClusterVersion(context.Background(), &mock)
-		c.Assert(err, check.ErrorMatches, "TiKV .* don't support BR, please upgrade cluster .*")
+		c.Assert(err, check.ErrorMatches, ".*TiKV .* don't support BR, please upgrade cluster .*")
 	}
 
 	{

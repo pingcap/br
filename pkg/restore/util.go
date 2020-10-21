@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/summary"
@@ -29,6 +31,7 @@ import (
 )
 
 var recordPrefixSep = []byte("_r")
+var quoteRegexp = regexp.MustCompile("`(?:[^`]|``)*`")
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -278,7 +281,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
 			utils.ZapFile(file))
-		return rtree.Range{}, errors.New("table ids mismatch")
+		return rtree.Range{}, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "validateAndGetFileRange")
 	}
 	r := rtree.Range{StartKey: file.GetStartKey(), EndKey: file.GetEndKey()}
 	return r, nil
@@ -327,7 +330,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("tableID", tableID),
 			utils.ZapFile(file),
 		)
-		return errors.Errorf("cannot find rewrite rule")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
 	}
 	// Check if the end key has a matched rewrite key
 	_, endRule := rewriteRawKey(file.GetEndKey(), rewriteRules)
@@ -338,7 +341,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("tableID", tableID),
 			utils.ZapFile(file),
 		)
-		return errors.Errorf("cannot find rewrite rule")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
 	}
 	// the new prefix of the start rule must equal or less than the new prefix of the end rule
 	if bytes.Compare(startRule.GetNewKeyPrefix(), endRule.GetNewKeyPrefix()) > 0 {
@@ -352,7 +355,7 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Stringer("endRule", endRule),
 			utils.ZapFile(file),
 		)
-		return errors.Errorf("unexpected rewrite rules")
+		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "unexpected rewrite rules")
 	}
 	return nil
 }
@@ -440,12 +443,12 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 				zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
-			err = errors.New("cannot find rewrite rule for start key")
+			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
 			return
 		}
 		endKey, rule = rewriteRawKey(file.GetEndKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
-			err = errors.New("cannot find rewrite rule for end key")
+			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for end key")
 			return
 		}
 	} else {
@@ -454,7 +457,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 			zap.Int64("endID", endID),
 			zap.Stringer("startKey", utils.WrapKey(startKey)),
 			zap.Stringer("endKey", utils.WrapKey(endKey)))
-		err = errors.New("illegal table id")
+		err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "invalid table id")
 	}
 	return
 }
@@ -473,7 +476,7 @@ func PaginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		return nil, errors.Errorf("startKey >= endKey, startKey %s, endkey %s",
+		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey, startKey %s, endkey %s",
 			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
 	}
 
@@ -523,4 +526,24 @@ func ZapRanges(ranges []rtree.Range) []zapcore.Field {
 		zap.Uint64("total kv", totalKV),
 		zap.Uint64("total size", totalSize),
 	}
+}
+
+// ParseQuoteName parse the quote `db`.`table` name, and split it.
+func ParseQuoteName(name string) (string, string) {
+	names := quoteRegexp.FindAllStringSubmatch(name, -1)
+	if len(names) != 2 {
+		log.Fatal("failed to parse schema name",
+			zap.String("origin name", name),
+			zap.Any("parsed names", names))
+	}
+	schema := names[0][0]
+	table := names[1][0]
+	schema = strings.ReplaceAll(unQuoteName(schema), "``", "`")
+	table = strings.ReplaceAll(unQuoteName(table), "``", "`")
+	return schema, table
+}
+
+func unQuoteName(name string) string {
+	name = strings.TrimPrefix(name, "`")
+	return strings.TrimSuffix(name, "`")
 }

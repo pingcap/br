@@ -11,10 +11,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cdclog
+package kv
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/pingcap/parser/model"
@@ -24,8 +25,8 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 )
 
-// KvPair is a pair of key and value.
-type KvPair struct {
+// Pair is a pair of key and value.
+type Pair struct {
 	// Key is the key of the KV pair
 	Key []byte
 	// Val is the value of the KV pair
@@ -53,15 +54,82 @@ func (*invalidIterator) Valid() bool {
 func (*invalidIterator) Close() {
 }
 
+type kvMemBuf struct {
+	kv.MemBuffer
+	kvPairs []Pair
+	size    int
+}
+
+func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
+	mb.kvPairs = append(mb.kvPairs, Pair{
+		Key: k.Clone(),
+		Val: append([]byte{}, v...),
+	})
+	mb.size += len(k) + len(v)
+	return nil
+}
+
+func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
+	return mb.Set(k, v)
+}
+
+func (mb *kvMemBuf) Delete(k kv.Key) error {
+	mb.kvPairs = append(mb.kvPairs, Pair{
+		Key:      k.Clone(),
+		Val:      []byte{},
+		IsDelete: true,
+	})
+	mb.size += len(k)
+	return nil
+}
+
+// Release publish all modifications in the latest staging buffer to upper level.
+func (mb *kvMemBuf) Release(h kv.StagingHandle) {
+}
+
+func (mb *kvMemBuf) Staging() kv.StagingHandle {
+	return 0
+}
+
+// Cleanup cleanup the resources referenced by the StagingHandle.
+// If the changes are not published by `Release`, they will be discarded.
+func (mb *kvMemBuf) Cleanup(h kv.StagingHandle) {}
+
+// Size returns sum of keys and values length.
+func (mb *kvMemBuf) Size() int {
+	return mb.size
+}
+
+// Len returns the number of entries in the DB.
+func (t *transaction) Len() int {
+	return t.GetMemBuffer().Len()
+}
+
+type kvUnionStore struct {
+	kvMemBuf
+	kv.UnionStore
+}
+
+func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
+	return &s.kvMemBuf
+}
+
+func (s *kvUnionStore) GetIndexName(tableID, indexID int64) string {
+	panic("Unsupported Operation")
+}
+
+func (s *kvUnionStore) CacheIndexName(tableID, indexID int64, name string) {
+}
+
 // transaction is a trimmed down Transaction type which only supports adding a
 // new KV pair.
 type transaction struct {
 	kv.Transaction
-	kvPairs []KvPair
+	kvUnionStore
 }
 
-func (t *transaction) NewStagingBuffer() kv.MemBuffer {
-	return t
+func (t *transaction) GetMemBuffer() kv.MemBuffer {
+	return &t.kvUnionStore.kvMemBuf
 }
 
 func (t *transaction) Discard() {
@@ -88,20 +156,12 @@ func (t *transaction) Iter(k kv.Key, upperBound kv.Key) (kv.Iterator, error) {
 
 // Set implements the kv.Mutator interface.
 func (t *transaction) Set(k kv.Key, v []byte) error {
-	t.kvPairs = append(t.kvPairs, KvPair{
-		Key: k.Clone(),
-		Val: append([]byte{}, v...),
-	})
-	return nil
+	return t.kvMemBuf.Set(k, v)
 }
 
 // Delete implements the kv.Mutator interface.
 func (t *transaction) Delete(k kv.Key) error {
-	t.kvPairs = append(t.kvPairs, KvPair{
-		Key: k.Clone(),
-		Val: []byte{},
-	})
-	return nil
+	return t.kvMemBuf.Delete(k)
 }
 
 // SetOption implements the kv.Transaction interface.
@@ -113,6 +173,10 @@ func (t *transaction) DelOption(kv.Option) {}
 // SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
+func (t *transaction) GetUnionStore() kv.UnionStore {
+	return &t.kvUnionStore
+}
+
 // session is a trimmed down Session type which only wraps our own trimmed-down
 // transaction type and provides the session variables to the TiDB library
 // optimized for Lightning.
@@ -120,6 +184,8 @@ type session struct {
 	sessionctx.Context
 	txn  transaction
 	vars *variable.SessionVars
+	// currently, we only set `CommonAddRecordCtx`
+	values map[fmt.Stringer]interface{}
 }
 
 // SessionOptions is the initial configuration of the session.
@@ -146,11 +212,19 @@ func newSession(options *SessionOptions) *session {
 	vars.TxnCtx = nil
 
 	s := &session{
-		txn:  transaction{},
-		vars: vars,
+		vars:   vars,
+		values: make(map[fmt.Stringer]interface{}, 1),
 	}
 
 	return s
+}
+
+func (se *session) takeKvPairs() ([]Pair, int) {
+	pairs := se.txn.kvMemBuf.kvPairs
+	size := se.txn.kvMemBuf.Size()
+	se.txn.kvMemBuf.kvPairs = make([]Pair, 0, len(pairs))
+	se.txn.kvMemBuf.size = 0
+	return pairs, size
 }
 
 // Txn implements the sessionctx.Context interface.
@@ -161,6 +235,16 @@ func (se *session) Txn(active bool) (kv.Transaction, error) {
 // GetSessionVars implements the sessionctx.Context interface.
 func (se *session) GetSessionVars() *variable.SessionVars {
 	return se.vars
+}
+
+// SetValue saves a value associated with this context for key.
+func (se *session) SetValue(key fmt.Stringer, value interface{}) {
+	se.values[key] = value
+}
+
+// Value returns the value associated with this context for key.
+func (se *session) Value(key fmt.Stringer) interface{} {
+	return se.values[key]
 }
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface.

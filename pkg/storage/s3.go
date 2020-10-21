@@ -16,13 +16,15 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/spf13/pflag"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -41,37 +43,16 @@ const (
 	maxSkipOffsetByRead = 1 << 16 //64KB
 )
 
-// s3Handlers make it easy to inject test functions.
-type s3Handlers interface {
-	HeadObjectWithContext(context.Context, *s3.HeadObjectInput, ...request.Option) (*s3.HeadObjectOutput, error)
-	GetObjectWithContext(context.Context, *s3.GetObjectInput, ...request.Option) (*s3.GetObjectOutput, error)
-	PutObjectWithContext(context.Context, *s3.PutObjectInput, ...request.Option) (*s3.PutObjectOutput, error)
-	ListObjectsWithContext(context.Context, *s3.ListObjectsInput, ...request.Option) (*s3.ListObjectsOutput, error)
-	HeadBucketWithContext(context.Context, *s3.HeadBucketInput, ...request.Option) (*s3.HeadBucketOutput, error)
-	WaitUntilObjectExistsWithContext(context.Context, *s3.HeadObjectInput, ...request.WaiterOption) error
-
-	ListObjectsV2WithContext(context.Context, *s3.ListObjectsV2Input, ...request.Option) (*s3.ListObjectsV2Output, error)
-	CreateMultipartUploadWithContext(
-		context.Context,
-		*s3.CreateMultipartUploadInput,
-		...request.Option) (*s3.CreateMultipartUploadOutput, error)
-	CompleteMultipartUploadWithContext(
-		context.Context,
-		*s3.CompleteMultipartUploadInput,
-		...request.Option) (*s3.CompleteMultipartUploadOutput, error)
-	UploadPartWithContext(context.Context, *s3.UploadPartInput, ...request.Option) (*s3.UploadPartOutput, error)
-}
-
 // S3Storage info for s3 storage.
 type S3Storage struct {
 	session *session.Session
-	svc     s3Handlers
+	svc     s3iface.S3API
 	options *backup.S3
 }
 
 // S3Uploader does multi-part upload to s3.
 type S3Uploader struct {
-	svc           s3Handlers
+	svc           s3iface.S3API
 	createOutput  *s3.CreateMultipartUploadOutput
 	completeParts []*s3.CompletedPart
 }
@@ -139,10 +120,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 			return err
 		}
 		if u.Scheme == "" {
-			return errors.New("scheme not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "scheme not found in endpoint")
 		}
 		if u.Host == "" {
-			return errors.New("host not found in endpoint")
+			return errors.Annotate(berrors.ErrStorageInvalidConfig, "host not found in endpoint")
 		}
 	}
 	// In some cases, we need to set ForcePathStyle to false.
@@ -152,10 +133,10 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 		options.ForcePathStyle = false
 	}
 	if options.AccessKey == "" && options.SecretAccessKey != "" {
-		return errors.New("access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "access_key not found")
 	}
 	if options.AccessKey != "" && options.SecretAccessKey == "" {
-		return errors.New("secret_access_key not found")
+		return errors.Annotate(berrors.ErrStorageInvalidConfig, "secret_access_key not found")
 	}
 
 	s3.Endpoint = options.Endpoint
@@ -220,11 +201,29 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 	return nil
 }
 
+// NewS3StorageForTest creates a new S3Storage for testing only.
+func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
+	return &S3Storage{
+		session: nil,
+		svc:     svc,
+		options: options,
+	}
+}
+
 // NewS3Storage initialize a new s3 storage for metadata.
+//
+// Deprecated: Create the storage via `New()` instead of using this.
 func NewS3Storage( // revive:disable-line:flag-parameter
 	backend *backup.S3,
 	sendCredential bool,
 ) (*S3Storage, error) {
+	return newS3Storage(backend, &ExternalStorageOptions{
+		SendCredentials: sendCredential,
+		SkipCheckPath:   false,
+	})
+}
+
+func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
@@ -232,6 +231,9 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 		WithRegion(qs.Region)
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
+	}
+	if opts.HTTPClient != nil {
+		awsConfig.WithHTTPClient(opts.HTTPClient)
 	}
 	var cred *credentials.Credentials
 	if qs.AccessKey != "" && qs.SecretAccessKey != "" {
@@ -249,7 +251,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 		return nil, err
 	}
 
-	if !sendCredential {
+	if !opts.SendCredentials {
 		// Clear the credentials if exists so that they will not be sent to TiKV
 		backend.AccessKey = ""
 		backend.SecretAccessKey = ""
@@ -265,9 +267,11 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	}
 
 	c := s3.New(ses)
-	err = checkS3Bucket(c, qs.Bucket)
-	if err != nil {
-		return nil, errors.Errorf("Bucket %s is not accessible: %v", qs.Bucket, err)
+	if !opts.SkipCheckPath {
+		err = checkS3Bucket(c, qs.Bucket)
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
+		}
 	}
 
 	qs.Prefix += "/"
@@ -279,7 +283,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 }
 
 // checkBucket checks if a bucket exists.
-var checkS3Bucket = func(svc *s3.S3, bucket string) error {
+func checkS3Bucket(svc *s3.S3, bucket string) error {
 	input := &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	}
@@ -351,13 +355,11 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 			switch aerr.Code() {
 			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
-			default:
-				return true, err
 			}
 		}
+		return false, err
 	}
-
-	return true, err
+	return true, nil
 }
 
 // WalkDir traverse all the files in a dir.
@@ -370,8 +372,10 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
-	var marker *string
 	prefix := rs.options.Prefix + opt.SubDir
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
 	maxKeys := int64(1000)
 	if opt.ListCount > 0 {
 		maxKeys = opt.ListCount
@@ -383,7 +387,9 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 		MaxKeys: aws.Int64(maxKeys),
 	}
 	for {
-		req.Marker = marker
+		// FIXME: We can't use ListObjectsV2, it is not universally supported.
+		// (Ceph RGW supported ListObjectsV2 since v15.1.0, released 2020 Jan 30th)
+		// (as of 2020, DigitalOcean Spaces still does not support V2 - https://developers.digitalocean.com/documentation/spaces/#list-bucket-contents)
 		res, err := rs.svc.ListObjectsWithContext(ctx, req)
 		if err != nil {
 			return err
@@ -396,15 +402,29 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 			if err = fn(path, *r.Size); err != nil {
 				return err
 			}
+
+			// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjects.html#AmazonS3-ListObjects-response-NextMarker -
+			//
+			// `res.NextMarker` is populated only if we specify req.Delimiter.
+			// Aliyun OSS and minio will populate NextMarker no matter what,
+			// but this documented behavior does apply to AWS S3:
+			//
+			// "If response does not include the NextMarker and it is truncated,
+			// you can use the value of the last Key in the response as the marker
+			// in the subsequent request to get the next set of object keys."
+			req.Marker = r.Key
 		}
-		if res.IsTruncated != nil && *res.IsTruncated {
-			marker = res.NextMarker
-		} else {
+		if !aws.BoolValue(res.IsTruncated) {
 			break
 		}
 	}
 
 	return nil
+}
+
+// URI returns s3://<base>/<prefix>.
+func (rs *S3Storage) URI() string {
+	return "s3://" + rs.options.Bucket + "/" + rs.options.Prefix
 }
 
 // Open a Reader by file path.
@@ -422,10 +442,18 @@ func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, err
 	}, nil
 }
 
-type rangeInfo struct {
-	start int64
-	end   int64
-	size  int64
+// RangeInfo represents the an HTTP Content-Range header value
+// of the form `bytes [Start]-[End]/[Size]`.
+type RangeInfo struct {
+	// Start is the absolute position of the first byte of the byte range,
+	// starting from 0.
+	Start int64
+	// End is the absolute position of the last byte of the byte range. This end
+	// offset is inclusive, e.g. if the Size is 1000, the maximum value of End
+	// would be 999.
+	End int64
+	// Size is the total size of the original file.
+	Size int64
 }
 
 // if endOffset > startOffset, should return reader for bytes in [startOffset, endOffset).
@@ -433,7 +461,7 @@ func (rs *S3Storage) open(
 	ctx context.Context,
 	path string,
 	startOffset, endOffset int64,
-) (io.ReadCloser, rangeInfo, error) {
+) (io.ReadCloser, RangeInfo, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + path),
@@ -450,16 +478,16 @@ func (rs *S3Storage) open(
 	input.Range = rangeOffset
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, rangeInfo{}, err
+		return nil, RangeInfo{}, err
 	}
 
-	r, err := parseRangeInfo(result.ContentRange)
+	r, err := ParseRangeInfo(result.ContentRange)
 	if err != nil {
-		return nil, rangeInfo{}, errors.Trace(err)
+		return nil, RangeInfo{}, errors.Trace(err)
 	}
 
-	if startOffset != r.start || (endOffset != 0 && endOffset != r.end+1) {
-		return nil, r, errors.Errorf("open file '%s' failed, expected range: %s, got: %v",
+	if startOffset != r.Start || (endOffset != 0 && endOffset != r.End+1) {
+		return nil, r, errors.Annotatef(berrors.ErrStorageUnknown, "open file '%s' failed, expected range: %s, got: %v",
 			path, *rangeOffset, result.ContentRange)
 	}
 
@@ -470,31 +498,34 @@ var (
 	contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
 )
 
-func parseRangeInfo(info *string) (rangeInfo, error) {
+// ParseRangeInfo parses the Content-Range header and returns the offsets.
+func ParseRangeInfo(info *string) (ri RangeInfo, err error) {
 	if info == nil || len(*info) == 0 {
-		return rangeInfo{}, errors.New("ContentRange is empty")
+		err = errors.Annotate(berrors.ErrStorageUnknown, "ContentRange is empty")
+		return
 	}
 	subMatches := contentRangeRegex.FindStringSubmatch(*info)
 	if len(subMatches) != 4 {
-		return rangeInfo{}, errors.Errorf("invalid content range: '%s'", *info)
+		err = errors.Annotatef(berrors.ErrStorageUnknown, "invalid content range: '%s'", *info)
+		return
 	}
 
-	start, err := strconv.ParseInt(subMatches[1], 10, 64)
+	ri.Start, err = strconv.ParseInt(subMatches[1], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		err = errors.Annotatef(err, "invalid start offset value '%s' in ContentRange '%s'", subMatches[1], *info)
+		return
 	}
-	end, err := strconv.ParseInt(subMatches[2], 10, 64)
+	ri.End, err = strconv.ParseInt(subMatches[2], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		err = errors.Annotatef(err, "invalid end offset value '%s' in ContentRange '%s'", subMatches[2], *info)
+		return
 	}
-	size, err := strconv.ParseInt(subMatches[3], 10, 64)
+	ri.Size, err = strconv.ParseInt(subMatches[3], 10, 64)
 	if err != nil {
-		return rangeInfo{}, errors.Annotatef(err,
-			"invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		err = errors.Annotatef(err, "invalid size size value '%s' in ContentRange '%s'", subMatches[3], *info)
+		return
 	}
-	return rangeInfo{start: start, end: end, size: size}, nil
+	return
 }
 
 // s3ObjectReader wrap GetObjectOutput.Body and add the `Seek` method.
@@ -503,7 +534,7 @@ type s3ObjectReader struct {
 	name      string
 	reader    io.ReadCloser
 	pos       int64
-	rangeInfo rangeInfo
+	rangeInfo RangeInfo
 	// reader context used for implement `io.Seek`
 	// currently, lightning depends on package `xitongsys/parquet-go` to read parquet file and it needs `io.Seeker`
 	// See: https://github.com/xitongsys/parquet-go/blob/207a3cee75900b2b95213627409b7bac0f190bb3/source/source.go#L9-L10
@@ -512,11 +543,11 @@ type s3ObjectReader struct {
 
 // Read implement the io.Reader interface.
 func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
-	maxCnt := r.rangeInfo.end + 1 - r.pos
+	maxCnt := r.rangeInfo.End + 1 - r.pos
 	if maxCnt > int64(len(p)) {
 		maxCnt = int64(len(p))
 	}
-	n, err = io.ReadFull(r.reader, p[:maxCnt])
+	n, err = r.reader.Read(p[:maxCnt])
 	r.pos += int64(n)
 	return
 }
@@ -537,9 +568,9 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	case io.SeekCurrent:
 		realOffset = r.pos + offset
 	case io.SeekEnd:
-		realOffset = r.rangeInfo.size + offset
+		realOffset = r.rangeInfo.Size + offset
 	default:
-		return 0, errors.Errorf("Seek: invalid whence '%d'", whence)
+		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
 	}
 
 	if realOffset == r.pos {

@@ -9,6 +9,8 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
@@ -58,8 +60,15 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	tk.MustExec("create table t1 (a int);")
 	tk.MustExec("insert into t1 values (10);")
 	tableInfo1 := s.getTableInfo(c, "test", "t1")
-	exe1, err := checksum.NewExecutorBuilder(tableInfo1, math.MaxUint64).Build()
+	exe1, err := checksum.NewExecutorBuilder(tableInfo1, math.MaxUint64).
+		SetConcurrency(variable.DefChecksumTableConcurrency).
+		Build()
 	c.Assert(err, IsNil)
+	c.Assert(exe1.Each(func(r *kv.Request) error {
+		c.Assert(r.NotFillCache, IsTrue)
+		c.Assert(r.Concurrency, Equals, variable.DefChecksumTableConcurrency)
+		return nil
+	}), IsNil)
 	c.Assert(exe1.Len(), Equals, 1)
 	resp, err := exe1.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)

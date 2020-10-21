@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/utils"
@@ -43,6 +44,7 @@ type Mgr struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
+	keepalive   keepalive.ClientParameters
 	ownsStorage bool
 }
 
@@ -85,7 +87,7 @@ skipStore:
 				if storeBehavior == SkipTiFlash {
 					continue skipStore
 				} else if storeBehavior == ErrorOnTiFlash {
-					return nil, errors.Errorf(
+					return nil, errors.Annotatef(berrors.ErrPDInvalidResponse,
 						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 				}
 				isTiFlash = true
@@ -108,6 +110,7 @@ func NewMgr(
 	storage tikv.Storage,
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
+	keepalive keepalive.ClientParameters,
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
 ) (*Mgr, error) {
@@ -119,9 +122,8 @@ func NewMgr(
 	if checkRequirements {
 		err = utils.CheckClusterVersion(ctx, controller.GetPDClient())
 		if err != nil {
-			errMsg := "running BR in incompatible version of cluster, " +
-				"if you believe it's OK, use --check-requirements=false to skip."
-			return nil, errors.Annotate(err, errMsg)
+			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
+				"if you believe it's OK, use --check-requirements=false to skip.")
 		}
 	}
 	log.Info("new mgr", zap.String("pdAddrs", pdAddrs))
@@ -143,7 +145,7 @@ func NewMgr(
 		// Assume 3 replicas
 		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
 		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Errorf("tikv cluster not health %+v", stores)
+		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
 	}
 
 	dom, err := g.GetDomain(storage)
@@ -159,6 +161,7 @@ func NewMgr(
 		ownsStorage:  g.OwnsStorage(),
 	}
 	mgr.grpcClis.clis = make(map[uint64]*grpc.ClientConn)
+	mgr.keepalive = keepalive
 	return mgr, nil
 }
 
@@ -172,8 +175,6 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		opt = grpc.WithTransportCredentials(credentials.NewTLS(mgr.tlsConf))
 	}
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
-	keepAlive := 10
-	keepAliveTimeout := 3
 	bfConf := backoff.DefaultConfig
 	bfConf.MaxDelay = time.Second * 3
 	addr := store.GetPeerAddress()
@@ -186,14 +187,11 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 		opt,
 		grpc.WithBlock(),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    time.Duration(keepAlive) * time.Second,
-			Timeout: time.Duration(keepAliveTimeout) * time.Second,
-		}),
+		grpc.WithKeepaliveParams(mgr.keepalive),
 	)
 	cancel()
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return nil, errors.Trace(err)
 	}
 	return conn, nil
 }
