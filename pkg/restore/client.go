@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -27,7 +26,6 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/server/schedule/placement"
-	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -73,15 +71,8 @@ type Client struct {
 	isOnline        bool
 	noSchema        bool
 	hasSpeedLimited bool
-	// Those fields should be removed after we have FULLY supportted TiFlash.
-	// we place this field here to make a 'good' memory align, but mainly make golang-ci happy :)
-	tiFlashRecordUpdated bool
 
 	restoreStores []uint64
-
-	// tables that has TiFlash and those TiFlash have been removed, should be written to disk.
-	// Those fields should be removed after we have FULLY supportted TiFlash.
-	tablesRemovedTiFlash []*backup.Schema
 
 	storage            storage.ExternalStorage
 	backend            *backup.StorageBackend
@@ -470,107 +461,6 @@ func (rc *Client) createTablesWithDBPool(ctx context.Context,
 		})
 	}
 	return eg.Wait()
-}
-
-// makeTiFlashOfTableRecord make a 'record' repsenting TiFlash of a table that has been removed.
-// We doesn't record table ID here because when restore TiFlash replicas,
-// we use `ALTER TABLE db.tbl SET TIFLASH_REPLICA = xxx` DDL, instead of use some internal TiDB API.
-func makeTiFlashOfTableRecord(table *utils.Table, replica int) (*backup.Schema, error) {
-	tableData, err := json.Marshal(table.Info)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	dbData, err := json.Marshal(table.Db)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	result := &backup.Schema{
-		Db:              dbData,
-		Table:           tableData,
-		Crc64Xor:        table.Crc64Xor,
-		TotalKvs:        table.TotalKvs,
-		TotalBytes:      table.TotalBytes,
-		TiflashReplicas: uint32(replica),
-	}
-	return result, nil
-}
-
-// RemoveTiFlashOfTable removes TiFlash replica of some table,
-// returns the removed count of TiFlash nodes.
-// TODO: save the removed TiFlash information into disk.
-// TODO: remove this after tiflash supports restore.
-func (rc *Client) RemoveTiFlashOfTable(table CreatedTable, rule []placement.Rule) (int, error) {
-	if rule := utils.SearchPlacementRule(table.Table.ID, rule, placement.Learner); rule != nil {
-		if rule.Count > 0 {
-			log.Info("remove TiFlash of table", zap.Int64("table ID", table.Table.ID), zap.Int("count", rule.Count))
-			err := multierr.Combine(
-				rc.db.AlterTiflashReplica(rc.ctx, table.OldTable, 0),
-				rc.removeTiFlashOf(table.OldTable, rule.Count),
-				rc.flushTiFlashRecord(),
-			)
-			if err != nil {
-				return 0, errors.Trace(err)
-			}
-			return rule.Count, nil
-		}
-	}
-	return 0, nil
-}
-
-func (rc *Client) removeTiFlashOf(table *utils.Table, replica int) error {
-	tableRecord, err := makeTiFlashOfTableRecord(table, replica)
-	if err != nil {
-		return err
-	}
-	rc.tablesRemovedTiFlash = append(rc.tablesRemovedTiFlash, tableRecord)
-	rc.tiFlashRecordUpdated = true
-	return nil
-}
-
-func (rc *Client) flushTiFlashRecord() error {
-	// Today nothing to do :D
-	if !rc.tiFlashRecordUpdated {
-		return nil
-	}
-
-	// should we make a deep copy here?
-	// currently, write things directly to backup meta is OK since there seems nobody uses it.
-	// But would it be better if we don't do it?
-	rc.backupMeta.Schemas = rc.tablesRemovedTiFlash
-	backupMetaData, err := proto.Marshal(rc.backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	backendURL := storage.FormatBackendURL(rc.backend)
-	log.Info("update backup meta", zap.Stringer("path", &backendURL))
-	err = rc.storage.Write(rc.ctx, utils.SavedMetaFile, backupMetaData)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	return nil
-}
-
-// RecoverTiFlashOfTable recovers TiFlash replica of some table.
-// TODO: remove this after tiflash supports restore.
-func (rc *Client) RecoverTiFlashOfTable(table *utils.Table) error {
-	if table.TiFlashReplicas > 0 {
-		err := rc.db.AlterTiflashReplica(rc.ctx, table, table.TiFlashReplicas)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return nil
-}
-
-// RecoverTiFlashReplica recovers all the tiflash replicas of a table
-// TODO: remove this after tiflash supports restore.
-func (rc *Client) RecoverTiFlashReplica(tables []*utils.Table) error {
-	for _, table := range tables {
-		if err := rc.RecoverTiFlashOfTable(table); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ExecDDLs executes the queries of the ddl jobs.

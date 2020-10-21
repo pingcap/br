@@ -66,7 +66,7 @@ func (push *pushDown) pushBackup(
 				},
 				func() (backup.BackupClient, error) {
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
-					return push.mgr.ResetBackupClient(push.ctx, storeID)
+					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
 			if err != nil {
 				push.errCh <- err
