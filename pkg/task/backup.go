@@ -221,6 +221,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		log.Debug("removing some PD schedulers")
 		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {
+			if ctx.Err() != nil {
+				log.Warn("context canceled, doing clean work with background context")
+				ctx = context.Background()
+			}
 			if restoreE := restore(ctx); restoreE != nil {
 				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 			}

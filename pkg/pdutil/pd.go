@@ -176,10 +176,12 @@ func NewPdController(
 	}
 
 	return &PdController{
-		addrs:            processedAddrs,
-		cli:              cli,
-		pdClient:         pdClient,
-		schedulerPauseCh: make(chan struct{}),
+		addrs:    processedAddrs,
+		cli:      cli,
+		pdClient: pdClient,
+		// We should make a buffered channel here otherwise when context canceled,
+		// gracefully shutdown will stick at resuming schedulers.
+		schedulerPauseCh: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -418,6 +420,7 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 	if err := pd.ResumeSchedulers(ctx, clusterCfg.scheduler); err != nil {
 		return errors.Annotate(err, "fail to add PD schedulers")
 	}
+	log.Info("restoring config", zap.Any("config", clusterCfg.scheduleCfg))
 	mergeCfg := make(map[string]interface{})
 	for _, cfgKey := range pdRegionMergeCfg {
 		value := clusterCfg.scheduleCfg[cfgKey]

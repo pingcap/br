@@ -67,12 +67,8 @@ func (b *Batcher) Len() int {
 func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
 	defer func() {
 		if ctx.Err() != nil {
-			timeout := 5 * time.Second
-			log.Info("restore canceled, cleaning in a context with timeout",
-				zap.Stringer("timeout", timeout))
-			limitedCtx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
-			b.manager.Close(limitedCtx)
+			log.Info("restore canceled, cleaning in background context")
+			b.manager.Close(context.Background())
 		} else {
 			b.manager.Close(ctx)
 		}
