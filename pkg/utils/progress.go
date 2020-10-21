@@ -14,22 +14,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type atomicAdder int64
-
-func (a *atomicAdder) add(n int64) int64 {
-	return atomic.AddInt64((*int64)(a), n)
-}
-
-func (a *atomicAdder) get() int64 {
-	return atomic.LoadInt64((*int64)(a))
-}
-
 // ProgressPrinter prints a progress bar.
 type ProgressPrinter struct {
 	name        string
 	total       int64
 	redirectLog bool
-	progress    atomicAdder
+	progress    int64
 
 	cancel context.CancelFunc
 }
@@ -52,7 +42,7 @@ func NewProgressPrinter(
 
 // Inc increases the current progress bar.
 func (pp *ProgressPrinter) Inc() {
-	pp.progress.add(1)
+	atomic.AddInt64(&pp.progress, 1)
 }
 
 // Close closes the current progress bar.
@@ -108,8 +98,9 @@ func (pp *ProgressPrinter) goPrintProgress(
 			case <-t.C:
 			}
 
-			if pp.progress.get() <= pp.total {
-				bar.SetCurrent(pp.progress.get())
+			currentProgress := atomic.LoadInt64(&pp.progress)
+			if currentProgress <= pp.total {
+				bar.SetCurrent(currentProgress)
 			} else {
 				bar.SetCurrent(pp.total)
 			}
