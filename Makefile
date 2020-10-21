@@ -126,7 +126,7 @@ tidy: prepare
 	cd tools && GO111MODULE=on go mod tidy
 	# tidy isn't a read-only task for go.mod, run FINISH_MOD always,
 	# so our go.mod1 won't stick in old state
-	git diff --quiet go.mod go.sum go.mod1 go.sum1 || ("$(FINISH_MOD)" && exit 1)
+	git diff --quiet go.mod go.sum tools/go.mod tools/go.sum || ("$(FINISH_MOD)" && exit 1)
 	$(FINISH_MOD)
 
 errdoc: tools
