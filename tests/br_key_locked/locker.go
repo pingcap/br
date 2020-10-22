@@ -229,7 +229,7 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
-		startTs := oracle.ComposeTS(physical, logical)
+		startTS := oracle.ComposeTS(physical, logical)
 
 		// Pick a batch of keys and make up the mutations
 		var mutations []*kvrpcpb.Mutation
@@ -264,7 +264,7 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 		prewrite := &kvrpcpb.PrewriteRequest{
 			Mutations:    mutations,
 			PrimaryLock:  primary,
-			StartVersion: startTs,
+			StartVersion: startTS,
 			LockTtl:      uint64(c.lockTTL.Milliseconds()),
 		}
 		req := tikvrpc.NewRequest(tikvrpc.CmdPrewrite, prewrite)

@@ -52,7 +52,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
 		tables[i] = &utils.Table{
-			Db: dbSchema,
+			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
 				Name: model.NewCIStr("test" + strconv.Itoa(i)),

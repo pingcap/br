@@ -143,7 +143,7 @@ var (
 
 func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 	tbl := &utils.Table{
-		Db: &model.DBInfo{},
+		DB: &model.DBInfo{},
 		Info: &model.TableInfo{
 			ID: id,
 		},
