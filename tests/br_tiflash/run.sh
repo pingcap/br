@@ -53,7 +53,15 @@ run_sql "DROP DATABASE $DB"
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 # wating for TiFlash sync
-sleep 80
+i=0
+while ! [ $(run_sql "select * from information_schema.tiflash_replica" | grep "PROGRESS" | sed "s/[^0-9]//g") -eq 1 ]; do
+    i=$(( i + 1 ))
+    echo "Waiting for TiFlash synchronizing [$i]."
+    if [ $i -gt 20 ]; then
+        echo "Failed to sync data to tiflash."
+    fi
+    sleep 5
+done
 AFTER_BR_COUNT=`run_sql "SELECT count(*) FROM $DB.kv;" | sed -n "s/[^0-9]//g;/^[0-9]*$/p" | tail -n1`
 if [ $AFTER_BR_COUNT -ne $RECORD_COUNT ]; then
     echo "failed to restore, before: $RECORD_COUNT; after: $AFTER_BR_COUNT"
