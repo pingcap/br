@@ -23,9 +23,6 @@ endif
 
 all: build check test
 
-prepare:
-	$(PREPARE_MOD)
-
 build:
 	$(PREPARE_MOD)
 	$(GOBUILD) $(RACEFLAG) -o bin/br
@@ -79,7 +76,7 @@ tools:
 
 check:
 	@# Tidy first to avoid go.mod being affected by static and lint
-	@make prepare tidy
+	@make tidy
 	@# Build tools for targets errdoc, static and lint
 	@make tools errdoc static lint
 
