@@ -10,32 +10,22 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 	pd "github.com/tikv/pd/client"
 
-	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testSafePointSuite{})
 
-type testSafePointSuite struct {
-	mock *mock.Cluster
-}
+type testSafePointSuite struct{}
 
-func (s *testSafePointSuite) SetUpSuite(c *C) {
-	var err error
-	s.mock, err = mock.NewCluster()
-	c.Assert(err, IsNil)
-}
+func (s *testSafePointSuite) SetUpSuite(c *C) {}
 
 func (s *testSafePointSuite) TearDownSuite(c *C) {
 	testleak.AfterTest(c)()
 }
 
 func (s *testSafePointSuite) TestCheckGCSafepoint(c *C) {
-	c.Assert(s.mock.Start(), IsNil)
-	defer s.mock.Stop()
-
 	ctx := context.Background()
-	pdClient := &mockSafePoint{Client: s.mock.PDClient, safepoint: 2333}
+	pdClient := &mockSafePoint{safepoint: 2333}
 	{
 		err := utils.CheckGCSafePoint(ctx, pdClient, 2333+1)
 		c.Assert(err, IsNil)

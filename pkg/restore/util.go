@@ -240,7 +240,7 @@ func GoValidateFileRanges(
 				files := fileOfTable[t.OldTable.Info.ID]
 				if partitions := t.OldTable.Info.Partition; partitions != nil {
 					log.Debug("table partition",
-						zap.Stringer("database", t.OldTable.Db.Name),
+						zap.Stringer("database", t.OldTable.DB.Name),
 						zap.Stringer("table", t.Table.Name),
 						zap.Any("partition info", partitions),
 					)
@@ -290,6 +290,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 
 // AttachFilesToRanges attach files to ranges.
 // Panic if range is overlapped or no range for files.
+// nolint:staticcheck
 func AttachFilesToRanges(
 	files []*backup.File,
 	ranges []rtree.Range,
@@ -518,7 +519,7 @@ type tableSliceArrayMixIn []CreatedTable
 func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, s := range ss {
 		encoder.AppendString(fmt.Sprintf("%s.%s",
-			utils.EncloseName(s.OldTable.Db.Name.String()),
+			utils.EncloseName(s.OldTable.DB.Name.String()),
 			utils.EncloseName(s.OldTable.Info.Name.String())))
 	}
 	return nil

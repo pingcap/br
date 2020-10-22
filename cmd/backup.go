@@ -65,7 +65,7 @@ func NewBackupCommand() *cobra.Command {
 	}
 	command.AddCommand(
 		newFullBackupCommand(),
-		newDbBackupCommand(),
+		newDBBackupCommand(),
 		newTableBackupCommand(),
 		newRawBackupCommand(),
 	)
@@ -88,8 +88,8 @@ func newFullBackupCommand() *cobra.Command {
 	return command
 }
 
-// newDbBackupCommand return a db backup subcommand.
-func newDbBackupCommand() *cobra.Command {
+// newDBBackupCommand return a db backup subcommand.
+func newDBBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
 		Short: "backup a database",

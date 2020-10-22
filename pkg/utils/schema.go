@@ -26,7 +26,7 @@ const (
 
 // Table wraps the schema and files of a table.
 type Table struct {
-	Db              *model.DBInfo
+	DB              *model.DBInfo
 	Info            *model.TableInfo
 	Crc64Xor        uint64
 	TotalKvs        uint64
@@ -109,7 +109,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		table := &Table{
-			Db:              dbInfo,
+			DB:              dbInfo,
 			Info:            tableInfo,
 			Crc64Xor:        schema.Crc64Xor,
 			TotalKvs:        schema.TotalKvs,

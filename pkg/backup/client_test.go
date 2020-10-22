@@ -58,21 +58,21 @@ func (r *testBackup) TestGetTS(c *C) {
 
 	// timeago not work
 	expectedDuration := 0
-	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
+	currentTS := time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err := r.backupClient.GetTS(r.ctx, 0, 0)
 	c.Assert(err, IsNil)
-	pdTs := oracle.ExtractPhysical(ts)
-	duration := int(currentTs - pdTs)
+	pdTS := oracle.ExtractPhysical(ts)
+	duration := int(currentTS - pdTS)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "1.5m"
 	expectedDuration = 90000
-	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
+	currentTS = time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err = r.backupClient.GetTS(r.ctx, 90*time.Second, 0)
 	c.Assert(err, IsNil)
-	pdTs = oracle.ExtractPhysical(ts)
-	duration = int(currentTs - pdTs)
+	pdTS = oracle.ExtractPhysical(ts)
+	duration = int(currentTS - pdTS)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 

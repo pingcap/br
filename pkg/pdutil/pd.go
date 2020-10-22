@@ -61,6 +61,7 @@ var (
 		"shuffle-region-scheduler":     {},
 		"shuffle-hot-region-scheduler": {},
 	}
+	// TODO remove this, see https://github.com/pingcap/br/pull/555#discussion_r509855972
 	pdRegionMergeCfg = []string{
 		"max-merge-region-keys",
 		"max-merge-region-size",
@@ -73,11 +74,12 @@ var (
 
 	// DefaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
 	DefaultPDCfg = map[string]interface{}{
-		"max-merge-region-keys": 200000,
-		"max-merge-region-size": 20,
-		"leader-schedule-limit": 4,
-		"region-schedule-limit": 2048,
-		"max-snapshot-count":    3,
+		"max-merge-region-keys":       200000,
+		"max-merge-region-size":       20,
+		"leader-schedule-limit":       4,
+		"region-schedule-limit":       2048,
+		"max-snapshot-count":          3,
+		"enable-location-replacement": "true",
 	}
 )
 
@@ -410,6 +412,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 		if e == nil {
 			return nil
 		}
+		log.Warn("failed to update PD config, will try next", zap.Error(e), zap.String("pd", addr))
 	}
 	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
@@ -443,6 +446,12 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 	}
 	if err := pd.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
 		return errors.Annotate(err, "fail to update PD schedule config")
+	}
+	if locationPlacement, ok := clusterCfg.scheduleCfg["enable-location-replacement"]; ok {
+		log.Debug("restoring config enable-location-replacement", zap.Any("enable-location-placement", locationPlacement))
+		if err := pd.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": locationPlacement}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -485,6 +494,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	}
 
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
+	log.Debug("saved PD config", zap.Any("config", scheduleCfg))
 
 	disableMergeCfg := make(map[string]interface{})
 	for _, cfgKey := range pdRegionMergeCfg {
@@ -515,7 +525,10 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		limit := int(value.(float64))
 		scheduleLimitCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
 	}
-	return undo, p.UpdatePDScheduleConfig(ctx, scheduleLimitCfg)
+	if err := p.UpdatePDScheduleConfig(ctx, scheduleLimitCfg); err != nil {
+		return undo, err
+	}
+	return undo, p.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": "false"})
 }
 
 // Close close the connection to pd.
