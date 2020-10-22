@@ -66,11 +66,11 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	}
 
 	if tableInfo != nil {
-		switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
-		err = db.se.Execute(ctx, switchDbSQL)
+		switchDBSQL := fmt.Sprintf("use %s;", utils.EncloseName(ddlJob.SchemaName))
+		err = db.se.Execute(ctx, switchDBSQL)
 		if err != nil {
 			log.Error("switch db failed",
-				zap.String("query", switchDbSQL),
+				zap.String("query", switchDBSQL),
 				zap.String("db", ddlJob.SchemaName),
 				zap.Error(err))
 			return errors.Trace(err)
@@ -98,10 +98,10 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 
 // CreateTable executes a CREATE TABLE SQL.
 func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
-	err := db.se.CreateTable(ctx, table.Db.Name, table.Info)
+	err := db.se.CreateTable(ctx, table.DB.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
-			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("db", table.DB.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 		return errors.Trace(err)
@@ -110,7 +110,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	var restoreMetaSQL string
 	if table.Info.IsSequence() {
 		setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
-			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O))
 		if table.Info.Sequence.Cycle {
 			increment := table.Info.Sequence.Increment
@@ -120,7 +120,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			// https://github.com/pingcap/br/pull/242#issuecomment-631307978
 			// TODO use sql to set cycle round
 			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
-				utils.EncloseName(table.Db.Name.O),
+				utils.EncloseName(table.DB.Name.O),
 				utils.EncloseName(table.Info.Name.O))
 			var setValSQL string
 			if increment < 0 {
@@ -132,7 +132,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			if err != nil {
 				log.Error("restore meta sql failed",
 					zap.String("query", setValSQL),
-					zap.Stringer("db", table.Db.Name),
+					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
 				return errors.Trace(err)
@@ -143,7 +143,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			if err != nil {
 				log.Error("restore meta sql failed",
 					zap.String("query", nextSeqSQL),
-					zap.Stringer("db", table.Db.Name),
+					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
 				return errors.Trace(err)
@@ -161,7 +161,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		}
 		restoreMetaSQL = fmt.Sprintf(
 			alterAutoIncIDFormat,
-			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoIncID)
 		if utils.NeedAutoID(table.Info) {
@@ -172,7 +172,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	if err != nil {
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
-			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("db", table.DB.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 		return errors.Trace(err)
@@ -184,7 +184,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		// it will cause Error: [ddl:8200]Unsupported multi schema change
 		alterAutoRandIDSQL := fmt.Sprintf(
 			"alter table %s.%s auto_random_base = %d",
-			utils.EncloseName(table.Db.Name.O),
+			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			table.Info.AutoRandID)
 
@@ -192,7 +192,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		if err != nil {
 			log.Error("alter AutoRandID failed",
 				zap.String("query", alterAutoRandIDSQL),
-				zap.Stringer("db", table.Db.Name),
+				zap.Stringer("db", table.DB.Name),
 				zap.Stringer("table", table.Info.Name),
 				zap.Error(err))
 		}
@@ -203,12 +203,12 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 
 // AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
-	switchDbSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.Db.Name.O))
-	err := db.se.Execute(ctx, switchDbSQL)
+	switchDBSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.DB.Name.O))
+	err := db.se.Execute(ctx, switchDBSQL)
 	if err != nil {
 		log.Error("switch db failed",
-			zap.String("SQL", switchDbSQL),
-			zap.Stringer("db", table.Db.Name),
+			zap.String("SQL", switchDBSQL),
+			zap.Stringer("db", table.DB.Name),
 			zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -221,12 +221,12 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 	if err != nil {
 		log.Error("alter tiflash replica failed",
 			zap.String("query", alterTiFlashSQL),
-			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("db", table.DB.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
 	} else if table.TiFlashReplicas > 0 {
 		log.Warn("alter tiflash replica done",
-			zap.Stringer("db", table.Db.Name),
+			zap.Stringer("db", table.DB.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Int("originalReplicaCount", table.TiFlashReplicas),
 			zap.Int("replicaCount", count))
@@ -278,7 +278,7 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 		tableIDs := make(map[int64]bool)
 		tableIDs[table.Info.ID] = true
 		tableNames := make(map[namePair]bool)
-		name := namePair{table.Db.Name.String(), table.Info.Name.String()}
+		name := namePair{table.DB.Name.String(), table.Info.Name.String()}
 		tableNames[name] = true
 		for _, job := range allDDLJobs {
 			if job.BinlogInfo.TableInfo != nil {
@@ -299,9 +299,9 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 func getDatabases(tables []*utils.Table) (dbs []*model.DBInfo) {
 	dbIDs := make(map[int64]bool)
 	for _, table := range tables {
-		if !dbIDs[table.Db.ID] {
-			dbs = append(dbs, table.Db)
-			dbIDs[table.Db.ID] = true
+		if !dbIDs[table.DB.ID] {
+			dbs = append(dbs, table.DB)
+			dbIDs[table.DB.ID] = true
 		}
 	}
 	return
