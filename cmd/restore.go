@@ -91,7 +91,7 @@ func NewRestoreCommand() *cobra.Command {
 	}
 	command.AddCommand(
 		newFullRestoreCommand(),
-		newDbRestoreCommand(),
+		newDBRestoreCommand(),
 		newTableRestoreCommand(),
 		newLogRestoreCommand(),
 		newRawRestoreCommand(),
@@ -114,7 +114,7 @@ func newFullRestoreCommand() *cobra.Command {
 	return command
 }
 
-func newDbRestoreCommand() *cobra.Command {
+func newDBRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
 		Short: "restore tables in a database",

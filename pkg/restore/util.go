@@ -239,7 +239,7 @@ func GoValidateFileRanges(
 				files := fileOfTable[t.OldTable.Info.ID]
 				if partitions := t.OldTable.Info.Partition; partitions != nil {
 					log.Debug("table partition",
-						zap.Stringer("database", t.OldTable.Db.Name),
+						zap.Stringer("database", t.OldTable.DB.Name),
 						zap.Stringer("table", t.Table.Name),
 						zap.Any("partition info", partitions),
 					)
@@ -289,6 +289,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 
 // AttachFilesToRanges attach files to ranges.
 // Panic if range is overlapped or no range for files.
+// nolint:staticcheck
 func AttachFilesToRanges(
 	files []*backup.File,
 	ranges []rtree.Range,
@@ -505,7 +506,7 @@ func PaginateScanRegion(
 func ZapTables(tables []CreatedTable) zapcore.Field {
 	tableNames := make([]string, 0, len(tables))
 	for _, t := range tables {
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.Db.Name, t.OldTable.Info.Name))
+		tableNames = append(tableNames, fmt.Sprintf("%s.%s", t.OldTable.DB.Name, t.OldTable.Info.Name))
 	}
 	return zap.Strings("tables", tableNames)
 }

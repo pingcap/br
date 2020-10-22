@@ -65,7 +65,7 @@ func buildEncodeRowData(events []*MessageRow) []byte {
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts:     1,
+		TS:     1,
 		Schema: "test",
 		Table:  "event",
 	}
@@ -89,7 +89,7 @@ func buildEncodeDDLData(events []*MessageDDL) []byte {
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts:     1,
+		TS:     1,
 		Schema: "test",
 		Table:  "event",
 	}
