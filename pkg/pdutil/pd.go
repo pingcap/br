@@ -61,6 +61,7 @@ var (
 		"shuffle-region-scheduler":     {},
 		"shuffle-hot-region-scheduler": {},
 	}
+	// TODO remove this, see https://github.com/pingcap/br/pull/555#discussion_r509855972
 	pdRegionMergeCfg = []string{
 		"max-merge-region-keys",
 		"max-merge-region-size",
