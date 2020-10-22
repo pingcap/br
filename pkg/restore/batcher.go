@@ -282,7 +282,7 @@ func (b *Batcher) drainRanges() DrainResult {
 			var drained []rtree.Range
 			drained, b.cachedTables[offset].Range = thisTableRanges[:drainSize], thisTableRanges[drainSize:]
 			log.Debug("draining partial table to batch",
-				zap.Stringer("db", thisTable.OldTable.Db.Name),
+				zap.Stringer("db", thisTable.OldTable.DB.Name),
 				zap.Stringer("table", thisTable.Table.Name),
 				zap.Int("size", thisTableLen),
 				zap.Int("drained", drainSize),
@@ -300,7 +300,7 @@ func (b *Batcher) drainRanges() DrainResult {
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
-			zap.Stringer("db", thisTable.OldTable.Db.Name),
+			zap.Stringer("db", thisTable.OldTable.DB.Name),
 			zap.Stringer("table", thisTable.Table.Name),
 			zap.Int("size", thisTableLen),
 		)
@@ -340,7 +340,7 @@ func (b *Batcher) sendIfFull() {
 func (b *Batcher) Add(tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
-		zap.Stringer("db", tbs.OldTable.Db.Name),
+		zap.Stringer("db", tbs.OldTable.DB.Name),
 		zap.Stringer("table", tbs.Table.Name),
 		zap.Int64("old id", tbs.OldTable.Info.ID),
 		zap.Int64("new id", tbs.Table.ID),

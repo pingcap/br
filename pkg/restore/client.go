@@ -373,7 +373,7 @@ func (rc *Client) createTable(
 			return CreatedTable{}, err
 		}
 	}
-	newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
+	newTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
 	if err != nil {
 		return CreatedTable{}, err
 	}
@@ -410,14 +410,14 @@ func (rc *Client) GoCreateTables(
 		if err != nil {
 			log.Error("create table failed",
 				zap.Error(err),
-				zap.Stringer("db", t.Db.Name),
+				zap.Stringer("db", t.DB.Name),
 				zap.Stringer("table", t.Info.Name))
 			return err
 		}
 		log.Debug("table created and send to next",
 			zap.Int("output chan size", len(outCh)),
 			zap.Stringer("table", t.Info.Name),
-			zap.Stringer("database", t.Db.Name))
+			zap.Stringer("database", t.DB.Name))
 		outCh <- rt
 		return nil
 	}
@@ -735,7 +735,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	if tbl.OldTable.NoChecksum() {
 		log.Warn("table has no checksum, skipping checksum",
 			zap.Stringer("table", tbl.OldTable.Info.Name),
-			zap.Stringer("database", tbl.OldTable.Db.Name),
+			zap.Stringer("database", tbl.OldTable.DB.Name),
 		)
 		return nil
 	}
@@ -763,7 +763,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		checksumResp.TotalKvs != table.TotalKvs ||
 		checksumResp.TotalBytes != table.TotalBytes {
 		log.Error("failed in validate checksum",
-			zap.String("database", table.Db.Name.L),
+			zap.String("database", table.DB.Name.L),
 			zap.String("table", table.Info.Name.L),
 			zap.Uint64("origin tidb crc64", table.Crc64Xor),
 			zap.Uint64("calculated crc64", checksumResp.Checksum),
