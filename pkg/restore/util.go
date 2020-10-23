@@ -518,7 +518,7 @@ type tableSliceArrayMixIn []CreatedTable
 func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, s := range ss {
 		encoder.AppendString(fmt.Sprintf("%s.%s",
-			utils.EncloseName(s.OldTable.Db.Name.String()),
+			utils.EncloseName(s.OldTable.DB.Name.String()),
 			utils.EncloseName(s.OldTable.Info.Name.String())))
 	}
 	return nil
