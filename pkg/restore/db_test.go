@@ -65,7 +65,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
 	table := utils.Table{
 		Info: tableInfo.Meta(),
-		Db:   dbInfo,
+		DB:   dbInfo,
 	}
 	// Get the next AutoIncID
 	idAlloc := autoid.NewAllocator(s.mock.Storage, dbInfo.ID, false, autoid.RowIDAllocType)
@@ -78,15 +78,15 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(err, IsNil, Commentf("Error create DB"))
 	tk.MustExec("drop database if exists test;")
 	// Test empty collate value
-	table.Db.Charset = "utf8mb4"
-	table.Db.Collate = ""
-	err = db.CreateDatabase(context.Background(), table.Db)
+	table.DB.Charset = "utf8mb4"
+	table.DB.Collate = ""
+	err = db.CreateDatabase(context.Background(), table.DB)
 	c.Assert(err, IsNil, Commentf("Error create empty collate db: %s %s", err, s.mock.DSN))
 	tk.MustExec("drop database if exists test;")
 	// Test empty charset value
-	table.Db.Charset = ""
-	table.Db.Collate = "utf8mb4_bin"
-	err = db.CreateDatabase(context.Background(), table.Db)
+	table.DB.Charset = ""
+	table.DB.Collate = "utf8mb4_bin"
+	err = db.CreateDatabase(context.Background(), table.DB)
 	c.Assert(err, IsNil, Commentf("Error create empty charset db: %s %s", err, s.mock.DSN))
 	err = db.CreateTable(context.Background(), &table)
 	c.Assert(err, IsNil, Commentf("Error create table: %s %s", err, s.mock.DSN))
@@ -101,7 +101,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("CREATE DATABASE IF NOT EXISTS test_db;")
 	tk.MustExec("CREATE TABLE IF NOT EXISTS test_db.test_table (c1 INT);")
-	lastTs, err := s.mock.GetOracle().GetTimestamp(context.Background())
+	lastTS, err := s.mock.GetOracle().GetTimestamp(context.Background())
 	c.Assert(err, IsNil, Commentf("Error get last ts: %s", err))
 	tk.MustExec("RENAME TABLE test_db.test_table to test_db.test_table1;")
 	tk.MustExec("DROP TABLE test_db.test_table1;")
@@ -114,7 +114,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 
 	ts, err := s.mock.GetOracle().GetTimestamp(context.Background())
 	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
-	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Domain, lastTs, ts)
+	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Domain, lastTS, ts)
 	c.Assert(err, IsNil, Commentf("Error get ddl jobs: %s", err))
 	infoSchema, err := s.mock.Domain.GetSnapshotInfoSchema(ts)
 	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))
@@ -123,7 +123,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	tableInfo, err := infoSchema.TableByName(model.NewCIStr("test_db"), model.NewCIStr("test_table"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
 	tables := []*utils.Table{{
-		Db:   dbInfo,
+		DB:   dbInfo,
 		Info: tableInfo.Meta(),
 	}}
 	ddlJobs := restore.FilterDDLJobs(allDDLJobs, tables)
