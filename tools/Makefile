@@ -1,4 +1,4 @@
-all: bin/goimports bin/govet bin/revive bin/overalls bin/golangci-lint bin/failpoint-ctl
+all: bin/goimports bin/govet bin/revive bin/overalls bin/golangci-lint bin/failpoint-ctl bin/errdoc-gen
 
 bin/goimports:
 	go build -o $@ golang.org/x/tools/cmd/goimports
@@ -17,3 +17,6 @@ bin/golangci-lint:
 
 bin/failpoint-ctl:
 	go build -o $@ github.com/pingcap/failpoint/failpoint-ctl
+
+bin/errdoc-gen:
+	go build -o $@ github.com/pingcap/tiup/components/errdoc/errdoc-gen

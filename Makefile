@@ -23,14 +23,13 @@ endif
 
 all: build check test
 
-prepare:
+build:
 	$(PREPARE_MOD)
-
-build: prepare
 	$(GOBUILD) $(RACEFLAG) -o bin/br
-	$(FINISH_MOD)
 
-build_for_integration_test: failpoint-enable
+build_for_integration_test:
+	$(PREPARE_MOD)
+	@make failpoint-enable
 	($(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
 		-o bin/br.test && \
@@ -39,11 +38,15 @@ build_for_integration_test: failpoint-enable
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
-test: failpoint-enable
+test:
+	$(PREPARE_MOD)
+	@make failpoint-enable
 	$(GOTEST) $(RACEFLAG) -tags leak ./... || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
-testcover: tools failpoint-enable
+testcover: tools
+	$(PREPARE_MOD)
+	@make failpoint-enable
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
@@ -67,14 +70,15 @@ bins:
 	@which bin/cdc
 	if [ ! -d bin/flash_cluster_manager ]; then echo "flash_cluster_manager not exist"; exit 1; fi
 
-tools: prepare
+tools:
 	@echo "install tools..."
 	@cd tools && make
 
-check-all: static lint tidy
-	@echo "checking"
-
-check: tools check-all
+check:
+	@# Tidy first to avoid go.mod being affected by static and lint
+	@make tidy
+	@# Build tools for targets errdoc, static and lint
+	@make tools errdoc static lint
 
 static: export GO111MODULE=on
 static: tools
@@ -120,13 +124,17 @@ lint: tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
 
-tidy: prepare
+tidy:
 	@echo "go mod tidy"
+	$(PREPARE_MOD)
 	GO111MODULE=on go mod tidy
-	# tidy isn't a read-only task for go.mod, run FINISH_MOD always, 
-	# so our go.mod1 won't stick in old state
-	git diff --quiet go.mod go.sum || ("$(FINISH_MOD)" && exit 1)
 	$(FINISH_MOD)
+	cd tests && GO111MODULE=on go mod tidy
+	git diff --quiet go.mod1 go.sum1 tools/go.mod tools/go.sum
+
+errdoc: tools
+	@echo "generator errors.toml"
+	./tools/check-errdoc.sh
 
 failpoint-enable: tools
 	tools/bin/failpoint-ctl enable
