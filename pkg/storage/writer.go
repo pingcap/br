@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 )
 
@@ -52,6 +53,64 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 		return err
 	}
 	return u.uploader.CompleteUpload(ctx)
+}
+
+type uploaderCompressWriter struct {
+	*uploaderWriter
+	bytesWritten int
+	cap          int
+	gzipWriter   *gzip.Writer
+}
+
+func (u *uploaderCompressWriter) Write(ctx context.Context, p []byte) (int, error) {
+	bytesWritten := 0
+	for u.bytesWritten+len(p) > u.cap {
+		// We won't fit p in this chunk
+
+		// Is this chunk full?
+		chunkToFill := u.cap - u.bytesWritten
+		if chunkToFill > 0 {
+			// It's not full so we write enough of p to fill it
+			prewrite := p[0:chunkToFill]
+			w, err := u.gzipWriter.Write(prewrite)
+			bytesWritten += w
+			u.bytesWritten += w
+			if err != nil {
+				return bytesWritten, err
+			}
+			p = p[w:]
+		}
+		u.gzipWriter.Flush()
+		err := u.uploadChunk(ctx)
+		u.bytesWritten = 0
+		if err != nil {
+			return 0, err
+		}
+	}
+	w, err := u.gzipWriter.Write(p)
+	bytesWritten += w
+	u.bytesWritten += w
+	return bytesWritten, err
+}
+
+func (u *uploaderCompressWriter) Close(ctx context.Context) error {
+	u.gzipWriter.Close()
+	u.bytesWritten = 0
+	return u.uploaderWriter.Close(ctx)
+}
+
+func NewUploaderCompressWriter(uploader Uploader, chunkSize int) Writer {
+	return newUploaderCompressWriter(uploader, chunkSize)
+}
+
+func newUploaderCompressWriter(uploader Uploader, chunkSize int) *uploaderCompressWriter {
+	uploaderWriterImpl := newUploaderWriter(uploader, chunkSize)
+	return &uploaderCompressWriter{
+		uploaderWriter: uploaderWriterImpl,
+		bytesWritten:   0,
+		cap:            chunkSize,
+		gzipWriter:     gzip.NewWriter(uploaderWriterImpl.buf),
+	}
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
