@@ -18,7 +18,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb-tools/pkg/table-filter"
+	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -406,8 +406,6 @@ func (bc *Client) BackupRanges(
 	updateCh glue.Progress,
 ) ([]*kvproto.File, error) {
 	errCh := make(chan error)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	filesCh := make(chan []*kvproto.File, concurrency)
@@ -483,8 +481,6 @@ func (bc *Client) BackupRange(
 		zap.Stringer("EndKey", utils.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
@@ -497,10 +493,10 @@ func (bc *Client) BackupRange(
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
 
-	push := newPushDown(ctx, bc.mgr, len(allStores))
+	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, updateCh)
 	if err != nil {
 		return nil, err
 	}
@@ -801,8 +797,6 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {

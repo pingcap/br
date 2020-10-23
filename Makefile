@@ -123,7 +123,9 @@ lint: tools
 tidy: prepare
 	@echo "go mod tidy"
 	GO111MODULE=on go mod tidy
-	git diff --quiet go.mod go.sum
+	# tidy isn't a read-only task for go.mod, run FINISH_MOD always, 
+	# so our go.mod1 won't stick in old state
+	git diff --quiet go.mod go.sum || ("$(FINISH_MOD)" && exit 1)
 	$(FINISH_MOD)
 
 failpoint-enable: tools

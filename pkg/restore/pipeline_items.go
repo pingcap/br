@@ -4,9 +4,9 @@ package restore
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
@@ -17,8 +17,33 @@ import (
 )
 
 const (
-	defaultBatcherOutputChannelSize = 1024
+	defaultChannelSize = 1024
 )
+
+// TableSink is the 'sink' of restored data by a sender.
+type TableSink interface {
+	EmitTables(tables ...CreatedTable)
+	EmitError(error)
+	Close()
+}
+
+type chanTableSink struct {
+	outCh chan<- []CreatedTable
+	errCh chan<- error
+}
+
+func (sink chanTableSink) EmitTables(tables ...CreatedTable) {
+	sink.outCh <- tables
+}
+
+func (sink chanTableSink) EmitError(err error) {
+	sink.errCh <- err
+}
+
+func (sink chanTableSink) Close() {
+	// ErrCh may has multi sender part, don't close it.
+	close(sink.outCh)
+}
 
 // ContextManager is the struct to manage a TiKV 'context' for restore.
 // Batcher will call Enter when any table should be restore on batch,
@@ -28,6 +53,9 @@ type ContextManager interface {
 	Enter(ctx context.Context, tables []CreatedTable) error
 	// Leave make some tables 'leave' this context(a.k.a., restore is done, do some post-works).
 	Leave(ctx context.Context, tables []CreatedTable) error
+	// Close closes the context manager, sometimes when the manager is 'killed' and should do some cleanup
+	// it would be call.
+	Close(ctx context.Context)
 }
 
 // NewBRContextManager makes a BR context manager, that is,
@@ -37,7 +65,7 @@ func NewBRContextManager(client *Client) ContextManager {
 	return &brContextManager{
 		client: client,
 
-		hasTable: make(map[int64]bool),
+		hasTable: make(map[int64]CreatedTable),
 	}
 }
 
@@ -45,17 +73,25 @@ type brContextManager struct {
 	client *Client
 
 	// This 'set' of table ID allow us handle each table just once.
-	hasTable map[int64]bool
+	hasTable map[int64]CreatedTable
+}
+
+func (manager *brContextManager) Close(ctx context.Context) {
+	tbls := make([]*model.TableInfo, 0, len(manager.hasTable))
+	for _, tbl := range manager.hasTable {
+		tbls = append(tbls, tbl.Table)
+	}
+	splitPostWork(ctx, manager.client, tbls)
 }
 
 func (manager *brContextManager) Enter(ctx context.Context, tables []CreatedTable) error {
 	placementRuleTables := make([]*model.TableInfo, 0, len(tables))
 
 	for _, tbl := range tables {
-		if !manager.hasTable[tbl.Table.ID] {
+		if _, ok := manager.hasTable[tbl.Table.ID]; !ok {
 			placementRuleTables = append(placementRuleTables, tbl.Table)
 		}
-		manager.hasTable[tbl.Table.ID] = true
+		manager.hasTable[tbl.Table.ID] = tbl
 	}
 
 	return splitPrepareWork(ctx, manager.client, placementRuleTables)
@@ -70,6 +106,9 @@ func (manager *brContextManager) Leave(ctx context.Context, tables []CreatedTabl
 
 	splitPostWork(ctx, manager.client, placementRuleTables)
 	log.Info("restore table done", ZapTables(tables))
+	for _, tbl := range placementRuleTables {
+		delete(manager.hasTable, tbl.ID)
+	}
 	return nil
 }
 
@@ -128,14 +167,32 @@ func Exhaust(ec <-chan error) []error {
 
 // BatchSender is the abstract of how the batcher send a batch.
 type BatchSender interface {
+	// PutSink sets the sink of this sender, user to this interface promise
+	// call this function at least once before first call to `RestoreBatch`.
+	PutSink(sink TableSink)
 	// RestoreBatch will send the restore request.
-	RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error
+	RestoreBatch(ranges DrainResult)
 	Close()
 }
 
 type tikvSender struct {
 	client   *Client
 	updateCh glue.Progress
+
+	sink TableSink
+	inCh chan<- DrainResult
+
+	wg *sync.WaitGroup
+}
+
+func (b *tikvSender) PutSink(sink TableSink) {
+	// don't worry about visibility, since we will call this before first call to
+	// RestoreBatch, which is a sync point.
+	b.sink = sink
+}
+
+func (b *tikvSender) RestoreBatch(ranges DrainResult) {
+	b.inCh <- ranges
 }
 
 // NewTiKVSender make a sender that send restore requests to TiKV.
@@ -144,40 +201,80 @@ func NewTiKVSender(
 	cli *Client,
 	updateCh glue.Progress,
 ) (BatchSender, error) {
-	return &tikvSender{
+	inCh := make(chan DrainResult, defaultChannelSize)
+	midCh := make(chan DrainResult, defaultChannelSize)
+
+	sender := &tikvSender{
 		client:   cli,
 		updateCh: updateCh,
-	}, nil
+		inCh:     inCh,
+		wg:       new(sync.WaitGroup),
+	}
+
+	sender.wg.Add(2)
+	go sender.splitWorker(ctx, inCh, midCh)
+	go sender.restoreWorker(ctx, midCh)
+	return sender, nil
 }
 
-func (b *tikvSender) RestoreBatch(ctx context.Context, ranges []rtree.Range, rewriteRules *RewriteRules) error {
-	if err := SplitRanges(ctx, b.client, ranges, rewriteRules, b.updateCh); err != nil {
-		log.Error("failed on split range",
-			zap.Any("ranges", ranges),
-			zap.Error(err),
-		)
-		return err
+func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult, next chan<- DrainResult) {
+	defer log.Debug("split worker closed")
+	defer func() {
+		b.wg.Done()
+		close(next)
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result, ok := <-ranges:
+			if !ok {
+				return
+			}
+			if err := SplitRanges(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
+				log.Error("failed on split range",
+					zap.Any("ranges", ranges),
+					zap.Error(err),
+				)
+				b.sink.EmitError(err)
+				return
+			}
+			next <- result
+		}
 	}
+}
 
-	files := []*backup.File{}
-	for _, fs := range ranges {
-		files = append(files, fs.Files...)
+func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResult) {
+	defer func() {
+		log.Debug("restore worker closed")
+		b.wg.Done()
+		b.sink.Close()
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result, ok := <-ranges:
+			if !ok {
+				return
+			}
+			files := result.Files()
+			if err := b.client.RestoreFiles(ctx, files, result.RewriteRules, b.updateCh); err != nil {
+				b.sink.EmitError(err)
+				return
+			}
+
+			log.Info("restore batch done",
+				ZapRanges(result.Ranges),
+				zap.Int("file count", len(files)),
+			)
+			b.sink.EmitTables(result.BlankTablesAfterSend...)
+		}
 	}
-
-	if err := b.client.RestoreFiles(files, rewriteRules, b.updateCh); err != nil {
-		return err
-	}
-
-	log.Info("restore batch done",
-		append(
-			ZapRanges(ranges),
-			zap.Int("file count", len(files)),
-		)...,
-	)
-
-	return nil
 }
 
 func (b *tikvSender) Close() {
-	// don't close update channel here, since we may need it then.
+	close(b.inCh)
+	b.wg.Wait()
+	log.Debug("tikv sender closed")
 }
