@@ -147,6 +147,10 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if cfg.RemoveSchedulers {
 		restore, e := mgr.RemoveSchedulers(ctx)
 		defer func() {
+			if ctx.Err() != nil {
+				log.Warn("context canceled, try shutdown")
+				ctx = context.Background()
+			}
 			if restoreE := restore(ctx); restoreE != nil {
 				log.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 			}

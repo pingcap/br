@@ -102,7 +102,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(ctx, g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
 	if err != nil {
 		return err
 	}
@@ -173,7 +173,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	defer restoreDBConfig()
 
 	// execute DDL first
-	err = client.ExecDDLs(ddlJobs)
+	err = client.ExecDDLs(ctx, ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -187,7 +187,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	for _, db := range dbs {
-		err = client.CreateDatabase(db.Info)
+		err = client.CreateDatabase(ctx, db.Info)
 		if err != nil {
 			return err
 		}
@@ -241,7 +241,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Do not reset timestamp if we are doing incremental restore, because
 	// we are not allowed to decrease timestamp.
 	if !client.IsIncremental() {
-		if err = client.ResetTS(cfg.PD); err != nil {
+		if err = client.ResetTS(ctx, cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
 			return err
 		}
@@ -367,6 +367,10 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 func restorePostWork(
 	ctx context.Context, client *restore.Client, restoreSchedulers utils.UndoFunc,
 ) {
+	if ctx.Err() != nil {
+		log.Warn("context canceled, try shutdown")
+		ctx = context.Background()
+	}
 	if client.IsOnline() {
 		return
 	}

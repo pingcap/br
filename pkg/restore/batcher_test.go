@@ -30,30 +30,34 @@ type drySender struct {
 	rewriteRules *restore.RewriteRules
 	ranges       []rtree.Range
 	nBatch       int
+
+	sink restore.TableSink
 }
 
-func (d *drySender) RestoreBatch(
-	_ctx context.Context,
-	ranges []rtree.Range,
-	rewriteRules *restore.RewriteRules,
-) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	log.Info("fake restore range", restore.ZapRanges(ranges)...)
-	d.nBatch++
-	d.rewriteRules.Append(*rewriteRules)
-	d.ranges = append(d.ranges, ranges...)
-	return nil
+func (sender *drySender) PutSink(sink restore.TableSink) {
+	sender.sink = sink
 }
 
-func (d *drySender) Close() {}
+func (sender *drySender) RestoreBatch(ranges restore.DrainResult) {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	log.Info("fake restore range", restore.ZapRanges(ranges.Ranges))
+	sender.nBatch++
+	sender.rewriteRules.Append(*ranges.RewriteRules)
+	sender.ranges = append(sender.ranges, ranges.Ranges...)
+	sender.sink.EmitTables(ranges.BlankTablesAfterSend...)
+}
+
+func (sender *drySender) Close() {
+	sender.sink.Close()
+}
 
 func waitForSend() {
 	time.Sleep(10 * time.Millisecond)
 }
 
-func (d *drySender) Ranges() []rtree.Range {
-	return d.ranges
+func (sender *drySender) Ranges() []rtree.Range {
+	return sender.ranges
 }
 
 func newDrySender() *drySender {
@@ -65,6 +69,13 @@ func newDrySender() *drySender {
 }
 
 type recordCurrentTableManager map[int64]bool
+
+func (manager recordCurrentTableManager) Close(ctx context.Context) {
+	if len(manager) > 0 {
+		log.Panic("When closing, there are still some tables doesn't be sent",
+			zap.Any("tables", manager))
+	}
+}
 
 func newMockManager() recordCurrentTableManager {
 	return make(recordCurrentTableManager)
@@ -84,7 +95,7 @@ func (manager recordCurrentTableManager) Leave(_ context.Context, tables []resto
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
-		manager[t.Table.ID] = false
+		delete(manager, t.Table.ID)
 	}
 	return nil
 }
@@ -109,8 +120,8 @@ func (manager recordCurrentTableManager) Has(tables ...restore.TableWithRange) b
 	return true
 }
 
-func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
-	for _, rule := range d.rewriteRules.Table {
+func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
+	for _, rule := range sender.rewriteRules.Table {
 		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
 			return true
 		}
@@ -118,12 +129,12 @@ func (d *drySender) HasRewriteRuleOfKey(prefix string) bool {
 	return false
 }
 
-func (d *drySender) RangeLen() int {
-	return len(d.ranges)
+func (sender *drySender) RangeLen() int {
+	return len(sender.ranges)
 }
 
-func (d *drySender) BatchCount() int {
-	return d.nBatch
+func (sender *drySender) BatchCount() int {
+	return sender.nBatch
 }
 
 var (
