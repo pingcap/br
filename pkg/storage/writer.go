@@ -99,6 +99,7 @@ func (u *uploaderCompressWriter) Close(ctx context.Context) error {
 	return u.uploaderWriter.Close(ctx)
 }
 
+// NewUploaderWriter wraps the Writer interface over an uploader.
 func NewUploaderCompressWriter(uploader Uploader, chunkSize int) Writer {
 	return newUploaderCompressWriter(uploader, chunkSize)
 }
