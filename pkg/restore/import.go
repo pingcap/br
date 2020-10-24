@@ -79,16 +79,6 @@ func NewImportClient(metaClient SplitClient, tlsConf *tls.Config, keepaliveConf 
 	}
 }
 
-// SetKeepalive sets the time and timeout for the keepalive.ClientParameters.
-func (ic *importClient) SetKeepalive(time, timeout time.Duration) {
-	ic.keepaliveConf = keepalive.ClientParameters{
-		Time:    time,
-		Timeout: timeout,
-
-		PermitWithoutStream: true,
-	}
-}
-
 func (ic *importClient) DownloadSST(
 	ctx context.Context,
 	storeID uint64,
