@@ -68,7 +68,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	keepaliveCfg := GetKeepalive(&cfg.Config)
+	// sometimes we have pooled the connections.
+	// sending heartbeats in idle times is useful.
+	keepaliveCfg.PermitWithoutStream = true
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
 		return err
 	}
