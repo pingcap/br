@@ -136,23 +136,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 	}
 	tests := []testcase{
 		{
-			name:      "short and sweet",
-			content:   []string{"hi"},
-			chunkSize: 5,
-		},
-		{
-			name: "long text small chunks",
-			content: []string{
-				"hello world",
-				"hello world",
-				"hello world",
-				"hello world",
-				"hello world",
-				"hello world",
-			},
-			chunkSize: 5,
-		},
-		{
 			name: "long text medium chunks",
 			content: []string{
 				"hello world",
