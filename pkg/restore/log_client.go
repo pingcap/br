@@ -753,18 +753,18 @@ func (l *LogClient) restoreTableFromPuller(
 			return nil
 		}
 		log.Debug("[restoreFromPuller] next event", zap.Any("item", item), zap.Int64("table id", tableID))
-		if l.startTs > item.TS {
+		if l.startTS > item.TS {
 			log.Debug("[restoreFromPuller] item ts is smaller than start ts, skip this item",
-				zap.Uint64("start ts", l.startTs),
-				zap.Uint64("end ts", l.endTs),
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
 			continue
 		}
-		if l.endTs < item.TS {
+		if l.endTS < item.TS {
 			log.Warn("[restoreFromPuller] ts is larger than end ts, we should stop and flush",
-				zap.Uint64("start ts", l.startTs),
-				zap.Uint64("end ts", l.endTs),
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
