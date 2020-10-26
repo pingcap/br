@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"strconv"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -46,6 +47,9 @@ const (
 const (
 	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1
+)
+
+const (
 	// BinaryFlag means the Column charset is binary.
 	BinaryFlag ColumnFlagType = 1 << ColumnFlagType(iota)
 	// HandleKeyFlag means the Column is selected as the handle key.
@@ -99,6 +103,20 @@ func (c Column) ToDatum() (types.Datum, error) {
 
 func formatColumnVal(c Column) Column {
 	switch c.Type {
+	case mysql.TypeVarchar, mysql.TypeString:
+		if s, ok := c.Value.(string); ok {
+			// according to open protocol https://docs.pingcap.com/tidb/dev/ticdc-open-protocol
+			// CHAR/BINARY have the same type: 254
+			// VARCHAR/VARBINARY have the same type: 15
+			// we need to process it by its flag.
+			if c.Flag&BinaryFlag == 1 {
+				val, err := strconv.Unquote("\"" + s + "\"")
+				if err != nil {
+					log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				}
+				c.Value = val
+			}
+		}
 	case mysql.TypeTinyBlob, mysql.TypeMediumBlob,
 		mysql.TypeLongBlob, mysql.TypeBlob:
 		if s, ok := c.Value.(string); ok {
