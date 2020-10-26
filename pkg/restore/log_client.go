@@ -75,8 +75,8 @@ type LogClient struct {
 	importerClient ImporterClient
 
 	// range of log backup
-	startTs uint64
-	endTs   uint64
+	startTS uint64
+	endTS   uint64
 
 	concurrencyCfg concurrencyCfg
 	// meta info parsed from log backup
@@ -94,8 +94,8 @@ type LogClient struct {
 func NewLogRestoreClient(
 	ctx context.Context,
 	restoreClient *Client,
-	startTs uint64,
-	endTs uint64,
+	startTS uint64,
+	endTS uint64,
 	tableFilter filter.Filter,
 	concurrency uint,
 	batchFlushPairs int,
@@ -103,10 +103,10 @@ func NewLogRestoreClient(
 	batchWriteKVPairs int,
 ) (*LogClient, error) {
 	var err error
-	if endTs == 0 {
+	if endTS == 0 {
 		// means restore all log data,
 		// so we get current ts from restore cluster
-		endTs, err = restoreClient.GetTS(ctx)
+		endTS, err = restoreClient.GetTS(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -126,8 +126,8 @@ func NewLogRestoreClient(
 		restoreClient:  restoreClient,
 		splitClient:    splitClient,
 		importerClient: importClient,
-		startTs:        startTs,
-		endTs:          endTs,
+		startTS:        startTS,
+		endTS:          endTS,
 		concurrencyCfg: cfg,
 		meta:           new(LogMeta),
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
@@ -138,7 +138,7 @@ func NewLogRestoreClient(
 }
 
 func (l *LogClient) tsInRange(ts uint64) bool {
-	return l.startTs <= ts && ts <= l.endTs
+	return l.startTS <= ts && ts <= l.endTS
 }
 
 func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
@@ -310,11 +310,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 				return err
 			}
 			if shouldRestore {
-				if _, ok := rowChangeFiles[tableID]; ok {
-					rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
-				} else {
-					rowChangeFiles[tableID] = []string{path}
-				}
+				rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
 			}
 			return nil
 		})
@@ -356,7 +352,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	leaderID := region.Leader.GetId()
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
-	commitTs := oracle.ComposeTS(time.Now().Unix()*1000, 0)
+	commitTS := oracle.ComposeTS(time.Now().Unix()*1000, 0)
 	for _, peer := range region.Region.GetPeers() {
 		cli, err := l.importerClient.GetImportClient(ctx, peer.StoreId)
 		if err != nil {
@@ -382,7 +378,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 				// FIXME we should discuss about the commit ts
 				// 1. give a batch of kv a specify commit ts
 				// 2. give each kv the backup commit ts
-				CommitTs: commitTs,
+				CommitTs: commitTS,
 			},
 		}
 		clients = append(clients, wstream)
@@ -897,16 +893,16 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	}
 	log.Info("get meta from storage", zap.Binary("data", data))
 
-	if l.startTs > l.meta.GlobalResolvedTS {
+	if l.startTS > l.meta.GlobalResolvedTS {
 		return errors.Annotatef(berrors.ErrRestoreRTsConstrain,
-			"start ts:%d is greater than resolved ts:%d", l.startTs, l.meta.GlobalResolvedTS)
+			"start ts:%d is greater than resolved ts:%d", l.startTS, l.meta.GlobalResolvedTS)
 	}
-	if l.endTs > l.meta.GlobalResolvedTS {
+	if l.endTS > l.meta.GlobalResolvedTS {
 		log.Info("end ts is greater than resolved ts,"+
 			" to keep consistency we only recover data until resolved ts",
-			zap.Uint64("end ts", l.endTs),
+			zap.Uint64("end ts", l.endTS),
 			zap.Uint64("resolved ts", l.meta.GlobalResolvedTS))
-		l.endTs = l.meta.GlobalResolvedTS
+		l.endTS = l.meta.GlobalResolvedTS
 	}
 
 	// collect ddl files

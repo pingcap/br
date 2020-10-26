@@ -139,7 +139,7 @@ func formatColumnVal(c Column) Column {
 }
 
 type messageKey struct {
-	Ts        uint64 `json:"ts"`
+	TS        uint64 `json:"ts"`
 	Schema    string `json:"scm,omitempty"`
 	Table     string `json:"tbl,omitempty"`
 	RowID     int64  `json:"rid,omitempty"`
@@ -272,7 +272,7 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 		Data:     m,
 		Schema:   nextKey.Schema,
 		Table:    nextKey.Table,
-		TS:       nextKey.Ts,
+		TS:       nextKey.TS,
 		RowID:    nextKey.RowID,
 	}
 	return item, nil

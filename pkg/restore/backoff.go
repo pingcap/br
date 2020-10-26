@@ -24,7 +24,7 @@ const (
 	downloadSSTWaitInterval    = 10 * time.Millisecond
 	downloadSSTMaxWaitInterval = 1 * time.Second
 
-	resetTsRetryTime       = 16
+	resetTSRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond
 	resetTSMaxWaitInterval = 500 * time.Millisecond
 )
@@ -91,7 +91,7 @@ type pdReqBackoffer struct {
 
 func newPDReqBackoffer() utils.Backoffer {
 	return &pdReqBackoffer{
-		attempt:      resetTsRetryTime,
+		attempt:      resetTSRetryTime,
 		delayTime:    resetTSWaitInterval,
 		maxDelayTime: resetTSMaxWaitInterval,
 	}
