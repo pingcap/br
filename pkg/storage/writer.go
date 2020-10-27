@@ -8,11 +8,15 @@ import (
 	"io"
 )
 
-type CompressType int
+// CompressType represents the type of compression
+type CompressType uint8
 
 const (
+	// NoCompression won't compress given bytes
 	NoCompression CompressType = iota
+	// Gzip will compress given bytes in gzip format
 	Gzip
+	// Zlib will compress give bytes in zlib format
 	Zlib
 )
 
