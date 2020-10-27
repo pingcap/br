@@ -116,50 +116,6 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 	return u.uploader.CompleteUpload(ctx)
 }
 
-type uploaderCompressWriter struct {
-	*uploaderWriter
-	bytesWritten int
-	cap          int
-	gzipWriter   *gzip.Writer
-}
-
-func (u *uploaderCompressWriter) Write(ctx context.Context, p []byte) (int, error) {
-	bytesWritten := 0
-	for u.bytesWritten+len(p) > u.cap {
-		// We won't fit p in this chunk
-
-		// Is this chunk full?
-		chunkToFill := u.cap - u.bytesWritten
-		if chunkToFill > 0 {
-			// It's not full so we write enough of p to fill it
-			prewrite := p[0:chunkToFill]
-			w, err := u.gzipWriter.Write(prewrite)
-			bytesWritten += w
-			u.bytesWritten += w
-			if err != nil {
-				return bytesWritten, err
-			}
-			p = p[w:]
-		}
-		u.gzipWriter.Flush()
-		err := u.uploadChunk(ctx)
-		u.bytesWritten = 0
-		if err != nil {
-			return 0, err
-		}
-	}
-	w, err := u.gzipWriter.Write(p)
-	bytesWritten += w
-	u.bytesWritten += w
-	return bytesWritten, err
-}
-
-func (u *uploaderCompressWriter) Close(ctx context.Context) error {
-	u.gzipWriter.Close()
-	u.bytesWritten = 0
-	return u.uploaderWriter.Close(ctx)
-}
-
 // NewUploaderWriter wraps the Writer interface over an uploader.
 func NewUploaderWriter(uploader Uploader, chunkSize int, compress bool) Writer {
 	return newUploaderWriter(uploader, chunkSize, compress)
