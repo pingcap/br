@@ -32,7 +32,7 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt"
 		uploader, err := storage.CreateUploader(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize)
+		writer := newUploaderWriter(uploader, test.chunkSize, false)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -113,7 +113,7 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt.gz"
 		uploader, err := storage.CreateUploader(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderCompressWriter(uploader, test.chunkSize)
+		writer := newUploaderWriter(uploader, test.chunkSize, true)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)

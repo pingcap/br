@@ -6,8 +6,67 @@ import (
 	"context"
 )
 
+type interceptBuffer struct {
+	*bytes.Buffer
+	compressWriter *gzip.Writer
+	len int
+	cap int
+}
+
+func (b *interceptBuffer) Write(p []byte) (int, error) {
+	if b.compressWriter == nil {
+		return b.Buffer.Write(p)
+	}
+	written, err := b.compressWriter.Write(p)
+	b.len += written
+	return written, err
+}
+
+func (b *interceptBuffer) Len() int {
+	if b.compressWriter == nil {
+		return b.Buffer.Len()
+	}
+	return b.len
+}
+
+func (b *interceptBuffer) Cap() int {
+	if b.compressWriter == nil {
+		return b.Buffer.Cap()
+	}
+	return b.cap
+}
+
+func (b *interceptBuffer) Reset() {
+	b.len = 0
+	b.Buffer.Reset()
+}
+
+func (b *interceptBuffer) Flush() error {
+	if b.compressWriter == nil {
+		return nil
+	}
+	return b.compressWriter.Flush()
+}
+
+func (b *interceptBuffer) Close() error {
+	if b.compressWriter == nil {
+		return nil
+	}
+	return b.compressWriter.Close()
+}
+
+func newInterceptBuffer(chunkSize int, compress bool) *interceptBuffer {
+	b := &interceptBuffer{Buffer: bytes.NewBuffer(make([]byte, 0, chunkSize))}
+	if compress {
+		b.len = 0
+		b.cap = chunkSize
+		b.compressWriter = gzip.NewWriter(b.Buffer)
+	}
+	return b
+}
+
 type uploaderWriter struct {
-	buf      *bytes.Buffer
+	buf      *interceptBuffer
 	uploader Uploader
 }
 
@@ -28,6 +87,7 @@ func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 			}
 			p = p[w:]
 		}
+		u.buf.Flush()
 		err := u.uploadChunk(ctx)
 		if err != nil {
 			return 0, err
@@ -48,6 +108,7 @@ func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
 }
 
 func (u *uploaderWriter) Close(ctx context.Context) error {
+	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {
 		return err
@@ -99,31 +160,16 @@ func (u *uploaderCompressWriter) Close(ctx context.Context) error {
 	return u.uploaderWriter.Close(ctx)
 }
 
-// NewUploaderCompressWriter wraps the Writer interface over an uploader.
-func NewUploaderCompressWriter(uploader Uploader, chunkSize int) Writer {
-	return newUploaderCompressWriter(uploader, chunkSize)
-}
-
-func newUploaderCompressWriter(uploader Uploader, chunkSize int) *uploaderCompressWriter {
-	uploaderWriterImpl := newUploaderWriter(uploader, chunkSize)
-	return &uploaderCompressWriter{
-		uploaderWriter: uploaderWriterImpl,
-		bytesWritten:   0,
-		cap:            chunkSize,
-		gzipWriter:     gzip.NewWriter(uploaderWriterImpl.buf),
-	}
-}
-
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int) Writer {
-	return newUploaderWriter(uploader, chunkSize)
+func NewUploaderWriter(uploader Uploader, chunkSize int, compress bool) Writer {
+	return newUploaderWriter(uploader, chunkSize, compress)
 }
 
 // newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int) *uploaderWriter {
+func newUploaderWriter(uploader Uploader, chunkSize int, compress bool) *uploaderWriter {
 	return &uploaderWriter{
 		uploader: uploader,
-		buf:      bytes.NewBuffer(make([]byte, 0, chunkSize))}
+		buf:      newInterceptBuffer(chunkSize, compress)}
 }
 
 // BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
