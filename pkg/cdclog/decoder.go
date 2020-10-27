@@ -109,7 +109,7 @@ func formatColumnVal(c Column) Column {
 			// CHAR/BINARY have the same type: 254
 			// VARCHAR/VARBINARY have the same type: 15
 			// we need to process it by its flag.
-			if c.Flag&BinaryFlag == 1 {
+			if c.Flag&BinaryFlag != 0 {
 				val, err := strconv.Unquote("\"" + s + "\"")
 				if err != nil {
 					log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
