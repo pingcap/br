@@ -3,70 +3,118 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
+	"compress/zlib"
 	"context"
+	"io"
 )
 
-type interceptBuffer struct {
+type CompressType int
+
+const (
+	NoCompression CompressType = iota
+	Gzip
+	Zlib
+)
+
+type interceptBuffer interface {
+	io.WriteCloser
+	Len() int
+	Cap() int
+	Bytes() []byte
+	Flush() error
+	Reset()
+}
+
+func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
+	switch compressType {
+	case NoCompression:
+		return newNoCompressionBuffer(chunkSize)
+	case Gzip:
+		return newGzipBuffer(chunkSize)
+	case Zlib:
+		return newZlibBuffer(chunkSize)
+	default:
+		return nil
+	}
+}
+
+type noCompressionBuffer struct {
 	*bytes.Buffer
-	compressWriter *gzip.Writer
+}
+
+func (b *noCompressionBuffer) Flush() error {
+	return nil
+}
+
+func (b *noCompressionBuffer) Close() error {
+	return nil
+}
+
+func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
+	return &noCompressionBuffer{bytes.NewBuffer(make([]byte, 0, chunkSize))}
+}
+
+type simpleCompressWriter interface {
+	io.WriteCloser
+	Flush() error
+}
+
+type simpleCompressBuffer struct {
+	*bytes.Buffer
+	compressWriter simpleCompressWriter
 	len            int
 	cap            int
 }
 
-func (b *interceptBuffer) Write(p []byte) (int, error) {
-	if b.compressWriter == nil {
-		return b.Buffer.Write(p)
-	}
+func (b *simpleCompressBuffer) Write(p []byte) (int, error) {
 	written, err := b.compressWriter.Write(p)
 	b.len += written
 	return written, err
 }
 
-func (b *interceptBuffer) Len() int {
-	if b.compressWriter == nil {
-		return b.Buffer.Len()
-	}
+func (b *simpleCompressBuffer) Len() int {
 	return b.len
 }
 
-func (b *interceptBuffer) Cap() int {
-	if b.compressWriter == nil {
-		return b.Buffer.Cap()
-	}
+func (b *simpleCompressBuffer) Cap() int {
 	return b.cap
 }
 
-func (b *interceptBuffer) Reset() {
+func (b *simpleCompressBuffer) Reset() {
 	b.len = 0
 	b.Buffer.Reset()
 }
 
-func (b *interceptBuffer) Flush() error {
-	if b.compressWriter == nil {
-		return nil
-	}
+func (b *simpleCompressBuffer) Flush() error {
 	return b.compressWriter.Flush()
 }
 
-func (b *interceptBuffer) Close() error {
-	if b.compressWriter == nil {
-		return nil
-	}
+func (b *simpleCompressBuffer) Close() error {
 	return b.compressWriter.Close()
 }
 
-func newInterceptBuffer(chunkSize int, compress bool) *interceptBuffer {
-	b := &interceptBuffer{Buffer: bytes.NewBuffer(make([]byte, 0, chunkSize))}
-	if compress {
-		b.len = 0
-		b.cap = chunkSize
-		b.compressWriter = gzip.NewWriter(b.Buffer)
+func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
+	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
+	return &simpleCompressBuffer{
+		Buffer:         bf,
+		len:            0,
+		cap:            chunkSize,
+		compressWriter: gzip.NewWriter(bf),
 	}
-	return b
+}
+
+func newZlibBuffer(chunkSize int) *simpleCompressBuffer {
+	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
+	return &simpleCompressBuffer{
+		Buffer:         bf,
+		len:            0,
+		cap:            chunkSize,
+		compressWriter: zlib.NewWriter(bf),
+	}
 }
 
 type uploaderWriter struct {
-	buf      *interceptBuffer
+	buf      interceptBuffer
 	uploader Uploader
 }
 
@@ -117,15 +165,15 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int, compress bool) Writer {
-	return newUploaderWriter(uploader, chunkSize, compress)
+func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) Writer {
+	return newUploaderWriter(uploader, chunkSize, compressType)
 }
 
 // newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int, compress bool) *uploaderWriter {
+func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
 	return &uploaderWriter{
 		uploader: uploader,
-		buf:      newInterceptBuffer(chunkSize, compress)}
+		buf:      newInterceptBuffer(chunkSize, compressType)}
 }
 
 // BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
