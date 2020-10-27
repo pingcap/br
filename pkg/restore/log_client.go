@@ -137,6 +137,14 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+func (l *LogClient) maybeTSInRange(ts uint64) bool {
+	// We choose the last event's ts as file name in cdclog when rotate.
+	// so even this file name's ts is larger than l.endTS,
+	// we still need to collect it, because it may have some events in this ts range.
+	// TODO: find another effective filter to collect files
+	return ts >= l.startTS
+}
+
 func (l *LogClient) tsInRange(ts uint64) bool {
 	return l.startTS <= ts && ts <= l.endTS
 }
@@ -170,7 +178,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
 	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
-	if l.tsInRange(ts) {
+	if l.maybeTSInRange(ts) {
 		return true, nil
 	}
 	log.Info("filter ddl file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
@@ -268,7 +276,7 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	if err != nil {
 		return false, errors.Trace(err)
 	}
-	if l.tsInRange(ts) {
+	if l.maybeTSInRange(ts) {
 		return true, nil
 	}
 	log.Info("filter file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
