@@ -9,8 +9,8 @@ import (
 type interceptBuffer struct {
 	*bytes.Buffer
 	compressWriter *gzip.Writer
-	len int
-	cap int
+	len            int
+	cap            int
 }
 
 func (b *interceptBuffer) Write(p []byte) (int, error) {
