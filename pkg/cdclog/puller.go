@@ -61,10 +61,12 @@ func NewEventPuller(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		ddlFileIndex++
-		ddlDecoder, err = NewJSONEventBatchDecoder(data)
-		if err != nil {
-			return nil, errors.Trace(err)
+		if len(data) != 0 {
+			ddlFileIndex++
+			ddlDecoder, err = NewJSONEventBatchDecoder(data)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 	}
 
@@ -75,10 +77,12 @@ func NewEventPuller(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		rowFileIndex++
-		rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
-		if err != nil {
-			return nil, errors.Trace(err)
+		if len(data) != 0 {
+			rowFileIndex++
+			rowChangedDecoder, err = NewJSONEventBatchDecoder(data)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 	}
 
