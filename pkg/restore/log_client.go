@@ -137,6 +137,12 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+// ResetTsRange used for test.
+func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
+	l.startTS = startTS
+	l.endTS = endTS
+}
+
 func (l *LogClient) maybeTSInRange(ts uint64) bool {
 	// We choose the last event's ts as file name in cdclog when rotate.
 	// so even this file name's ts is larger than l.endTS,
@@ -258,7 +264,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	return nil
 }
 
-func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
+func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	if fileName == logPrefix {
 		// this file name appeared when file sink enabled
 		return true, nil
@@ -313,7 +319,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
-			shouldRestore, err := l.needRestoreRowChange(fileName)
+			shouldRestore, err := l.NeedRestoreRowChange(fileName)
 			if err != nil {
 				return err
 			}

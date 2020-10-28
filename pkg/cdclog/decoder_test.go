@@ -15,9 +15,11 @@ package cdclog
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"testing"
 
-	"github.com/pingcap/check"
+	"github.com/pingcap/parser/mysql"
+	"gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { check.TestingT(t) }
@@ -141,3 +143,27 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		index++
 	}
 }
+
+func (s *batchSuite) TestColumn(c *check.C) {
+	// test varbinary columns (same type with varchar 15)
+	col1 := Column{Type: mysql.TypeVarchar, Flag: BinaryFlag, Value: "\\x00\\x01" }
+	col1 = formatColumnVal(col1)
+	dat, err := col1.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetString(), check.Equals, "\x00\x01")
+
+	// test binary columns (same type with varchar 254)
+	col2 := Column{Type: mysql.TypeString, Flag: BinaryFlag, Value: "test\\ttest" }
+	col2 = formatColumnVal(col2)
+	dat, err = col2.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetString(), check.Equals, "test\ttest")
+
+	// test year columns
+	val := json.Number("2020")
+	colYear := Column{Type: mysql.TypeYear, Value: val}
+	dat, err = colYear.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetInt64(), check.Equals, int64(2020))
+}
+
