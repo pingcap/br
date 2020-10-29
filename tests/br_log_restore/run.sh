@@ -71,6 +71,22 @@ for i in $(seq $DB_COUNT); do
     row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
+# test drop & create schema/table, finally only db2 has one row
+run_sql "create schema $DB_DDL1;"
+run_sql "create table $DB_DDL1.t1 (a int primary key, b varchar(10));"
+run_sql "insert into $DB_DDL1.t1 values (1, "x");"
+
+run_sql "drop schema $DB_DDL1;"
+run_sql "create schema $DB_DDL1;"
+run_sql "create schema $DB_DDL2;"
+
+run_sql "create table $DB_DDL2.t2 (a int primary key, b varchar(10));"
+run_sql "insert into $DB_DDl2.t2 values (2, "x");"
+
+run_sql "drop table $DB_DDL2.t2;"
+run_sql "create table $DB_DDL2.t2 (a int primary key, b varchar(10));"
+run_sql "insert into $DB_DDL2.t2 values (3, "x");"
+
 # sleep wait cdc log sync to storage
 # TODO find another way to check cdc log has synced
 sleep 30
@@ -92,6 +108,12 @@ for i in $(seq $DB_COUNT); do
 done
 
 fail=false
+row_count=$(run_sql "SELECT COUNT(*) FROM $DB_DDL2}.t2 WHERE id=3;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne 1 ] {
+    fail=true
+    echo "TEST: [$TEST_NAME] fail on dml&ddl drop test."
+}
+
 for i in $(seq $DB_COUNT); do
     if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
         fail=true
@@ -110,3 +132,6 @@ fi
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
+
+run_sql "DROP DATABASE $DB_DDL1"
+run_sql "DROP DATABASE $DB_DDL2"
