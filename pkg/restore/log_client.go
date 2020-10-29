@@ -296,7 +296,22 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 
 	// need collect restore tableIDs
 	tableIDs := make([]int64, 0, len(l.meta.Names))
+
+	// we need remove duplicate table name in collection.
+	// when a table create and drop and create again.
+	// then we will have two different table id with same tables.
+	// we should keep the latest table id(larger table id), and filter the old one.
+	nameIDMap := make(map[string]int64)
 	for tableID, name := range l.meta.Names {
+		if tid, ok := nameIDMap[name]; ok {
+			if tid < tableID {
+				nameIDMap[name] = tableID
+			}
+		} else {
+			nameIDMap[name] = tableID
+		}
+	}
+	for name, tableID := range nameIDMap {
 		schema, table := ParseQuoteName(name)
 		if !l.tableFilter.MatchTable(schema, table) {
 			log.Info("filter tables",
