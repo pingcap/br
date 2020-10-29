@@ -224,6 +224,14 @@ func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
 	return false
 }
 
+func (l *LogClient) isDropTable(ddl *cdclog.MessageDDL) bool {
+	switch ddl.Type {
+	case model.ActionDropTable:
+		return true
+	}
+	return false
+}
+
 func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	if len(ddls) == 0 {
 		log.Info("no ddls to restore")
@@ -860,11 +868,17 @@ func (l *LogClient) restoreTableFromPuller(
 			}
 			l.ddlLock.Unlock()
 
+			// if table dropped, we will pull next event to see if this table will create again.
+			// with next create table ddl, we can do reloadTableMeta.
+			if l.isDropTable(ddl) {
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
+				l.tableBuffers[tableID].ResetTableInfo()
+				continue
+			}
 			err = l.reloadTableMeta(dom, tableID, item)
 			if err != nil {
 				return errors.Trace(err)
 			}
-
 		case cdclog.RowChanged:
 			if l.tableBuffers[tableID].TableInfo() == nil {
 				err = l.reloadTableMeta(dom, tableID, item)
