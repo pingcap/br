@@ -18,8 +18,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/pingcap/check"
 	"github.com/pingcap/parser/mysql"
-	"gopkg.in/check.v1"
 )
 
 func Test(t *testing.T) { check.TestingT(t) }
