@@ -16,14 +16,13 @@ import (
 	"github.com/pingcap/br/pkg/restore"
 )
 
-type testLogRestoreSuite struct{
+type testLogRestoreSuite struct {
 	mock *mock.Cluster
 
 	client *restore.LogClient
 }
 
 var _ = Suite(&testLogRestoreSuite{})
-
 
 func (s *testLogRestoreSuite) SetUpSuite(c *C) {
 	var err error
@@ -40,7 +39,7 @@ func (s *testLogRestoreSuite) SetUpSuite(c *C) {
 		filter.NewSchemasFilter("test"),
 		8,
 		16,
-		5 << 20,
+		5<<20,
 		16,
 	)
 	c.Assert(err, IsNil)
@@ -71,4 +70,3 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(collected, IsFalse)
 }
-

@@ -225,11 +225,7 @@ func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
 }
 
 func (l *LogClient) isDropTable(ddl *cdclog.MessageDDL) bool {
-	switch ddl.Type {
-	case model.ActionDropTable:
-		return true
-	}
-	return false
+	return ddl.Type == model.ActionDropTable
 }
 
 func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
@@ -272,6 +268,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	return nil
 }
 
+// NeedRestoreRowChange determine whether to collect this file by ts range.
 func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	if fileName == logPrefix {
 		// this file name appeared when file sink enabled
