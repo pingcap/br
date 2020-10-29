@@ -146,14 +146,14 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 
 func (s *batchSuite) TestColumn(c *check.C) {
 	// test varbinary columns (same type with varchar 15)
-	col1 := Column{Type: mysql.TypeVarchar, Flag: BinaryFlag, Value: "\\x00\\x01" }
+	col1 := Column{Type: mysql.TypeVarchar, Flag: BinaryFlag, Value: "\\x00\\x01"}
 	col1 = formatColumnVal(col1)
 	dat, err := col1.ToDatum()
 	c.Assert(err, check.IsNil)
 	c.Assert(dat.GetString(), check.Equals, "\x00\x01")
 
 	// test binary columns (same type with varchar 254)
-	col2 := Column{Type: mysql.TypeString, Flag: BinaryFlag, Value: "test\\ttest" }
+	col2 := Column{Type: mysql.TypeString, Flag: BinaryFlag, Value: "test\\ttest"}
 	col2 = formatColumnVal(col2)
 	dat, err = col2.ToDatum()
 	c.Assert(err, check.IsNil)
@@ -166,4 +166,3 @@ func (s *batchSuite) TestColumn(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Assert(dat.GetInt64(), check.Equals, int64(2020))
 }
-
