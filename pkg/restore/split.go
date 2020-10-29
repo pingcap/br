@@ -251,7 +251,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 		return nil, err
 	}
 	for _, region := range newRegions {
-		// Wait for a while until the regions successfully splits.
+		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
 		if err = rs.client.ScatterRegion(ctx, region); err != nil {
 			log.Warn("scatter region failed", utils.ZapRegion(region.Region), zap.Error(err))
