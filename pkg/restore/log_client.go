@@ -137,7 +137,7 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
-// ResetTsRange used for test.
+// ResetTSRange used for test.
 func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
 	l.startTS = startTS
 	l.endTS = endTS
