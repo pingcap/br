@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
@@ -18,8 +19,9 @@ type ProgressPrinter struct {
 	name        string
 	total       int64
 	redirectLog bool
+	progress    int64
 
-	updateCh chan struct{}
+	cancel context.CancelFunc
 }
 
 // NewProgressPrinter returns a new progress printer.
@@ -32,13 +34,20 @@ func NewProgressPrinter(
 		name:        name,
 		total:       total,
 		redirectLog: redirectLog,
-		updateCh:    make(chan struct{}, total/2),
+		cancel: func() {
+			log.Warn("canceling non-started progress printer")
+		},
 	}
 }
 
-// UpdateCh returns an update channel.
-func (pp *ProgressPrinter) UpdateCh() chan<- struct{} {
-	return pp.updateCh
+// Inc increases the current progress bar.
+func (pp *ProgressPrinter) Inc() {
+	atomic.AddInt64(&pp.progress, 1)
+}
+
+// Close closes the current progress bar.
+func (pp *ProgressPrinter) Close() {
+	pp.cancel()
 }
 
 // goPrintProgress starts a gorouinte and prints progress.
@@ -46,6 +55,8 @@ func (pp *ProgressPrinter) goPrintProgress(
 	ctx context.Context,
 	testWriter io.Writer, // Only for tests
 ) {
+	cctx, cancel := context.WithCancel(ctx)
+	pp.cancel = cancel
 	bar := pb.New64(pp.total)
 	if pp.redirectLog || testWriter != nil {
 		tmpl := `{"P":"{{percent .}}","C":"{{counters . }}","E":"{{etime .}}","R":"{{rtime .}}","S":"{{speed .}}"}`
@@ -64,7 +75,7 @@ func (pp *ProgressPrinter) goPrintProgress(
 	}
 	if testWriter != nil {
 		bar.SetWriter(testWriter)
-		bar.SetRefreshRate(10 * time.Millisecond)
+		bar.SetRefreshRate(2 * time.Second)
 	}
 	bar.Start()
 
@@ -73,22 +84,23 @@ func (pp *ProgressPrinter) goPrintProgress(
 		defer t.Stop()
 		defer bar.Finish()
 
-		var counter int64
 		for {
 			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-pp.updateCh:
-				if !ok {
-					bar.SetCurrent(pp.total)
+			case <-cctx.Done():
+				// a hacky way to adapt the old behavior:
+				// when canceled by the outer context, leave the progress unchanged.
+				// when canceled by Close method (the 'internal' way), push the progress to 100%.
+				if ctx.Err() != nil {
 					return
 				}
-				counter++
+				bar.SetCurrent(pp.total)
+				return
 			case <-t.C:
 			}
 
-			if counter <= pp.total {
-				bar.SetCurrent(counter)
+			currentProgress := atomic.LoadInt64(&pp.progress)
+			if currentProgress <= pp.total {
+				bar.SetCurrent(currentProgress)
 			} else {
 				bar.SetCurrent(pp.total)
 			}
@@ -127,8 +139,8 @@ func StartProgress(
 	name string,
 	total int64,
 	redirectLog bool,
-) chan<- struct{} {
+) *ProgressPrinter {
 	progress := NewProgressPrinter(name, total, redirectLog)
 	progress.goPrintProgress(ctx, nil)
-	return progress.UpdateCh()
+	return progress
 }
