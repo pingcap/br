@@ -137,6 +137,14 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+func (l *LogClient) maybeTSInRange(ts uint64) bool {
+	// We choose the last event's ts as file name in cdclog when rotate.
+	// so even this file name's ts is larger than l.endTS,
+	// we still need to collect it, because it may have some events in this ts range.
+	// TODO: find another effective filter to collect files
+	return ts >= l.startTS
+}
+
 func (l *LogClient) tsInRange(ts uint64) bool {
 	return l.startTS <= ts && ts <= l.endTS
 }
@@ -170,7 +178,11 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
 	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
-	return l.tsInRange(ts), nil
+	if l.maybeTSInRange(ts) {
+		return true, nil
+	}
+	log.Info("filter ddl file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
+	return false, nil
 }
 
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
@@ -264,7 +276,7 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	if err != nil {
 		return false, errors.Trace(err)
 	}
-	if l.tsInRange(ts) {
+	if l.maybeTSInRange(ts) {
 		return true, nil
 	}
 	log.Info("filter file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
@@ -749,8 +761,16 @@ func (l *LogClient) restoreTableFromPuller(
 			return nil
 		}
 		log.Debug("[restoreFromPuller] next event", zap.Any("item", item), zap.Int64("table id", tableID))
-		if !l.tsInRange(item.TS) {
-			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
+		if l.startTS > item.TS {
+			log.Debug("[restoreFromPuller] item ts is smaller than start ts, skip this item",
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTS),
+				zap.Uint64("item ts", item.TS),
+				zap.Int64("table id", tableID))
+			continue
+		}
+		if l.endTS < item.TS {
+			log.Warn("[restoreFromPuller] ts is larger than end ts, we should stop and flush",
 				zap.Uint64("start ts", l.startTS),
 				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
