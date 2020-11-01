@@ -608,6 +608,19 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader,
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + name),
 	}
+	if rs.options.Acl != "" {
+		input = input.SetACL(rs.options.Acl)
+	}
+	if rs.options.Sse != "" {
+		input = input.SetServerSideEncryption(rs.options.Sse)
+	}
+	if rs.options.SseKmsKeyId != "" {
+		input = input.SetSSEKMSKeyId(rs.options.SseKmsKeyId)
+	}
+	if rs.options.StorageClass != "" {
+		input = input.SetStorageClass(rs.options.StorageClass)
+	}
+
 	resp, err := rs.svc.CreateMultipartUploadWithContext(ctx, input)
 	if err != nil {
 		return nil, err
