@@ -211,8 +211,8 @@ func (importer *FileImporter) Import(
 		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
 		// if not truncateRowKey here, if will scan one more region
 		// TODO need more test to check here
-		// startKey = truncateRowKey(startKey)
-		// endKey = truncateRowKey(endKey)
+		startKey = truncateRowKey(startKey)
+		endKey = truncateRowKey(endKey)
 	}
 	if err != nil {
 		return err
