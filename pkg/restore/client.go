@@ -48,11 +48,12 @@ const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files.
 type Client struct {
-	pdClient     pd.Client
-	toolClient   SplitClient
-	fileImporter FileImporter
-	workerPool   *utils.WorkerPool
-	tlsConf      *tls.Config
+	pdClient      pd.Client
+	toolClient    SplitClient
+	fileImporter  FileImporter
+	workerPool    *utils.WorkerPool
+	tlsConf       *tls.Config
+	keepaliveConf keepalive.ClientParameters
 
 	databases  map[string]*utils.Database
 	ddlJobs    []*model.Job
@@ -86,6 +87,7 @@ func NewRestoreClient(
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
+	keepaliveConf keepalive.ClientParameters,
 ) (*Client, error) {
 	db, err := NewDB(g, store)
 	if err != nil {
@@ -93,11 +95,12 @@ func NewRestoreClient(
 	}
 
 	return &Client{
-		pdClient:   pdClient,
-		toolClient: NewSplitClient(pdClient, tlsConf),
-		db:         db,
-		tlsConf:    tlsConf,
-		switchCh:   make(chan struct{}),
+		pdClient:      pdClient,
+		toolClient:    NewSplitClient(pdClient, tlsConf),
+		db:            db,
+		tlsConf:       tlsConf,
+		keepaliveConf: keepaliveConf,
+		switchCh:      make(chan struct{}),
 	}, nil
 }
 
@@ -161,8 +164,9 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
-	importClient := NewImportClient(metaClient, rc.tlsConf)
-	rc.fileImporter = NewFileImporter(metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
+	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
+	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
+
 	return nil
 }
 
@@ -649,17 +653,13 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		keepAlive := 10
-		keepAliveTimeout := 3
 		conn, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
 			grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    time.Duration(keepAlive) * time.Second,
-				Timeout: time.Duration(keepAliveTimeout) * time.Second,
-			}),
+			// we don't need to set keepalive timeout here, because the connection lives
+			// at most 5s. (shorter than minimal value for keepalive time!)
 		)
 		cancel()
 		if err != nil {
