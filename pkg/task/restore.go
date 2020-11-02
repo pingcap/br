@@ -136,6 +136,21 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return err
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
+
+	// Merge small ranges to reduce split and scatter regions.
+	stat, err := restore.MergeRanges(backupMeta)
+	log.Info("Reduce file done",
+		zap.Int("Files(total)", stat.TotalFiles),
+		zap.Int("File(write)", stat.TotalWriteCFFile),
+		zap.Int("File(default)", stat.TotalDefaultCFFile),
+		zap.Int("Region(total)", stat.TotalRegions),
+		zap.Int("Regoin(keys avg)", stat.RegionKeysAvg),
+		zap.Int("Region(bytes avg)", stat.RegionBytesAvg),
+		zap.Int("Merged(files)", stat.MergedFiles),
+		zap.Int("Merged(regions)", stat.MergedRegions),
+		zap.Int("Merged(keys avg)", stat.MergedRegionKeysAvg),
+		zap.Int("Merged(bytes avg)", stat.MergedRegionBytesAvg))
+
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return err
 	}

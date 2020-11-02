@@ -255,7 +255,7 @@ func GoValidateFileRanges(
 				}
 				tableWithRange := TableWithRange{
 					CreatedTable: t,
-					Range:        AttachFilesToRanges(files, ranges),
+					Range:        attachFilesToRanges(files, ranges),
 				}
 				log.Debug("sending range info",
 					zap.Stringer("table", t.Table.Name),
@@ -288,13 +288,10 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 	return r, nil
 }
 
-// AttachFilesToRanges attach files to ranges.
-// Panic if range is overlapped or no range for files.
+// attachFilesToRanges attach files to ranges.
+// Panic no range found for a file.
 // nolint:staticcheck
-func AttachFilesToRanges(
-	files []*backup.File,
-	ranges []rtree.Range,
-) []rtree.Range {
+func attachFilesToRanges(files []*backup.File, ranges []rtree.Range) []rtree.Range {
 	rangeTree := rtree.NewRangeTree()
 	for _, rg := range ranges {
 		rangeTree.Update(rg)
@@ -311,11 +308,6 @@ func AttachFilesToRanges(
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)
-	}
-	if rangeTree.Len() != len(ranges) {
-		log.Panic("ranges overlapped",
-			zap.Int("ranges length", len(ranges)),
-			zap.Int("tree length", rangeTree.Len()))
 	}
 	sortedRanges := rangeTree.GetSortedRanges()
 	return sortedRanges

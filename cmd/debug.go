@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/ioutil"
 	"path"
 	"reflect"
 
@@ -142,9 +143,73 @@ origin sha256 is %s`,
 
 func newBackupMetaCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "backupmeta",
-		Short: "check the backup meta",
-		Args:  cobra.NoArgs,
+		Use:          "backupmeta",
+		Short:        "utilities of backupmeta",
+		SilenceUsage: false,
+	}
+	command.AddCommand(newBackupMetaValidateCommand())
+	command.AddCommand(newBackupMetaMergeCommand())
+	return command
+}
+
+func newBackupMetaMergeCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "merge",
+		Short: "Merge empty or small ranges in backupmeta",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx, cancel := context.WithCancel(GetDefaultContext())
+			defer cancel()
+
+			output, err := cmd.Flags().GetString("output")
+			if err != nil {
+				return err
+			}
+
+			var cfg task.Config
+			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
+				return err
+			}
+			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			if err != nil {
+				log.Error("read backupmeta failed", zap.Error(err))
+				return err
+			}
+			mergedRangesStats, err := restore.MergeRanges(backupMeta)
+			if err != nil {
+				return err
+			}
+			backupMetaData, err := proto.Marshal(backupMeta)
+			if err != nil {
+				return err
+			}
+			err = ioutil.WriteFile(output, backupMetaData, 0644) // nolint:gosec
+			if err != nil {
+				return err
+			}
+
+			cmd.Println("Reduce file done",
+				"\nFiles:            ", mergedRangesStats.TotalFiles,
+				"\n  Write CF:       ", mergedRangesStats.TotalWriteCFFile,
+				"\n  Default CF:     ", mergedRangesStats.TotalDefaultCFFile,
+				"\nRegions:          ", mergedRangesStats.TotalRegions,
+				"\nKeys avg:         ", mergedRangesStats.RegionKeysAvg,
+				"\nBytes avg:        ", mergedRangesStats.RegionBytesAvg, "(byte)",
+				"\nMerged files:     ", mergedRangesStats.MergedFiles,
+				"\nMerged regions:   ", mergedRangesStats.MergedRegions,
+				"\nMerged keys avg:  ", mergedRangesStats.MergedRegionKeysAvg,
+				"\nMerged bytes avg: ", mergedRangesStats.MergedRegionBytesAvg, "(byte)",
+			)
+			return nil
+		},
+	}
+	command.Flags().StringP("output", "o", "", "write reduced backupmeta to a given path")
+	return command
+}
+
+func newBackupMetaValidateCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "validate",
+		Short: "validate key range and rewrite rules of backupmeta",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -233,7 +298,6 @@ func newBackupMetaCommand() *cobra.Command {
 		},
 	}
 	command.Flags().Uint64("offset", 0, "the offset of table id alloctor")
-	command.Hidden = true
 	return command
 }
 

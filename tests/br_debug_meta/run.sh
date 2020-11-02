@@ -15,24 +15,23 @@
 
 set -eu
 DB="$TEST_NAME"
-TABLE="usertable1"
+TABLE="usertable"
 
 run_sql "CREATE DATABASE $DB;"
+go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
-run_sql "CREATE TABLE $DB.$TABLE( \
-  YCSB_KEY varchar(64) NOT NULL, \
-  FIELD0 varchar(1) DEFAULT NULL, \
-  PRIMARY KEY (YCSB_KEY) \
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
-
-run_sql "INSERT INTO $DB.$TABLE VALUES (\"a\", \"b\");"
-run_sql "INSERT INTO $DB.$TABLE VALUES (\"aa\", \"b\");"
+for i in $(seq 10); do
+    regioncount=$(run_sql "SHOW TABLE $DB.$TABLE REGIONS;" | grep "REGION_ID" | wc -l)
+    [ $regioncount -ge 2 ] && break
+    sleep 3
+done
+run_sql "SHOW TABLE $DB.$TABLE REGIONS;" | grep "REGION_ID"
 
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 # backup table
 echo "backup start..."
-run_br --pd $PD_ADDR backup table --db $DB --table usertable1 -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
 
 run_sql "DROP DATABASE $DB;"
 
@@ -59,7 +58,32 @@ mv "$TEST_DIR/$DB/backupmeta_from_json" "$TEST_DIR/$DB/backupmeta"
 
 # restore table
 echo "restore start..."
-run_br --pd $PD_ADDR restore table --db $DB --table usertable1 -s "local://$TEST_DIR/$DB"
+run_br --pd $PD_ADDR restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB"
+
+row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
+
+if [ "${row_count_ori}" != "${row_count_new}" ];then
+    echo "TEST: [$TEST_NAME] failed!, row count not equal after restore"
+    exit 1
+fi
+
+run_sql "DROP DATABASE $DB;"
+
+# Test merge ranges
+run_br debug backupmeta merge -s "local://$TEST_DIR/$DB" -o $TEST_DIR/$DB/merged
+
+# should generate merged
+if [ ! -f "$TEST_DIR/$DB/merged" ]; then
+    echo "TEST: [$TEST_NAME] reduce file failed!"
+    exit 1
+fi
+
+# replace backupmeta
+mv "$TEST_DIR/$DB/merged" "$TEST_DIR/$DB/backupmeta"
+
+# restore table
+echo "restore start..."
+run_br --pd $PD_ADDR restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB"
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
