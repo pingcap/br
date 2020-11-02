@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
-	"compress/zlib"
 	"context"
 	"io"
 )
@@ -16,8 +15,6 @@ const (
 	NoCompression CompressType = iota
 	// Gzip will compress given bytes in gzip format.
 	Gzip
-	// Zlib will compress give bytes in zlib format.
-	Zlib
 )
 
 type interceptBuffer interface {
@@ -35,8 +32,6 @@ func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffe
 		return newNoCompressionBuffer(chunkSize)
 	case Gzip:
 		return newGzipBuffer(chunkSize)
-	case Zlib:
-		return newZlibBuffer(chunkSize)
 	default:
 		return nil
 	}
@@ -58,62 +53,47 @@ func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
 	return &noCompressionBuffer{bytes.NewBuffer(make([]byte, 0, chunkSize))}
 }
 
-type simpleCompressWriter interface {
-	io.WriteCloser
-	Flush() error
-}
-
-type simpleCompressBuffer struct {
+type gzipCompressBuffer struct {
 	*bytes.Buffer
-	compressWriter simpleCompressWriter
+	compressWriter *gzip.Writer
 	len            int
 	cap            int
 }
 
-func (b *simpleCompressBuffer) Write(p []byte) (int, error) {
+func (b *gzipCompressBuffer) Write(p []byte) (int, error) {
 	written, err := b.compressWriter.Write(p)
 	b.len += written
 	return written, err
 }
 
-func (b *simpleCompressBuffer) Len() int {
+func (b *gzipCompressBuffer) Len() int {
 	return b.len
 }
 
-func (b *simpleCompressBuffer) Cap() int {
+func (b *gzipCompressBuffer) Cap() int {
 	return b.cap
 }
 
-func (b *simpleCompressBuffer) Reset() {
+func (b *gzipCompressBuffer) Reset() {
 	b.len = 0
 	b.Buffer.Reset()
 }
 
-func (b *simpleCompressBuffer) Flush() error {
+func (b *gzipCompressBuffer) Flush() error {
 	return b.compressWriter.Flush()
 }
 
-func (b *simpleCompressBuffer) Close() error {
+func (b *gzipCompressBuffer) Close() error {
 	return b.compressWriter.Close()
 }
 
-func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
+func newGzipBuffer(chunkSize int) *gzipCompressBuffer {
 	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
-	return &simpleCompressBuffer{
+	return &gzipCompressBuffer{
 		Buffer:         bf,
 		len:            0,
 		cap:            chunkSize,
 		compressWriter: gzip.NewWriter(bf),
-	}
-}
-
-func newZlibBuffer(chunkSize int) *simpleCompressBuffer {
-	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
-	return &simpleCompressBuffer{
-		Buffer:         bf,
-		len:            0,
-		cap:            chunkSize,
-		compressWriter: zlib.NewWriter(bf),
 	}
 }
 
