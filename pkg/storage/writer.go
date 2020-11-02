@@ -3,7 +3,6 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
-	"compress/zlib"
 	"context"
 	"io"
 )
@@ -16,8 +15,6 @@ const (
 	NoCompression CompressType = iota
 	// Gzip will compress given bytes in gzip format.
 	Gzip
-	// Zlib will compress give bytes in zlib format.
-	Zlib
 )
 
 type interceptBuffer interface {
@@ -35,8 +32,6 @@ func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffe
 		return newNoCompressionBuffer(chunkSize)
 	case Gzip:
 		return newGzipBuffer(chunkSize)
-	case Zlib:
-		return newZlibBuffer(chunkSize)
 	default:
 		return nil
 	}
@@ -104,16 +99,6 @@ func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
 		len:            0,
 		cap:            chunkSize,
 		compressWriter: gzip.NewWriter(bf),
-	}
-}
-
-func newZlibBuffer(chunkSize int) *simpleCompressBuffer {
-	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
-	return &simpleCompressBuffer{
-		Buffer:         bf,
-		len:            0,
-		cap:            chunkSize,
-		compressWriter: zlib.NewWriter(bf),
 	}
 }
 
