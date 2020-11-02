@@ -5,6 +5,7 @@ package task
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pingcap/br/pkg/utils"
@@ -264,6 +265,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		if err2 != nil {
 			return err2
 		}
+		pdAddress := strings.Join(cfg.PD, ",")
+		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
+			zap.String("PD address", pdAddress))
 		return client.SaveBackupMeta(ctx, &backupMeta)
 	}
 
