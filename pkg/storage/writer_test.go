@@ -5,7 +5,9 @@ package storage
 import (
 	"bytes"
 	"compress/gzip"
+	"compress/zlib"
 	"context"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -102,6 +104,7 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		name         string
 		content      []string
 		chunkSize    int
+		compressType CompressType
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
@@ -113,7 +116,7 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt.gz"
 		uploader, err := storage.CreateUploader(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize, Gzip)
+		writer := newUploaderWriter(uploader, test.chunkSize, test.compressType)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -124,7 +127,13 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		c.Assert(err, IsNil)
 		file, err := os.Open(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
-		r, err := gzip.NewReader(file)
+		var r io.Reader
+		switch test.compressType {
+		case Gzip:
+			r, err = gzip.NewReader(file)
+		case Zlib:
+			r, err = zlib.NewReader(file)
+		}
 		c.Assert(err, IsNil)
 		var bf bytes.Buffer
 		_, err = bf.ReadFrom(r)
@@ -134,6 +143,7 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		c.Assert(writer.buf.Cap(), Equals, test.chunkSize)
 		c.Assert(file.Close(), IsNil)
 	}
+	compressTypeArr := []CompressType{Gzip, Zlib}
 	tests := []testcase{
 		{
 			name: "long text medium chunks",
@@ -161,6 +171,9 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		},
 	}
 	for i := range tests {
-		testFn(&tests[i], c)
+		for _, compressType := range compressTypeArr {
+			tests[i].compressType = compressType
+			testFn(&tests[i], c)
+		}
 	}
 }
