@@ -130,6 +130,8 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		switch test.compressType {
 		case Gzip:
 			r, err = gzip.NewReader(file)
+		default:
+			c.Fatal("unknown compressType")
 		}
 		c.Assert(err, IsNil)
 		var bf bytes.Buffer
