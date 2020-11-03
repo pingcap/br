@@ -420,11 +420,11 @@ func flagToZapField(f *pflag.Flag) zap.Field {
 
 // LogArguments prints origin command arguments.
 func LogArguments(cmd *cobra.Command) {
-	var fields []zap.Field
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Changed {
-			fields = append(fields, flagToZapField(f))
-		}
+	flags := cmd.Flags()
+	fields := make([]zap.Field, 1, flags.NFlag()+1)
+	fields[0] = zap.String("__command", cmd.CommandPath())
+	flags.Visit(func(f *pflag.Flag) {
+		fields = append(fields, flagToZapField(f))
 	})
 	log.Info("arguments", fields...)
 }
