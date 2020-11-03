@@ -102,7 +102,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	keepaliveCfg := GetKeepalive(&cfg.Config)
+	keepaliveCfg.PermitWithoutStream = true
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
 		return err
 	}
