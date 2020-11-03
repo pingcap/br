@@ -38,9 +38,9 @@ done
 echo "backup start..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
-BR_LOG_TO_TERM=1
+cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
 
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
 if [ "${checksum_count}" != "1" ];then
@@ -51,9 +51,29 @@ fi
 
 run_sql "DROP DATABASE $DB;"
 
+cluster_index_before_restore=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
+# keep cluster index enable or disable at same time.
+if [[ ${cluster_index_before_backup} != ${cluster_index_before_restore} ]]; then
+  echo "TEST: [$TEST_NAME] must enable or disable cluster_index at same time"
+  $cluster_index_before_restore=$cluster_index_before_backup
+fi
+
 # restore full
 echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+BR_LOG_TO_TERM=1
+
+skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
+
+# ensure there are only two(write + default) range empty error, 
+# because backup range end key is large than reality.
+# so the last region will download nothing.
+# FIXME maybe we can treat endkey specially in the future.
+if [ "${skip_count}" != "2" ];then
+    echo "TEST: [$TEST_NAME] fail on download sst"
+    echo $(cat $LOG | grep "range is empty")
+    exit 1
+fi
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
