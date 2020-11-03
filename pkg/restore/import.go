@@ -31,8 +31,6 @@ import (
 const (
 	importScanRegionTime      = 10 * time.Second
 	scanRegionPaginationLimit = int(128)
-	gRPCKeepAliveTime         = 10 * time.Second
-	gRPCKeepAliveTimeout      = 3 * time.Second
 	gRPCBackOffMaxDelay       = 3 * time.Second
 )
 
@@ -67,14 +65,17 @@ type importClient struct {
 	metaClient SplitClient
 	clients    map[uint64]import_sstpb.ImportSSTClient
 	tlsConf    *tls.Config
+
+	keepaliveConf keepalive.ClientParameters
 }
 
 // NewImportClient returns a new ImporterClient.
-func NewImportClient(metaClient SplitClient, tlsConf *tls.Config) ImporterClient {
+func NewImportClient(metaClient SplitClient, tlsConf *tls.Config, keepaliveConf keepalive.ClientParameters) ImporterClient {
 	return &importClient{
-		metaClient: metaClient,
-		clients:    make(map[uint64]import_sstpb.ImportSSTClient),
-		tlsConf:    tlsConf,
+		metaClient:    metaClient,
+		clients:       make(map[uint64]import_sstpb.ImportSSTClient),
+		tlsConf:       tlsConf,
+		keepaliveConf: keepaliveConf,
 	}
 }
 
@@ -143,11 +144,7 @@ func (ic *importClient) GetImportClient(
 		addr,
 		opt,
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                gRPCKeepAliveTime,
-			Timeout:             gRPCKeepAliveTimeout,
-			PermitWithoutStream: true,
-		}),
+		grpc.WithKeepaliveParams(ic.keepaliveConf),
 	)
 	if err != nil {
 		return nil, err
