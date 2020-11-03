@@ -7,9 +7,8 @@ import (
 	"math"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/tidb/util/testleak"
-
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
+	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
@@ -28,7 +27,8 @@ func (s *testLogRestoreSuite) SetUpSuite(c *C) {
 	var err error
 	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
-	restoreClient, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
+	restoreClient, err := restore.NewRestoreClient(
+		gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
 	s.client, err = restore.NewLogRestoreClient(
