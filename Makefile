@@ -26,6 +26,9 @@ all: build check test
 prepare:
 	$(PREPARE_MOD)
 
+finish-prepare:
+	$(FINISH_MOD)
+
 build:
 	$(PREPARE_MOD)
 	$(GOBUILD) $(RACEFLAG) -o bin/br

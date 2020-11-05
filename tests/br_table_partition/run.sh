@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 #
 # Copyright 2019 PingCAP, Inc.
 #
@@ -22,8 +22,11 @@ PATH="tests/$TEST_NAME:bin:$PATH"
 echo "load data..."
 DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT prepare.sh
 
-for i in $(seq $TABLE_COUNT); do
-    row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
+declare -A row_count_ori
+declare -A row_count_new
+
+for i in $(seq $TABLE_COUNT) _Hash _List; do
+    row_count_ori[$i]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 # backup full
@@ -36,17 +39,18 @@ run_sql "DROP DATABASE $DB;"
 echo "restore start..."
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
-for i in $(seq $TABLE_COUNT); do
-    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
+for i in $(seq $TABLE_COUNT) _Hash _List; do
+    run_sql "SHOW CREATE TABLE $DB.$TABLE${i};" | grep 'PARTITION'
+    row_count_new[$i]=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE${i};" | awk '/COUNT/{print $2}')
 done
 
 fail=false
-for i in $(seq $TABLE_COUNT); do
-    if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
+for i in $(seq $TABLE_COUNT) _Hash _List; do
+    if [ "${row_count_ori[$i]}" != "${row_count_new[$i]}" ];then
         fail=true
         echo "TEST: [$TEST_NAME] fail on table $DB.$TABLE${i}"
     fi
-    echo "table $DB.$TABLE${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+    echo "table $DB.$TABLE${i} [original] row count: ${row_count_ori[$i]}, [after br] row count: ${row_count_new[$i]}"
 done
 
 if $fail; then
