@@ -121,6 +121,9 @@ func (s *kvUnionStore) GetIndexName(tableID, indexID int64) string {
 func (s *kvUnionStore) CacheIndexName(tableID, indexID int64, name string) {
 }
 
+func (s *kvUnionStore) CacheTableInfo(id int64, info *model.TableInfo) {
+}
+
 // transaction is a trimmed down Transaction type which only supports adding a
 // new KV pair.
 type transaction struct {
