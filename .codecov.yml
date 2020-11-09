@@ -8,6 +8,6 @@ coverage:
         # Allow the coverage to drop by 3%
         target: 85%
         threshold: 3%
-    patch: 
-        target: 85%
-        threshold: 3%
+        branches:
+          - master
+    patch: off
