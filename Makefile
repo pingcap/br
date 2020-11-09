@@ -56,7 +56,7 @@ testcover: tools
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
-		-ignore='.git,vendor,tests,_tools,docker' \
+		-ignore='.git,vendor,tests,_tools,docker,pkg/mock' \
 		-debug \
 		-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
