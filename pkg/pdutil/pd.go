@@ -19,11 +19,11 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
+	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
-	"github.com/coreos/go-semver/semver"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/utils"
@@ -38,10 +38,10 @@ const (
 	pauseTimeout         = 5 * time.Minute
 )
 
-var(
+var (
 	// in this version we can use pause configs
 	// see https://github.com/tikv/pd/pull/3088
-	pauseConfigVersion   = semver.New("4.0.8")
+	pauseConfigVersion = semver.New("4.0.8")
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -68,13 +68,14 @@ var (
 		"shuffle-region-scheduler":     {},
 		"shuffle-hot-region-scheduler": {},
 	}
-	// TODO remove this, see https://github.com/pingcap/br/pull/555#discussion_r509855972
-	expectPDCfg = map[string]int {
+	expectPDCfg = map[string]interface{}{
 		"max-merge-region-keys": 0,
 		"max-merge-region-size": 0,
-		"leader-schedule-limit": 1,
-		"region-schedule-limit": 1,
-		"max-snapshot-count": 1,
+		// TODO remove this schedule-limits, see https://github.com/pingcap/br/pull/555#discussion_r509855972
+		"leader-schedule-limit":       1,
+		"region-schedule-limit":       1,
+		"max-snapshot-count":          1,
+		"enable-location-replacement": false,
 	}
 
 	// DefaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
@@ -166,13 +167,10 @@ func NewPdController(
 		}
 	}
 	if failure != nil {
-		return nil, errors.Annotatef(failure, "pd address (%s) not available, please check network", pdAddrs)
-	}
-	version, err := semver.NewVersion(string(versionBytes))
-	if err != nil {
-		return nil, errors.Annotatef(err, "transform pd version failed", string(versionBytes))
+		return nil, errors.Annotatef(berrors.ErrPDUpdateFailed, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
+	version := semver.New(string(versionBytes))
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
@@ -191,7 +189,7 @@ func NewPdController(
 		addrs:    processedAddrs,
 		cli:      cli,
 		pdClient: pdClient,
-		version: version,
+		version:  version,
 		// We should make a buffered channel here otherwise when context canceled,
 		// gracefully shutdown will stick at resuming schedulers.
 		schedulerPauseCh: make(chan struct{}, 1),
@@ -273,7 +271,7 @@ func (p *PdController) getRegionCountWith(
 
 // PauseSchedulers remove pd scheduler temporarily.
 func (p *PdController) PauseSchedulers(ctx context.Context, schedulers []string) ([]string, error) {
-	return p.pauseSchedulersWith(ctx, schedulers, pdRequest)
+	return p.pauseSchedulersAndConfigWith(ctx, schedulers, nil, pdRequest)
 }
 
 func (p *PdController) doPauseSchedulers(ctx context.Context, schedulers []string, post pdHTTPRequest) ([]string, error) {
@@ -300,7 +298,10 @@ func (p *PdController) doPauseSchedulers(ctx context.Context, schedulers []strin
 	return removedSchedulers, nil
 }
 
-func (p *PdController) pauseSchedulersWith(ctx context.Context, schedulers []string, post pdHTTPRequest) ([]string, error) {
+func (p *PdController) pauseSchedulersAndConfigWith(
+	ctx context.Context, schedulers []string,
+	schedulerCfg map[string]interface{}, post pdHTTPRequest,
+) ([]string, error) {
 	// first pause this scheduler, if the first time failed. we should return the error
 	// so put first time out of for loop. and in for loop we could ignore other failed pause.
 	removedSchedulers, err := p.doPauseSchedulers(ctx, schedulers, post)
@@ -310,6 +311,15 @@ func (p *PdController) pauseSchedulersWith(ctx context.Context, schedulers []str
 		return nil, err
 	}
 	log.Info("pause scheduler successful at beginning", zap.Strings("name", schedulers))
+	if schedulerCfg != nil {
+		err = p.doPauseConfigs(ctx, schedulerCfg)
+		if err != nil {
+			log.Error("failed to pause config at beginning",
+				zap.Any("cfg", schedulerCfg), zap.Error(err))
+			return nil, err
+		}
+		log.Info("pause configs successful at beginning", zap.Any("cfg", schedulerCfg))
+	}
 
 	go func() {
 		tick := time.NewTicker(pauseTimeout / 3)
@@ -321,13 +331,18 @@ func (p *PdController) pauseSchedulersWith(ctx context.Context, schedulers []str
 				return
 			case <-tick.C:
 				_, err := p.doPauseSchedulers(ctx, schedulers, post)
-				if err == nil {
-					log.Info("pause scheduler", zap.Strings("name", removedSchedulers))
-				} else {
+				if err != nil {
 					log.Warn("pause scheduler failed, ignore it and wait next time pause", zap.Error(err))
 				}
+				if schedulerCfg != nil {
+					err = p.doPauseConfigs(ctx, schedulerCfg)
+					if err != nil {
+						log.Warn("pause configs failed, ignore it and wait next time pause", zap.Error(err))
+					}
+				}
+				log.Info("pause scheduler(configs)", zap.Strings("name", removedSchedulers))
 			case <-p.schedulerPauseCh:
-				log.Info("exit pause scheduler successful")
+				log.Info("exit pause scheduler and configs successful")
 				return
 			}
 		}
@@ -416,14 +431,18 @@ func (p *PdController) GetPDScheduleConfig(
 
 // UpdatePDScheduleConfig updates PD schedule config value associated with the key.
 func (p *PdController) UpdatePDScheduleConfig(
-	ctx context.Context, cfg map[string]interface{},
+	ctx context.Context, cfg map[string]interface{}, prefixs ...string,
 ) error {
+	prefix := scheduleConfigPrefix
+	if len(prefixs) == 0 {
+		prefix = prefixs[0]
+	}
 	for _, addr := range p.addrs {
 		reqData, err := json.Marshal(cfg)
 		if err != nil {
 			return err
 		}
-		_, e := pdRequest(ctx, addr, scheduleConfigPrefix,
+		_, e := pdRequest(ctx, addr, prefix,
 			p.cli, http.MethodPost, bytes.NewBuffer(reqData))
 		if e == nil {
 			return nil
@@ -431,6 +450,18 @@ func (p *PdController) UpdatePDScheduleConfig(
 		log.Warn("failed to update PD config, will try next", zap.Error(e), zap.String("pd", addr))
 	}
 	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
+}
+
+func (p *PdController) pauseSchedulersAndConfig(
+	ctx context.Context, schedulers []string, cfg map[string]interface{},
+) ([]string, error) {
+	return p.pauseSchedulersAndConfigWith(ctx, schedulers, cfg, pdRequest)
+}
+
+func (p *PdController) doPauseConfigs(ctx context.Context, cfg map[string]interface{}) error {
+	// pause this scheduler with 300 seconds
+	prefix := fmt.Sprintf("%s?ttlSecond=%d", schedulerPrefix, 300)
+	return p.UpdatePDScheduleConfig(ctx, cfg, prefix)
 }
 
 func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg clusterConfig) error {
@@ -450,13 +481,6 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 	if err := pd.UpdatePDScheduleConfig(ctx, mergeCfg); err != nil {
 		return errors.Annotate(err, "fail to update PD merge config")
 	}
-
-	if locationPlacement, ok := clusterCfg.scheduleCfg["enable-location-replacement"]; ok {
-		log.Debug("restoring config enable-location-replacement", zap.Any("enable-location-placement", locationPlacement))
-		if err := pd.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": locationPlacement}); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -470,6 +494,31 @@ func (p *PdController) makeUndoFunctionByConfig(config clusterConfig) utils.Undo
 // RemoveSchedulers removes the schedulers that may slow down BR speed.
 func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFunc, err error) {
 	undo = utils.Nop
+	stores, err := p.pdClient.GetAllStores(ctx)
+	if err != nil {
+		return
+	}
+	scheduleCfg, err := p.GetPDScheduleConfig(ctx)
+	if err != nil {
+		return
+	}
+	disablePDCfg := make(map[string]interface{})
+	for cfgKey, cfgVal := range expectPDCfg {
+		value, ok := scheduleCfg[cfgKey]
+		if !ok {
+			// Ignore non-exist config.
+			continue
+		}
+		switch cfgVal.(type) {
+		case bool:
+			disablePDCfg[cfgKey] = false
+		case int:
+			limit := int(value.(float64))
+			disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * cfgVal.(int)
+		}
+	}
+	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduleCfg: scheduleCfg})
+	log.Debug("saved PD config", zap.Any("config", scheduleCfg))
 
 	// Remove default PD scheduler that may affect restore process.
 	existSchedulers, err := p.ListSchedulers(ctx)
@@ -482,39 +531,22 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 			needRemoveSchedulers = append(needRemoveSchedulers, s)
 		}
 	}
-	removedSchedulers, err := p.PauseSchedulers(ctx, needRemoveSchedulers)
-	if err != nil {
-		return
-	}
-	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers})
 
-	stores, err := p.pdClient.GetAllStores(ctx)
-	if err != nil {
-		return
-	}
-	scheduleCfg, err := p.GetPDScheduleConfig(ctx)
-	if err != nil {
-		return
-	}
-
-	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
-	log.Debug("saved PD config", zap.Any("config", scheduleCfg))
-
-	disablePDCfg := make(map[string]interface{})
-	for cfgKey, cfgVal := range expectPDCfg {
-		value, ok := scheduleCfg[cfgKey]
-		if !ok {
-			// Ignore non-exist config.
-			continue
+	var removedSchedulers []string
+	if p.isPauseConfigEnabled() {
+		// after 4.0.8 we can set these config with TTL
+		removedSchedulers, err = p.pauseSchedulersAndConfig(ctx, needRemoveSchedulers, disablePDCfg)
+	} else {
+		// adapt to earlier version (before 4.0.8) of pd cluster
+		// which doesn't have temporary config setting.
+		err = p.UpdatePDScheduleConfig(ctx, disablePDCfg)
+		if err != nil {
+			return
 		}
-		limit := int(value.(float64))
-		disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * cfgVal
+		removedSchedulers, err = p.PauseSchedulers(ctx, needRemoveSchedulers)
 	}
-	err = p.UpdatePDScheduleConfig(ctx, disablePDCfg)
-	if err != nil {
-		return
-	}
-	return undo, p.UpdatePDScheduleConfig(ctx, map[string]interface{}{"enable-location-replacement": "false"})
+	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
+	return undo, err
 }
 
 // Close close the connection to pd.
