@@ -439,7 +439,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 	ctx context.Context, cfg map[string]interface{}, prefixs ...string,
 ) error {
 	prefix := scheduleConfigPrefix
-	if len(prefixs) == 0 {
+	if len(prefixs) != 0 {
 		prefix = prefixs[0]
 	}
 	for _, addr := range p.addrs {
@@ -559,3 +559,4 @@ func (p *PdController) Close() {
 	p.pdClient.Close()
 	close(p.schedulerPauseCh)
 }
+
