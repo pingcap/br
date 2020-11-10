@@ -60,6 +60,7 @@ func newCheckSumCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "checksum",
 		Short: "check the backup data",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -144,6 +145,7 @@ func newBackupMetaCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "backupmeta",
 		Short: "check the backup meta",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -240,6 +242,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 	decodeBackupMetaCmd := &cobra.Command{
 		Use:   "decode",
 		Short: "decode backupmeta to json",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -300,6 +303,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 	encodeBackupMetaCmd := &cobra.Command{
 		Use:   "encode",
 		Short: "encode backupmeta json file to backupmeta",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -347,6 +351,7 @@ func setPDConfigCommand() *cobra.Command {
 	pdConfigCmd := &cobra.Command{
 		Use:   "reset-pd-config-as-default",
 		Short: "reset pd config adjusted by BR to default value",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
