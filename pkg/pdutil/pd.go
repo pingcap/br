@@ -559,4 +559,3 @@ func (p *PdController) Close() {
 	p.pdClient.Close()
 	close(p.schedulerPauseCh)
 }
-
