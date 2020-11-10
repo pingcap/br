@@ -509,12 +509,12 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 			// Ignore non-exist config.
 			continue
 		}
-		switch cfgVal.(type) {
+		switch v := cfgVal.(type) {
 		case bool:
 			disablePDCfg[cfgKey] = false
 		case int:
 			limit := int(value.(float64))
-			disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * cfgVal.(int)
+			disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * v
 		}
 	}
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduleCfg: scheduleCfg})
