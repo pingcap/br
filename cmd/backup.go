@@ -79,6 +79,9 @@ func newFullBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "full",
 		Short: "backup all database",
+		// prevents incorrect usage like `--checksum false` instead of `--checksum=false`.
+		// the former, according to pflag parsing rules, means `--checksum=true false`.
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			// empty db/table means full backup.
 			return runBackupCommand(command, "Full backup")
@@ -93,6 +96,7 @@ func newDBBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
 		Short: "backup a database",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupCommand(command, "Database backup")
 		},
@@ -106,6 +110,7 @@ func newTableBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "table",
 		Short: "backup a table",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupCommand(command, "Table backup")
 		},
@@ -120,6 +125,7 @@ func newRawBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "raw",
 		Short: "(experimental) backup a raw kv range from TiKV cluster",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupRawCommand(command, "Raw backup")
 		},

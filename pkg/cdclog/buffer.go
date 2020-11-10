@@ -74,6 +74,11 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 	return tb
 }
 
+// ResetTableInfo set tableInfo to nil for next reload.
+func (t *TableBuffer) ResetTableInfo() {
+	t.tableInfo = nil
+}
+
 // TableInfo returns the table info of this buffer.
 func (t *TableBuffer) TableInfo() table.Table {
 	return t.tableInfo
