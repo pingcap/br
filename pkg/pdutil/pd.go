@@ -39,9 +39,9 @@ const (
 )
 
 var (
-	// in this version we can use pause configs
+	// in v4.0.8 version we can use pause configs
 	// see https://github.com/tikv/pd/pull/3088
-	pauseConfigVersion = semver.New("4.0.8")
+	pauseConfigVersion = semver.New("4.0.7")
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -170,7 +170,12 @@ func NewPdController(
 		return nil, errors.Annotatef(berrors.ErrPDUpdateFailed, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
-	version := semver.New(string(versionBytes))
+	version, err := semver.NewVersion(string(versionBytes))
+	if err != nil {
+		log.Warn("fail back to old version",
+			zap.Binary("version", versionBytes), zap.Error(err))
+		version = pauseConfigVersion
+	}
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
@@ -197,7 +202,7 @@ func NewPdController(
 }
 
 func (p *PdController) isPauseConfigEnabled() bool {
-	return p.version.Compare(*pauseConfigVersion) >= 0
+	return p.version.Compare(*pauseConfigVersion) > 0
 }
 
 // SetHTTP set pd addrs and cli for test.
