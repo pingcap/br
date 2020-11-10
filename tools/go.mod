@@ -8,6 +8,6 @@ require (
 	github.com/golangci/golangci-lint v1.26.0
 	github.com/mgechev/revive v1.0.2
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
-	github.com/pingcap/tiup v1.2.1-0.20201020064426-ad64b15d57de
+	github.com/pingcap/tiup v1.2.3
 	golang.org/x/tools v0.0.0-20200527183253-8e7acdbce89d
 )
