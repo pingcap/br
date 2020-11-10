@@ -14,12 +14,12 @@ require (
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
-	github.com/pingcap/errors v0.11.5-0.20201021055732-210aacd3fd99
+	github.com/pingcap/errors v0.11.5-0.20201029093017-5a7df2af2ac7
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
 	github.com/pingcap/kvproto v0.0.0-20201023092649-e6d6090277c9
 	github.com/pingcap/log v0.0.0-20200828042413-fce0951f1463
-	github.com/pingcap/parser v0.0.0-20201028030005-1328d877c9f3
-	github.com/pingcap/tidb v1.1.0-beta.0.20201031133255-280e8aa35f98
+	github.com/pingcap/parser v0.0.0-20201109022253-d384bee1451e
+	github.com/pingcap/tidb v0.0.0-20201110015039-8d35f17c17f3
 	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
 	github.com/pingcap/tipb v0.0.0-20201026044621-45e60c77588f
 	github.com/prometheus/client_golang v1.5.1
