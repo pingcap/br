@@ -55,7 +55,9 @@ cluster_index_before_restore=$(run_sql "show variables like '%cluster%';" | awk 
 # keep cluster index enable or disable at same time.
 if [[ "${cluster_index_before_backup}" != "${cluster_index_before_restore}" ]]; then
   echo "TEST: [$TEST_NAME] must enable or disable cluster_index at same time"
-  $cluster_index_before_restore=$cluster_index_before_backup
+  echo "cluster index before backup is $cluster_index_before_backup"
+  echo "cluster index before restore is $cluster_index_before_restore"
+  exit 1
 fi
 
 # restore full
