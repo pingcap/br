@@ -362,7 +362,7 @@ func setPDConfigCommand() *cobra.Command {
 			}
 			defer mgr.Close()
 
-			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
+			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg, pdutil.PDRequest); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
 			}
 			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
