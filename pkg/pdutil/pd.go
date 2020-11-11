@@ -174,7 +174,7 @@ func NewPdController(
 	if err != nil {
 		log.Warn("fail back to v0.0.0 version",
 			zap.Binary("version", versionBytes), zap.Error(err))
-		version = semver.New("v0.0.0")
+		version = semver.New("0.0.0")
 	}
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
