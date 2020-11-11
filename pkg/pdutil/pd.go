@@ -516,7 +516,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		}
 		switch v := cfgVal.(type) {
 		case bool:
-			disablePDCfg[cfgKey] = false
+			disablePDCfg[cfgKey] = "false"
 		case int:
 			limit := int(value.(float64))
 			disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * v
