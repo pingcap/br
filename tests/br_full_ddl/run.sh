@@ -65,12 +65,12 @@ BR_LOG_TO_TERM=1
 
 skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
 
-# ensure there are only two(write + default) range empty error, 
+# ensure there are only less than two(write + default) range empty error,
 # because backup range end key is large than reality.
-# so the last region will download nothing.
+# so the last region may download nothing.
 # FIXME maybe we can treat endkey specially in the future.
-if [ "${skip_count}" != "2" ];then
-    echo "TEST: [$TEST_NAME] fail on download sst"
+if [ "${skip_count}" -gt "2" ];then
+    echo "TEST: [$TEST_NAME] fail on download sst, too many skipped range"
     echo $(cat $LOG | grep "range is empty")
     exit 1
 fi
