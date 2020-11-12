@@ -164,6 +164,7 @@ func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
 	return false
 }
 
+// NeedRestoreDDL determines whether to collect ddl file by ts range.
 func (l *LogClient) NeedRestoreDDL(fileName string) (bool, error) {
 	names := strings.Split(fileName, ".")
 	if len(names) != 2 {
