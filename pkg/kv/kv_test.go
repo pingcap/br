@@ -31,7 +31,7 @@ func TestRow(t *testing.T) {
 }
 
 func (s *rowSuite) TestMarshal(c *C) {
-	dats := make([]types.Datum, 0, 4)
+	dats := make([]types.Datum, 4)
 	dats[0].SetInt64(1)
 	dats[1].SetNull()
 	dats[2] = types.MaxValueDatum()
