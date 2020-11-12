@@ -86,6 +86,8 @@ run_sql "insert into ${DB}_DDl2.t2 values (2, 'x');"
 run_sql "drop table ${DB}_DDL2.t2;"
 run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10));"
 run_sql "insert into ${DB}_DDL2.t2 values (3, 'x');"
+run_sql "delete from ${DB}_DDL2.t2 where a = 3;"
+run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
 
 # sleep wait cdc log sync to storage
 # TODO find another way to check cdc log has synced
