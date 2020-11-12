@@ -164,7 +164,7 @@ func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
 	return false
 }
 
-func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
+func (l *LogClient) NeedRestoreDDL(fileName string) (bool, error) {
 	names := strings.Split(fileName, ".")
 	if len(names) != 2 {
 		log.Warn("found wrong format of ddl file", zap.String("file", fileName))
@@ -199,7 +199,7 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 	}
 	err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 		fileName := filepath.Base(path)
-		shouldRestore, err := l.needRestoreDDL(fileName)
+		shouldRestore, err := l.NeedRestoreDDL(fileName)
 		if err != nil {
 			return err
 		}

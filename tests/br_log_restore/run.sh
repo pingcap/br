@@ -61,6 +61,8 @@ sleep 2
 # create change feed for s3 log
 bin/cdc cli changefeed create --pd=http://$PD_ADDR --sink-uri="s3://$BUCKET/$DB?endpoint=http://$S3_ENDPOINT" --changefeed-id="simple-replication-task"
 
+start_ts=$(run_sql "show master status;" | awk '{print $2}' | grep -v Position)
+
 # Fill in the database
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -89,6 +91,11 @@ run_sql "insert into ${DB}_DDL2.t2 values (3, 'x');"
 run_sql "delete from ${DB}_DDL2.t2 where a = 3;"
 run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
 
+end_ts=$(run_sql "show master status;" | awk '{print $2}' | grep -v Position)
+
+# if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
+run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
+
 # sleep wait cdc log sync to storage
 # TODO find another way to check cdc log has synced
 # need wait more time for cdc log synced, because we add some ddl.
@@ -106,15 +113,15 @@ run_sql "DROP DATABASE ${DB}_DDL2"
 # restore full
 echo "restore start..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
-    --log-file "restore.log" --log-level "info"
+    --log-file "restore.log" --log-level "info" --start-ts $start_ts --end-ts $end_ts
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
 fail=false
-row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE id=3;" | awk '/COUNT/{print $2}')
-if [ "$row_count" -ne 1 ]; then
+row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE id=4;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne "1" ]; then
     fail=true
     echo "TEST: [$TEST_NAME] fail on dml&ddl drop test."
 fi
