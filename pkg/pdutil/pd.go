@@ -457,7 +457,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 
 func (p *PdController) doPauseConfigs(ctx context.Context, cfg map[string]interface{}, post pdHTTPRequest) error {
 	// pause this scheduler with 300 seconds
-	prefix := fmt.Sprintf("%s?ttlSecond=%d", schedulerPrefix, 300)
+	prefix := fmt.Sprintf("%s?ttlSecond=%.0f", schedulerPrefix, pauseTimeout.Seconds())
 	return p.UpdatePDScheduleConfig(ctx, cfg, post, prefix)
 }
 
