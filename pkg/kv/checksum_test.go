@@ -22,20 +22,20 @@ import (
 	"github.com/pingcap/br/pkg/kv"
 )
 
-type testKVChcksumSuite struct{}
+type testKVChecksumSuite struct{}
 
-func (s *testKVChcksumSuite) SetUpSuite(c *C)    {}
-func (s *testKVChcksumSuite) TearDownSuite(c *C) {}
+func (s *testKVChecksumSuite) SetUpSuite(c *C)    {}
+func (s *testKVChecksumSuite) TearDownSuite(c *C) {}
 
-var _ = Suite(&testKVChcksumSuite{})
+var _ = Suite(&testKVChecksumSuite{})
 
-func TestKVChcksum(t *testing.T) {
+func TestKVChecksum(t *testing.T) {
 	TestingT(t)
 }
 
 func uint64NotEqual(a uint64, b uint64) bool { return a != b }
 
-func (s *testKVChcksumSuite) TestChcksum(c *C) {
+func (s *testKVChecksumSuite) TestChecksum(c *C) {
 	checksum := kv.NewKVChecksum(0)
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
@@ -47,7 +47,7 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 	c.Assert(checksum.Sum(), Equals, uint64(0))
 
 	// checksum on real data
-	excpectChecksum := uint64(4850203904608948940)
+	expectChecksum := uint64(4850203904608948940)
 
 	kvs := []kv.Pair{
 		{
@@ -68,16 +68,16 @@ func (s *testKVChcksumSuite) TestChcksum(c *C) {
 	}
 	c.Assert(checksum.SumSize(), Equals, kvBytes)
 	c.Assert(checksum.SumKVS(), Equals, uint64(len(kvs)))
-	c.Assert(checksum.Sum(), Equals, excpectChecksum)
+	c.Assert(checksum.Sum(), Equals, expectChecksum)
 
 	// recompute on same key-value
 	checksum.Update(kvs)
 	c.Assert(checksum.SumSize(), Equals, kvBytes<<1)
 	c.Assert(checksum.SumKVS(), Equals, uint64(len(kvs))<<1)
-	c.Assert(uint64NotEqual(checksum.Sum(), excpectChecksum), IsTrue)
+	c.Assert(uint64NotEqual(checksum.Sum(), expectChecksum), IsTrue)
 }
 
-func (s *testKVChcksumSuite) TestChecksumJSON(c *C) {
+func (s *testKVChecksumSuite) TestChecksumJSON(c *C) {
 	testStruct := &struct {
 		Checksum kv.Checksum
 	}{

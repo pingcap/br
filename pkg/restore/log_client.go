@@ -137,6 +137,12 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+// ResetTSRange used for test.
+func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
+	l.startTS = startTS
+	l.endTS = endTS
+}
+
 func (l *LogClient) maybeTSInRange(ts uint64) bool {
 	// We choose the last event's ts as file name in cdclog when rotate.
 	// so even this file name's ts is larger than l.endTS,
@@ -218,6 +224,10 @@ func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
 	return false
 }
 
+func (l *LogClient) isDropTable(ddl *cdclog.MessageDDL) bool {
+	return ddl.Type == model.ActionDropTable
+}
+
 func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	if len(ddls) == 0 {
 		log.Info("no ddls to restore")
@@ -258,7 +268,8 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	return nil
 }
 
-func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
+// NeedRestoreRowChange determine whether to collect this file by ts range.
+func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	if fileName == logPrefix {
 		// this file name appeared when file sink enabled
 		return true, nil
@@ -290,7 +301,22 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 
 	// need collect restore tableIDs
 	tableIDs := make([]int64, 0, len(l.meta.Names))
+
+	// we need remove duplicate table name in collection.
+	// when a table create and drop and create again.
+	// then we will have two different table id with same tables.
+	// we should keep the latest table id(larger table id), and filter the old one.
+	nameIDMap := make(map[string]int64)
 	for tableID, name := range l.meta.Names {
+		if tid, ok := nameIDMap[name]; ok {
+			if tid < tableID {
+				nameIDMap[name] = tableID
+			}
+		} else {
+			nameIDMap[name] = tableID
+		}
+	}
+	for name, tableID := range nameIDMap {
 		schema, table := ParseQuoteName(name)
 		if !l.tableFilter.MatchTable(schema, table) {
 			log.Info("filter tables",
@@ -313,7 +339,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
-			shouldRestore, err := l.needRestoreRowChange(fileName)
+			shouldRestore, err := l.NeedRestoreRowChange(fileName)
 			if err != nil {
 				return err
 			}
@@ -839,11 +865,17 @@ func (l *LogClient) restoreTableFromPuller(
 			}
 			l.ddlLock.Unlock()
 
+			// if table dropped, we will pull next event to see if this table will create again.
+			// with next create table ddl, we can do reloadTableMeta.
+			if l.isDropTable(ddl) {
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
+				l.tableBuffers[tableID].ResetTableInfo()
+				continue
+			}
 			err = l.reloadTableMeta(dom, tableID, item)
 			if err != nil {
 				return errors.Trace(err)
 			}
-
 		case cdclog.RowChanged:
 			if l.tableBuffers[tableID].TableInfo() == nil {
 				err = l.reloadTableMeta(dom, tableID, item)
