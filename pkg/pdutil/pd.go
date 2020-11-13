@@ -71,7 +71,9 @@ var (
 	expectPDCfg = map[string]interface{}{
 		"max-merge-region-keys": 0,
 		"max-merge-region-size": 0,
-		// TODO remove this schedule-limits, see https://github.com/pingcap/br/pull/555#discussion_r509855972
+		// TODO "leader-schedule-limit" and "region-schedule-limit" don't support ttl for now,
+		// but we still need set these config for compatible with old version.
+		// we need wait for https://github.com/tikv/pd/pull/3131 merged.
 		"leader-schedule-limit":       1,
 		"region-schedule-limit":       1,
 		"max-snapshot-count":          1,
