@@ -202,7 +202,7 @@ func NewPdController(
 }
 
 func (p *PdController) isPauseConfigEnabled() bool {
-	return p.version.Compare(*pauseConfigVersion) >= 0
+	return p.version.Compare(pauseConfigVersion) >= 0
 }
 
 // SetHTTP set pd addrs and cli for test.
