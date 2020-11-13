@@ -85,7 +85,7 @@ func (c Column) ToDatum() (types.Datum, error) {
 	)
 
 	switch c.Type {
-	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong:
+	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeYear:
 		val, err = c.Value.(json.Number).Int64()
 		if err != nil {
 			return types.Datum{}, errors.Trace(err)
