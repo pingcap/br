@@ -74,6 +74,7 @@ var (
 		// TODO "leader-schedule-limit" and "region-schedule-limit" don't support ttl for now,
 		// but we still need set these config for compatible with old version.
 		// we need wait for https://github.com/tikv/pd/pull/3131 merged.
+		// see details https://github.com/pingcap/br/pull/592#discussion_r522684325
 		"leader-schedule-limit":       1,
 		"region-schedule-limit":       1,
 		"max-snapshot-count":          1,
