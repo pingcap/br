@@ -41,7 +41,7 @@ const (
 var (
 	// in v4.0.8 version we can use pause configs
 	// see https://github.com/tikv/pd/pull/3088
-	pauseConfigVersion = semver.New("4.0.8")
+	pauseConfigVersion = semver.Version{Major: 4, Minor: 0, Patch: 8}
 )
 
 // clusterConfig represents a set of scheduler whose config have been modified
@@ -173,8 +173,8 @@ func NewPdController(
 	version, err := semver.NewVersion(string(versionBytes))
 	if err != nil {
 		log.Warn("fail back to v0.0.0 version",
-			zap.Binary("version", versionBytes), zap.Error(err))
-		version = semver.New("0.0.0")
+			zap.ByteString("version", versionBytes), zap.Error(err))
+		version = &semver.Version{Major: 0, Minor: 0, Patch: 0}
 	}
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
