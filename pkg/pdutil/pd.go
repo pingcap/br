@@ -274,11 +274,6 @@ func (p *PdController) getRegionCountWith(
 	return 0, err
 }
 
-// PauseSchedulers remove pd scheduler temporarily.
-func (p *PdController) PauseSchedulers(ctx context.Context, schedulers []string) ([]string, error) {
-	return p.pauseSchedulersAndConfigWith(ctx, schedulers, nil, PDRequest)
-}
-
 func (p *PdController) doPauseSchedulers(ctx context.Context, schedulers []string, post pdHTTPRequest) ([]string, error) {
 	// pause this scheduler with 300 seconds
 	body, err := json.Marshal(pauseSchedulerBody{Delay: int64(pauseTimeout)})
@@ -457,12 +452,6 @@ func (p *PdController) UpdatePDScheduleConfig(
 	return errors.Annotate(berrors.ErrPDUpdateFailed, "failed to update PD schedule config")
 }
 
-func (p *PdController) pauseSchedulersAndConfig(
-	ctx context.Context, schedulers []string, cfg map[string]interface{},
-) ([]string, error) {
-	return p.pauseSchedulersAndConfigWith(ctx, schedulers, cfg, PDRequest)
-}
-
 func (p *PdController) doPauseConfigs(ctx context.Context, cfg map[string]interface{}, post pdHTTPRequest) error {
 	// pause this scheduler with 300 seconds
 	prefix := fmt.Sprintf("%s?ttlSecond=%d", schedulerPrefix, 300)
@@ -540,7 +529,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	var removedSchedulers []string
 	if p.isPauseConfigEnabled() {
 		// after 4.0.8 we can set these config with TTL
-		removedSchedulers, err = p.pauseSchedulersAndConfig(ctx, needRemoveSchedulers, disablePDCfg)
+		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, disablePDCfg, PDRequest)
 	} else {
 		// adapt to earlier version (before 4.0.8) of pd cluster
 		// which doesn't have temporary config setting.
@@ -548,7 +537,7 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 		if err != nil {
 			return
 		}
-		removedSchedulers, err = p.PauseSchedulers(ctx, needRemoveSchedulers)
+		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, nil, PDRequest)
 	}
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
 	return undo, err
