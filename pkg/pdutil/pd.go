@@ -81,8 +81,8 @@ var (
 		"enable-location-replacement": false,
 	}
 
-	// DefaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
-	DefaultPDCfg = map[string]interface{}{
+	// defaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
+	defaultPDCfg = map[string]interface{}{
 		"max-merge-region-keys":       200000,
 		"max-merge-region-size":       20,
 		"leader-schedule-limit":       4,
@@ -95,8 +95,8 @@ var (
 // pdHTTPRequest defines the interface to send a request to pd and return the result in bytes.
 type pdHTTPRequest func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error)
 
-// PDRequest is a func to send a HTTP to pd and return the result bytes.
-func PDRequest(
+// pdRequest is a func to send a HTTP to pd and return the result bytes.
+func pdRequest(
 	ctx context.Context,
 	addr string, prefix string,
 	cli *http.Client, method string, body io.Reader) ([]byte, error) {
@@ -164,7 +164,7 @@ func NewPdController(
 			}
 		}
 		processedAddrs = append(processedAddrs, addr)
-		versionBytes, failure = PDRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
+		versionBytes, failure = pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
 		if failure == nil {
 			break
 		}
@@ -226,7 +226,7 @@ func (p *PdController) GetPDClient() pd.Client {
 
 // GetClusterVersion returns the current cluster version.
 func (p *PdController) GetClusterVersion(ctx context.Context) (string, error) {
-	return p.getClusterVersionWith(ctx, PDRequest)
+	return p.getClusterVersionWith(ctx, pdRequest)
 }
 
 func (p *PdController) getClusterVersionWith(ctx context.Context, get pdHTTPRequest) (string, error) {
@@ -245,7 +245,7 @@ func (p *PdController) getClusterVersionWith(ctx context.Context, get pdHTTPRequ
 
 // GetRegionCount returns the region count in the specified range.
 func (p *PdController) GetRegionCount(ctx context.Context, startKey, endKey []byte) (int, error) {
-	return p.getRegionCountWith(ctx, PDRequest, startKey, endKey)
+	return p.getRegionCountWith(ctx, pdRequest, startKey, endKey)
 }
 
 func (p *PdController) getRegionCountWith(
@@ -355,7 +355,7 @@ func (p *PdController) pauseSchedulersAndConfigWith(
 
 // ResumeSchedulers resume pd scheduler.
 func (p *PdController) ResumeSchedulers(ctx context.Context, schedulers []string) error {
-	return p.resumeSchedulerWith(ctx, schedulers, PDRequest)
+	return p.resumeSchedulerWith(ctx, schedulers, pdRequest)
 }
 
 func (p *PdController) resumeSchedulerWith(ctx context.Context, schedulers []string, post pdHTTPRequest) (err error) {
@@ -388,7 +388,7 @@ func (p *PdController) resumeSchedulerWith(ctx context.Context, schedulers []str
 
 // ListSchedulers list all pd scheduler.
 func (p *PdController) ListSchedulers(ctx context.Context) ([]string, error) {
-	return p.listSchedulersWith(ctx, PDRequest)
+	return p.listSchedulersWith(ctx, pdRequest)
 }
 
 func (p *PdController) listSchedulersWith(ctx context.Context, get pdHTTPRequest) ([]string, error) {
@@ -416,7 +416,7 @@ func (p *PdController) GetPDScheduleConfig(
 ) (map[string]interface{}, error) {
 	var err error
 	for _, addr := range p.addrs {
-		v, e := PDRequest(
+		v, e := pdRequest(
 			ctx, addr, scheduleConfigPrefix, p.cli, http.MethodGet, nil)
 		if e != nil {
 			err = e
@@ -433,7 +433,11 @@ func (p *PdController) GetPDScheduleConfig(
 }
 
 // UpdatePDScheduleConfig updates PD schedule config value associated with the key.
-func (p *PdController) UpdatePDScheduleConfig(
+func (p *PdController) UpdatePDScheduleConfig(ctx context.Context) error {
+	log.Info("update pd with default config", zap.Any("cfg", defaultPDCfg))
+	return p.doUpdatePDScheduleConfig(ctx, defaultPDCfg, pdRequest)
+}
+func (p *PdController) doUpdatePDScheduleConfig(
 	ctx context.Context, cfg map[string]interface{}, post pdHTTPRequest, prefixs ...string,
 ) error {
 	prefix := scheduleConfigPrefix
@@ -458,7 +462,7 @@ func (p *PdController) UpdatePDScheduleConfig(
 func (p *PdController) doPauseConfigs(ctx context.Context, cfg map[string]interface{}, post pdHTTPRequest) error {
 	// pause this scheduler with 300 seconds
 	prefix := fmt.Sprintf("%s?ttlSecond=%.0f", schedulerPrefix, pauseTimeout.Seconds())
-	return p.UpdatePDScheduleConfig(ctx, cfg, post, prefix)
+	return p.doUpdatePDScheduleConfig(ctx, cfg, post, prefix)
 }
 
 func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg clusterConfig) error {
@@ -475,7 +479,7 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 		}
 		mergeCfg[cfgKey] = value
 	}
-	if err := pd.UpdatePDScheduleConfig(ctx, mergeCfg, PDRequest); err != nil {
+	if err := pd.doUpdatePDScheduleConfig(ctx, mergeCfg, pdRequest); err != nil {
 		return errors.Annotate(err, "fail to update PD merge config")
 	}
 	return nil
@@ -532,15 +536,15 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 	var removedSchedulers []string
 	if p.isPauseConfigEnabled() {
 		// after 4.0.8 we can set these config with TTL
-		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, disablePDCfg, PDRequest)
+		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, disablePDCfg, pdRequest)
 	} else {
 		// adapt to earlier version (before 4.0.8) of pd cluster
 		// which doesn't have temporary config setting.
-		err = p.UpdatePDScheduleConfig(ctx, disablePDCfg, PDRequest)
+		err = p.doUpdatePDScheduleConfig(ctx, disablePDCfg, pdRequest)
 		if err != nil {
 			return
 		}
-		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, nil, PDRequest)
+		removedSchedulers, err = p.pauseSchedulersAndConfigWith(ctx, needRemoveSchedulers, nil, pdRequest)
 	}
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduler: removedSchedulers, scheduleCfg: scheduleCfg})
 	return undo, err
