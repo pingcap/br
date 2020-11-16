@@ -87,7 +87,7 @@ check:
 	@make tools errdoc static lint
 
 static: export GO111MODULE=on
-static: tools
+static: prepare tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
 	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
@@ -125,10 +125,12 @@ static: tools
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
 		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
+	$(FINISH_MOD)
 
-lint: tools
+lint: prepare tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
+	$(FINISH_MOD)
 
 tidy:
 	@echo "go mod tidy"
