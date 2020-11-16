@@ -39,7 +39,6 @@ echo "backup start..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
-BR_LOG_TO_TERM=1
 
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
@@ -53,7 +52,17 @@ run_sql "DROP DATABASE $DB;"
 
 # restore full
 echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+export GO_FAILPOINTS=""
+
+pause_count=$(cat $LOG | grep "pause configs successful"| wc -l | xargs)
+if [ "${pause_count}" != "1" ];then
+    echo "TEST: [$TEST_NAME] fail on pause config"
+    exit 1
+fi
+
+BR_LOG_TO_TERM=1
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
