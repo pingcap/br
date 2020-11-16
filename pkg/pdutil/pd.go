@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pingcap/failpoint"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
@@ -192,6 +193,12 @@ func NewPdController(
 			zap.ByteString("version", versionBytes), zap.Error(err))
 		version = &semver.Version{Major: 0, Minor: 0, Patch: 0}
 	}
+	failpoint.Inject("PDEnabledPauseConfig", func(val failpoint.Value) {
+		if val.(bool) {
+			// test pause config is enable
+			version = &semver.Version{Major: 5, Minor: 0, Patch: 0}
+		}
+	})
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
@@ -356,7 +363,8 @@ func (p *PdController) pauseSchedulersAndConfigWith(
 						log.Warn("pause configs failed, ignore it and wait next time pause", zap.Error(err))
 					}
 				}
-				log.Info("pause scheduler(configs)", zap.Strings("name", removedSchedulers))
+				log.Info("pause scheduler(configs)", zap.Strings("name", removedSchedulers),
+					zap.Any("cfg", schedulerCfg))
 			case <-p.schedulerPauseCh:
 				log.Info("exit pause scheduler and configs successful")
 				return
@@ -474,7 +482,7 @@ func (p *PdController) doUpdatePDScheduleConfig(
 
 func (p *PdController) doPauseConfigs(ctx context.Context, cfg map[string]interface{}, post pdHTTPRequest) error {
 	// pause this scheduler with 300 seconds
-	prefix := fmt.Sprintf("%s?ttlSecond=%.0f", schedulerPrefix, pauseTimeout.Seconds())
+	prefix := fmt.Sprintf("%s?ttlSecond=%.0f", scheduleConfigPrefix, pauseTimeout.Seconds())
 	return p.doUpdatePDScheduleConfig(ctx, cfg, post, prefix)
 }
 
