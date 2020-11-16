@@ -43,7 +43,7 @@ run_sql "DROP DATABASE $DB;"
 
 # restore db
 echo "restore start..."
-export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/pd/PDEnabledPauseConfig=return(true)"
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 export GO_FAILPOINTS=""
 
