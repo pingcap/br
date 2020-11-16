@@ -22,7 +22,6 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -367,10 +366,10 @@ func setPDConfigCommand() *cobra.Command {
 			}
 			defer mgr.Close()
 
-			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg, pdutil.PDRequest); err != nil {
+			if err := mgr.UpdatePDScheduleConfig(ctx); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
 			}
-			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
+			log.Info("add pd configs succeed")
 			return nil
 		},
 	}
