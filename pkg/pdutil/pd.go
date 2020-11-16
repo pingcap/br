@@ -492,7 +492,10 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 		}
 		mergeCfg[cfgKey] = value
 	}
-	if err := pd.doUpdatePDScheduleConfig(ctx, mergeCfg, pdRequest); err != nil {
+
+	// set config's ttl to zero, make temporary config invalid immediately.
+	prefix := fmt.Sprintf("%s?ttlSecond=%d", schedulerPrefix, 0)
+	if err := pd.doUpdatePDScheduleConfig(ctx, mergeCfg, pdRequest, prefix); err != nil {
 		return errors.Annotate(err, "fail to update PD merge config")
 	}
 	return nil
