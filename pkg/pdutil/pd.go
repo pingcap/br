@@ -38,6 +38,19 @@ const (
 	pauseTimeout         = 5 * time.Minute
 )
 
+type pauseConfigExpectation uint8
+
+const (
+	// pauseConfigSetZero sets the config to 0.
+	pauseConfigSetZero pauseConfigExpectation = iota
+	// pauseConfigSetMulStoresCount multiplies the existing value by
+	// number of stores. The value is limited to 40, as larger value
+	// may make the cluster unstable.
+	pauseConfigMulStoresCount
+	// pauseConfigSetFalse sets the config to "false".
+	pauseConfigSetFalse
+)
+
 var (
 	// in v4.0.8 version we can use pause configs
 	// see https://github.com/tikv/pd/pull/3088
@@ -68,17 +81,17 @@ var (
 		"shuffle-region-scheduler":     {},
 		"shuffle-hot-region-scheduler": {},
 	}
-	expectPDCfg = map[string]interface{}{
-		"max-merge-region-keys": 0,
-		"max-merge-region-size": 0,
+	expectPDCfg = map[string]pauseConfigExpectation{
+		"max-merge-region-keys": pauseConfigSetZero,
+		"max-merge-region-size": pauseConfigSetZero,
 		// TODO "leader-schedule-limit" and "region-schedule-limit" don't support ttl for now,
 		// but we still need set these config for compatible with old version.
 		// we need wait for https://github.com/tikv/pd/pull/3131 merged.
 		// see details https://github.com/pingcap/br/pull/592#discussion_r522684325
-		"leader-schedule-limit":       1,
-		"region-schedule-limit":       1,
-		"max-snapshot-count":          1,
-		"enable-location-replacement": false,
+		"leader-schedule-limit":       pauseConfigMulStoresCount,
+		"region-schedule-limit":       pauseConfigMulStoresCount,
+		"max-snapshot-count":          pauseConfigMulStoresCount,
+		"enable-location-replacement": pauseConfigSetFalse,
 	}
 
 	// defaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
@@ -510,12 +523,16 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo utils.UndoFun
 			// Ignore non-exist config.
 			continue
 		}
-		switch v := cfgVal.(type) {
-		case bool:
+		switch cfgVal {
+		case pauseConfigSetZero:
+			disablePDCfg[cfgKey] = 0
+		case pauseConfigSetFalse:
+			// this has to be a string instead of a boolean otherwise
+			// pd will return unmarshal string failure.
 			disablePDCfg[cfgKey] = "false"
-		case int:
+		case pauseConfigMulStoresCount:
 			limit := int(value.(float64))
-			disablePDCfg[cfgKey] = int(math.Min(40, float64(limit*len(stores)))) * v
+			disablePDCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
 		}
 	}
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduleCfg: scheduleCfg})
