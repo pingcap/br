@@ -82,7 +82,7 @@ type logCollector struct {
 	log logFunc
 }
 
-// NewLogCollector returns a new LogCollector
+// NewLogCollector returns a new LogCollector.
 func NewLogCollector(log logFunc) LogCollector {
 	return &logCollector{
 		successUnitCount: 0,
