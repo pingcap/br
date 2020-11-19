@@ -28,7 +28,7 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	var p string
 	pCh2 := make(chan string, 2)
 	progress2 := NewProgressPrinter("test", 2, false)
-	progress2.goPrintProgress(ctx, &testWriter{
+	progress2.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh2 <- p },
 	})
 	progress2.Inc()
@@ -46,7 +46,7 @@ func (r *testProgressSuite) TestProgress(c *C) {
 
 	pCh4 := make(chan string, 4)
 	progress4 := NewProgressPrinter("test", 4, false)
-	progress4.goPrintProgress(ctx, &testWriter{
+	progress4.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh4 <- p },
 	})
 	progress4.Inc()
@@ -61,7 +61,7 @@ func (r *testProgressSuite) TestProgress(c *C) {
 
 	pCh8 := make(chan string, 8)
 	progress8 := NewProgressPrinter("test", 8, false)
-	progress8.goPrintProgress(ctx, &testWriter{
+	progress8.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh8 <- p },
 	})
 	progress8.Inc()
