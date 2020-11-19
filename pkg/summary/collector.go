@@ -44,7 +44,7 @@ type LogCollector interface {
 
 type logFunc func(msg string, fields ...zap.Field)
 
-var collector LogCollector = newLogCollector(log.Info)
+var collector LogCollector = NewLogCollector(log.Info)
 
 // InitCollector initilize global collector instance.
 func InitCollector( // revive:disable-line:flag-parameter
@@ -62,7 +62,7 @@ func InitCollector( // revive:disable-line:flag-parameter
 			}
 		}
 	}
-	collector = newLogCollector(logF)
+	collector = NewLogCollector(logF)
 }
 
 type logCollector struct {
@@ -82,7 +82,8 @@ type logCollector struct {
 	log logFunc
 }
 
-func newLogCollector(log logFunc) LogCollector {
+// NewLogCollector returns a new LogCollector.
+func NewLogCollector(log logFunc) LogCollector {
 	return &logCollector{
 		successUnitCount: 0,
 		failureUnitCount: 0,
