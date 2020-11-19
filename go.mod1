@@ -2,11 +2,6 @@ module github.com/pingcap/br
 
 go 1.13
 
-replace (
-	github.com/pingcap/tidb v1.1.0-beta.0.20201117103353-a426a0e5ff45 => github.com/JmPotato/tidb v1.1.0-beta.0.20201117135920-895249f5d87f
-	github.com/tikv/pd v1.1.0-beta.0.20201117083653-a678a2f3d113 => github.com/JmPotato/pd v1.1.0-beta.0.20201117135747-fb7deb3ab35f
-)
-
 require (
 	cloud.google.com/go/storage v1.6.0
 	github.com/aws/aws-sdk-go v1.35.3
@@ -24,7 +19,7 @@ require (
 	github.com/pingcap/kvproto v0.0.0-20201113092725-08f2872278eb
 	github.com/pingcap/log v0.0.0-20201112100606-8f1e84a3abc8
 	github.com/pingcap/parser v0.0.0-20201112105242-773b8b74f44e
-	github.com/pingcap/tidb v1.1.0-beta.0.20201117103353-a426a0e5ff45
+	github.com/pingcap/tidb v1.1.0-beta.0.20201119091753-38bbb0dd2197
 	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
 	github.com/pingcap/tipb v0.0.0-20201026044621-45e60c77588f
 	github.com/prometheus/client_golang v1.5.1
@@ -32,7 +27,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/tikv/pd v1.1.0-beta.0.20201117083653-a678a2f3d113
+	github.com/tikv/pd v1.1.0-beta.0.20201119072453-d0da131104d0
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
