@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
 )
 
@@ -33,6 +34,7 @@ type Table struct {
 	TotalBytes      uint64
 	Files           []*backup.File
 	TiFlashReplicas int
+	JSONTable       *handle.JSONTable
 }
 
 // NoChecksum checks whether the table has a calculated checksum.
@@ -88,6 +90,12 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		// Parse the stats table.
+		jsonTable:= &handle.JSONTable{}
+		err = json.Unmarshal(schema.JsonTable, jsonTable)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 		partitions := make(map[int64]bool)
 		if tableInfo.Partition != nil {
 			for _, p := range tableInfo.Partition.Definitions {
@@ -116,6 +124,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			TotalBytes:      schema.TotalBytes,
 			Files:           tableFiles,
 			TiFlashReplicas: int(schema.TiflashReplicas),
+			JSONTable: 		 jsonTable,
 		}
 		db.Tables = append(db.Tables, table)
 	}

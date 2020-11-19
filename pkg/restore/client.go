@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -79,6 +80,12 @@ type Client struct {
 	backend            *backup.StorageBackend
 	switchModeInterval time.Duration
 	switchCh           chan struct{}
+
+	// statHandler and dom are used for analyze table after restore.
+	// it will backup stats with #dump.DumpStatsToJSON
+	// and restore stats with #dump.LoadStatsFromJSON
+	statsHandler       *handle.Handle
+	dom                *domain.Domain
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -93,6 +100,10 @@ func NewRestoreClient(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	dom, err := g.GetDomain(store)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	return &Client{
 		pdClient:      pdClient,
@@ -101,6 +112,8 @@ func NewRestoreClient(
 		tlsConf:       tlsConf,
 		keepaliveConf: keepaliveConf,
 		switchCh:      make(chan struct{}),
+		dom: dom,
+		statsHandler:  dom.StatsHandle(),
 	}, nil
 }
 
@@ -773,6 +786,15 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
 		)
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
+	}
+	log.Info("start loads analyze after validate checksum",
+		zap.Stringer("db name", tbl.OldTable.DB.Name),
+		zap.Stringer("name", tbl.OldTable.Info.Name),
+		zap.Int64("old id", tbl.OldTable.Info.ID),
+		zap.Int64("new id", tbl.Table.ID),
+	)
+	if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.JSONTable); err != nil {
+		log.Error("analyze table failed, ", zap.Any("table", table.JSONTable), zap.Error(err))
 	}
 	return nil
 }

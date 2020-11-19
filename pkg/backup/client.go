@@ -255,6 +255,8 @@ func BuildBackupRangeAndSchema(
 		return nil, nil, errors.Trace(err)
 	}
 
+	h := dom.StatsHandle()
+
 	ranges := make([]rtree.Range, 0)
 	backupSchemas := newBackupSchemas()
 	for _, dbInfo := range info.AllSchemas() {
@@ -331,9 +333,20 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 
+			jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
+			if err != nil {
+				return nil, nil, errors.Trace(err)
+			}
+			log.Info("JsonTable:", zap.Any("t", jsonTable))
+			jsonData, err := json.Marshal(jsonTable)
+			if err != nil {
+				return nil, nil, errors.Trace(err)
+			}
+
 			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
+				JsonTable: jsonData,
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
