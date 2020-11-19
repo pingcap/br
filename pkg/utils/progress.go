@@ -116,7 +116,7 @@ func (pp *ProgressPrinter) goPrintProgress(
 
 type wrappedWriter struct {
 	name string
-	log logFunc
+	log  logFunc
 }
 
 func (ww *wrappedWriter) Write(p []byte) (int, error) {
