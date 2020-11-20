@@ -20,7 +20,7 @@ const (
 	Gzip
 )
 
-// String returns compressType relative string
+// String returns compressType relative string.
 func (c CompressType) String() string {
 	switch c {
 	case NoCompression:
@@ -32,7 +32,7 @@ func (c CompressType) String() string {
 	}
 }
 
-// Suffix returns compressType's file suffix
+// Suffix returns compressType's file suffix.
 func (c CompressType) Suffix() string {
 	switch c {
 	case NoCompression:
@@ -44,7 +44,7 @@ func (c CompressType) Suffix() string {
 	}
 }
 
-// ParseCompressType parses strings to compressType
+// ParseCompressType parses strings to compressType.
 func ParseCompressType(compressType string) (CompressType, error) {
 	switch strings.ToLower(compressType) {
 	case "", "no-compression":
