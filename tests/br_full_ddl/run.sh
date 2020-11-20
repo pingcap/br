@@ -34,6 +34,9 @@ for i in $(seq $DDL_COUNT); do
     fi
 done
 
+run_sql "analyze table $DB.$TABLE;"
+curl $TIDB_IP:10180/stats/dump/$DB/$TABLE > backup_stats
+
 # backup full
 echo "backup start..."
 # Do not log to terminal
@@ -63,6 +66,18 @@ if [ "${pause_count}" != "1" ];then
 fi
 
 BR_LOG_TO_TERM=1
+
+curl $TIDB_IP:10180/stats/dump/$DB/$TABLE > restore_stats
+
+if diff -q backup_stats restore_stats > /dev/null
+then
+  echo "stats are equal"
+else
+  echo "TEST: [$TEST_NAME] fail due to stats are not equal"
+  cat $backup_stats
+  cat $restore_stats
+  exit 1
+fi
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
