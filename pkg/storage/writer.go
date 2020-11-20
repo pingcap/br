@@ -5,6 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"strings"
+
+	"github.com/pingcap/errors"
 )
 
 // CompressType represents the type of compression.
@@ -16,6 +19,39 @@ const (
 	// Gzip will compress given bytes in gzip format.
 	Gzip
 )
+
+func (c CompressType) String() string {
+	switch c {
+	case NoCompression:
+		return "no-compression"
+	case Gzip:
+		return "gzip"
+	default:
+		return "unknown"
+	}
+}
+
+func (c CompressType) Suffix() string {
+	switch c {
+	case NoCompression:
+		return ""
+	case Gzip:
+		return ".gz"
+	default:
+		return ""
+	}
+}
+
+func ParseCompressType(compressType string) (CompressType, error) {
+	switch strings.ToLower(compressType) {
+	case "", "no-compression":
+		return NoCompression, nil
+	case "gzip", "gz":
+		return Gzip, nil
+	default:
+		return NoCompression, errors.Errorf("unknown compress type %s", compressType)
+	}
+}
 
 type interceptBuffer interface {
 	io.WriteCloser
