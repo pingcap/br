@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/errors"
 )
 
@@ -44,7 +45,7 @@ func (c CompressType) Suffix() string {
 	}
 }
 
-// ParseCompressType parses strings to compressType.
+// ParseCompressType parses strings to CompressType.
 func ParseCompressType(compressType string) (CompressType, error) {
 	switch strings.ToLower(compressType) {
 	case "", "no-compression":
@@ -52,7 +53,7 @@ func ParseCompressType(compressType string) (CompressType, error) {
 	case "gzip", "gz":
 		return Gzip, nil
 	default:
-		return NoCompression, errors.Errorf("unknown compress type %s", compressType)
+		return NoCompression, errors.Annotatef(berrors.ErrInvalidArgument, "unknown compress type %s", compressType)
 	}
 }
 
