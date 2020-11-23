@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	uuid "github.com/google/uuid"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -26,11 +27,11 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	titable "github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
-	uuid "github.com/satori/go.uuid"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/cdclog"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
@@ -74,8 +75,8 @@ type LogClient struct {
 	importerClient ImporterClient
 
 	// range of log backup
-	startTs uint64
-	endTs   uint64
+	startTS uint64
+	endTS   uint64
 
 	concurrencyCfg concurrencyCfg
 	// meta info parsed from log backup
@@ -93,8 +94,8 @@ type LogClient struct {
 func NewLogRestoreClient(
 	ctx context.Context,
 	restoreClient *Client,
-	startTs uint64,
-	endTs uint64,
+	startTS uint64,
+	endTS uint64,
 	tableFilter filter.Filter,
 	concurrency uint,
 	batchFlushPairs int,
@@ -102,17 +103,17 @@ func NewLogRestoreClient(
 	batchWriteKVPairs int,
 ) (*LogClient, error) {
 	var err error
-	if endTs == 0 {
+	if endTS == 0 {
 		// means restore all log data,
 		// so we get current ts from restore cluster
-		endTs, err = restoreClient.GetTS(ctx)
+		endTS, err = restoreClient.GetTS(ctx)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	splitClient := NewSplitClient(restoreClient.GetPDClient(), restoreClient.GetTLSConfig())
-	importClient := NewImportClient(splitClient, restoreClient.tlsConf)
+	importClient := NewImportClient(splitClient, restoreClient.tlsConf, restoreClient.keepaliveConf)
 
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
@@ -125,8 +126,8 @@ func NewLogRestoreClient(
 		restoreClient:  restoreClient,
 		splitClient:    splitClient,
 		importerClient: importClient,
-		startTs:        startTs,
-		endTs:          endTs,
+		startTS:        startTS,
+		endTS:          endTS,
 		concurrencyCfg: cfg,
 		meta:           new(LogMeta),
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
@@ -136,8 +137,22 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+// ResetTSRange used for test.
+func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
+	l.startTS = startTS
+	l.endTS = endTS
+}
+
+func (l *LogClient) maybeTSInRange(ts uint64) bool {
+	// We choose the last event's ts as file name in cdclog when rotate.
+	// so even this file name's ts is larger than l.endTS,
+	// we still need to collect it, because it may have some events in this ts range.
+	// TODO: find another effective filter to collect files
+	return ts >= l.startTS
+}
+
 func (l *LogClient) tsInRange(ts uint64) bool {
-	return l.startTs <= ts && ts <= l.endTs
+	return l.startTS <= ts && ts <= l.endTS
 }
 
 func (l *LogClient) shouldFilter(item *cdclog.SortItem) bool {
@@ -161,7 +176,7 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
 
 	// According to https://docs.aws.amazon.com/AmazonS3/latest/dev/ListingKeysUsingAPIs.html
@@ -169,7 +184,11 @@ func (l *LogClient) needRestoreDDL(fileName string) (bool, error) {
 	// maxUint64 - the first DDL event's commit ts as the file name to return the latest ddl file.
 	// see details at https://github.com/pingcap/ticdc/pull/826/files#diff-d2e98b3ed211b7b9bb7b6da63dd48758R81
 	ts = maxUint64 - ts
-	return l.tsInRange(ts), nil
+	if l.maybeTSInRange(ts) {
+		return true, nil
+	}
+	log.Info("filter ddl file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
+	return false, nil
 }
 
 func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
@@ -203,6 +222,10 @@ func (l *LogClient) isDBRelatedDDL(ddl *cdclog.MessageDDL) bool {
 		return true
 	}
 	return false
+}
+
+func (l *LogClient) isDropTable(ddl *cdclog.MessageDDL) bool {
+	return ddl.Type == model.ActionDropTable
 }
 
 func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
@@ -245,7 +268,8 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	return nil
 }
 
-func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
+// NeedRestoreRowChange determine whether to collect this file by ts range.
+func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	if fileName == logPrefix {
 		// this file name appeared when file sink enabled
 		return true, nil
@@ -261,9 +285,9 @@ func (l *LogClient) needRestoreRowChange(fileName string) (bool, error) {
 	}
 	ts, err := strconv.ParseUint(names[1], 10, 64)
 	if err != nil {
-		return false, errors.AddStack(err)
+		return false, errors.Trace(err)
 	}
-	if l.tsInRange(ts) {
+	if l.maybeTSInRange(ts) {
 		return true, nil
 	}
 	log.Info("filter file by ts", zap.String("name", fileName), zap.Uint64("ts", ts))
@@ -277,7 +301,22 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 
 	// need collect restore tableIDs
 	tableIDs := make([]int64, 0, len(l.meta.Names))
+
+	// we need remove duplicate table name in collection.
+	// when a table create and drop and create again.
+	// then we will have two different table id with same tables.
+	// we should keep the latest table id(larger table id), and filter the old one.
+	nameIDMap := make(map[string]int64)
 	for tableID, name := range l.meta.Names {
+		if tid, ok := nameIDMap[name]; ok {
+			if tid < tableID {
+				nameIDMap[name] = tableID
+			}
+		} else {
+			nameIDMap[name] = tableID
+		}
+	}
+	for name, tableID := range nameIDMap {
 		schema, table := ParseQuoteName(name)
 		if !l.tableFilter.MatchTable(schema, table) {
 			log.Info("filter tables",
@@ -298,23 +337,14 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 			SubDir:    dir,
 			ListCount: -1,
 		}
-		if ok, err := l.restoreClient.storage.FileExists(ctx, opt.SubDir); !ok {
-			// this could happen after duplicate create drop table
-			log.Debug("path not exists", zap.String("path", opt.SubDir), zap.Error(err))
-			continue
-		}
 		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
 			fileName := filepath.Base(path)
-			shouldRestore, err := l.needRestoreRowChange(fileName)
+			shouldRestore, err := l.NeedRestoreRowChange(fileName)
 			if err != nil {
 				return err
 			}
 			if shouldRestore {
-				if _, ok := rowChangeFiles[tableID]; ok {
-					rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
-				} else {
-					rowChangeFiles[tableID] = []string{path}
-				}
+				rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
 			}
 			return nil
 		})
@@ -342,8 +372,9 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	firstKey := codec.EncodeBytes([]byte{}, kvs[0].Key)
 	lastKey := codec.EncodeBytes([]byte{}, kvs[len(kvs)-1].Key)
 
+	uid := uuid.New()
 	meta := &sst.SSTMeta{
-		Uuid:        uuid.NewV4().Bytes(),
+		Uuid:        uid[:],
 		RegionId:    region.Region.GetId(),
 		RegionEpoch: region.Region.GetRegionEpoch(),
 		Range: &sst.Range{
@@ -355,7 +386,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	leaderID := region.Leader.GetId()
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
-	commitTs := oracle.ComposeTS(time.Now().Unix()*1000, 0)
+	commitTS := oracle.ComposeTS(time.Now().Unix()*1000, 0)
 	for _, peer := range region.Region.GetPeers() {
 		cli, err := l.importerClient.GetImportClient(ctx, peer.StoreId)
 		if err != nil {
@@ -381,7 +412,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 				// FIXME we should discuss about the commit ts
 				// 1. give a batch of kv a specify commit ts
 				// 2. give each kv the backup commit ts
-				CommitTs: commitTs,
+				CommitTs: commitTS,
 			},
 		}
 		clients = append(clients, wstream)
@@ -444,11 +475,11 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 			return nil, closeErr
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
-			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
+			log.Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
-	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
+	log.Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size),
 		zap.Int64("buf_size", bytesBuf.TotalSize()))
@@ -513,16 +544,16 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
-		log.L().Warn("write to tikv failed", zap.Error(err))
+		log.Warn("write to tikv failed", zap.Error(err))
 		return err
 	}
 
 	for _, meta := range metas {
 		for i := 0; i < maxRetryTimes; i++ {
-			log.L().Debug("ingest meta", zap.Reflect("meta", meta))
+			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.L().Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
+				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				continue
 			}
@@ -532,7 +563,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.L().Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
+				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
@@ -541,7 +572,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.L().Warn("retry ingest due to",
+				log.Warn("retry ingest due to",
 					zap.Reflect("meta", meta), zap.Reflect("region", region),
 					zap.Reflect("new region", newRegion), zap.Error(errIngest))
 				return errIngest
@@ -576,14 +607,14 @@ WriteAndIngest:
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, l.splitClient, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
-			log.L().Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
+			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
 			continue WriteAndIngest
 		}
 
 		shouldWait := false
 		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
-			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
+			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
@@ -605,14 +636,14 @@ WriteAndIngest:
 			err1 := eg.Wait()
 			if err1 != nil {
 				err = err1
-				log.L().Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
+				log.Warn("should retry this range", zap.Int("retry", retry), zap.Error(err))
 				continue WriteAndIngest
 			}
 		}
 		return nil
 	}
 	if err == nil {
-		err = errors.New("all retry failed")
+		err = errors.Annotate(berrors.ErrRestoreWriteAndIngest, "all retry failed")
 	}
 	return err
 }
@@ -684,7 +715,7 @@ func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdc
 
 	dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(item.Schema))
 	if !ok {
-		return errors.Errorf("[restoreFromPuller] schema %s not exists", item.Schema)
+		return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", item.Schema)
 	}
 	allocs := autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, newTableInfo.Meta())
 
@@ -756,10 +787,18 @@ func (l *LogClient) restoreTableFromPuller(
 			return nil
 		}
 		log.Debug("[restoreFromPuller] next event", zap.Any("item", item), zap.Int64("table id", tableID))
-		if !l.tsInRange(item.TS) {
-			log.Warn("[restoreFromPuller] ts not in given range, we should stop and flush",
-				zap.Uint64("start ts", l.startTs),
-				zap.Uint64("end ts", l.endTs),
+		if l.startTS > item.TS {
+			log.Debug("[restoreFromPuller] item ts is smaller than start ts, skip this item",
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTS),
+				zap.Uint64("item ts", item.TS),
+				zap.Int64("table id", tableID))
+			continue
+		}
+		if l.endTS < item.TS {
+			log.Warn("[restoreFromPuller] ts is larger than end ts, we should stop and flush",
+				zap.Uint64("start ts", l.startTS),
+				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
 			err := l.applyKVChanges(ctx, tableID)
@@ -826,11 +865,17 @@ func (l *LogClient) restoreTableFromPuller(
 			}
 			l.ddlLock.Unlock()
 
+			// if table dropped, we will pull next event to see if this table will create again.
+			// with next create table ddl, we can do reloadTableMeta.
+			if l.isDropTable(ddl) {
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
+				l.tableBuffers[tableID].ResetTableInfo()
+				continue
+			}
 			err = l.reloadTableMeta(dom, tableID, item)
 			if err != nil {
 				return errors.Trace(err)
 			}
-
 		case cdclog.RowChanged:
 			if l.tableBuffers[tableID].TableInfo() == nil {
 				err = l.reloadTableMeta(dom, tableID, item)
@@ -888,16 +933,16 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	}
 	log.Info("get meta from storage", zap.Binary("data", data))
 
-	if l.startTs > l.meta.GlobalResolvedTS {
-		return errors.Errorf("start ts:%d is greater than resolved ts:%d",
-			l.startTs, l.meta.GlobalResolvedTS)
+	if l.startTS > l.meta.GlobalResolvedTS {
+		return errors.Annotatef(berrors.ErrRestoreRTsConstrain,
+			"start ts:%d is greater than resolved ts:%d", l.startTS, l.meta.GlobalResolvedTS)
 	}
-	if l.endTs > l.meta.GlobalResolvedTS {
+	if l.endTS > l.meta.GlobalResolvedTS {
 		log.Info("end ts is greater than resolved ts,"+
 			" to keep consistency we only recover data until resolved ts",
-			zap.Uint64("end ts", l.endTs),
+			zap.Uint64("end ts", l.endTS),
 			zap.Uint64("resolved ts", l.meta.GlobalResolvedTS))
-		l.endTs = l.meta.GlobalResolvedTS
+		l.endTS = l.meta.GlobalResolvedTS
 	}
 
 	// collect ddl files
@@ -946,7 +991,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 			}
 			dbInfo, ok := dom.InfoSchema().SchemaByName(model.NewCIStr(schema))
 			if !ok {
-				return errors.Errorf("schema %s not exists", schema)
+				return errors.Annotatef(berrors.ErrRestoreSchemaNotExists, "schema %s", schema)
 			}
 			allocs = autoid.NewAllocatorsFromTblInfo(dom.Store(), dbInfo.ID, tableInfo.Meta())
 		}
@@ -971,7 +1016,7 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				Leader: newLeader,
 				Region: region.Region,
 			}
-			return true, newRegion, errors.Errorf("not leader: %s", errPb.GetMessage())
+			return true, newRegion, errors.Annotatef(berrors.ErrKVNotLeader, "not leader: %s", errPb.GetMessage())
 		}
 	case errPb.EpochNotMatch != nil:
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
@@ -998,9 +1043,9 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 				}
 			}
 		}
-		return true, newRegion, errors.Errorf("epoch not match: %s", errPb.GetMessage())
+		return true, newRegion, errors.Annotatef(berrors.ErrKVEpochNotMatch, "epoch not match: %s", errPb.GetMessage())
 	}
-	return false, nil, errors.Errorf("non retryable error: %s", resp.GetError().GetMessage())
+	return false, nil, errors.Annotatef(berrors.ErrKVUnknown, "non retryable error: %s", resp.GetError().GetMessage())
 }
 
 func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {

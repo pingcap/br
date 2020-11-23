@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package backup_test
+package utils_test
 
 import (
 	"context"
@@ -10,47 +10,37 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 	pd "github.com/tikv/pd/client"
 
-	"github.com/pingcap/br/pkg/backup"
-	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testSafePointSuite{})
 
-type testSafePointSuite struct {
-	mock *mock.Cluster
-}
+type testSafePointSuite struct{}
 
-func (s *testSafePointSuite) SetUpSuite(c *C) {
-	var err error
-	s.mock, err = mock.NewCluster()
-	c.Assert(err, IsNil)
-}
+func (s *testSafePointSuite) SetUpSuite(c *C) {}
 
 func (s *testSafePointSuite) TearDownSuite(c *C) {
 	testleak.AfterTest(c)()
 }
 
 func (s *testSafePointSuite) TestCheckGCSafepoint(c *C) {
-	c.Assert(s.mock.Start(), IsNil)
-	defer s.mock.Stop()
-
 	ctx := context.Background()
-	pdClient := &mockSafePoint{Client: s.mock.PDClient, safepoint: 2333}
+	pdClient := &mockSafePoint{safepoint: 2333}
 	{
-		err := backup.CheckGCSafePoint(ctx, pdClient, 2333+1)
+		err := utils.CheckGCSafePoint(ctx, pdClient, 2333+1)
 		c.Assert(err, IsNil)
 	}
 	{
-		err := backup.CheckGCSafePoint(ctx, pdClient, 2333)
+		err := utils.CheckGCSafePoint(ctx, pdClient, 2333)
 		c.Assert(err, NotNil)
 	}
 	{
-		err := backup.CheckGCSafePoint(ctx, pdClient, 2333-1)
+		err := utils.CheckGCSafePoint(ctx, pdClient, 2333-1)
 		c.Assert(err, NotNil)
 	}
 	{
-		err := backup.CheckGCSafePoint(ctx, pdClient, 0)
-		c.Assert(err, ErrorMatches, "GC safepoint 2333 exceed TS 0")
+		err := utils.CheckGCSafePoint(ctx, pdClient, 0)
+		c.Assert(err, ErrorMatches, ".*GC safepoint 2333 exceed TS 0.*")
 	}
 }
 

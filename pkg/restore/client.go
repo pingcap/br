@@ -35,6 +35,7 @@ import (
 
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -47,11 +48,12 @@ const defaultChecksumConcurrency = 64
 
 // Client sends requests to restore files.
 type Client struct {
-	pdClient     pd.Client
-	toolClient   SplitClient
-	fileImporter FileImporter
-	workerPool   *utils.WorkerPool
-	tlsConf      *tls.Config
+	pdClient      pd.Client
+	toolClient    SplitClient
+	fileImporter  FileImporter
+	workerPool    *utils.WorkerPool
+	tlsConf       *tls.Config
+	keepaliveConf keepalive.ClientParameters
 
 	databases  map[string]*utils.Database
 	ddlJobs    []*model.Job
@@ -59,12 +61,12 @@ type Client struct {
 	// TODO Remove this field or replace it with a []*DB,
 	// since https://github.com/pingcap/br/pull/377 needs more DBs to speed up DDL execution.
 	// And for now, we must inject a pool of DBs to `Client.GoCreateTables`, otherwise there would be a race condition.
-	// Which is dirty: why we need DBs from different sources?
+	// This is dirty: why we need DBs from different sources?
 	// By replace it with a []*DB, we can remove the dirty parameter of `Client.GoCreateTable`,
 	// along with them in some private functions.
 	// Before you do it, you can firstly read discussions at
 	// https://github.com/pingcap/br/pull/377#discussion_r446594501,
-	// this probably isn't as easy and it seems like (however, not hard, too :D)
+	// this probably isn't as easy as it seems like (however, not hard, too :D)
 	db              *DB
 	rateLimit       uint64
 	isOnline        bool
@@ -85,6 +87,7 @@ func NewRestoreClient(
 	pdClient pd.Client,
 	store kv.Storage,
 	tlsConf *tls.Config,
+	keepaliveConf keepalive.ClientParameters,
 ) (*Client, error) {
 	db, err := NewDB(g, store)
 	if err != nil {
@@ -92,11 +95,12 @@ func NewRestoreClient(
 	}
 
 	return &Client{
-		pdClient:   pdClient,
-		toolClient: NewSplitClient(pdClient, tlsConf),
-		db:         db,
-		tlsConf:    tlsConf,
-		switchCh:   make(chan struct{}),
+		pdClient:      pdClient,
+		toolClient:    NewSplitClient(pdClient, tlsConf),
+		db:            db,
+		tlsConf:       tlsConf,
+		keepaliveConf: keepaliveConf,
+		switchCh:      make(chan struct{}),
 	}, nil
 }
 
@@ -160,8 +164,9 @@ func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.
 	log.Info("load backupmeta", zap.Int("databases", len(rc.databases)), zap.Int("jobs", len(rc.ddlJobs)))
 
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
-	importClient := NewImportClient(metaClient, rc.tlsConf)
-	rc.fileImporter = NewFileImporter(metaClient, importClient, backend, backupMeta.IsRawKv, rc.rateLimit)
+	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
+	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
+
 	return nil
 }
 
@@ -173,7 +178,7 @@ func (rc *Client) IsRawKvMode() bool {
 // GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
 func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
 	if !rc.IsRawKvMode() {
-		return nil, errors.New("the backup data is not in raw kv mode")
+		return nil, errors.Annotate(berrors.ErrRestoreModeMismatch, "the backup data is not in raw kv mode")
 	}
 
 	for _, rawRange := range rc.backupMeta.RawRanges {
@@ -192,7 +197,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
-			return nil, errors.New("the given range to restore is not fully covered by the range that was backed up")
+			return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "the given range to restore is not fully covered by the range that was backed up")
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
@@ -220,7 +225,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 		return files, nil
 	}
 
-	return nil, errors.New("no backup data in the range")
+	return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "no backup data in the range")
 }
 
 // SetConcurrency sets the concurrency of dbs tables files.
@@ -372,7 +377,7 @@ func (rc *Client) createTable(
 			return CreatedTable{}, err
 		}
 	}
-	newTableInfo, err := rc.GetTableSchema(dom, table.Db.Name, table.Info.Name)
+	newTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
 	if err != nil {
 		return CreatedTable{}, err
 	}
@@ -409,14 +414,14 @@ func (rc *Client) GoCreateTables(
 		if err != nil {
 			log.Error("create table failed",
 				zap.Error(err),
-				zap.Stringer("db", t.Db.Name),
+				zap.Stringer("db", t.DB.Name),
 				zap.Stringer("table", t.Info.Name))
 			return err
 		}
 		log.Debug("table created and send to next",
 			zap.Int("output chan size", len(outCh)),
 			zap.Stringer("table", t.Info.Name),
-			zap.Stringer("database", t.Db.Name))
+			zap.Stringer("database", t.DB.Name))
 		outCh <- rt
 		return nil
 	}
@@ -510,8 +515,9 @@ func (rc *Client) RestoreFiles(
 	defer func() {
 		elapsed := time.Since(start)
 		if err == nil {
-			log.Info("Restore Files",
-				zap.Int("files", len(files)), zap.Duration("take", elapsed))
+			log.Info("Restore files",
+				zap.Duration("take", elapsed),
+				utils.ZapFiles(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
@@ -529,7 +535,12 @@ func (rc *Client) RestoreFiles(
 		fileReplica := file
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
-				defer updateCh.Inc()
+				fileStart := time.Now()
+				defer func() {
+					log.Info("import file done", utils.ZapFile(fileReplica),
+						zap.Duration("take", time.Since(fileStart)))
+					updateCh.Inc()
+				}()
 				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
 			})
 	}
@@ -642,17 +653,13 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		keepAlive := 10
-		keepAliveTimeout := 3
 		conn, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
 			grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    time.Duration(keepAlive) * time.Second,
-				Timeout: time.Duration(keepAliveTimeout) * time.Second,
-			}),
+			// we don't need to set keepalive timeout here, because the connection lives
+			// at most 5s. (shorter than minimal value for keepalive time!)
 		)
 		cancel()
 		if err != nil {
@@ -682,6 +689,7 @@ func (rc *Client) GoValidateChecksum(
 	kvClient kv.Client,
 	errCh chan<- error,
 	updateCh glue.Progress,
+	concurrency uint,
 ) <-chan struct{} {
 	log.Info("Start to validate checksum")
 	outCh := make(chan struct{}, 1)
@@ -710,7 +718,7 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
-					err := rc.execChecksum(ectx, tbl, kvClient)
+					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return err
 					}
@@ -723,11 +731,11 @@ func (rc *Client) GoValidateChecksum(
 	return outCh
 }
 
-func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client) error {
+func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client, concurrency uint) error {
 	if tbl.OldTable.NoChecksum() {
 		log.Warn("table has no checksum, skipping checksum",
 			zap.Stringer("table", tbl.OldTable.Info.Name),
-			zap.Stringer("database", tbl.OldTable.Db.Name),
+			zap.Stringer("database", tbl.OldTable.DB.Name),
 		)
 		return nil
 	}
@@ -738,6 +746,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	}
 	exe, err := checksum.NewExecutorBuilder(tbl.Table, startTS).
 		SetOldTable(tbl.OldTable).
+		SetConcurrency(concurrency).
 		Build()
 	if err != nil {
 		return errors.Trace(err)
@@ -754,7 +763,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		checksumResp.TotalKvs != table.TotalKvs ||
 		checksumResp.TotalBytes != table.TotalBytes {
 		log.Error("failed in validate checksum",
-			zap.String("database", table.Db.Name.L),
+			zap.String("database", table.DB.Name.L),
 			zap.String("table", table.Info.Name.L),
 			zap.Uint64("origin tidb crc64", table.Crc64Xor),
 			zap.Uint64("calculated crc64", checksumResp.Checksum),
@@ -763,7 +772,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Uint64("origin tidb total bytes", table.TotalBytes),
 			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
 		)
-		return errors.New("failed to validate checksum")
+		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
 	return nil
 }
@@ -912,7 +921,7 @@ func (rc *Client) ResetPlacementRules(ctx context.Context, tables []*model.Table
 		}
 	}
 	if len(failedTables) > 0 {
-		return errors.Errorf("failed to delete placement rules for tables %v", failedTables)
+		return errors.Annotatef(berrors.ErrPDInvalidResponse, "failed to delete placement rules for tables %v", failedTables)
 	}
 	return nil
 }

@@ -15,9 +15,11 @@ package cdclog
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"testing"
 
 	"github.com/pingcap/check"
+	"github.com/pingcap/parser/mysql"
 )
 
 func Test(t *testing.T) { check.TestingT(t) }
@@ -65,7 +67,7 @@ func buildEncodeRowData(events []*MessageRow) []byte {
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts:     1,
+		TS:     1,
 		Schema: "test",
 		Table:  "event",
 	}
@@ -89,7 +91,7 @@ func buildEncodeDDLData(events []*MessageDDL) []byte {
 	binary.BigEndian.PutUint64(versionByte[:], BatchVersion1)
 	data := append(make([]byte, 0), versionByte[:]...)
 	key := messageKey{
-		Ts:     1,
+		TS:     1,
 		Schema: "test",
 		Table:  "event",
 	}
@@ -140,4 +142,27 @@ func (s *batchSuite) TestDecoder(c *check.C) {
 		c.Assert(item.RowID, check.Equals, int64(index))
 		index++
 	}
+}
+
+func (s *batchSuite) TestColumn(c *check.C) {
+	// test varbinary columns (same type with varchar 15)
+	col1 := Column{Type: mysql.TypeVarchar, Flag: BinaryFlag, Value: "\\x00\\x01"}
+	col1 = formatColumnVal(col1)
+	dat, err := col1.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetString(), check.Equals, "\x00\x01")
+
+	// test binary columns (same type with varchar 254)
+	col2 := Column{Type: mysql.TypeString, Flag: BinaryFlag, Value: "test\\ttest"}
+	col2 = formatColumnVal(col2)
+	dat, err = col2.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetString(), check.Equals, "test\ttest")
+
+	// test year columns
+	val := json.Number("2020")
+	colYear := Column{Type: mysql.TypeYear, Value: val}
+	dat, err = colYear.ToDatum()
+	c.Assert(err, check.IsNil)
+	c.Assert(dat.GetInt64(), check.Equals, int64(2020))
 }

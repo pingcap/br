@@ -3,8 +3,7 @@ PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD := $(shell pwd)
 PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
-GOCHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
-
+CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
@@ -13,30 +12,47 @@ LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
+GOBUILD := CGO_ENABLED=0 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
+GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(LDFLAGS)'
+PREPARE_MOD := cp go.mod1 go.mod && cp go.sum1 go.sum
+FINISH_MOD := cp go.mod go.mod1 && cp go.sum go.sum1
+
 ifeq ("$(WITH_RACE)", "1")
 	RACEFLAG = -race
 endif
 
-all: check test build
+all: build check test
+
+prepare:
+	$(PREPARE_MOD)
+
+finish-prepare:
+	$(FINISH_MOD)
 
 build:
-	GO111MODULE=on go build -ldflags '$(LDFLAGS)' ${RACEFLAG} -o bin/br
+	$(PREPARE_MOD)
+	$(GOBUILD) $(RACEFLAG) -o bin/br
 
-build_for_integration_test: failpoint-enable
-	(GO111MODULE=on go test -c -cover -covermode=count \
+build_for_integration_test:
+	$(PREPARE_MOD)
+	@make failpoint-enable
+	($(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
-		-ldflags '$(LDFLAGS)'\
 		-o bin/br.test && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/locker tests/br_key_locked/*.go && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/gc tests/br_z_gc_safepoint/*.go && \
-	GO111MODULE=on go build ${RACEFLAG} -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
+	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
-test: failpoint-enable
-	GO111MODULE=on go test ${RACEFLAG} -tags leak ./... || ( make failpoint-disable && exit 1 )
+test:
+	$(PREPARE_MOD)
+	@make failpoint-enable
+	$(GOTEST) $(RACEFLAG) -tags leak ./... || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
-testcover: tools failpoint-enable
+testcover: tools
+	$(PREPARE_MOD)
+	@make failpoint-enable
 	GO111MODULE=on tools/bin/overalls \
 		-project=$(BR_PKG) \
 		-covermode=count \
@@ -57,22 +73,24 @@ bins:
 	@which bin/br
 	@which bin/tiflash
 	@which bin/libtiflash_proxy.so
+	@which bin/cdc
 	if [ ! -d bin/flash_cluster_manager ]; then echo "flash_cluster_manager not exist"; exit 1; fi
 
 tools:
 	@echo "install tools..."
 	@cd tools && make
 
-check-all: static lint tidy
-	@echo "checking"
-
-check: tools check-all
+check:
+	@# Tidy first to avoid go.mod being affected by static and lint
+	@make prepare tidy
+	@# Build tools for targets errdoc, static and lint
+	@make tools errdoc static lint
 
 static: export GO111MODULE=on
-static: tools
+static: prepare tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
-	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(GOCHECKER)
+	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
+	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 
 	@# why some lints are disabled?
 	@#   gochecknoglobals - disabled because we do use quite a lot of globals
@@ -86,6 +104,7 @@ static: tools
 	@#        testpackage - several test packages still rely on private functions
 	@#             nestif - PENDING REFACTORING
 	@#           goerr113 - it mistaken pingcap/errors with standard errors
+	@#                lll - pingcap/errors may need to write a long line
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -98,16 +117,32 @@ static: tools
 		--disable testpackage \
 		--disable nestif \
 		--disable goerr113 \
+		--disable lll \
 		$$($(PACKAGE_DIRECTORIES))
+	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
+	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
+	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
+	@# TODO: allow more APIs when we need to support "workaound".
+	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
+		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
+	$(FINISH_MOD)
 
-lint: tools
+lint: prepare tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
+	$(FINISH_MOD)
 
 tidy:
 	@echo "go mod tidy"
+	$(PREPARE_MOD)
 	GO111MODULE=on go mod tidy
-	git diff --quiet go.mod go.sum
+	$(FINISH_MOD)
+	cd tests && GO111MODULE=on go mod tidy
+	git diff --quiet go.mod1 go.sum1 tools/go.mod tools/go.sum
+
+errdoc: tools
+	@echo "generator errors.toml"
+	./tools/check-errdoc.sh
 
 failpoint-enable: tools
 	tools/bin/failpoint-ctl enable

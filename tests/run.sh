@@ -18,7 +18,7 @@ cur=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 source $cur/_utils/run_services
 
 mkdir -p "$TEST_DIR"
-rm -f "$TEST_DIR"/*.log
+rm -f "$TEST_DIR"/*.log &> /dev/null
 
 trap stop_services EXIT
 start_services

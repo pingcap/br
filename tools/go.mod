@@ -7,8 +7,7 @@ require (
 	github.com/go-playground/overalls v0.0.0-20191218162659-7df9f728c018
 	github.com/golangci/golangci-lint v1.26.0
 	github.com/mgechev/revive v1.0.2
-	github.com/pingcap/failpoint v0.0.0-20200506114213-c17f16071c53
-	github.com/yookoala/realpath v1.0.0 // indirect
-	golang.org/x/tools v0.0.0-20200422205258-72e4a01eba43
-	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
+	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
+	github.com/pingcap/tiup v1.2.3
+	golang.org/x/tools v0.0.0-20200527183253-8e7acdbce89d
 )

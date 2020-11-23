@@ -19,6 +19,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/pdutil"
 )
 
 type testBackup struct {
@@ -39,9 +40,9 @@ func (r *testBackup) SetUpSuite(c *C) {
 	mvccStore := mocktikv.MustNewMVCCStore()
 	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
 	r.ctx, r.cancel = context.WithCancel(context.Background())
-	mockMgr := &conn.Mgr{}
+	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
 	mockMgr.SetPDClient(r.mockPDClient)
-	mockMgr.SetPDHTTP([]string{"test"}, nil)
+	mockMgr.SetHTTP([]string{"test"}, nil)
 	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)
@@ -57,31 +58,31 @@ func (r *testBackup) TestGetTS(c *C) {
 
 	// timeago not work
 	expectedDuration := 0
-	currentTs := time.Now().UnixNano() / int64(time.Millisecond)
+	currentTS := time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err := r.backupClient.GetTS(r.ctx, 0, 0)
 	c.Assert(err, IsNil)
-	pdTs := oracle.ExtractPhysical(ts)
-	duration := int(currentTs - pdTs)
+	pdTS := oracle.ExtractPhysical(ts)
+	duration := int(currentTS - pdTS)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "1.5m"
 	expectedDuration = 90000
-	currentTs = time.Now().UnixNano() / int64(time.Millisecond)
+	currentTS = time.Now().UnixNano() / int64(time.Millisecond)
 	ts, err = r.backupClient.GetTS(r.ctx, 90*time.Second, 0)
 	c.Assert(err, IsNil)
-	pdTs = oracle.ExtractPhysical(ts)
-	duration = int(currentTs - pdTs)
+	pdTS = oracle.ExtractPhysical(ts)
+	duration = int(currentTS - pdTS)
 	c.Assert(duration, Greater, expectedDuration-deviation)
 	c.Assert(duration, Less, expectedDuration+deviation)
 
 	// timeago = "-1m"
 	_, err = r.backupClient.GetTS(r.ctx, -time.Minute, 0)
-	c.Assert(err, ErrorMatches, "negative timeago is not allowed")
+	c.Assert(err, ErrorMatches, "negative timeago is not allowed.*")
 
 	// timeago = "1000000h" overflows
 	_, err = r.backupClient.GetTS(r.ctx, 1000000*time.Hour, 0)
-	c.Assert(err, ErrorMatches, "backup ts overflow.*")
+	c.Assert(err, ErrorMatches, ".*backup ts overflow.*")
 
 	// timeago = "10h" exceed GCSafePoint
 	p, l, err := r.mockPDClient.GetTS(r.ctx)
@@ -90,7 +91,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	_, err = r.mockPDClient.UpdateGCSafePoint(r.ctx, now)
 	c.Assert(err, IsNil)
 	_, err = r.backupClient.GetTS(r.ctx, 10*time.Hour, 0)
-	c.Assert(err, ErrorMatches, "GC safepoint [0-9]+ exceed TS [0-9]+")
+	c.Assert(err, ErrorMatches, ".*GC safepoint [0-9]+ exceed TS [0-9]+.*")
 
 	// timeago and backupts both exists, use backupts
 	backupts := oracle.ComposeTS(p+10, l)

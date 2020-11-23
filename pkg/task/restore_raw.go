@@ -6,9 +6,11 @@ import (
 	"context"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
@@ -45,6 +47,8 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 }
 
 func (cfg *RestoreRawConfig) adjust() {
+	cfg.Config.adjust()
+
 	if cfg.Concurrency == 0 {
 		cfg.Concurrency = defaultRestoreConcurrency
 	}
@@ -58,13 +62,17 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, cfg.CheckRequirements)
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
 		return err
 	}
 	defer mgr.Close()
 
-	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig())
+	keepaliveCfg := GetKeepalive(&cfg.Config)
+	// sometimes we have pooled the connections.
+	// sending heartbeats in idle times is useful.
+	keepaliveCfg.PermitWithoutStream = true
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
 		return err
 	}
@@ -86,7 +94,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	if !client.IsRawKvMode() {
-		return errors.New("cannot do raw restore from transactional data")
+		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do raw restore from transactional data")
 	}
 
 	files, err := client.GetFilesInRawRange(cfg.StartKey, cfg.EndKey, cfg.CF)
@@ -95,7 +103,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 
 	if len(files) == 0 {
-		return errors.New("all files are filtered out from the backup archive, nothing to restore")
+		log.Info("all files are filtered out from the backup archive, nothing to restore")
+		return nil
 	}
 	summary.CollectInt("restore files", len(files))
 

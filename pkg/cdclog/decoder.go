@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"strconv"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -25,6 +26,8 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // ColumnFlagType represents the type of Column.
@@ -44,6 +47,9 @@ const (
 const (
 	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1
+)
+
+const (
 	// BinaryFlag means the Column charset is binary.
 	BinaryFlag ColumnFlagType = 1 << ColumnFlagType(iota)
 	// HandleKeyFlag means the Column is selected as the handle key.
@@ -79,7 +85,7 @@ func (c Column) ToDatum() (types.Datum, error) {
 	)
 
 	switch c.Type {
-	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong:
+	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeYear:
 		val, err = c.Value.(json.Number).Int64()
 		if err != nil {
 			return types.Datum{}, errors.Trace(err)
@@ -97,6 +103,20 @@ func (c Column) ToDatum() (types.Datum, error) {
 
 func formatColumnVal(c Column) Column {
 	switch c.Type {
+	case mysql.TypeVarchar, mysql.TypeString:
+		if s, ok := c.Value.(string); ok {
+			// according to open protocol https://docs.pingcap.com/tidb/dev/ticdc-open-protocol
+			// CHAR/BINARY have the same type: 254
+			// VARCHAR/VARBINARY have the same type: 15
+			// we need to process it by its flag.
+			if c.Flag&BinaryFlag != 0 {
+				val, err := strconv.Unquote("\"" + s + "\"")
+				if err != nil {
+					log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				}
+				c.Value = val
+			}
+		}
 	case mysql.TypeTinyBlob, mysql.TypeMediumBlob,
 		mysql.TypeLongBlob, mysql.TypeBlob:
 		if s, ok := c.Value.(string); ok {
@@ -119,7 +139,7 @@ func formatColumnVal(c Column) Column {
 }
 
 type messageKey struct {
-	Ts        uint64 `json:"ts"`
+	TS        uint64 `json:"ts"`
 	Schema    string `json:"scm,omitempty"`
 	Table     string `json:"tbl,omitempty"`
 	RowID     int64  `json:"rid,omitempty"`
@@ -252,7 +272,7 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 		Data:     m,
 		Schema:   nextKey.Schema,
 		Table:    nextKey.Table,
-		TS:       nextKey.Ts,
+		TS:       nextKey.TS,
 		RowID:    nextKey.RowID,
 	}
 	return item, nil
@@ -265,10 +285,13 @@ func (b *JSONEventBatchMixedDecoder) HasNext() bool {
 
 // NewJSONEventBatchDecoder creates a new JSONEventBatchDecoder.
 func NewJSONEventBatchDecoder(data []byte) (*JSONEventBatchMixedDecoder, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
 	version := binary.BigEndian.Uint64(data[:8])
 	data = data[8:]
 	if version != BatchVersion1 {
-		return nil, errors.New("unexpected key format version")
+		return nil, errors.Annotate(berrors.ErrPiTRInvalidCDCLogFormat, "unexpected key format version")
 	}
 	return &JSONEventBatchMixedDecoder{
 		mixedBytes: data,

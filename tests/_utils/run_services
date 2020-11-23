@@ -29,15 +29,20 @@ TIKV_COUNT=3
 TIFLASH_STATUS="127.0.0.1:17000"
 TIFLASH_HTTP="127.0.0.1:8125"
 
-stop_services() {
-    killall -9 tikv-server || true
-    killall -9 pd-server || true
-    killall -9 tidb-server || true
-    killall -9 tiflash || true
-
-    find "$TEST_DIR" -maxdepth 1 -not -path "$TEST_DIR" -not -name "*.log" | xargs rm -r || true
+cleanup_data() {
+    # Clean up data
+    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
+        find "$TEST_DIR" -maxdepth 1 -name "${svc}*" -type d -exec echo delete {} \; -exec rm -rf {} \; 2> /dev/null
+    done
 }
 
+stop_services() {
+    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
+        # tiflash and br do not have "-server"
+        killall -9 $svc-server &> /dev/null || true
+        killall -9 $svc &> /dev/null || true
+    done
+}
 
 start_services() {
     max_retry=3
@@ -55,6 +60,8 @@ start_services() {
 
 start_services_impl() {
     stop_services
+    cleanup_data
+
     source tests/_utils/make_tiflash_config
 
     TIDB_CONFIG="${1-tests}/config/tidb.toml"
@@ -64,7 +71,6 @@ start_services_impl() {
 
     if [ ! -e $PD_CONFIG ]; then PD_CONFIG=tests/config/pd.toml; fi
     if [ ! -e $TIFLASH_CONFIG ]; then TIFLASH_CONFIG=tests/config/tiflash.toml; fi
-
 
     echo "Starting PD..."
     mkdir -p "$TEST_DIR/pd"
@@ -160,8 +166,9 @@ start_tiflash() {
     done
 }
 
-start_services_withTLS() {
+start_services_with_tls() {
     stop_services
+    cleanup_data
 
     PD_CONFIG="$1/config/pd.toml"
     TIDB_CONFIG="$1/config/tidb.toml"

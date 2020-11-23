@@ -91,7 +91,7 @@ func NewRestoreCommand() *cobra.Command {
 	}
 	command.AddCommand(
 		newFullRestoreCommand(),
-		newDbRestoreCommand(),
+		newDBRestoreCommand(),
 		newTableRestoreCommand(),
 		newLogRestoreCommand(),
 		newRawRestoreCommand(),
@@ -106,6 +106,7 @@ func newFullRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "full",
 		Short: "restore all tables",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Full restore")
 		},
@@ -114,10 +115,11 @@ func newFullRestoreCommand() *cobra.Command {
 	return command
 }
 
-func newDbRestoreCommand() *cobra.Command {
+func newDBRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
 		Short: "restore tables in a database",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Database restore")
 		},
@@ -130,6 +132,7 @@ func newTableRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "table",
 		Short: "restore a table",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Table restore")
 		},
@@ -141,15 +144,14 @@ func newTableRestoreCommand() *cobra.Command {
 func newLogRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "cdclog",
-		Short: "restore data from cdc log backup",
+		Short: "(experimental) restore data from cdc log backup",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLogRestoreCommand(cmd)
 		},
 	}
 	task.DefineFilterFlags(command)
 	task.DefineLogRestoreFlags(command)
-	// TODO remove hidden if it's ready.
-	command.Hidden = true
 	return command
 }
 
@@ -157,6 +159,7 @@ func newTiflashReplicaRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "tiflash-replica",
 		Short: "restore the tiflash replica removed by a failed restore of the older version BR",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreTiflashReplicaCommand(cmd, "Restore TiFlash Replica")
 		},
@@ -168,6 +171,7 @@ func newRawRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "raw",
 		Short: "(experimental) restore a raw kv range to TiKV cluster",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreRawCommand(cmd, "Raw restore")
 		},

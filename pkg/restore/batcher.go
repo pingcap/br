@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/kvproto/pkg/backup"
+
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
@@ -39,8 +41,8 @@ type Batcher struct {
 	autoCommitJoiner chan<- struct{}
 	// everythingIsDone is for waiting for worker done: that is, after we send a
 	// signal to autoCommitJoiner, we must give it enough time to get things done.
-	// Then, it should notify us by this waitgroup.
-	// Use waitgroup instead of a trivial channel for further extension.
+	// Then, it should notify us by this wait group.
+	// Use wait group instead of a trivial channel for further extension.
 	everythingIsDone *sync.WaitGroup
 	// sendErr is for output error information.
 	sendErr chan<- error
@@ -60,6 +62,37 @@ func (b *Batcher) Len() int {
 	return int(atomic.LoadInt32(&b.size))
 }
 
+// contextCleaner is the worker goroutine that cleaning the 'context'
+// (e.g. make regions leave restore mode).
+func (b *Batcher) contextCleaner(ctx context.Context, tables <-chan []CreatedTable) {
+	defer func() {
+		if ctx.Err() != nil {
+			log.Info("restore canceled, cleaning in background context")
+			b.manager.Close(context.Background())
+		} else {
+			b.manager.Close(ctx)
+		}
+	}()
+	defer b.everythingIsDone.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case tbls, ok := <-tables:
+			if !ok {
+				return
+			}
+			if err := b.manager.Leave(ctx, tbls); err != nil {
+				b.sendErr <- err
+				return
+			}
+			for _, tbl := range tbls {
+				b.outCh <- tbl
+			}
+		}
+	}
+}
+
 // NewBatcher creates a new batcher by a sender and a context manager.
 // the former defines how the 'restore' a batch(i.e. send, or 'push down' the task to where).
 // the context manager defines the 'lifetime' of restoring tables(i.e. how to enter 'restore' mode, and how to exit).
@@ -71,7 +104,7 @@ func NewBatcher(
 	manager ContextManager,
 	errCh chan<- error,
 ) (*Batcher, <-chan CreatedTable) {
-	output := make(chan CreatedTable, defaultBatcherOutputChannelSize)
+	output := make(chan CreatedTable, defaultChannelSize)
 	sendChan := make(chan SendType, 2)
 	b := &Batcher{
 		rewriteRules:       EmptyRewriteRule(),
@@ -84,8 +117,12 @@ func NewBatcher(
 		everythingIsDone:   new(sync.WaitGroup),
 		batchSizeThreshold: 1,
 	}
-	b.everythingIsDone.Add(1)
+	b.everythingIsDone.Add(2)
 	go b.sendWorker(ctx, sendChan)
+	restoredTables := make(chan []CreatedTable, defaultChannelSize)
+	go b.contextCleaner(ctx, restoredTables)
+	sink := chanTableSink{restoredTables, errCh}
+	sender.PutSink(sink)
 	return b, output
 }
 
@@ -105,7 +142,7 @@ func (b *Batcher) EnableAutoCommit(ctx context.Context, delay time.Duration) {
 // DisableAutoCommit blocks the current goroutine until the worker can gracefully stop,
 // and then disable auto commit.
 func (b *Batcher) DisableAutoCommit() {
-	b.joinWorker()
+	b.joinAutoCommitWorker()
 	b.autoCommitJoiner = nil
 }
 
@@ -114,9 +151,9 @@ func (b *Batcher) waitUntilSendDone() {
 	b.everythingIsDone.Wait()
 }
 
-// joinWorker blocks the current goroutine until the worker can gracefully stop.
+// joinAutoCommitWorker blocks the current goroutine until the worker can gracefully stop.
 // return immediately when auto commit disabled.
-func (b *Batcher) joinWorker() {
+func (b *Batcher) joinAutoCommitWorker() {
 	if b.autoCommitJoiner != nil {
 		log.Debug("gracefully stopping worker goroutine")
 		b.autoCommitJoiner <- struct{}{}
@@ -126,17 +163,11 @@ func (b *Batcher) joinWorker() {
 }
 
 // sendWorker is the 'worker' that send all ranges to TiKV.
+// TODO since all operations are asynchronous now, it's possible to remove this worker.
 func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 	sendUntil := func(lessOrEqual int) {
 		for b.Len() > lessOrEqual {
-			tbls, err := b.Send(ctx)
-			if err != nil {
-				b.sendErr <- err
-				return
-			}
-			for _, t := range tbls {
-				b.outCh <- t
-			}
+			b.Send(ctx)
 		}
 	}
 
@@ -148,6 +179,7 @@ func (b *Batcher) sendWorker(ctx context.Context, send <-chan SendType) {
 			sendUntil(0)
 		case SendAllThenClose:
 			sendUntil(0)
+			b.sender.Close()
 			b.everythingIsDone.Done()
 			return
 		}
@@ -181,7 +213,8 @@ func (b *Batcher) asyncSend(t SendType) {
 	}
 }
 
-type drainResult struct {
+// DrainResult is the collection of some ranges and theirs metadata.
+type DrainResult struct {
 	// TablesToSend are tables that would be send at this batch.
 	TablesToSend []CreatedTable
 	// BlankTablesAfterSend are tables that will be full-restored after this batch send.
@@ -190,8 +223,17 @@ type drainResult struct {
 	Ranges               []rtree.Range
 }
 
-func newDrainResult() drainResult {
-	return drainResult{
+// Files returns all files of this drain result.
+func (result DrainResult) Files() []*backup.File {
+	var files = make([]*backup.File, 0, len(result.Ranges)*2)
+	for _, fs := range result.Ranges {
+		files = append(files, fs.Files...)
+	}
+	return files
+}
+
+func newDrainResult() DrainResult {
+	return DrainResult{
 		TablesToSend:         make([]CreatedTable, 0),
 		BlankTablesAfterSend: make([]CreatedTable, 0),
 		RewriteRules:         EmptyRewriteRule(),
@@ -217,7 +259,7 @@ func newDrainResult() drainResult {
 // |--|-------|
 // |t2|t3     |
 // as you can see, all restored ranges would be removed.
-func (b *Batcher) drainRanges() drainResult {
+func (b *Batcher) drainRanges() DrainResult {
 	result := newDrainResult()
 
 	b.cachedTablesMu.Lock()
@@ -232,7 +274,7 @@ func (b *Batcher) drainRanges() drainResult {
 
 		// the batch is full, we should stop here!
 		// we use strictly greater than because when we send a batch at equal, the offset should plus one.
-		// (because the last table is sent, we should put it in emptyTables), and this will intrduce extra complex.
+		// (because the last table is sent, we should put it in emptyTables), and this will introduce extra complex.
 		if thisTableLen+collected > b.batchSizeThreshold {
 			drainSize := b.batchSizeThreshold - collected
 			thisTableRanges := thisTable.Range
@@ -240,7 +282,7 @@ func (b *Batcher) drainRanges() drainResult {
 			var drained []rtree.Range
 			drained, b.cachedTables[offset].Range = thisTableRanges[:drainSize], thisTableRanges[drainSize:]
 			log.Debug("draining partial table to batch",
-				zap.Stringer("db", thisTable.OldTable.Db.Name),
+				zap.Stringer("db", thisTable.OldTable.DB.Name),
 				zap.Stringer("table", thisTable.Table.Name),
 				zap.Int("size", thisTableLen),
 				zap.Int("drained", drainSize),
@@ -258,7 +300,7 @@ func (b *Batcher) drainRanges() drainResult {
 		// clear the table length.
 		b.cachedTables[offset].Range = []rtree.Range{}
 		log.Debug("draining table to batch",
-			zap.Stringer("db", thisTable.OldTable.Db.Name),
+			zap.Stringer("db", thisTable.OldTable.DB.Name),
 			zap.Stringer("table", thisTable.Table.Name),
 			zap.Int("size", thisTableLen),
 		)
@@ -271,42 +313,20 @@ func (b *Batcher) drainRanges() drainResult {
 
 // Send sends all pending requests in the batcher.
 // returns tables sent FULLY in the current batch.
-func (b *Batcher) Send(ctx context.Context) ([]CreatedTable, error) {
+func (b *Batcher) Send(ctx context.Context) {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
-
 	log.Info("restore batch start",
-		append(
-			ZapRanges(ranges),
-			ZapTables(tbs),
-		)...,
+		ZapRanges(ranges),
+		ZapTables(tbs),
 	)
-
+	// Leave is called at b.contextCleaner
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
-		return nil, err
+		b.sendErr <- err
+		return
 	}
-	defer func() {
-		if err := b.manager.Leave(ctx, drainResult.BlankTablesAfterSend); err != nil {
-			log.Error("encountering error when leaving recover mode, we can go on but some regions may stick on restore mode",
-				append(
-					ZapRanges(ranges),
-					ZapTables(tbs),
-					zap.Error(err))...,
-			)
-		}
-		if len(drainResult.BlankTablesAfterSend) > 0 {
-			log.Debug("table fully restored",
-				ZapTables(drainResult.BlankTablesAfterSend),
-				zap.Int("ranges", len(ranges)),
-			)
-		}
-	}()
-
-	if err := b.sender.RestoreBatch(ctx, ranges, drainResult.RewriteRules); err != nil {
-		return nil, err
-	}
-	return drainResult.BlankTablesAfterSend, nil
+	b.sender.RestoreBatch(drainResult)
 }
 
 func (b *Batcher) sendIfFull() {
@@ -320,7 +340,7 @@ func (b *Batcher) sendIfFull() {
 func (b *Batcher) Add(tbs TableWithRange) {
 	b.cachedTablesMu.Lock()
 	log.Debug("adding table to batch",
-		zap.Stringer("db", tbs.OldTable.Db.Name),
+		zap.Stringer("db", tbs.OldTable.DB.Name),
 		zap.Stringer("table", tbs.Table.Name),
 		zap.Int64("old id", tbs.OldTable.Info.ID),
 		zap.Int64("new id", tbs.Table.ID),
@@ -342,7 +362,6 @@ func (b *Batcher) Close() {
 	b.waitUntilSendDone()
 	close(b.outCh)
 	close(b.sendCh)
-	b.sender.Close()
 }
 
 // SetThreshold sets the threshold that how big the batch size reaching need to send batch.

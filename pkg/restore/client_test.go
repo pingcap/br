@@ -5,6 +5,7 @@ package restore_test
 import (
 	"math"
 	"strconv"
+	"time"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
@@ -12,6 +13,7 @@ import (
 	"github.com/pingcap/parser/types"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/testleak"
+	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
@@ -20,6 +22,11 @@ import (
 )
 
 var _ = Suite(&testRestoreClientSuite{})
+
+var defaultKeepaliveCfg = keepalive.ClientParameters{
+	Time:    3 * time.Second,
+	Timeout: 10 * time.Second,
+}
 
 type testRestoreClientSuite struct {
 	mock *mock.Cluster
@@ -38,8 +45,7 @@ func (s *testRestoreClientSuite) TearDownTest(c *C) {
 func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
-
-	client, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
+	client, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
 	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxUint64)
@@ -52,7 +58,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
 		tables[i] = &utils.Table{
-			Db: dbSchema,
+			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
 				Name: model.NewCIStr("test" + strconv.Itoa(i)),
@@ -97,7 +103,7 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	client, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil)
+	client, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
 	c.Assert(client.IsOnline(), IsFalse)

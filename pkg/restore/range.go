@@ -12,6 +12,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -49,11 +50,11 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 					zap.Stringer("endKey", utils.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
-				return nil, errors.New("table id does not match")
+				return nil, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "table id mismatch")
 			}
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
-			return nil, errors.Errorf("ranges overlapped: %s, %s", out, rg)
+			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped: %s, %s", out, rg)
 		}
 	}
 	sortedRanges := rangeTree.GetSortedRanges()

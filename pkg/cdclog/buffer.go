@@ -74,6 +74,11 @@ func NewTableBuffer(tbl table.Table, allocators autoid.Allocators, flushKVPairs 
 	return tb
 }
 
+// ResetTableInfo set tableInfo to nil for next reload.
+func (t *TableBuffer) ResetTableInfo() {
+	t.tableInfo = nil
+}
+
 // TableInfo returns the table info of this buffer.
 func (t *TableBuffer) TableInfo() table.Table {
 	return t.tableInfo
@@ -119,7 +124,6 @@ func (t *TableBuffer) translateToDatum(row map[string]Column) ([]types.Datum, er
 		if err != nil {
 			return nil, err
 		}
-		log.Debug("translate to datum", zap.String("col", col), zap.Stringer("val", val))
 		cols = append(cols, val)
 	}
 	return cols, nil

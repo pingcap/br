@@ -4,6 +4,7 @@ package utils
 
 import (
 	"context"
+	"time"
 
 	. "github.com/pingcap/check"
 )
@@ -27,43 +28,45 @@ func (r *testProgressSuite) TestProgress(c *C) {
 	var p string
 	pCh2 := make(chan string, 2)
 	progress2 := NewProgressPrinter("test", 2, false)
-	progress2.goPrintProgress(ctx, &testWriter{
+	progress2.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh2 <- p },
 	})
-	updateCh2 := progress2.UpdateCh()
-	updateCh2 <- struct{}{}
+	progress2.Inc()
+	time.Sleep(2 * time.Second)
 	p = <-pCh2
 	c.Assert(p, Matches, `.*"P":"50\.00%".*`)
-	updateCh2 <- struct{}{}
+	progress2.Inc()
+	time.Sleep(2 * time.Second)
 	p = <-pCh2
 	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
-	updateCh2 <- struct{}{}
+	progress2.Inc()
+	time.Sleep(2 * time.Second)
 	p = <-pCh2
 	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
 
 	pCh4 := make(chan string, 4)
 	progress4 := NewProgressPrinter("test", 4, false)
-	progress4.goPrintProgress(ctx, &testWriter{
+	progress4.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh4 <- p },
 	})
-	updateCh4 := progress4.UpdateCh()
-	updateCh4 <- struct{}{}
+	progress4.Inc()
+	time.Sleep(2 * time.Second)
 	p = <-pCh4
 	c.Assert(p, Matches, `.*"P":"25\.00%".*`)
-	updateCh4 <- struct{}{}
-	close(updateCh4)
+	progress4.Inc()
+	progress4.Close()
+	time.Sleep(2 * time.Second)
 	p = <-pCh4
 	c.Assert(p, Matches, `.*"P":"100\.00%".*`)
 
 	pCh8 := make(chan string, 8)
 	progress8 := NewProgressPrinter("test", 8, false)
-	progress8.goPrintProgress(ctx, &testWriter{
+	progress8.goPrintProgress(ctx, nil, &testWriter{
 		fn: func(p string) { pCh8 <- p },
 	})
-	updateCh8 := progress8.UpdateCh()
-	updateCh8 <- struct{}{}
-	updateCh8 <- struct{}{}
-	<-pCh8
+	progress8.Inc()
+	progress8.Inc()
+	time.Sleep(2 * time.Second)
 	p = <-pCh8
 	c.Assert(p, Matches, `.*"P":"25\.00%".*`)
 
