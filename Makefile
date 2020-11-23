@@ -118,7 +118,7 @@ static: prepare tools
 		--disable nestif \
 		--disable goerr113 \
 		--disable lll \
-		$$($(PACKAGE_DIRECTORIES))
+		$$($(PACKAGE_DIRECTORIES) | sed '/pkg\/gluetidb/d') # disable pkg/gluetidb's golint check because it will sometimes fail
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
