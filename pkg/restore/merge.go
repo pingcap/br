@@ -32,6 +32,10 @@ type MergeRangesStat struct {
 // as it reduces split region and scatter region.
 // Note: this function modify backupMeta in place.
 func MergeRanges(backupMeta *kvproto.BackupMeta) (*MergeRangesStat, error) {
+	// Skip if the backup is empty.
+	if len(backupMeta.Files) == 0 {
+		return &MergeRangesStat{}, nil
+	}
 	totalBytes := uint64(0)
 	totalKvs := uint64(0)
 	totalFiles := len(backupMeta.Files)

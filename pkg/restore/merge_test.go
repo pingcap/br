@@ -80,6 +80,11 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 		stat        restore.MergeRangesStat
 	}
 	cases := []Case{
+		// Empty backup.
+		{files: [][4]int{},
+			mergedIndex: []int{},
+			stat:        restore.MergeRangesStat{TotalRegions: 0, MergedRegions: 0}},
+
 		// Do not merge big range.
 		{files: [][4]int{{1, 1, int(splitSizeMB), 1}, {1, 1, 1, 1}},
 			mergedIndex: []int{},
