@@ -8,12 +8,13 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 	. "github.com/pingcap/check"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+
+	"github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
@@ -69,7 +70,7 @@ func (fb *fileBulder) build(c *C, tableID, num, bytes, kv int) (files []*kvproto
 		TotalBytes: uint64(bytes),
 		Cf:         "default",
 	})
-	return
+	return files
 }
 
 func (s *testMergeRangesSuite) TestMergeRanges(c *C) {

@@ -536,18 +536,18 @@ func (rs rangesSliceObjectMixin) MarshalLogObject(encoder zapcore.ObjectEncoder)
 }
 
 // ParseQuoteName parse the quote `db`.`table` name, and split it.
-func ParseQuoteName(name string) (string, string) {
+func ParseQuoteName(name string) (db, table string) {
 	names := quoteRegexp.FindAllStringSubmatch(name, -1)
 	if len(names) != 2 {
 		log.Fatal("failed to parse schema name",
 			zap.String("origin name", name),
 			zap.Any("parsed names", names))
 	}
-	schema := names[0][0]
-	table := names[1][0]
-	schema = strings.ReplaceAll(unQuoteName(schema), "``", "`")
+	db = names[0][0]
+	table = names[1][0]
+	db = strings.ReplaceAll(unQuoteName(db), "``", "`")
 	table = strings.ReplaceAll(unQuoteName(table), "``", "`")
-	return schema, table
+	return db, table
 }
 
 func unQuoteName(name string) string {

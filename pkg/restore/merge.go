@@ -3,16 +3,17 @@
 package restore
 
 import (
-	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
+
+	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
-// MergeRangesStat holds statistics for the MergeRanges
+// MergeRangesStat holds statistics for the MergeRanges.
 type MergeRangesStat struct {
 	TotalFiles           int
 	TotalWriteCFFile     int
