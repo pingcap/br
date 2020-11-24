@@ -135,7 +135,7 @@ func Files(fs []*backup.File) zapcore.Field {
 	return zap.Object("fs", files(fs))
 }
 
-// ShortError make the zap field to display error.
+// ShortError make the zap field to display error without verbose representation (e.g. the stack trace).
 func ShortError(err error) zapcore.Field {
 	return zap.String("error", err.Error())
 }
