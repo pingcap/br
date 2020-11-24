@@ -29,6 +29,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
 
+	rawURL = strings.ReplaceAll(rawURL, "+", "%2B")
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, errors.Trace(err)
