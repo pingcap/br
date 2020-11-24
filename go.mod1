@@ -36,3 +36,8 @@ require (
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
 )
+
+replace github.com/pingcap/kvproto => github.com/july2993/kvproto v0.0.0-20201124080438-b67ded362c4e
+// wait https://github.com/pingcap/tidb/pull/20966
+// some fields used is removed in https://github.com/pingcap/kvproto/pull/689/files
+replace github.com/pingcap/tidb => github.com/breeswish/tidb update_kvproto

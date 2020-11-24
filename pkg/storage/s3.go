@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -107,6 +108,9 @@ type S3BackendOptions struct {
 	Provider              string `json:"provider" toml:"provider"`
 	ForcePathStyle        bool   `json:"force-path-style" toml:"force-path-style"`
 	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
+	// for https://docs.aws.amazon.com/IAM/latest/UserGuide/tutorial_cross-account-with-roles.html
+	RoleARN    string `json:"role-arn" toml:"role-arn"`
+	ExternalID string `json:"external-id" toml:"external-id"`
 }
 
 // Apply apply s3 options on backup.S3.
@@ -149,6 +153,8 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 	s3.AccessKey = options.AccessKey
 	s3.SecretAccessKey = options.SecretAccessKey
 	s3.ForcePathStyle = options.ForcePathStyle
+	s3.RoleARN = options.RoleARN
+	s3.ExternalID = options.ExternalID
 	return nil
 }
 
@@ -266,7 +272,18 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 		}
 	}
 
-	c := s3.New(ses)
+	var c *s3.S3
+	if qs.RoleARN != "" {
+		creds := stscreds.NewCredentials(ses, qs.RoleARN, func(p *stscreds.AssumeRoleProvider) {
+			if qs.ExternalID != "" {
+				p.ExternalID = &qs.ExternalID
+			}
+		})
+		s3.New(ses, &aws.Config{Credentials: creds})
+	} else {
+		c = s3.New(ses)
+	}
+
 	if !opts.SkipCheckPath {
 		err = checkS3Bucket(c, qs.Bucket)
 		if err != nil {
