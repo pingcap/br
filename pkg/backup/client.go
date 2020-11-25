@@ -709,7 +709,9 @@ func onBackupResponse(
 			regionErr.RegionNotFound != nil ||
 			regionErr.ServerIsBusy != nil ||
 			regionErr.StaleCommand != nil ||
-			regionErr.StoreNotMatch != nil) {
+			regionErr.StoreNotMatch != nil ||
+			regionErr.ReadIndexNotReady != nil ||
+			regionErr.ProposalInMergingMode != nil) {
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
 			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
 		}
