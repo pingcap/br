@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	// flagSendCreds specify whether to send credentials to tikv
+	// flagSendCreds specify whether to send credentials to tikv.
 	flagSendCreds = "send-credentials-to-tikv"
 	// flagStorage is the name of storage flag.
 	flagStorage = "storage"

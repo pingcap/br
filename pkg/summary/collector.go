@@ -12,14 +12,14 @@ import (
 )
 
 const (
-	// BackupUnit tells summary in backup
+	// BackupUnit tells summary in backup.
 	BackupUnit = "backup"
-	// RestoreUnit tells summary in restore
+	// RestoreUnit tells summary in restore.
 	RestoreUnit = "restore"
 
-	// TotalKV is a field we collect during backup/restore
+	// TotalKV is a field we collect during backup/restore.
 	TotalKV = "total kv"
-	// TotalBytes is a field we collect during backup/restore
+	// TotalBytes is a field we collect during backup/restore.
 	TotalBytes = "total bytes"
 )
 

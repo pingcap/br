@@ -22,7 +22,7 @@ const (
 	brServiceSafePointIDFormat      = "br-%s"
 	preUpdateServiceSafePointFactor = 3
 	checkGCSafePointGapTime         = 5 * time.Second
-	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min
+	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min.
 	DefaultBRGCSafePointTTL = 5 * 60
 )
 

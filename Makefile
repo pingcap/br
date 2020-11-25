@@ -118,6 +118,16 @@ static: prepare tools
 		--disable nestif \
 		--disable goerr113 \
 		--disable lll \
+		--disable nlreturn \
+		--disable exhaustivestruct \
+		--disable gci \
+		--disable gocritic \
+		--disable gofumpt \
+		--disable gosec \
+		--disable errorlint \
+		--disable exhaustive \
+		--disable noctx \
+		--disable wrapcheck \
 		$$($(PACKAGE_DIRECTORIES) | sed '/pkg\/gluetidb/d') # disable pkg/gluetidb's golint check because it will sometimes fail
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,

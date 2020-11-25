@@ -34,7 +34,7 @@ var (
 	ErrRestoreWriteAndIngest   = errors.Normalize("failed to write and ingest", errors.RFCCodeText("BR:Restore:ErrRestoreWriteAndIngest"))
 	ErrRestoreSchemaNotExists  = errors.Normalize("schema not exists", errors.RFCCodeText("BR:Restore:ErrRestoreSchemaNotExists"))
 
-	// TODO maybe it belongs to PiTR
+	// TODO maybe it belongs to PiTR.
 	ErrRestoreRTsConstrain = errors.Normalize("resolved ts constrain violation", errors.RFCCodeText("BR:Restore:ErrRestoreResolvedTsConstrain"))
 
 	ErrPiTRInvalidCDCLogFormat = errors.Normalize("invalid cdc log format", errors.RFCCodeText("BR:PiTR:ErrPiTRInvalidCDCLogFormat"))
@@ -42,7 +42,7 @@ var (
 	ErrStorageUnknown       = errors.Normalize("unknown external storage error", errors.RFCCodeText("BR:ExternalStorage:ErrStorageUnknown"))
 	ErrStorageInvalidConfig = errors.Normalize("invalid external storage config", errors.RFCCodeText("BR:ExternalStorage:ErrStorageInvalidConfig"))
 
-	// TiKV errors
+	// TiKV errors.
 	ErrKVUnknown           = errors.Normalize("unknown tikv error", errors.RFCCodeText("BR:KV:ErrKVUnknown"))
 	ErrKVClusterIDMismatch = errors.Normalize("tikv cluster ID mismatch", errors.RFCCodeText("BR:KV:ErrKVClusterIDMismatch"))
 	ErrKVNotHealth         = errors.Normalize("tikv cluster not health", errors.RFCCodeText("BR:KV:ErrKVNotHealth"))
@@ -54,7 +54,7 @@ var (
 	// in region". This error cannot be retried.
 	ErrKVKeyNotInRegion = errors.Normalize("key not in region", errors.RFCCodeText("BR:KV:ErrKVKeyNotInRegion"))
 	// ErrKVRewriteRuleNotFound is the error raised when download failed with
-	// "rewrite rule not found". This error cannot be retried
+	// "rewrite rule not found". This error cannot be retried.
 	ErrKVRewriteRuleNotFound = errors.Normalize("rewrite rule not found", errors.RFCCodeText("BR:KV:ErrKVRewriteRuleNotFound"))
 	// ErrKVRangeIsEmpty is the error raised when download failed with "range is
 	// empty". This error cannot be retried.

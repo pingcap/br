@@ -36,10 +36,10 @@ const (
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
-	// number of retries to make of operations
+	// number of retries to make of operations.
 	maxRetries = 6
 
-	// the maximum number of byte to read for seek
+	// the maximum number of byte to read for seek.
 	maxSkipOffsetByRead = 1 << 16 //64KB
 )
 

@@ -9,7 +9,7 @@ import (
 	"os"
 
 	// #nosec
-	// register HTTP handler for /debug/pprof
+	// register HTTP handler for /debug/pprof.
 	_ "net/http/pprof"
 	"sync"
 
