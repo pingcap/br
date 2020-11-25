@@ -91,9 +91,9 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 			return nil, errors.Trace(err)
 		}
 		// stats maybe nil from old backup file.
+		stats := &handle.JSONTable{}
 		if schema.Stats != nil {
 			// Parse the stats table.
-			stats := &handle.JSONTable{}
 			err = json.Unmarshal(schema.Stats, stats)
 			if err != nil {
 				return nil, errors.Trace(err)
