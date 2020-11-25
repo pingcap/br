@@ -338,7 +338,7 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 			log.Info("JsonTable:", zap.Any("t", jsonTable))
-			jsonData, err := json.Marshal(jsonTable)
+			stats, err := json.Marshal(jsonTable)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
@@ -346,7 +346,7 @@ func BuildBackupRangeAndSchema(
 			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
-				JsonTable: jsonData,
+				Stats: stats,
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
