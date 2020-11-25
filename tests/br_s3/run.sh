@@ -118,6 +118,8 @@ for p in $(seq 2); do
   S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
   export AWS_ACCESS_KEY_ID=""
   export AWS_SECRET_ACCESS_KEY=""
+  rm -rf "$TEST_DIR/$DB"
+  mkdir -p "$TEST_DIR/$DB"
 done
 
 for i in $(seq $DB_COUNT); do
