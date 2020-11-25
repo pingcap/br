@@ -649,7 +649,7 @@ func (s *s3Suite) TestOpenSeek(c *C) {
 	rand.Read(someRandomBytes) //nolint:gosec
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
-	s.expectedCalls(c, ctx, someRandomBytes, []int{0, 998000, 990100}, func(data []byte, offset int) io.ReadCloser {
+	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 998000, 990100}, func(data []byte, offset int) io.ReadCloser {
 		return ioutil.NopCloser(bytes.NewReader(data[offset:]))
 	})
 
@@ -710,7 +710,7 @@ func (r *limitedBytesReader) Read(p []byte) (n int, err error) {
 	return
 }
 
-func (s *s3Suite) expectedCalls(c *C, ctx context.Context, data []byte, startOffsets []int, newReader func(data []byte, offset int) io.ReadCloser) {
+func (s *s3Suite) expectedCalls(ctx context.Context, c *C, data []byte, startOffsets []int, newReader func(data []byte, offset int) io.ReadCloser) {
 	var lastCall *gomock.Call
 	for _, offset := range startOffsets {
 		thisOffset := offset
@@ -730,7 +730,7 @@ func (s *s3Suite) expectedCalls(c *C, ctx context.Context, data []byte, startOff
 	}
 }
 
-// TestS3ReaderWithRetryEOF check the Read with retry and end with io.EOF
+// TestS3ReaderWithRetryEOF check the Read with retry and end with io.EOF.
 func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	s.setUpTest(c)
 	defer s.tearDownTest()
@@ -740,7 +740,7 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	rand.Read(someRandomBytes) //nolint:gosec
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
-	s.expectedCalls(c, ctx, someRandomBytes, []int{0, 20, 50, 75}, func(data []byte, offset int) io.ReadCloser {
+	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 50, 75}, func(data []byte, offset int) io.ReadCloser {
 		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
 	})
 
@@ -770,11 +770,11 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 5)
 
-	n, err = reader.Read(slice)
+	_, err = reader.Read(slice)
 	c.Assert(err, Equals, io.EOF)
 }
 
-// TestS3ReaderWithRetryFailed check the Read with retry failed after maxRetryTimes
+// TestS3ReaderWithRetryFailed check the Read with retry failed after maxRetryTimes.
 func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
 	s.setUpTest(c)
 	defer s.tearDownTest()
@@ -784,7 +784,7 @@ func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
 	rand.Read(someRandomBytes) //nolint:gosec
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
-	s.expectedCalls(c, ctx, someRandomBytes, []int{0, 20, 40, 60}, func(data []byte, offset int) io.ReadCloser {
+	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 40, 60}, func(data []byte, offset int) io.ReadCloser {
 		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
 	})
 
