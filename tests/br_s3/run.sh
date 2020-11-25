@@ -83,7 +83,7 @@ for p in $(seq 2); do
   RESTORE_LOG="restore.log"
   rm -f $RESTORE_LOG
   unset BR_LOG_TO_TERM
-  run_br restore full -s "s3://mybucket/$DB$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+  run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
       --log-file $RESTORE_LOG || \
       ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 )
   cat $RESTORE_LOG
