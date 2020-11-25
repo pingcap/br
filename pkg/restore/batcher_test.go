@@ -81,7 +81,9 @@ func (manager recordCurrentTableManager) Close(ctx context.Context) {
 }
 
 func newMockManager() recordCurrentTableManager {
-	return make(map[int64]bool)
+	return recordCurrentTableManager{
+		m: make(map[int64]bool),
+	}
 }
 
 func (manager recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
@@ -98,6 +100,7 @@ func (manager recordCurrentTableManager) Leave(_ context.Context, tables []resto
 	for _, t := range tables {
 		manager.Lock()
 		if !manager.m[t.Table.ID] {
+			manager.Unlock()
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
