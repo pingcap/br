@@ -44,8 +44,6 @@ stop_minio() {
 }
 trap stop_minio EXIT
 
-s3cmd --access_key=$MINIO_ACCESS_KEY --secret_key=$MINIO_SECRET_KEY --host=$S3_ENDPOINT --host-bucket=$S3_ENDPOINT --no-ssl mb s3://mybucket
-
 # Fill in the database
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -53,6 +51,7 @@ for i in $(seq $DB_COUNT); do
 done
 S3_KEY=""
 for p in $(seq 2); do
+  s3cmd --access_key=$MINIO_ACCESS_KEY --secret_key=$MINIO_SECRET_KEY --host=$S3_ENDPOINT --host-bucket=$S3_ENDPOINT --no-ssl mb s3://mybucket
 
   for i in $(seq $DB_COUNT); do
       row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
