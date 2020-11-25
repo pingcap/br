@@ -126,8 +126,10 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
 	return err
 }

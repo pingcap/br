@@ -38,6 +38,7 @@ done
 echo "backup start..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
+# do not backup stats to test whether we can restore without stats.
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ignore-stats=true --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
 BR_LOG_TO_TERM=1
 
