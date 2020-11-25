@@ -164,6 +164,14 @@ func newBackupMetaMergeCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			mergeSize, err := cmd.Flags().GetUint64(task.FlagMergeRegionSizeBytes)
+			if err != nil {
+				return err
+			}
+			mergeKeys, err := cmd.Flags().GetUint64(task.FlagMergeRegionKeyCount)
+			if err != nil {
+				return err
+			}
 
 			var cfg task.Config
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
@@ -174,7 +182,7 @@ func newBackupMetaMergeCommand() *cobra.Command {
 				log.Error("read backupmeta failed", zap.Error(err))
 				return err
 			}
-			mergedRangesStats, err := restore.MergeRanges(backupMeta)
+			mergedRangesStats, err := restore.MergeRanges(backupMeta, mergeSize, mergeKeys)
 			if err != nil {
 				return err
 			}
@@ -203,6 +211,10 @@ func newBackupMetaMergeCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringP("output", "o", "", "write reduced backupmeta to a given path")
+	command.Flags().Uint64(task.FlagMergeRegionSizeBytes, restore.DefaultgeRegionSizeBytes,
+		"the threshold of merging small regions (Default 96MB, region split size)")
+	command.Flags().Uint64(task.FlagMergeRegionKeyCount, restore.DefaultMergeRegionKeyCount,
+		"the threshold of merging smalle regions (Default 960_000, region split key count)")
 	return command
 }
 

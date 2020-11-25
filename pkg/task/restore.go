@@ -28,6 +28,11 @@ const (
 	flagOnline   = "online"
 	flagNoSchema = "no-schema"
 
+	// FlagMergeRegionSizeBytes is the flag name of merge small regions by size
+	FlagMergeRegionSizeBytes = "merge-region-size-bytes"
+	// FlagMergeRegionKeyCount is the flag name of merge small regions by key count
+	FlagMergeRegionKeyCount = "merge-region-key-count"
+
 	defaultRestoreConcurrency = 128
 	maxRestoreBatchSizeLimit  = 256
 	defaultDDLConcurrency     = 16
@@ -39,6 +44,12 @@ type RestoreConfig struct {
 
 	Online   bool `json:"online" toml:"online"`
 	NoSchema bool `json:"no-schema" toml:"no-schema"`
+
+	// MergeSmallRegionSizeBytes is the threshold of merging small regions (Default 96MB, region split size).
+	// MergeSmallRegionKeyCount is the threshold of merging smalle regions (Default 960_000, region split key count).
+	// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
+	MergeSmallRegionSizeBytes uint64 `json:"merge-region-size-bytes" toml:"merge-region-size-bytes"`
+	MergeSmallRegionKeyCount  uint64 `json:"merge-region-key-count" toml:"merge-region-key-count"`
 }
 
 // DefineRestoreFlags defines common flags for the restore command.
@@ -46,9 +57,15 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
 	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
-
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
+
+	flags.Uint64(FlagMergeRegionSizeBytes, restore.DefaultgeRegionSizeBytes,
+		"the threshold of merging small regions (Default 96MB, region split size)")
+	flags.Uint64(FlagMergeRegionKeyCount, restore.DefaultMergeRegionKeyCount,
+		"the threshold of merging smalle regions (Default 960_000, region split key count)")
+	_ = flags.MarkHidden(FlagMergeRegionSizeBytes)
+	_ = flags.MarkHidden(FlagMergeRegionKeyCount)
 }
 
 // ParseFromFlags parses the restore-related flags from the flag set.
@@ -138,7 +155,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	g.Record("Size", utils.ArchiveSize(backupMeta))
 
 	// Merge small ranges to reduce split and scatter regions.
-	stat, err := restore.MergeRanges(backupMeta)
+	stat, err := restore.MergeRanges(backupMeta, cfg.MergeSmallRegionKeyCount, cfg.MergeSmallRegionKeyCount)
 	if err != nil {
 		return err
 	}

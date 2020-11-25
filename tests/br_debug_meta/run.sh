@@ -20,12 +20,13 @@ TABLE="usertable"
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
+table_region_sql="SELECT COUNT(*) FROM information_schema.tikv_region_status WHERE db_name = '$DB' AND table_name = '$TABLE';"
 for i in $(seq 10); do
-    regioncount=$(run_sql "SHOW TABLE $DB.$TABLE REGIONS;" | grep "REGION_ID" | wc -l)
-    [ $regioncount -ge 2 ] && break
+    regioncount=$(run_sql "$table_region_sql" | awk '/COUNT/{print $2}')
+    [ $regioncount -ge 5 ] && break
     sleep 3
 done
-run_sql "SHOW TABLE $DB.$TABLE REGIONS;" | grep "REGION_ID"
+run_sql "$table_region_sql"
 
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 

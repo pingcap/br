@@ -13,6 +13,15 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
+const (
+	// DefaultgeRegionSizeBytes is the default region split size, 96MB.
+	// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
+	DefaultgeRegionSizeBytes = 96 * utils.MB
+
+	// DefaultMergeRegionKeyCount is the default region key count, 960000.
+	DefaultMergeRegionKeyCount = 960000
+)
+
 // MergeRangesStat holds statistics for the MergeRanges.
 type MergeRangesStat struct {
 	TotalFiles           int
@@ -31,7 +40,7 @@ type MergeRangesStat struct {
 // It speeds up restoring a backup that contains many small ranges (regions),
 // as it reduces split region and scatter region.
 // Note: this function modify backupMeta in place.
-func MergeRanges(backupMeta *kvproto.BackupMeta) (*MergeRangesStat, error) {
+func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount uint64) (*MergeRangesStat, error) {
 	// Skip if the backup is empty.
 	if len(backupMeta.Files) == 0 {
 		return &MergeRangesStat{}, nil
@@ -42,8 +51,7 @@ func MergeRanges(backupMeta *kvproto.BackupMeta) (*MergeRangesStat, error) {
 	writeCFFile := 0
 	defaultCFFile := 0
 	filesMap := make(map[string][]*kvproto.File)
-	for i := range backupMeta.Files {
-		file := backupMeta.Files[i]
+	for _, file := range backupMeta.Files {
 		filesMap[string(file.StartKey)] = append(filesMap[string(file.StartKey)], file)
 		if file.Cf == "write" {
 			writeCFFile++
@@ -68,22 +76,15 @@ func MergeRanges(backupMeta *kvproto.BackupMeta) (*MergeRangesStat, error) {
 	}
 
 	needMerge := func(left, right *rtree.Range) bool {
-		// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
-		const (
-			// splitSizeMB is the default region split size.
-			splitSizeMB uint64 = 96 * utils.MB
-			// splitKeys is the default region split key count.
-			splitKeys uint64 = 960000
-		)
 		leftBytes, leftKeys := left.BytesAndKeys()
 		rightBytes, rightKeys := right.BytesAndKeys()
 		if rightBytes == 0 {
 			return true
 		}
-		if leftBytes+rightBytes > splitSizeMB {
+		if leftBytes+rightBytes > splitSizeBytes {
 			return false
 		}
-		if leftKeys+rightKeys > splitKeys {
+		if leftKeys+rightKeys > splitKeyCount {
 			return false
 		}
 		// Do not merge ranges in different tables.

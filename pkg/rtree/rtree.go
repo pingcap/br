@@ -26,7 +26,7 @@ func (rg *Range) String() string {
 	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
-// BytesAndKeys returns bytes and keys in a range.
+// BytesAndKeys returns total bytes and keys in a range.
 func (rg *Range) BytesAndKeys() (bytes, keys uint64) {
 	for _, f := range rg.Files {
 		bytes += f.TotalBytes
