@@ -70,7 +70,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 		mergedIndex []int    // start from 0, points to an end of a merged group
 		stat        restore.MergeRangesStat
 	}
-	splitSizeBytes := restore.DefaultgeRegionSizeBytes
+	splitSizeBytes := restore.DefaultMergeRegionSizeBytes
 	splitKeyCount := restore.DefaultMergeRegionKeyCount
 	cases := []Case{
 		// Empty backup.
@@ -126,7 +126,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 		for _, f := range cs.files {
 			backupMeta.Files = append(backupMeta.Files, fb.build(f[0], f[1], f[2], f[3])...)
 		}
-		stat, err := restore.MergeRanges(backupMeta, restore.DefaultgeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
+		stat, err := restore.MergeRanges(backupMeta, restore.DefaultMergeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
 		c.Assert(err, IsNil, Commentf("%+v", cs))
 		c.Assert(stat.TotalRegions, Equals, cs.stat.TotalRegions, Commentf("%+v", cs))
 		c.Assert(stat.MergedRegions, Equals, cs.stat.MergedRegions, Commentf("%+v", cs))
@@ -160,7 +160,7 @@ func benchmarkMergeRanges(b *testing.B, files int) {
 	}
 	var err error
 	for i := 0; i < b.N; i++ {
-		_, err = restore.MergeRanges(backupMeta, restore.DefaultgeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
+		_, err = restore.MergeRanges(backupMeta, restore.DefaultMergeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
 		if err != nil {
 			b.Error(err)
 		}

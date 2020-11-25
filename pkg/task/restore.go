@@ -60,7 +60,7 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
 
-	flags.Uint64(FlagMergeRegionSizeBytes, restore.DefaultgeRegionSizeBytes,
+	flags.Uint64(FlagMergeRegionSizeBytes, restore.DefaultMergeRegionSizeBytes,
 		"the threshold of merging small regions (Default 96MB, region split size)")
 	flags.Uint64(FlagMergeRegionKeyCount, restore.DefaultMergeRegionKeyCount,
 		"the threshold of merging smalle regions (Default 960_000, region split key count)")
@@ -102,6 +102,12 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 	}
 	if cfg.Config.SwitchModeInterval == 0 {
 		cfg.Config.SwitchModeInterval = defaultSwitchInterval
+	}
+	if cfg.MergeSmallRegionKeyCount == 0 {
+		cfg.MergeSmallRegionKeyCount = restore.DefaultMergeRegionKeyCount
+	}
+	if cfg.MergeSmallRegionSizeBytes == 0 {
+		cfg.MergeSmallRegionSizeBytes = restore.DefaultMergeRegionSizeBytes
 	}
 }
 

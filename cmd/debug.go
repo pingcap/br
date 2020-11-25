@@ -211,7 +211,7 @@ func newBackupMetaMergeCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringP("output", "o", "", "write reduced backupmeta to a given path")
-	command.Flags().Uint64(task.FlagMergeRegionSizeBytes, restore.DefaultgeRegionSizeBytes,
+	command.Flags().Uint64(task.FlagMergeRegionSizeBytes, restore.DefaultMergeRegionSizeBytes,
 		"the threshold of merging small regions (Default 96MB, region split size)")
 	command.Flags().Uint64(task.FlagMergeRegionKeyCount, restore.DefaultMergeRegionKeyCount,
 		"the threshold of merging smalle regions (Default 960_000, region split key count)")
