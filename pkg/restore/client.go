@@ -84,8 +84,8 @@ type Client struct {
 	// statHandler and dom are used for analyze table after restore.
 	// it will backup stats with #dump.DumpStatsToJSON
 	// and restore stats with #dump.LoadStatsFromJSON
-	statsHandler       *handle.Handle
-	dom                *domain.Domain
+	statsHandler *handle.Handle
+	dom          *domain.Domain
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -112,7 +112,7 @@ func NewRestoreClient(
 		tlsConf:       tlsConf,
 		keepaliveConf: keepaliveConf,
 		switchCh:      make(chan struct{}),
-		dom: dom,
+		dom:           dom,
 		statsHandler:  dom.StatsHandle(),
 	}, nil
 }

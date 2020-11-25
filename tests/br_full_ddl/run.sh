@@ -34,8 +34,34 @@ for i in $(seq $DDL_COUNT); do
     fi
 done
 
+# run analyze to generate stats
 run_sql "analyze table $DB.$TABLE;"
-curl $TIDB_IP:10180/stats/dump/$DB/$TABLE > backup_stats
+# record field0's stats and remove last_update_version
+# it's enough to compare with restore stats
+# the stats looks like
+# {
+#   "histogram": {
+#     "ndv": 10000,
+#     "buckets": [
+#       {
+#         "count": 40,
+#         "lower_bound": "QUFqVW1HZkt3UWhXakdCSlF0a2NHRFp0UWpFZ1lEUFFNWXVtVFFTRUh0U3N4RXhub2VMeUF1emhyT0FjWUZvWUhRZVZBcGJLRlVoWVlWR      0djSmRYbnhxc1NzcG1VTHFoZnJZbg==",
+#         "upper_bound": "QUp5bmVNc29FVUFIZ3ZKS3dCaUdGQ0xoV1BSQ0FWZ2VzZGpGU05na2xsYUhkY1VMVWdEeHZORUJLbW9tWGxSTWZQTmZYZVVWR3h5amVyW      EJXQ01GcU5mRWlHeEd1dndZa1BSRg==",
+#         "repeats": 1
+#       },
+#       ...(nearly 1000 rows)
+#     ],
+#   "cm_sketch": {
+#     "rows": [
+#        {
+#          "counters": [
+#             5,
+#             ...(nearly 10000 rows)
+#           ],
+#        }
+#     ]
+# }
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > backup_stats
 
 # backup full
 echo "backup start..."
@@ -67,7 +93,7 @@ fi
 
 BR_LOG_TO_TERM=1
 
-curl $TIDB_IP:10180/stats/dump/$DB/$TABLE > restore_stats
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
 
 if diff -q backup_stats restore_stats > /dev/null
 then
