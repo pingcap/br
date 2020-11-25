@@ -38,7 +38,8 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	}
 	schedulerPauseCh := make(chan struct{})
 	pdController := &PdController{addrs: []string{"", ""}, schedulerPauseCh: schedulerPauseCh}
-	_, err := pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
+
+	_, err := pdController.pauseSchedulersAndConfigWith(ctx, []string{scheduler}, nil, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	go func() {
@@ -47,13 +48,25 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	err = pdController.resumeSchedulerWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, IsNil)
 
+	cfg := map[string]interface{}{
+		"max-merge-region-keys":       0,
+		"max-snapshot":                1,
+		"enable-location-replacement": false,
+	}
+	_, err = pdController.pauseSchedulersAndConfigWith(ctx, []string{}, cfg, mock)
+	c.Assert(err, ErrorMatches, "failed to update PD.*")
+	go func() {
+		<-schedulerPauseCh
+	}()
+
 	_, err = pdController.listSchedulersWith(ctx, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`["` + scheduler + `"]`), nil
 	}
-	_, err = pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
+
+	_, err = pdController.pauseSchedulersAndConfigWith(ctx, []string{scheduler}, cfg, mock)
 	c.Assert(err, IsNil)
 
 	go func() {
