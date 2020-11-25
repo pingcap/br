@@ -105,6 +105,12 @@ func NewRestoreClient(
 		return nil, errors.Trace(err)
 	}
 
+	var statsHandle *handle.Handle
+	// tikv.Glue will return nil, tidb.Glue will return available domain
+	if dom != nil {
+		statsHandle = dom.StatsHandle()
+	}
+
 	return &Client{
 		pdClient:      pdClient,
 		toolClient:    NewSplitClient(pdClient, tlsConf),
@@ -113,7 +119,7 @@ func NewRestoreClient(
 		keepaliveConf: keepaliveConf,
 		switchCh:      make(chan struct{}),
 		dom:           dom,
-		statsHandler:  dom.StatsHandle(),
+		statsHandler:  statsHandle,
 	}, nil
 }
 
