@@ -38,6 +38,8 @@ const (
 	notFound             = "NotFound"
 	// number of retries to make of operations
 	maxRetries = 6
+	// max number of retries when meets error
+	maxErrorRetries = 3
 
 	// the maximum number of byte to read for seek
 	maxSkipOffsetByRead = 1 << 16 //64KB
@@ -538,7 +540,8 @@ type s3ObjectReader struct {
 	// reader context used for implement `io.Seek`
 	// currently, lightning depends on package `xitongsys/parquet-go` to read parquet file and it needs `io.Seeker`
 	// See: https://github.com/xitongsys/parquet-go/blob/207a3cee75900b2b95213627409b7bac0f190bb3/source/source.go#L9-L10
-	ctx context.Context
+	ctx      context.Context
+	retryCnt int
 }
 
 // Read implement the io.Reader interface.
@@ -548,6 +551,22 @@ func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 		maxCnt = int64(len(p))
 	}
 	n, err = r.reader.Read(p[:maxCnt])
+	if err != nil && !errors.ErrorEqual(err, io.EOF) && r.retryCnt < maxErrorRetries {
+		// if can retry, reopen a new reader and try read again
+		end := r.rangeInfo.End + 1
+		if end == r.rangeInfo.Size {
+			end = 0
+		}
+		newReader, _, err1 := r.storage.open(r.ctx, r.name, r.pos, end)
+		if err1 != nil {
+			return
+		}
+		_ = r.reader.Close()
+		r.reader = newReader
+		r.retryCnt++
+		n, err = r.reader.Read(p[:maxCnt])
+	}
+
 	r.pos += int64(n)
 	return
 }
