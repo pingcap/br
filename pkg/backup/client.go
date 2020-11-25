@@ -337,7 +337,6 @@ func BuildBackupRangeAndSchema(
 			if err != nil {
 				return nil, nil, errors.Trace(err)
 			}
-			log.Info("JsonTable:", zap.Any("t", jsonTable))
 			stats, err := json.Marshal(jsonTable)
 			if err != nil {
 				return nil, nil, errors.Trace(err)
