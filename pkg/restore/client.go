@@ -38,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -536,7 +537,7 @@ func (rc *Client) RestoreFiles(
 		if err == nil {
 			log.Info("Restore files",
 				zap.Duration("take", elapsed),
-				utils.ZapFiles(files))
+				logutil.Files(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
@@ -556,7 +557,7 @@ func (rc *Client) RestoreFiles(
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", utils.ZapFile(fileReplica),
+					log.Info("import file done", logutil.File(fileReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
