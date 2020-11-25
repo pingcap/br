@@ -31,9 +31,9 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 		ID:   tblID,
 		Name: tblName,
 	}
-	mockStats := handle.JSONTable {
+	mockStats := handle.JSONTable{
 		DatabaseName: dbName.String(),
-		TableName: tblName.String(),
+		TableName:    tblName.String(),
 	}
 	mockDB := model.DBInfo{
 		ID:   1,
