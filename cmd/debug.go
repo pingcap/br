@@ -23,6 +23,7 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -107,8 +108,8 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
-						zap.Stringer("endKey", utils.WrapKey(file.GetEndKey())),
+						zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+						zap.Stringer("endKey", logutil.WrapKey(file.GetEndKey())),
 					)
 
 					var data []byte
@@ -263,7 +264,7 @@ func newBackupMetaValidateCommand() *cobra.Command {
 					log.Error(
 						"file ranges overlapped",
 						zap.Stringer("out", out),
-						utils.ZapFile(file),
+						logutil.File(file),
 					)
 				}
 			}
