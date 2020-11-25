@@ -69,48 +69,48 @@ func newDrySender() *drySender {
 }
 
 type recordCurrentTableManager struct {
-	sync.Mutex
-	m map[int64]bool
+	lock sync.Mutex
+	m    map[int64]bool
 }
 
-func (manager recordCurrentTableManager) Close(ctx context.Context) {
+func (manager *recordCurrentTableManager) Close(ctx context.Context) {
 	if len(manager.m) > 0 {
 		log.Panic("When closing, there are still some tables doesn't be sent",
 			zap.Any("tables", manager.m))
 	}
 }
 
-func newMockManager() recordCurrentTableManager {
-	return recordCurrentTableManager{
+func newMockManager() *recordCurrentTableManager {
+	return &recordCurrentTableManager{
 		m: make(map[int64]bool),
 	}
 }
 
-func (manager recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
+func (manager *recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
 	for _, t := range tables {
 		log.Info("entering", zap.Int64("table ID", t.Table.ID))
-		manager.Lock()
+		manager.lock.Lock()
 		manager.m[t.Table.ID] = true
-		manager.Unlock()
+		manager.lock.Unlock()
 	}
 	return nil
 }
 
-func (manager recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
+func (manager *recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
 	for _, t := range tables {
-		manager.Lock()
+		manager.lock.Lock()
 		if !manager.m[t.Table.ID] {
-			manager.Unlock()
+			manager.lock.Unlock()
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
 		delete(manager.m, t.Table.ID)
-		manager.Unlock()
+		manager.lock.Unlock()
 	}
 	return nil
 }
 
-func (manager recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
+func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
 	ids := make([]int64, 0, len(tables))
 	currentIDs := make([]int64, 0, len(manager.m))
 	for _, t := range tables {
