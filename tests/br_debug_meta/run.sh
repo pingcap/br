@@ -19,7 +19,6 @@ TABLE="usertable"
 
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
-run_sql "split table $DB.$TABLE by ('user6282602628620641459'), ('user6282603728132269670'), ('user6282604827643897881'), ('user6282610325202038936');"
 
 table_region_sql="SELECT COUNT(*) FROM information_schema.tikv_region_status WHERE db_name = '$DB' AND table_name = '$TABLE';"
 for i in $(seq 10); do

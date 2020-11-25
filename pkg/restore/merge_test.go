@@ -70,8 +70,8 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 		mergedIndex []int    // start from 0, points to an end of a merged group
 		stat        restore.MergeRangesStat
 	}
-	splitSizeBytes := restore.DefaultMergeRegionSizeBytes
-	splitKeyCount := restore.DefaultMergeRegionKeyCount
+	splitSizeBytes := int(restore.DefaultMergeRegionSizeBytes)
+	splitKeyCount := int(restore.DefaultMergeRegionKeyCount)
 	cases := []Case{
 		// Empty backup.
 		{files: [][4]int{},
@@ -79,10 +79,10 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 			stat:        restore.MergeRangesStat{TotalRegions: 0, MergedRegions: 0}},
 
 		// Do not merge big range.
-		{files: [][4]int{{1, 1, int(splitSizeBytes), 1}, {1, 1, 1, 1}},
+		{files: [][4]int{{1, 1, splitSizeBytes, 1}, {1, 1, 1, 1}},
 			mergedIndex: []int{},
 			stat:        restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2}},
-		{files: [][4]int{{1, 1, 1, 1}, {1, 1, int(splitSizeBytes), 1}},
+		{files: [][4]int{{1, 1, 1, 1}, {1, 1, splitSizeBytes, 1}},
 			mergedIndex: []int{},
 			stat:        restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2}},
 		{files: [][4]int{{1, 1, 1, splitKeyCount}, {1, 1, 1, 1}},
@@ -97,15 +97,15 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 			mergedIndex: []int{2},
 			stat:        restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 1}},
 		// 3 -> 2, [split*1/3, split*1/3, split*1/2] -> [split*2/3, split*1/2]
-		{files: [][4]int{{1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes) / 2, 1}},
+		{files: [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 2, 1}},
 			mergedIndex: []int{1},
 			stat:        restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 2}},
 		// 4 -> 2, [split*1/3, split*1/3, split*1/2, 1] -> [split*2/3, split*1/2 +1]
-		{files: [][4]int{{1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes) / 2, 1}, {1, 1, 1, 1}},
+		{files: [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 2, 1}, {1, 1, 1, 1}},
 			mergedIndex: []int{1, 3},
 			stat:        restore.MergeRangesStat{TotalRegions: 4, MergedRegions: 2}},
 		// 5 -> 3, [split*1/3, split*1/3, split, split*1/2, 1] -> [split*2/3, split, split*1/2 +1]
-		{files: [][4]int{{1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes) / 3, 1}, {1, 1, int(splitSizeBytes), 1}, {1, 1, int(splitSizeBytes) / 2, 1}, {1, 1, 1, 1}},
+		{files: [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes, 1}, {1, 1, splitSizeBytes / 2, 1}, {1, 1, 1, 1}},
 			mergedIndex: []int{1, 2, 4},
 			stat:        restore.MergeRangesStat{TotalRegions: 5, MergedRegions: 3}},
 
@@ -115,7 +115,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 			mergedIndex: []int{},
 			stat:        restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2}},
 		// 3 -> 2, [1@split*1/3, 2@split*1/3, 2@split*1/2] -> [1@split*1/3, 2@split*5/6]
-		{files: [][4]int{{1, 1, int(splitSizeBytes) / 3, 1}, {2, 1, int(splitSizeBytes) / 3, 1}, {2, 1, int(splitSizeBytes) / 2, 1}},
+		{files: [][4]int{{1, 1, splitSizeBytes / 3, 1}, {2, 1, splitSizeBytes / 3, 1}, {2, 1, splitSizeBytes / 2, 1}},
 			mergedIndex: []int{0, 2},
 			stat:        restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 2}},
 	}

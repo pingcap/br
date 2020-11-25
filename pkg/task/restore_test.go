@@ -18,6 +18,6 @@ func (s *testRestoreSuite) TestRestoreConfigAdjust(c *C) {
 
 	c.Assert(cfg.Config.Concurrency, Equals, uint32(defaultRestoreConcurrency))
 	c.Assert(cfg.Config.SwitchModeInterval, Equals, defaultSwitchInterval)
-	c.Assert(cfg.MergeSmallRegionKeyCount, Equals, uint64(restore.DefaultMergeRegionKeyCount))
-	c.Assert(cfg.MergeSmallRegionSizeBytes, Equals, uint64(restore.DefaultMergeRegionSizeBytes))
+	c.Assert(cfg.MergeSmallRegionKeyCount, Equals, restore.DefaultMergeRegionKeyCount)
+	c.Assert(cfg.MergeSmallRegionSizeBytes, Equals, restore.DefaultMergeRegionSizeBytes)
 }
