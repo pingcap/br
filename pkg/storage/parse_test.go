@@ -67,6 +67,16 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Sse, Equals, "aws:kms")
 	c.Assert(s3.SseKmsKeyId, Equals, "TestKey")
 
+	// special character in access keys
+	s, err = ParseBackend(`s3://bucket4/prefix/path?access-key=NXN7IPIOSAAKDEEOLMAF&secret-access-key=nREY/7Dt+PaIbYKrKlEEMMF/ExCiJEX=XMLPUANw`, nil)
+	c.Assert(err, IsNil)
+	s3 = s.GetS3()
+	c.Assert(s3, NotNil)
+	c.Assert(s3.Bucket, Equals, "bucket4")
+	c.Assert(s3.Prefix, Equals, "prefix/path")
+	c.Assert(s3.AccessKey, Equals, "NXN7IPIOSAAKDEEOLMAF")
+	c.Assert(s3.SecretAccessKey, Equals, "nREY/7Dt+PaIbYKrKlEEMMF/ExCiJEX=XMLPUANw")
+
 	gcsOpt := &BackendOptions{
 		GCS: GCSBackendOptions{
 			Endpoint: "https://gcs.example.com/",
