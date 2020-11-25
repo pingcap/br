@@ -90,11 +90,14 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		// Parse the stats table.
-		stats := &handle.JSONTable{}
-		err = json.Unmarshal(schema.Stats, stats)
-		if err != nil {
-			return nil, errors.Trace(err)
+		// stats maybe nil from old backup file.
+		if schema.Stats != nil {
+			// Parse the stats table.
+			stats := &handle.JSONTable{}
+			err = json.Unmarshal(schema.Stats, stats)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 		partitions := make(map[int64]bool)
 		if tableInfo.Partition != nil {

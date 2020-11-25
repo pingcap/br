@@ -794,14 +794,16 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		)
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
-	log.Info("start loads analyze after validate checksum",
-		zap.Stringer("db name", tbl.OldTable.DB.Name),
-		zap.Stringer("name", tbl.OldTable.Info.Name),
-		zap.Int64("old id", tbl.OldTable.Info.ID),
-		zap.Int64("new id", tbl.Table.ID),
-	)
-	if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
-		log.Error("analyze table failed, ", zap.Any("table", table.Stats), zap.Error(err))
+	if table.Stats != nil {
+		log.Info("start loads analyze after validate checksum",
+			zap.Stringer("db name", tbl.OldTable.DB.Name),
+			zap.Stringer("name", tbl.OldTable.Info.Name),
+			zap.Int64("old id", tbl.OldTable.Info.ID),
+			zap.Int64("new id", tbl.Table.ID),
+		)
+		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
+			log.Error("analyze table failed, ", zap.Any("table", table.Stats), zap.Error(err))
+		}
 	}
 	return nil
 }
