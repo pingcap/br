@@ -279,7 +279,7 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 				p.ExternalID = &qs.ExternalID
 			}
 		})
-		s3.New(ses, &aws.Config{Credentials: creds})
+		c = s3.New(ses, &aws.Config{Credentials: creds})
 	} else {
 		c = s3.New(ses)
 	}
