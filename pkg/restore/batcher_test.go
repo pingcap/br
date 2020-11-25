@@ -87,25 +87,24 @@ func newMockManager() *recordCurrentTableManager {
 }
 
 func (manager *recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	for _, t := range tables {
 		log.Info("entering", zap.Int64("table ID", t.Table.ID))
-		manager.lock.Lock()
 		manager.m[t.Table.ID] = true
-		manager.lock.Unlock()
 	}
 	return nil
 }
 
 func (manager *recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	for _, t := range tables {
-		manager.lock.Lock()
 		if !manager.m[t.Table.ID] {
-			manager.lock.Unlock()
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
 		delete(manager.m, t.Table.ID)
-		manager.lock.Unlock()
 	}
 	return nil
 }
@@ -116,6 +115,8 @@ func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) 
 	for _, t := range tables {
 		ids = append(ids, t.Table.ID)
 	}
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	for id, contains := range manager.m {
 		if contains {
 			currentIDs = append(currentIDs, id)
