@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/store/tikv"
-	"github.com/prometheus/common/log"
+	"go.uber.org/zap"
 )
 
 var (
@@ -30,7 +31,7 @@ var (
 
 func createClient(addr string) (*tikv.RawKVClient, error) {
 	cli, err := tikv.NewRawKVClient([]string{addr}, config.Security{})
-	return cli, err
+	return cli, errors.Trace(err)
 }
 
 func main() {
@@ -38,15 +39,15 @@ func main() {
 
 	startKey, err := hex.DecodeString(*startKeyStr)
 	if err != nil {
-		log.Fatalf("Invalid startKey: %v, err: %+v", startKeyStr, err)
+		log.Panic("Invalid startKey", zap.String("starkey", *startKeyStr), zap.Error(err))
 	}
 	endKey, err := hex.DecodeString(*endKeyStr)
 	if err != nil {
-		log.Fatalf("Invalid endKey: %v, err: %+v", endKeyStr, err)
+		log.Panic("Invalid endKey: %v, err: %+v", zap.String("endkey", *endKeyStr), zap.Error(err))
 	}
 	// For "put" mode, the key range is not used. So no need to throw error here.
 	if len(endKey) == 0 && *runMode != "put" {
-		log.Fatal("Empty endKey is not supported yet")
+		log.Panic("Empty endKey is not supported yet")
 	}
 
 	if *runMode == "test-rand-key" {
@@ -56,7 +57,7 @@ func main() {
 
 	client, err := createClient(*pdAddr)
 	if err != nil {
-		log.Fatalf("Failed to create client to %v, err: %+v", *pdAddr, err)
+		log.Panic("Failed to create client", zap.String("pd", *pdAddr), zap.Error(err))
 	}
 
 	switch *runMode {
@@ -73,7 +74,7 @@ func main() {
 	}
 
 	if err != nil {
-		log.Fatalf("Error: %+v", err)
+		log.Panic("Error", zap.Error(err))
 	}
 }
 
@@ -89,12 +90,13 @@ func randGenWithDuration(client *tikv.RawKVClient, startKey, endKey []byte,
 	case <-time.After(time.Second * time.Duration(duration)):
 	case <-ok:
 	}
-	return err
+	return errors.Trace(err)
 }
 
 func randGen(client *tikv.RawKVClient, startKey, endKey []byte, maxLen int, concurrency int) error {
-	log.Infof("Start rand-gen from %v to %v, maxLen %v", hex.EncodeToString(startKey), hex.EncodeToString(endKey), maxLen)
-	log.Infof("Rand-gen will keep running. Please Ctrl+C to stop manually.")
+	log.Info("Start rand-gen", zap.Int("maxlen", maxLen),
+		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
+	log.Info("Rand-gen will keep running. Please Ctrl+C to stop manually.")
 
 	// Cannot generate shorter key than commonPrefix
 	commonPrefixLen := 0
@@ -214,7 +216,8 @@ func randValue() []byte {
 }
 
 func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
-	log.Infof("Start checkcum on range %v to %v", hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	log.Info("Start checkcum on range",
+		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 
 	scanner := newRawKVScanner(client, startKey, endKey)
 	digest := crc64.New(crc64.MakeTable(crc64.ECMA))
@@ -234,18 +237,20 @@ func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
 		res ^= digest.Sum64()
 	}
 
-	log.Infof("Checksum result: %016x", res)
+	log.Info("Checksum result", zap.Uint64("checksum", res))
 	fmt.Printf("Checksum result: %016x\n", res)
 	return nil
 }
 
 func deleteRange(client *tikv.RawKVClient, startKey, endKey []byte) error {
-	log.Infof("Start delete data in range %v to %v", hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	log.Info("Start delete data in range",
+		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 	return client.DeleteRange(startKey, endKey)
 }
 
 func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
-	log.Infof("Start scanning data in range %v to %v", hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	log.Info("Start scanning data in range",
+		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 
 	scanner := newRawKVScanner(client, startKey, endKey)
 
@@ -260,13 +265,12 @@ func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
 		}
 		fmt.Printf("key: %v, value: %v\n", hex.EncodeToString(k), hex.EncodeToString(v))
 		if bytes.Compare(key, k) >= 0 {
-			log.Errorf("Scan result is not in order. "+
-				"Previous key: %v, Current key: %v",
-				hex.EncodeToString(key), hex.EncodeToString(k))
+			log.Error("Scan result is not in order",
+				zap.String("Previous key", hex.EncodeToString(key)), zap.String("Current key", hex.EncodeToString(k)))
 		}
 	}
 
-	log.Infof("Finished Scanning.")
+	log.Info("Finished Scanning.")
 	return nil
 }
 
@@ -293,7 +297,7 @@ func put(client *tikv.RawKVClient, dataStr string) error {
 		values = append(values, value)
 	}
 
-	log.Infof("Put rawkv data, keys: %q, values: %q", keys, values)
+	log.Info("Put rawkv data", zap.ByteStrings("keys", keys), zap.ByteStrings("values", values))
 
 	err := client.BatchPut(keys, values)
 	return errors.Trace(err)

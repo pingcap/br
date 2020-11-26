@@ -40,7 +40,7 @@ func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
 	if options.CredentialsFile != "" {
 		b, err := ioutil.ReadFile(options.CredentialsFile)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		gcs.CredentialsBlob = string(b)
 	}
@@ -92,7 +92,7 @@ func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error 
 	wc.PredefinedACL = s.gcs.PredefinedAcl
 	_, err := wc.Write(data)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return wc.Close()
 }
@@ -102,13 +102,13 @@ func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	object := s.gcs.Prefix + name
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	defer rc.Close()
 
 	b := make([]byte, rc.Attrs.Size)
 	_, err = io.ReadFull(rc, b)
-	return b, err
+	return b, errors.Trace(err)
 }
 
 // FileExists return true if file exists.
@@ -116,10 +116,10 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 	object := s.gcs.Prefix + name
 	_, err := s.bucket.Object(object).Attrs(ctx)
 	if err != nil {
-		if err == storage.ErrObjectNotExist {
+		if errors.Cause(err) == storage.ErrObjectNotExist { // nolint:errorlint
 			return false, nil
 		}
-		return false, err
+		return false, errors.Trace(err)
 	}
 	return true, nil
 }
@@ -179,7 +179,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	}
 	client, err := storage.NewClient(ctx, clientOps...)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if !opts.SendCredentials {
@@ -192,7 +192,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil

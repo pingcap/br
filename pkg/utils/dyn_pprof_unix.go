@@ -12,13 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	startPProfSignal = syscall.SIGUSR1
-)
+const startPProfSignal = syscall.SIGUSR1
 
-var (
-	signalChan = make(chan os.Signal, 1)
-)
+var signalChan = make(chan os.Signal, 1)
 
 // StartDynamicPProfListener starts the listener that will enable pprof when received `startPProfSignal`.
 func StartDynamicPProfListener() {

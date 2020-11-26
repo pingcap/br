@@ -7,11 +7,13 @@ package storage
 import (
 	"os"
 	"syscall"
+
+	"github.com/pingcap/errors"
 )
 
 func mkdirAll(base string) error {
 	mask := syscall.Umask(0)
-	err := os.MkdirAll(base, 0755)
+	err := os.MkdirAll(base, 0o755)
 	syscall.Umask(mask)
-	return err
+	return errors.Trace(err)
 }

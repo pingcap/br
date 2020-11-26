@@ -89,13 +89,14 @@ check:
 static: export GO111MODULE=on
 static: prepare tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
+	tools/bin/gofumports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 
 	@# why some lints are disabled?
 	@#   gochecknoglobals - disabled because we do use quite a lot of globals
-	@#          goimports - executed above already
+	@#          goimports - executed above already, gofumports
 	@#              gofmt - ditto
+	@#                gci - ditto
 	@#                wsl - too pedantic about the formatting
 	@#             funlen - PENDING REFACTORING
 	@#           gocognit - PENDING REFACTORING
@@ -105,10 +106,15 @@ static: prepare tools
 	@#             nestif - PENDING REFACTORING
 	@#           goerr113 - it mistaken pingcap/errors with standard errors
 	@#                lll - pingcap/errors may need to write a long line
+	@#       paralleltest - no need to run test parallel
+	@#           nlreturn - no need to ensure a new line before continue or return
+	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
+	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
+		--disable gci \
 		--disable wsl \
 		--disable funlen \
 		--disable gocognit \
@@ -118,6 +124,12 @@ static: prepare tools
 		--disable nestif \
 		--disable goerr113 \
 		--disable lll \
+		--disable paralleltest \
+		--disable nlreturn \
+		--disable exhaustivestruct \
+		--disable exhaustive \
+		--disable godot \
+		--disable gosec \
 		$$($(PACKAGE_DIRECTORIES))
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,

@@ -55,11 +55,13 @@ func BRInfo() string {
 	return buf.String()
 }
 
-var minTiKVVersion *semver.Version = semver.New("3.1.0-beta.2")
-var incompatibleTiKVMajor3 *semver.Version = semver.New("3.1.0")
-var incompatibleTiKVMajor4 *semver.Version = semver.New("4.0.0-rc.1")
-var compatibleTiFlashMajor3 = semver.New("3.1.0")
-var compatibleTiFlashMajor4 = semver.New("4.0.0")
+var (
+	minTiKVVersion          = semver.New("3.1.0-beta.2")
+	incompatibleTiKVMajor3  = semver.New("3.1.0")
+	incompatibleTiKVMajor4  = semver.New("4.0.0-rc.1")
+	compatibleTiFlashMajor3 = semver.New("3.1.0")
+	compatibleTiFlashMajor4 = semver.New("4.0.0")
+)
 
 func removeVAndHash(v string) string {
 	v = VersionHash.ReplaceAllLiteralString(v, "")
@@ -87,6 +89,16 @@ func checkTiFlashVersion(store *metapb.Store) error {
 	return nil
 }
 
+// IsTiFlash tests whether the store is based on tiflash engine.
+func IsTiFlash(store *metapb.Store) bool {
+	for _, label := range store.Labels {
+		if label.Key == "engine" && label.Value == "tiflash" {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckClusterVersion check TiKV version.
 func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 	BRVersion, err := semver.NewVersion(removeVAndHash(BRReleaseVersion))
@@ -107,7 +119,7 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		)
 		if isTiFlash {
 			if err := checkTiFlashVersion(s); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 

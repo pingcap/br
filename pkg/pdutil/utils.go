@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package utils
+package pdutil
 
 import (
 	"bytes"
@@ -12,8 +12,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/pingcap/kvproto/pkg/metapb"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/tablecodec"
@@ -36,12 +34,12 @@ const (
 )
 
 // ResetTS resets the timestamp of PD to a bigger value.
-func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
-	req, err := json.Marshal(struct {
+func ResetTS(ctx context.Context, pdAddr string, ts uint64, tlsConf *tls.Config) error {
+	payload, err := json.Marshal(struct {
 		TSO string `json:"tso,omitempty"`
 	}{TSO: fmt.Sprintf("%d", ts)})
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	cli := &http.Client{Timeout: 30 * time.Second}
 	prefix := "http://"
@@ -52,7 +50,12 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 		cli.Transport = transport
 	}
 	reqURL := prefix + pdAddr + resetTSURL
-	resp, err := cli.Post(reqURL, "application/json", strings.NewReader(string(req)))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(string(payload)))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := cli.Do(req)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -60,13 +63,13 @@ func ResetTS(pdAddr string, ts uint64, tlsConf *tls.Config) error {
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusForbidden {
 		buf := new(bytes.Buffer)
 		_, _ = buf.ReadFrom(resp.Body)
-		return errors.Annotatef(berrors.ErrPDInvalidResponse, "pd resets TS failed: req=%v, resp=%v, err=%v", string(req), buf.String(), err)
+		return errors.Annotatef(berrors.ErrPDInvalidResponse, "pd resets TS failed: req=%v, resp=%v, err=%v", string(payload), buf.String(), err)
 	}
 	return nil
 }
 
 // GetPlacementRules return the current placement rules.
-func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, error) {
+func GetPlacementRules(ctx context.Context, pdAddr string, tlsConf *tls.Config) ([]placement.Rule, error) {
 	cli := &http.Client{Timeout: 30 * time.Second}
 	prefix := "http://"
 	if tlsConf != nil {
@@ -76,7 +79,11 @@ func GetPlacementRules(pdAddr string, tlsConf *tls.Config) ([]placement.Rule, er
 		cli.Transport = transport
 	}
 	reqURL := prefix + pdAddr + placementRuleURL
-	resp, err := cli.Get(reqURL)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -116,14 +123,4 @@ func SearchPlacementRule(tableID int64, placementRules []placement.Rule, role pl
 		}
 	}
 	return nil
-}
-
-// IsTiFlash tests whether the store is based on tiflash engine.
-func IsTiFlash(store *metapb.Store) bool {
-	for _, label := range store.Labels {
-		if label.Key == "engine" && label.Value == "tiflash" {
-			return true
-		}
-	}
-	return false
 }

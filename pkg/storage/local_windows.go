@@ -9,5 +9,5 @@ import (
 )
 
 func mkdirAll(base string) error {
-	return os.MkdirAll(base, 0755)
+	return os.MkdirAll(base, 0o755)
 }

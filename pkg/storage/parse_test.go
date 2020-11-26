@@ -92,7 +92,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
 	fakeCredentialsFile := filepath.Join(c.MkDir(), "fakeCredentialsFile")
-	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), 0600)
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), 0o600)
 	c.Assert(err, IsNil)
 
 	gcsOpt.GCS.CredentialsFile = fakeCredentialsFile
@@ -106,7 +106,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCredentials")
 
-	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCreds2"), 0600)
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCreds2"), 0o600)
 	c.Assert(err, IsNil)
 	s, err = ParseBackend("gs://bucket4/backup/?credentials-file="+url.QueryEscape(fakeCredentialsFile), nil)
 	c.Assert(err, IsNil)

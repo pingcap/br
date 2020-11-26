@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	// LockFile represents file name,
+	// LockFile represents file name
 	LockFile = "backup.lock"
 	// MetaFile represents file name
 	MetaFile = "backupmeta"
