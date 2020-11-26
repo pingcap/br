@@ -35,6 +35,7 @@ const (
 	flagCompressionType  = "compression"
 	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
+	flagIgnoreStats      = "ignore-stats"
 
 	flagGCTTL = "gcttl"
 
@@ -57,6 +58,7 @@ type BackupConfig struct {
 	LastBackupTS     uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
 	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
 	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
+	IgnoreStats      bool          `json:"ignore-stats" toml:"ignore-stats"`
 	CompressionConfig
 }
 
@@ -80,6 +82,11 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
 	// This flag can impact the online cluster, so hide it in case of abuse.
 	_ = flags.MarkHidden(flagRemoveSchedulers)
+
+	flags.Bool(flagIgnoreStats, false,
+		"ignore backup stats, used for test")
+	// This flag is used for test. we should backup stats all the time.
+	_ = flags.MarkHidden(flagIgnoreStats)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -119,9 +126,12 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
-	return err
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
+	return errors.Trace(err)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -245,7 +255,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
+		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
 	if err != nil {
 		return err
 	}
