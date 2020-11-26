@@ -4,7 +4,6 @@ package cmd
 
 import (
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -81,9 +80,6 @@ func NewRestoreCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			task.LogArguments(c)
-
-			// Do not run stat worker in BR.
-			session.DisableStats4Test()
 
 			summary.SetUnit(summary.RestoreUnit)
 			return nil

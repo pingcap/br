@@ -68,52 +68,65 @@ func newDrySender() *drySender {
 	}
 }
 
-type recordCurrentTableManager map[int64]bool
+type recordCurrentTableManager struct {
+	lock sync.Mutex
+	m    map[int64]bool
+}
 
-func (manager recordCurrentTableManager) Close(ctx context.Context) {
-	if len(manager) > 0 {
+func (manager *recordCurrentTableManager) Close(ctx context.Context) {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
+	if len(manager.m) > 0 {
 		log.Panic("When closing, there are still some tables doesn't be sent",
-			zap.Any("tables", manager))
+			zap.Any("tables", manager.m))
 	}
 }
 
-func newMockManager() recordCurrentTableManager {
-	return make(recordCurrentTableManager)
+func newMockManager() *recordCurrentTableManager {
+	return &recordCurrentTableManager{
+		m: make(map[int64]bool),
+	}
 }
 
-func (manager recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
+func (manager *recordCurrentTableManager) Enter(_ context.Context, tables []restore.CreatedTable) error {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	for _, t := range tables {
 		log.Info("entering", zap.Int64("table ID", t.Table.ID))
-		manager[t.Table.ID] = true
+		manager.m[t.Table.ID] = true
 	}
 	return nil
 }
 
-func (manager recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
+func (manager *recordCurrentTableManager) Leave(_ context.Context, tables []restore.CreatedTable) error {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	for _, t := range tables {
-		if !manager[t.Table.ID] {
+		if !manager.m[t.Table.ID] {
 			return errors.Errorf("Table %d is removed before added", t.Table.ID)
 		}
 		log.Info("leaving", zap.Int64("table ID", t.Table.ID))
-		delete(manager, t.Table.ID)
+		delete(manager.m, t.Table.ID)
 	}
 	return nil
 }
 
-func (manager recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
+func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	ids := make([]int64, 0, len(tables))
-	currentIDs := make([]int64, 0, len(manager))
+	currentIDs := make([]int64, 0, len(manager.m))
 	for _, t := range tables {
 		ids = append(ids, t.Table.ID)
 	}
-	for id, contains := range manager {
+	for id, contains := range manager.m {
 		if contains {
 			currentIDs = append(currentIDs, id)
 		}
 	}
 	log.Info("testing", zap.Int64s("should has ID", ids), zap.Int64s("has ID", currentIDs))
 	for _, i := range ids {
-		if !manager[i] {
+		if !manager.m[i] {
 			return false
 		}
 	}
