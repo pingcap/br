@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -107,8 +107,8 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
-						zap.Stringer("endKey", utils.WrapKey(file.GetEndKey())),
+						zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+						zap.Stringer("endKey", logutil.WrapKey(file.GetEndKey())),
 					)
 
 					var data []byte
@@ -187,7 +187,7 @@ func newBackupMetaCommand() *cobra.Command {
 					log.Error(
 						"file ranges overlapped",
 						zap.Stringer("out", out),
-						utils.ZapFile(file),
+						logutil.File(file),
 					)
 				}
 			}
@@ -367,10 +367,10 @@ func setPDConfigCommand() *cobra.Command {
 			}
 			defer mgr.Close()
 
-			if err := mgr.UpdatePDScheduleConfig(ctx, pdutil.DefaultPDCfg); err != nil {
+			if err := mgr.UpdatePDScheduleConfig(ctx); err != nil {
 				return errors.Annotate(err, "fail to update PD merge config")
 			}
-			log.Info("add pd configs succeed", zap.Any("config", pdutil.DefaultPDCfg))
+			log.Info("add pd configs succeed")
 			return nil
 		},
 	}

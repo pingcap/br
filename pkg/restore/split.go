@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // Constants for split retry machinery.
@@ -119,9 +119,9 @@ SplitRegions:
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
 						log.Error("no valid key",
-							zap.Stringer("startKey", utils.WrapKey(region.Region.StartKey)),
-							zap.Stringer("endKey", utils.WrapKey(region.Region.EndKey)),
-							zap.Stringer("key", utils.WrapKey(codec.EncodeBytes([]byte{}, key))))
+							zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
+							zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)),
+							zap.Stringer("key", logutil.WrapKey(codec.EncodeBytes([]byte{}, key))))
 					}
 					return errors.Trace(errSplit)
 				}
@@ -131,11 +131,11 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Array("keys", utils.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
-			log.Debug("split regions", utils.ZapRegion(region.Region), zap.Array("keys", utils.WrapKeys(keys)))
+			log.Debug("split regions", logutil.Region(region.Region), zap.Array("keys", logutil.WrapKeys(keys)))
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
@@ -228,7 +228,7 @@ func (rs *RegionSplitter) waitForScatterRegion(ctx context.Context, regionInfo *
 		ok, err := rs.isScatterRegionFinished(ctx1, regionID)
 		if err != nil {
 			log.Warn("scatter region failed: do not have the region",
-				utils.ZapRegion(regionInfo.Region))
+				logutil.Region(regionInfo.Region))
 			return
 		}
 		if ok {
@@ -253,7 +253,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
 		if err = rs.client.ScatterRegion(ctx, region); err != nil {
-			log.Warn("scatter region failed", utils.ZapRegion(region.Region), zap.Error(err))
+			log.Warn("scatter region failed", logutil.Region(region.Region), zap.Error(err))
 		}
 	}
 	return newRegions, nil
@@ -281,9 +281,9 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
 			log.Debug("get key for split region",
-				zap.Stringer("key", utils.WrapKey(key)),
-				zap.Stringer("startKey", utils.WrapKey(region.Region.StartKey)),
-				zap.Stringer("endKey", utils.WrapKey(region.Region.EndKey)))
+				zap.Stringer("key", logutil.WrapKey(key)),
+				zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
+				zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)))
 		}
 	}
 	return splitKeyMap

@@ -2,11 +2,108 @@ package storage
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"io"
 )
 
+// CompressType represents the type of compression.
+type CompressType uint8
+
+const (
+	// NoCompression won't compress given bytes.
+	NoCompression CompressType = iota
+	// Gzip will compress given bytes in gzip format.
+	Gzip
+)
+
+type interceptBuffer interface {
+	io.WriteCloser
+	Len() int
+	Cap() int
+	Bytes() []byte
+	Flush() error
+	Reset()
+}
+
+func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
+	switch compressType {
+	case NoCompression:
+		return newNoCompressionBuffer(chunkSize)
+	case Gzip:
+		return newGzipBuffer(chunkSize)
+	default:
+		return nil
+	}
+}
+
+type noCompressionBuffer struct {
+	*bytes.Buffer
+}
+
+func (b *noCompressionBuffer) Flush() error {
+	return nil
+}
+
+func (b *noCompressionBuffer) Close() error {
+	return nil
+}
+
+func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
+	return &noCompressionBuffer{bytes.NewBuffer(make([]byte, 0, chunkSize))}
+}
+
+type simpleCompressWriter interface {
+	io.WriteCloser
+	Flush() error
+}
+
+type simpleCompressBuffer struct {
+	*bytes.Buffer
+	compressWriter simpleCompressWriter
+	len            int
+	cap            int
+}
+
+func (b *simpleCompressBuffer) Write(p []byte) (int, error) {
+	written, err := b.compressWriter.Write(p)
+	b.len += written
+	return written, err
+}
+
+func (b *simpleCompressBuffer) Len() int {
+	return b.len
+}
+
+func (b *simpleCompressBuffer) Cap() int {
+	return b.cap
+}
+
+func (b *simpleCompressBuffer) Reset() {
+	b.len = 0
+	b.Buffer.Reset()
+}
+
+func (b *simpleCompressBuffer) Flush() error {
+	return b.compressWriter.Flush()
+}
+
+func (b *simpleCompressBuffer) Close() error {
+	return b.compressWriter.Close()
+}
+
+func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
+	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
+	return &simpleCompressBuffer{
+		Buffer:         bf,
+		len:            0,
+		cap:            chunkSize,
+		compressWriter: gzip.NewWriter(bf),
+	}
+}
+
 type uploaderWriter struct {
-	buf      *bytes.Buffer
+	buf      interceptBuffer
 	uploader Uploader
 }
 
@@ -27,6 +124,7 @@ func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 			}
 			p = p[w:]
 		}
+		u.buf.Flush()
 		err := u.uploadChunk(ctx)
 		if err != nil {
 			return 0, err
@@ -47,6 +145,7 @@ func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
 }
 
 func (u *uploaderWriter) Close(ctx context.Context) error {
+	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {
 		return err
@@ -55,15 +154,15 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int) Writer {
-	return newUploaderWriter(uploader, chunkSize)
+func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) Writer {
+	return newUploaderWriter(uploader, chunkSize, compressType)
 }
 
 // newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int) *uploaderWriter {
+func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
 	return &uploaderWriter{
 		uploader: uploader,
-		buf:      bytes.NewBuffer(make([]byte, 0, chunkSize))}
+		buf:      newInterceptBuffer(chunkSize, compressType)}
 }
 
 // BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.

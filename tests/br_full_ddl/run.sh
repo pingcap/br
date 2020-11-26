@@ -62,7 +62,16 @@ fi
 
 # restore full
 echo "restore start..."
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+export GO_FAILPOINTS=""
+
+pause_count=$(cat $LOG | grep "pause configs successful"| wc -l | xargs)
+if [ "${pause_count}" != "1" ];then
+    echo "TEST: [$TEST_NAME] fail on pause config"
+    exit 1
+fi
+
 BR_LOG_TO_TERM=1
 
 skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
