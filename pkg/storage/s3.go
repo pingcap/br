@@ -40,7 +40,7 @@ const (
 	maxRetries = 6
 
 	// the maximum number of byte to read for seek.
-	maxSkipOffsetByRead = 1 << 16 //64KB
+	maxSkipOffsetByRead = 1 << 16 // 64KB
 )
 
 // S3Storage info for s3 storage.

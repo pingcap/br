@@ -105,6 +105,9 @@ static: prepare tools
 	@#             nestif - PENDING REFACTORING
 	@#           goerr113 - it mistaken pingcap/errors with standard errors
 	@#                lll - pingcap/errors may need to write a long line
+	@#           nlreturn - too strict about the return and break lines format
+	@#   exhaustivestruct - some fields in br struct needn't to be initialized
+	@#	              gci - pingcap/errors can's pass this check
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -121,7 +124,6 @@ static: prepare tools
 		--disable nlreturn \
 		--disable exhaustivestruct \
 		--disable gci \
-		--disable gocritic \
 		--disable gofumpt \
 		--disable gosec \
 		--disable errorlint \

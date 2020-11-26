@@ -170,7 +170,7 @@ func NewPdController(
 	var failure error
 	var versionBytes []byte
 	for _, addr := range addrs {
-		if addr != "" && !strings.HasPrefix("http", addr) {
+		if addr != "" && !strings.HasPrefix(addr, "http") {
 			if tlsConf != nil {
 				addr = "https://" + addr
 			} else {
