@@ -51,6 +51,8 @@ type SplitClient interface {
 	// BatchSplitRegions splits a region from a batch of keys.
 	// note: the keys should not be encoded
 	BatchSplitRegions(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) ([]*RegionInfo, error)
+	// BatchSplitRegionsWithOrigin splits a region from a batch of keys and return the original region and split new regions
+	BatchSplitRegionsWithOrigin(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) (*RegionInfo, []*RegionInfo, error)
 	// ScatterRegion scatters a specified region.
 	ScatterRegion(ctx context.Context, regionInfo *RegionInfo) error
 	// GetOperator gets the status of operator of the specified region.
@@ -317,22 +319,24 @@ func (c *pdClient) sendSplitRegionRequest(
 	return nil, errors.Trace(splitErrors)
 }
 
-func (c *pdClient) BatchSplitRegions(
+func (c *pdClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
-) ([]*RegionInfo, error) {
+) (*RegionInfo, []*RegionInfo, error) {
 	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
 	if err != nil {
+<<<<<<< HEAD
 		return nil, errors.Trace(err)
+=======
+		return nil, nil, err
+>>>>>>> 602ed18... restore: add a new interface for SplitClient to return the original region in BatchSplitRegions (#612)
 	}
 
 	regions := resp.GetRegions()
 	newRegionInfos := make([]*RegionInfo, 0, len(regions))
+	var originRegion *RegionInfo
 	for _, region := range regions {
-		// Skip the original region
-		if region.GetId() == regionInfo.Region.GetId() {
-			continue
-		}
 		var leader *metapb.Peer
+
 		// Assume the leaders will be at the same store.
 		if regionInfo.Leader != nil {
 			for _, p := range region.GetPeers() {
@@ -342,12 +346,27 @@ func (c *pdClient) BatchSplitRegions(
 				}
 			}
 		}
+		// original region
+		if region.GetId() == regionInfo.Region.GetId() {
+			originRegion = &RegionInfo{
+				Region: region,
+				Leader: leader,
+			}
+			continue
+		}
 		newRegionInfos = append(newRegionInfos, &RegionInfo{
 			Region: region,
 			Leader: leader,
 		})
 	}
-	return newRegionInfos, nil
+	return originRegion, newRegionInfos, nil
+}
+
+func (c *pdClient) BatchSplitRegions(
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) ([]*RegionInfo, error) {
+	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
+	return newRegions, err
 }
 
 func (c *pdClient) ScatterRegion(ctx context.Context, regionInfo *RegionInfo) error {
