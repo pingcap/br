@@ -74,6 +74,8 @@ type recordCurrentTableManager struct {
 }
 
 func (manager *recordCurrentTableManager) Close(ctx context.Context) {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	if len(manager.m) > 0 {
 		log.Panic("When closing, there are still some tables doesn't be sent",
 			zap.Any("tables", manager.m))
@@ -110,13 +112,13 @@ func (manager *recordCurrentTableManager) Leave(_ context.Context, tables []rest
 }
 
 func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) bool {
+	manager.lock.Lock()
+	defer manager.lock.Unlock()
 	ids := make([]int64, 0, len(tables))
 	currentIDs := make([]int64, 0, len(manager.m))
 	for _, t := range tables {
 		ids = append(ids, t.Table.ID)
 	}
-	manager.lock.Lock()
-	defer manager.lock.Unlock()
 	for id, contains := range manager.m {
 		if contains {
 			currentIDs = append(currentIDs, id)

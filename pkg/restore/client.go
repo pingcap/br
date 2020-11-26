@@ -802,7 +802,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Int64("new id", tbl.Table.ID),
 		)
 		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
-			log.Error("analyze table failed, ", zap.Any("table", table.Stats), zap.Error(err))
+			log.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
 		}
 	}
 	return nil
