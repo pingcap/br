@@ -116,7 +116,7 @@ func (c *testClient) SplitRegion(
 	return newRegion, nil
 }
 
-func (c *testClient) BatchSplitRegionsRaw(
+func (c *testClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
 	c.mu.Lock()
@@ -155,7 +155,7 @@ func (c *testClient) BatchSplitRegionsRaw(
 func (c *testClient) BatchSplitRegions(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) ([]*restore.RegionInfo, error) {
-	_, newRegions, err := c.BatchSplitRegionsRaw(ctx, regionInfo, keys)
+	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
 	return newRegions, err
 }
 

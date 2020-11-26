@@ -51,8 +51,8 @@ type SplitClient interface {
 	// BatchSplitRegions splits a region from a batch of keys.
 	// note: the keys should not be encoded
 	BatchSplitRegions(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) ([]*RegionInfo, error)
-	// BatchSplitRegionsRaw splits a region from a batch of keys and return the original region and split new regions
-	BatchSplitRegionsRaw(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) (*RegionInfo, []*RegionInfo, error)
+	// BatchSplitRegionsWithOrigin splits a region from a batch of keys and return the original region and split new regions
+	BatchSplitRegionsWithOrigin(ctx context.Context, regionInfo *RegionInfo, keys [][]byte) (*RegionInfo, []*RegionInfo, error)
 	// ScatterRegion scatters a specified region.
 	ScatterRegion(ctx context.Context, regionInfo *RegionInfo) error
 	// GetOperator gets the status of operator of the specified region.
@@ -317,7 +317,7 @@ func (c *pdClient) sendSplitRegionRequest(
 	return nil, splitErrors
 }
 
-func (c *pdClient) BatchSplitRegionsRaw(
+func (c *pdClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) (*RegionInfo, []*RegionInfo, error) {
 	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
@@ -359,7 +359,7 @@ func (c *pdClient) BatchSplitRegionsRaw(
 func (c *pdClient) BatchSplitRegions(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) ([]*RegionInfo, error) {
-	_, newRegions, err := c.BatchSplitRegionsRaw(ctx, regionInfo, keys)
+	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
 	return newRegions, err
 }
 
