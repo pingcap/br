@@ -19,4 +19,4 @@ bin/failpoint-ctl:
 	go build -o $@ github.com/pingcap/failpoint/failpoint-ctl
 
 bin/errdoc-gen:
-	go build -o $@ github.com/pingcap/tiup/components/errdoc/errdoc-gen
+	go build -o $@ github.com/pingcap/errors/errdoc-gen
