@@ -137,12 +137,10 @@ static: prepare tools
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
 		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
-	$(FINISH_MOD)
 
 lint: prepare tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
-	$(FINISH_MOD)
 
 tidy:
 	@echo "go mod tidy"
