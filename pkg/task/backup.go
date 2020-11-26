@@ -131,7 +131,7 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
-	return err
+	return errors.Trace(err)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
