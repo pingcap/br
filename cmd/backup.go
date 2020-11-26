@@ -6,7 +6,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/ddl"
-	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -57,8 +56,6 @@ func NewBackupCommand() *cobra.Command {
 
 			// Do not run ddl worker in BR.
 			ddl.RunWorker = false
-			// Do not run stat worker in BR.
-			session.DisableStats4Test()
 
 			summary.SetUnit(summary.BackupUnit)
 			return nil
