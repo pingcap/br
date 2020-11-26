@@ -187,18 +187,7 @@ func NewPdController(
 		return nil, errors.Annotatef(berrors.ErrPDUpdateFailed, "pd address (%s) not available, please check network", pdAddrs)
 	}
 
-	version, err := semver.NewVersion(string(versionBytes))
-	if err != nil {
-		log.Warn("fail back to v0.0.0 version",
-			zap.ByteString("version", versionBytes), zap.Error(err))
-		version = &semver.Version{Major: 0, Minor: 0, Patch: 0}
-	}
-	failpoint.Inject("PDEnabledPauseConfig", func(val failpoint.Value) {
-		if val.(bool) {
-			// test pause config is enable
-			version = &semver.Version{Major: 5, Minor: 0, Patch: 0}
-		}
-	})
+	version := parseVersion(versionBytes)
 	maxCallMsgSize := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
@@ -222,6 +211,26 @@ func NewPdController(
 		// gracefully shutdown will stick at resuming schedulers.
 		schedulerPauseCh: make(chan struct{}, 1),
 	}, nil
+}
+
+func parseVersion(versionBytes []byte) *semver.Version {
+	// we need trim space or semver will parse failed
+	v := strings.TrimSpace(string(versionBytes))
+	v = strings.Trim(v, "\"")
+	v = strings.TrimPrefix(v, "v")
+	version, err := semver.NewVersion(v)
+	if err != nil {
+		log.Warn("fail back to v0.0.0 version",
+			zap.ByteString("version", versionBytes), zap.Error(err))
+		version = &semver.Version{Major: 0, Minor: 0, Patch: 0}
+	}
+	failpoint.Inject("PDEnabledPauseConfig", func(val failpoint.Value) {
+		if val.(bool) {
+			// test pause config is enable
+			version = &semver.Version{Major: 5, Minor: 0, Patch: 0}
+		}
+	})
+	return version
 }
 
 func (p *PdController) isPauseConfigEnabled() bool {
@@ -504,7 +513,7 @@ func restoreSchedulers(ctx context.Context, pd *PdController, clusterCfg cluster
 	prefix := make([]string, 0, 1)
 	if pd.isPauseConfigEnabled() {
 		// set config's ttl to zero, make temporary config invalid immediately.
-		prefix = append(prefix, fmt.Sprintf("%s?ttlSecond=%d", schedulerPrefix, 0))
+		prefix = append(prefix, fmt.Sprintf("%s?ttlSecond=%d", scheduleConfigPrefix, 0))
 	}
 	// reset config with previous value.
 	if err := pd.doUpdatePDScheduleConfig(ctx, mergeCfg, pdRequest, prefix...); err != nil {
