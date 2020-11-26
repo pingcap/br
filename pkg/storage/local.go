@@ -12,6 +12,11 @@ import (
 	"github.com/pingcap/errors"
 )
 
+const (
+	localDirPerm  = os.FileMode(0o755)
+	localFilePerm = os.FileMode(0o644)
+)
+
 // LocalStorage represents local file system storage.
 //
 // export for using in tests.
@@ -21,7 +26,7 @@ type LocalStorage struct {
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
 	path := filepath.Join(l.base, name)
-	return ioutil.WriteFile(path, data, 0o644)
+	return ioutil.WriteFile(path, data, localFilePerm)
 	// the backup meta file _is_ intended to be world-readable.
 }
 
@@ -94,7 +99,7 @@ func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
 // CreateUploader implements ExternalStorage interface.
 func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	path := filepath.Join(l.base, name)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, localFilePerm)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

@@ -13,7 +13,7 @@ import (
 
 func mkdirAll(base string) error {
 	mask := syscall.Umask(0)
-	err := os.MkdirAll(base, 0o755)
+	err := os.MkdirAll(base, localDirPerm)
 	syscall.Umask(mask)
 	return errors.Trace(err)
 }
