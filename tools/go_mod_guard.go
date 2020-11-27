@@ -22,5 +22,5 @@ import (
 	_ "github.com/pingcap/failpoint"
 
 	// errdoc-gen generates errors.toml.
-	_ "github.com/pingcap/tiup/components/errdoc/errdoc-gen"
+	_ "github.com/pingcap/errors/errdoc-gen"
 )
