@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
@@ -19,9 +21,6 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-
-	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/metapb"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
