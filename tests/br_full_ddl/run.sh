@@ -125,6 +125,7 @@ else
   cat $backup_stats | head 1000
   cat $restore_stats | head 1000
   exit 1
+fi
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
