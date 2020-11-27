@@ -11,7 +11,6 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
@@ -102,7 +101,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
 	tk.MustExec("CREATE DATABASE IF NOT EXISTS test_db;")
 	tk.MustExec("CREATE TABLE IF NOT EXISTS test_db.test_table (c1 INT);")
-	lastTS, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
+	lastTS, err := s.mock.GetOracle().GetTimestamp(context.Background())
 	c.Assert(err, IsNil, Commentf("Error get last ts: %s", err))
 	tk.MustExec("RENAME TABLE test_db.test_table to test_db.test_table1;")
 	tk.MustExec("DROP TABLE test_db.test_table1;")
@@ -113,7 +112,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	tk.MustExec("RENAME TABLE test_table1 to test_table;")
 	tk.MustExec("TRUNCATE TABLE test_table;")
 
-	ts, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
+	ts, err := s.mock.GetOracle().GetTimestamp(context.Background())
 	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
 	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Domain, lastTS, ts)
 	c.Assert(err, IsNil, Commentf("Error get ddl jobs: %s", err))

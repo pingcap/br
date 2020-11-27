@@ -18,10 +18,8 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
@@ -72,13 +70,9 @@ type tableKVEncoder struct {
 
 // NewTableKVEncoder creates the Encoder.
 func NewTableKVEncoder(tbl table.Table, options *SessionOptions) Encoder {
-	se := newSession(options)
-	// Set CommonAddRecordCtx to session to reuse the slices and BufStore in AddRecord
-	recordCtx := tables.NewCommonAddRecordCtx(len(tbl.Cols()))
-	tables.SetAddRecordCtx(se, recordCtx)
 	return &tableKVEncoder{
 		tbl: tbl,
-		se:  se,
+		se:  newSession(options),
 	}
 }
 
@@ -173,7 +167,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
-				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
+				value, err = col.HandleBadNull(value, kvcodec.se.vars.StmtCtx)
 			}
 		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
@@ -253,7 +247,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
-				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
+				value, err = col.HandleBadNull(value, kvcodec.se.vars.StmtCtx)
 			}
 		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
@@ -266,7 +260,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 		}
 		record = append(record, value)
 	}
-	err = kvcodec.tbl.RemoveRecord(kvcodec.se, kv.IntHandle(rowID), record)
+	err = kvcodec.tbl.RemoveRecord(kvcodec.se, rowID, record)
 	if err != nil {
 		log.Error("kv remove record failed",
 			zap.Array("originalRow", rowArrayMarshaler(row)),
