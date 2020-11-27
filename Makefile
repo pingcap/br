@@ -148,7 +148,7 @@ tidy:
 	GO111MODULE=on go mod tidy
 	$(FINISH_MOD)
 	cd tests && GO111MODULE=on go mod tidy
-	git diff --quiet go.mod1 go.sum1 tools/go.mod tools/go.sum
+	git diff --exit-code go.mod1 go.sum1 tools/go.mod tools/go.sum
 
 errdoc: tools
 	@echo "generator errors.toml"
