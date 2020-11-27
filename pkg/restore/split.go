@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
@@ -271,7 +272,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
 	for _, rg := range ranges {
-		checkKeys = append(checkKeys, rg.EndKey)
+		checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
 	}
 	for _, key := range checkKeys {
 		if region := NeedSplit(key, regions); region != nil {
@@ -307,6 +308,21 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 		}
 	}
 	return nil
+}
+
+var (
+	tablePrefix  = []byte{'t'}
+	idLen        = 8
+	recordPrefix = []byte("_r")
+)
+
+func truncateRowKey(key []byte) []byte {
+	if bytes.HasPrefix(key, tablePrefix) &&
+		len(key) > tablecodec.RecordRowKeyLen &&
+		bytes.HasPrefix(key[len(tablePrefix)+idLen:], recordPrefix) {
+		return key[:tablecodec.RecordRowKeyLen]
+	}
+	return key
 }
 
 func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
