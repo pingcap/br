@@ -250,11 +250,14 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	tableFilter filter.Filter,
 	backupTS uint64,
+	ignoreStats bool,
 ) ([]rtree.Range, *Schemas, error) {
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
+
+	h := dom.StatsHandle()
 
 	ranges := make([]rtree.Range, 0)
 	backupSchemas := newBackupSchemas()
@@ -332,9 +335,22 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 
+			var stats []byte
+			if !ignoreStats {
+				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+				stats, err = json.Marshal(jsonTable)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+			}
+
 			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
+				Stats: stats,
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
