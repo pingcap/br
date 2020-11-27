@@ -8,6 +8,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
 )
 
@@ -30,7 +31,10 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 		ID:   tblID,
 		Name: tblName,
 	}
-
+	mockStats := handle.JSONTable{
+		DatabaseName: dbName.String(),
+		TableName:    tblName.String(),
+	}
 	mockDB := model.DBInfo{
 		ID:   1,
 		Name: dbName,
@@ -42,10 +46,14 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 	c.Assert(err, IsNil)
 	tblBytes, err := json.Marshal(mockTbl)
 	c.Assert(err, IsNil)
+	statsBytes, err := json.Marshal(mockStats)
+	c.Assert(err, IsNil)
+
 	mockSchemas := []*backup.Schema{
 		{
 			Db:    dbBytes,
 			Table: tblBytes,
+			Stats: statsBytes,
 		},
 	}
 

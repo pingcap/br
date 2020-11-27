@@ -54,25 +54,25 @@ func (c *codecPDClient) ScanRegions(
 	startKey []byte,
 	endKey []byte,
 	limit int,
-) ([]*pd.Region, error) {
+) ([]*metapb.Region, []*metapb.Peer, error) {
 	startKey = codec.EncodeBytes(nil, startKey)
 	if len(endKey) > 0 {
 		endKey = codec.EncodeBytes(nil, endKey)
 	}
 
-	regions, err := c.Client.ScanRegions(ctx, startKey, endKey, limit)
+	regions, peers, err := c.Client.ScanRegions(ctx, startKey, endKey, limit)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, nil, errors.Trace(err)
 	}
 	for _, region := range regions {
 		if region != nil {
-			err = decodeRegionMetaKey(region.Meta)
+			err = decodeRegionMetaKey(region)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, nil, errors.Trace(err)
 			}
 		}
 	}
-	return regions, nil
+	return regions, peers, nil
 }
 
 func processRegionResult(region *pd.Region, err error) (*pd.Region, error) {

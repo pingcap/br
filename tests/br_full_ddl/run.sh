@@ -34,6 +34,35 @@ for i in $(seq $DDL_COUNT); do
     fi
 done
 
+# run analyze to generate stats
+run_sql "analyze table $DB.$TABLE;"
+# record field0's stats and remove last_update_version
+# it's enough to compare with restore stats
+# the stats looks like
+# {
+#   "histogram": {
+#     "ndv": 10000,
+#     "buckets": [
+#       {
+#         "count": 40,
+#         "lower_bound": "QUFqVW1HZkt3UWhXakdCSlF0a2NHRFp0UWpFZ1lEUFFNWXVtVFFTRUh0U3N4RXhub2VMeUF1emhyT0FjWUZvWUhRZVZBcGJLRlVoWVlWR      0djSmRYbnhxc1NzcG1VTHFoZnJZbg==",
+#         "upper_bound": "QUp5bmVNc29FVUFIZ3ZKS3dCaUdGQ0xoV1BSQ0FWZ2VzZGpGU05na2xsYUhkY1VMVWdEeHZORUJLbW9tWGxSTWZQTmZYZVVWR3h5amVyW      EJXQ01GcU5mRWlHeEd1dndZa1BSRg==",
+#         "repeats": 1
+#       },
+#       ...(nearly 1000 rows)
+#     ],
+#   "cm_sketch": {
+#     "rows": [
+#        {
+#          "counters": [
+#             5,
+#             ...(nearly 10000 rows)
+#           ],
+#        }
+#     ]
+# }
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > backup_stats
+
 # backup full
 echo "backup start..."
 # Do not log to terminal
@@ -74,8 +103,6 @@ fi
 
 BR_LOG_TO_TERM=1
 
-<<<<<<< HEAD
-=======
 skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
 
 # ensure there are only less than two(write + default) range empty error,
@@ -100,7 +127,6 @@ else
   exit 1
 fi
 
->>>>>>> 1c47f6f... restore: change batch size (#576)
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 fail=false
