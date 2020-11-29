@@ -29,7 +29,7 @@ const (
 	flagNoSchema = "no-schema"
 
 	defaultRestoreConcurrency = 128
-	maxRestoreBatchSizeLimit  = 256
+	maxRestoreBatchSizeLimit  = 10240
 	defaultDDLConcurrency     = 16
 )
 

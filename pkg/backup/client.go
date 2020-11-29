@@ -250,11 +250,14 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	tableFilter filter.Filter,
 	backupTS uint64,
+	ignoreStats bool,
 ) ([]rtree.Range, *Schemas, error) {
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
+
+	h := dom.StatsHandle()
 
 	ranges := make([]rtree.Range, 0)
 	backupSchemas := newBackupSchemas()
@@ -332,9 +335,22 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 
+			var stats []byte
+			if !ignoreStats {
+				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+				stats, err = json.Marshal(jsonTable)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+			}
+
 			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
+				Stats: stats,
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
@@ -671,14 +687,15 @@ func (bc *Client) fineGrainedBackup(
 	}
 }
 
-func onBackupResponse(
+// OnBackupResponse checks the backup resp, decides whether to retry and generate the error.
+func OnBackupResponse(
 	storeID uint64,
 	bo *tikv.Backoffer,
 	backupTS uint64,
 	lockResolver *tikv.LockResolver,
 	resp *kvproto.BackupResponse,
 ) (*kvproto.BackupResponse, int, error) {
-	log.Debug("onBackupResponse", zap.Reflect("resp", resp))
+	log.Debug("OnBackupResponse", zap.Reflect("resp", resp))
 	if resp.Error == nil {
 		return resp, 0, nil
 	}
@@ -700,7 +717,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
+		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d OnBackupResponse error %v", storeID, v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -710,9 +727,11 @@ func onBackupResponse(
 			regionErr.RegionNotFound != nil ||
 			regionErr.ServerIsBusy != nil ||
 			regionErr.StaleCommand != nil ||
-			regionErr.StoreNotMatch != nil) {
+			regionErr.StoreNotMatch != nil ||
+			regionErr.ReadIndexNotReady != nil ||
+			regionErr.ProposalInMergingMode != nil) {
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
+			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d OnBackupResponse error %v", storeID, v)
 		}
 		log.Warn("backup occur region error",
 			zap.Reflect("RegionError", regionErr),
@@ -771,7 +790,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *kvproto.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(storeID, bo, backupTS, lockResolver, resp)
+				OnBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
