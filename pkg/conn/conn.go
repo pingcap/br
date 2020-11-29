@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
@@ -22,8 +20,12 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/metapb"
+
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -237,7 +239,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 		conn, err = mgr.getGrpcConnLocked(ctx, storeID)
 		if err != nil {
 			log.Warn("failed to reset grpc connection, retry it",
-				zap.Int("retry time", retry), zap.Error(err))
+				zap.Int("retry time", retry), logutil.ShortError(err))
 			time.Sleep(time.Duration(retry+3) * time.Second)
 			continue
 		}

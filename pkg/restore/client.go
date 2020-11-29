@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -37,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -79,6 +81,12 @@ type Client struct {
 	backend            *backup.StorageBackend
 	switchModeInterval time.Duration
 	switchCh           chan struct{}
+
+	// statHandler and dom are used for analyze table after restore.
+	// it will backup stats with #dump.DumpStatsToJSON
+	// and restore stats with #dump.LoadStatsFromJSON
+	statsHandler *handle.Handle
+	dom          *domain.Domain
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -93,6 +101,16 @@ func NewRestoreClient(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	dom, err := g.GetDomain(store)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var statsHandle *handle.Handle
+	// tikv.Glue will return nil, tidb.Glue will return available domain
+	if dom != nil {
+		statsHandle = dom.StatsHandle()
+	}
 
 	return &Client{
 		pdClient:      pdClient,
@@ -101,6 +119,8 @@ func NewRestoreClient(
 		tlsConf:       tlsConf,
 		keepaliveConf: keepaliveConf,
 		switchCh:      make(chan struct{}),
+		dom:           dom,
+		statsHandler:  statsHandle,
 	}, nil
 }
 
@@ -517,7 +537,7 @@ func (rc *Client) RestoreFiles(
 		if err == nil {
 			log.Info("Restore files",
 				zap.Duration("take", elapsed),
-				utils.ZapFiles(files))
+				logutil.Files(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
@@ -537,7 +557,7 @@ func (rc *Client) RestoreFiles(
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", utils.ZapFile(fileReplica),
+					log.Info("import file done", logutil.File(fileReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
@@ -773,6 +793,17 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
 		)
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
+	}
+	if table.Stats != nil {
+		log.Info("start loads analyze after validate checksum",
+			zap.Stringer("db name", tbl.OldTable.DB.Name),
+			zap.Stringer("name", tbl.OldTable.Info.Name),
+			zap.Int64("old id", tbl.OldTable.Info.ID),
+			zap.Int64("new id", tbl.Table.ID),
+		)
+		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
+			log.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
+		}
 	}
 	return nil
 }
