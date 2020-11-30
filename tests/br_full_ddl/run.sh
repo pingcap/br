@@ -67,8 +67,9 @@ curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last
 echo "backup start..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
+cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
 
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
 if [ "${checksum_count}" != "1" ];then
@@ -78,6 +79,15 @@ if [ "${checksum_count}" != "1" ];then
 fi
 
 run_sql "DROP DATABASE $DB;"
+
+cluster_index_before_restore=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
+# keep cluster index enable or disable at same time.
+if [[ "${cluster_index_before_backup}" != "${cluster_index_before_restore}" ]]; then
+  echo "TEST: [$TEST_NAME] must enable or disable cluster_index at same time"
+  echo "cluster index before backup is $cluster_index_before_backup"
+  echo "cluster index before restore is $cluster_index_before_restore"
+  exit 1
+fi
 
 # restore full
 echo "restore start..."
@@ -93,6 +103,18 @@ fi
 
 BR_LOG_TO_TERM=1
 
+skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
+
+# ensure there are only less than two(write + default) range empty error,
+# because backup range end key is large than reality.
+# so the last region may download nothing.
+# FIXME maybe we can treat endkey specially in the future.
+if [ "${skip_count}" -gt "2" ];then
+    echo "TEST: [$TEST_NAME] fail on download sst, too many skipped range"
+    echo $(cat $LOG | grep "range is empty")
+    exit 1
+fi
+
 curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
 
 if diff -q backup_stats restore_stats > /dev/null
@@ -100,8 +122,8 @@ then
   echo "stats are equal"
 else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
-  cat $backup_stats
-  cat $restore_stats
+  cat $backup_stats | head 1000
+  cat $restore_stats | head 1000
   exit 1
 fi
 
