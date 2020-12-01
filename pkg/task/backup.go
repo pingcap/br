@@ -186,30 +186,30 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
 	client, err := backup.NewBackupClient(ctx, mgr)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = client.SetLockFile(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	client.SetGCTTL(cfg.GCTTL)
 
 	backupTS, err := client.GetTS(ctx, cfg.TimeAgo, cfg.BackupTS)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	g.Record("BackupTS", backupTS)
 	sp := utils.BRServiceSafePoint{
@@ -241,7 +241,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			}
 		}()
 		if e != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -257,13 +257,13 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// nothing to backup
 	if ranges == nil {
 		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
 		if err2 != nil {
-			return err2
+			return errors.Trace(err2)
 		}
 		pdAddress := strings.Join(cfg.PD, ",")
 		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
@@ -280,11 +280,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		err = utils.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
-			return err
+			return errors.Trace(err)
 		}
 		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -294,7 +294,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		var regionCount int
 		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		approximateRegions += regionCount
 	}
@@ -308,14 +308,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
 
 	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Checksum from server, and then fulfill the backup metadata.
@@ -327,14 +327,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
 		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		// Checksum has finished
 		updateCh.Close()
 		// collect file information.
 		err = checkChecksums(&backupMeta)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	} else {
 		// Just... copy schemas from origin.
@@ -354,7 +354,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	g.Record("Size", utils.ArchiveSize(&backupMeta))
@@ -369,11 +369,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 func checkChecksums(backupMeta *kvproto.BackupMeta) error {
 	checksums, err := backup.CollectChecksums(backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = backup.ChecksumMatches(backupMeta, checksums)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }

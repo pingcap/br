@@ -36,11 +36,16 @@ const (
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
+<<<<<<< HEAD
 	// number of retries to make of operations
 	maxRetries = 3
+=======
+	// number of retries to make of operations.
+	maxRetries = 6
+>>>>>>> e963d46... *: upgrade golangci-lint (#621)
 
-	// the maximum number of byte to read for seek
-	maxSkipOffsetByRead = 1 << 16 //64KB
+	// the maximum number of byte to read for seek.
+	maxSkipOffsetByRead = 1 << 16 // 64KB
 )
 
 // S3Storage info for s3 storage.
@@ -71,7 +76,7 @@ func (u *S3Uploader) UploadPart(ctx context.Context, data []byte) error {
 
 	uploadResult, err := u.svc.UploadPartWithContext(ctx, partInput)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	u.completeParts = append(u.completeParts, &s3.CompletedPart{
 		ETag:       uploadResult.ETag,
@@ -91,7 +96,7 @@ func (u *S3Uploader) CompleteUpload(ctx context.Context) error {
 		},
 	}
 	_, err := u.svc.CompleteMultipartUploadWithContext(ctx, completeInput)
-	return err
+	return errors.Trace(err)
 }
 
 // S3BackendOptions contains options for s3 storage.
@@ -117,7 +122,7 @@ func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
 	if options.Endpoint != "" {
 		u, err := url.Parse(options.Endpoint)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		if u.Scheme == "" {
 			return errors.Annotate(berrors.ErrStorageInvalidConfig, "scheme not found in endpoint")
@@ -248,7 +253,7 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 	}
 	ses, err := session.NewSessionWithOptions(awsSessionOpts)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if !opts.SendCredentials {
@@ -259,7 +264,7 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 		if qs.AccessKey == "" || qs.SecretAccessKey == "" {
 			v, cerr := ses.Config.Credentials.Get()
 			if cerr != nil {
-				return nil, cerr
+				return nil, errors.Trace(cerr)
 			}
 			backend.AccessKey = v.AccessKeyID
 			backend.SecretAccessKey = v.SecretAccessKey
@@ -288,7 +293,7 @@ func checkS3Bucket(svc *s3.S3, bucket string) error {
 		Bucket: aws.String(bucket),
 	}
 	_, err := svc.HeadBucket(input)
-	return err
+	return errors.Trace(err)
 }
 
 // Write write to s3 storage.
@@ -313,14 +318,14 @@ func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error 
 
 	_, err := rs.svc.PutObjectWithContext(ctx, input)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	hinput := &s3.HeadObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
 	}
 	err = rs.svc.WaitUntilObjectExistsWithContext(ctx, hinput)
-	return err
+	return errors.Trace(err)
 }
 
 // Read read file from s3.
@@ -332,12 +337,12 @@ func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	defer result.Body.Close()
 	data, err := ioutil.ReadAll(result.Body)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return data, nil
 }
@@ -351,13 +356,13 @@ func (rs *S3Storage) FileExists(ctx context.Context, file string) (bool, error) 
 
 	_, err := rs.svc.HeadObjectWithContext(ctx, input)
 	if err != nil {
-		if aerr, ok := err.(awserr.Error); ok {
+		if aerr, ok := errors.Cause(err).(awserr.Error); ok { // nolint:errorlint
 			switch aerr.Code() {
 			case s3.ErrCodeNoSuchBucket, s3.ErrCodeNoSuchKey, notFound:
 				return false, nil
 			}
 		}
-		return false, err
+		return false, errors.Trace(err)
 	}
 	return true, nil
 }
@@ -392,7 +397,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 		// (as of 2020, DigitalOcean Spaces still does not support V2 - https://developers.digitalocean.com/documentation/spaces/#list-bucket-contents)
 		res, err := rs.svc.ListObjectsWithContext(ctx, req)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		for _, r := range res.Contents {
 			// when walk on specify directory, the result include storage.Prefix,
@@ -400,7 +405,7 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 			// so we use TrimPrefix to filter Prefix for next Open/Read.
 			path := strings.TrimPrefix(*r.Key, rs.options.Prefix)
 			if err = fn(path, *r.Size); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			// https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjects.html#AmazonS3-ListObjects-response-NextMarker -
@@ -431,7 +436,7 @@ func (rs *S3Storage) URI() string {
 func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
 	reader, r, err := rs.open(ctx, path, 0, 0)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return &s3ObjectReader{
 		storage:   rs,
@@ -478,7 +483,7 @@ func (rs *S3Storage) open(
 	input.Range = rangeOffset
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, RangeInfo{}, err
+		return nil, RangeInfo{}, errors.Trace(err)
 	}
 
 	r, err := ParseRangeInfo(result.ContentRange)
@@ -494,9 +499,7 @@ func (rs *S3Storage) open(
 	return result.Body, r, nil
 }
 
-var (
-	contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
-)
+var contentRangeRegex = regexp.MustCompile(`bytes (\d+)-(\d+)/(\d+)$`)
 
 // ParseRangeInfo parses the Content-Range header and returns the offsets.
 func ParseRangeInfo(info *string) (ri RangeInfo, err error) {
@@ -581,7 +584,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	if realOffset > r.pos && realOffset-r.pos <= maxSkipOffsetByRead {
 		_, err := io.CopyN(ioutil.Discard, r, realOffset-r.pos)
 		if err != nil {
-			return r.pos, err
+			return r.pos, errors.Trace(err)
 		}
 		return realOffset, nil
 	}
@@ -589,12 +592,12 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 	// close current read and open a new one which target offset
 	err := r.reader.Close()
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	newReader, info, err := r.storage.open(r.ctx, r.name, realOffset, 0)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 	r.reader = newReader
 	r.rangeInfo = info
@@ -610,7 +613,7 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader,
 	}
 	resp, err := rs.svc.CreateMultipartUploadWithContext(ctx, input)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return &S3Uploader{
 		svc:           rs.svc,

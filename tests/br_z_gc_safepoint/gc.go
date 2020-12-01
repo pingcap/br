@@ -36,10 +36,10 @@ var (
 func main() {
 	flag.Parse()
 	if *pdAddr == "" {
-		log.Fatal("pd address is empty")
+		log.Panic("pd address is empty")
 	}
 	if *gcOffset == time.Duration(0) {
-		log.Fatal("zero gc-offset is not allowed")
+		log.Panic("zero gc-offset is not allowed")
 	}
 
 	timeout := time.Second * 10
@@ -47,11 +47,11 @@ func main() {
 	defer cancel()
 	pdclient, err := pd.NewClientWithContext(ctx, []string{*pdAddr}, pd.SecurityOption{})
 	if err != nil {
-		log.Fatal("create pd client failed", zap.Error(err))
+		log.Panic("create pd client failed", zap.Error(err))
 	}
 	p, l, err := pdclient.GetTS(ctx)
 	if err != nil {
-		log.Fatal("get ts failed", zap.Error(err))
+		log.Panic("get ts failed", zap.Error(err))
 	}
 	now := oracle.ComposeTS(p, l)
 	nowMinusOffset := oracle.GetTimeFromTS(now).Add(-*gcOffset)
@@ -59,13 +59,13 @@ func main() {
 	if *updateService {
 		_, err = pdclient.UpdateServiceGCSafePoint(ctx, "br", 300, newSP)
 		if err != nil {
-			log.Fatal("update service safe point failed", zap.Error(err))
+			log.Panic("update service safe point failed", zap.Error(err))
 		}
 		log.Info("update service GC safe point", zap.Uint64("SP", newSP), zap.Uint64("now", now))
 	} else {
 		_, err = pdclient.UpdateGCSafePoint(ctx, newSP)
 		if err != nil {
-			log.Fatal("update safe point failed", zap.Error(err))
+			log.Panic("update safe point failed", zap.Error(err))
 		}
 		log.Info("update GC safe point", zap.Uint64("SP", newSP), zap.Uint64("now", now))
 	}

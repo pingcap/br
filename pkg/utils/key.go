@@ -38,7 +38,7 @@ func unescapedKey(text string) ([]byte, error) {
 	for {
 		c, err := r.ReadByte()
 		if err != nil {
-			if err != io.EOF {
+			if errors.Cause(err) != io.EOF { // nolint:errorlint
 				return nil, errors.Trace(err)
 			}
 			break
