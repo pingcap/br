@@ -338,7 +338,7 @@ func (s *testRestoreUtilSuite) TestGetSplitKeys(c *C) {
 		{
 			StartKey: kvRanges[0].StartKey,
 			// this endkey is HighInclude, so it will generate one more zero byte.
-			EndKey:   kvRanges[0].EndKey,
+			EndKey: kvRanges[0].EndKey,
 		},
 	}
 	keyMap := restore.GetSplitKeys(rewriteRules, ranges, regions)
