@@ -24,7 +24,7 @@ func (suit *testCollectorSuite) TestSumDurationInt(c *C) {
 	logger := func(msg string, fs ...zap.Field) {
 		fields = append(fields, fs...)
 	}
-	col := newLogCollector(logger)
+	col := NewLogCollector(logger)
 	col.CollectDuration("a", time.Second)
 	col.CollectDuration("b", time.Second)
 	col.CollectDuration("b", time.Second)

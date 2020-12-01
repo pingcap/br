@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -200,7 +201,7 @@ func (importer *FileImporter) Import(
 	file *backup.File,
 	rewriteRules *RewriteRules,
 ) error {
-	log.Debug("import file", utils.ZapFile(file))
+	log.Debug("import file", logutil.File(file))
 	// Rewrite the start key and end key of file to scan regions
 	var startKey, endKey []byte
 	var err error
@@ -209,18 +210,14 @@ func (importer *FileImporter) Import(
 		endKey = file.EndKey
 	} else {
 		startKey, endKey, err = rewriteFileKeys(file, rewriteRules)
-		// if not truncateRowKey here, if will scan one more region
-		// TODO need more test to check here
-		// startKey = truncateRowKey(startKey)
-		// endKey = truncateRowKey(endKey)
 	}
 	if err != nil {
 		return err
 	}
 	log.Debug("rewrite file keys",
-		utils.ZapFile(file),
-		zap.Stringer("startKey", utils.WrapKey(startKey)),
-		zap.Stringer("endKey", utils.WrapKey(endKey)))
+		logutil.File(file),
+		zap.Stringer("startKey", logutil.WrapKey(startKey)),
+		zap.Stringer("endKey", logutil.WrapKey(endKey)))
 
 	err = utils.WithRetry(ctx, func() error {
 		tctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
@@ -232,7 +229,7 @@ func (importer *FileImporter) Import(
 			return errors.Trace(errScanRegion)
 		}
 
-		log.Debug("scan regions", utils.ZapFile(file), zap.Int("count", len(regionInfos)))
+		log.Debug("scan regions", logutil.File(file), zap.Int("count", len(regionInfos)))
 		// Try to download and ingest the file in every region
 	regionLoop:
 		for _, regionInfo := range regionInfos {
@@ -254,20 +251,20 @@ func (importer *FileImporter) Import(
 					case berrors.ErrKVRewriteRuleNotFound, berrors.ErrKVRangeIsEmpty:
 						// Skip this region
 						log.Warn("download file skipped",
-							utils.ZapFile(file),
-							utils.ZapRegion(info.Region),
-							zap.Stringer("startKey", utils.WrapKey(startKey)),
-							zap.Stringer("endKey", utils.WrapKey(endKey)),
-							zap.Error(e))
+							logutil.File(file),
+							logutil.Region(info.Region),
+							zap.Stringer("startKey", logutil.WrapKey(startKey)),
+							zap.Stringer("endKey", logutil.WrapKey(endKey)),
+							logutil.ShortError(e))
 						continue regionLoop
 					}
 				}
 				log.Error("download file failed",
-					utils.ZapFile(file),
-					utils.ZapRegion(info.Region),
-					zap.Stringer("startKey", utils.WrapKey(startKey)),
-					zap.Stringer("endKey", utils.WrapKey(endKey)),
-					zap.Error(errDownload))
+					logutil.File(file),
+					logutil.Region(info.Region),
+					zap.Stringer("startKey", logutil.WrapKey(startKey)),
+					zap.Stringer("endKey", logutil.WrapKey(endKey)),
+					logutil.ShortError(errDownload))
 				return errDownload
 			}
 
@@ -303,7 +300,7 @@ func (importer *FileImporter) Import(
 						}
 					}
 					log.Debug("ingest sst returns not leader error, retry it",
-						utils.ZapRegion(info.Region),
+						logutil.Region(info.Region),
 						zap.Stringer("newLeader", newInfo.Leader))
 
 					if !checkRegionEpoch(newInfo, info) {
@@ -329,9 +326,9 @@ func (importer *FileImporter) Import(
 
 			if errIngest != nil {
 				log.Error("ingest file failed",
-					utils.ZapFile(file),
+					logutil.File(file),
 					zap.Stringer("range", downloadMeta.GetRange()),
-					utils.ZapRegion(info.Region),
+					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errIngest
 			}
@@ -381,9 +378,9 @@ func (importer *FileImporter) downloadSST(
 		RewriteRule:    rule,
 	}
 	log.Debug("download SST",
-		utils.ZapSSTMeta(&sstMeta),
-		utils.ZapFile(file),
-		utils.ZapRegion(regionInfo.Region),
+		logutil.SSTMeta(&sstMeta),
+		logutil.File(file),
+		logutil.Region(regionInfo.Region),
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
@@ -434,7 +431,7 @@ func (importer *FileImporter) downloadRawKVSST(
 		RewriteRule:    rule,
 		IsRawKv:        true,
 	}
-	log.Debug("download SST", utils.ZapSSTMeta(&sstMeta), utils.ZapRegion(regionInfo.Region))
+	log.Debug("download SST", logutil.SSTMeta(&sstMeta), logutil.Region(regionInfo.Region))
 	var err error
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
@@ -472,7 +469,7 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("ingest SST", utils.ZapSSTMeta(sstMeta), zap.Reflect("leader", leader))
+	log.Debug("ingest SST", logutil.SSTMeta(sstMeta), zap.Reflect("leader", leader))
 	resp, err := importer.importClient.IngestSST(ctx, leader.GetStoreId(), req)
 	if err != nil {
 		return nil, errors.Trace(err)

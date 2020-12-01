@@ -38,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -249,11 +250,14 @@ func BuildBackupRangeAndSchema(
 	storage kv.Storage,
 	tableFilter filter.Filter,
 	backupTS uint64,
+	ignoreStats bool,
 ) ([]rtree.Range, *Schemas, error) {
 	info, err := dom.GetSnapshotInfoSchema(backupTS)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
+
+	h := dom.StatsHandle()
 
 	ranges := make([]rtree.Range, 0)
 	backupSchemas := newBackupSchemas()
@@ -331,9 +335,22 @@ func BuildBackupRangeAndSchema(
 				return nil, nil, errors.Trace(err)
 			}
 
+			var stats []byte
+			if !ignoreStats {
+				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+				stats, err = json.Marshal(jsonTable)
+				if err != nil {
+					return nil, nil, errors.Trace(err)
+				}
+			}
+
 			schema := kvproto.Schema{
 				Db:    dbData,
 				Table: tableData,
+				Stats: stats,
 			}
 			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
 
@@ -482,8 +499,8 @@ func (bc *Client) BackupRange(
 		}
 	}()
 	log.Info("backup started",
-		zap.Stringer("StartKey", utils.WrapKey(startKey)),
-		zap.Stringer("EndKey", utils.WrapKey(endKey)),
+		zap.Stringer("StartKey", logutil.WrapKey(startKey)),
+		zap.Stringer("EndKey", logutil.WrapKey(endKey)),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
 
@@ -518,8 +535,8 @@ func (bc *Client) BackupRange(
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
-			zap.Stringer("startKey", utils.WrapKey(startKey)),
-			zap.Stringer("endKey", utils.WrapKey(endKey)),
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -554,14 +571,14 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		}
 		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", utils.WrapKey(key)))
+				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", logutil.WrapKey(key)))
 			return region.Leader, nil
 		}
-		log.Warn("no region found", zap.Stringer("Key", utils.WrapKey(key)))
+		log.Warn("no region found", zap.Stringer("Key", logutil.WrapKey(key)))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", utils.WrapKey(key))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
 }
 
 func (bc *Client) fineGrainedBackup(
@@ -644,8 +661,8 @@ func (bc *Client) fineGrainedBackup(
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
-					zap.Stringer("StartKey", utils.WrapKey(resp.StartKey)),
-					zap.Stringer("EndKey", utils.WrapKey(resp.EndKey)),
+					zap.Stringer("StartKey", logutil.WrapKey(resp.StartKey)),
+					zap.Stringer("EndKey", logutil.WrapKey(resp.EndKey)),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -670,14 +687,15 @@ func (bc *Client) fineGrainedBackup(
 	}
 }
 
-func onBackupResponse(
+// OnBackupResponse checks the backup resp, decides whether to retry and generate the error.
+func OnBackupResponse(
 	storeID uint64,
 	bo *tikv.Backoffer,
 	backupTS uint64,
 	lockResolver *tikv.LockResolver,
 	resp *kvproto.BackupResponse,
 ) (*kvproto.BackupResponse, int, error) {
-	log.Debug("onBackupResponse", zap.Reflect("resp", resp))
+	log.Debug("OnBackupResponse", zap.Reflect("resp", resp))
 	if resp.Error == nil {
 		return resp, 0, nil
 	}
@@ -699,7 +717,7 @@ func onBackupResponse(
 		}
 		// Backup should not meet error other than KeyLocked.
 		log.Error("unexpect kv error", zap.Reflect("KvError", v.KvError))
-		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
+		return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d OnBackupResponse error %v", storeID, v)
 
 	case *kvproto.Error_RegionError:
 		regionErr := v.RegionError
@@ -709,9 +727,11 @@ func onBackupResponse(
 			regionErr.RegionNotFound != nil ||
 			regionErr.ServerIsBusy != nil ||
 			regionErr.StaleCommand != nil ||
-			regionErr.StoreNotMatch != nil) {
+			regionErr.StoreNotMatch != nil ||
+			regionErr.ReadIndexNotReady != nil ||
+			regionErr.ProposalInMergingMode != nil) {
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
-			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d onBackupResponse error %v", storeID, v)
+			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d OnBackupResponse error %v", storeID, v)
 		}
 		log.Warn("backup occur region error",
 			zap.Reflect("RegionError", regionErr),
@@ -770,7 +790,7 @@ func (bc *Client) handleFineGrained(
 		// Handle responses with the same backoffer.
 		func(resp *kvproto.BackupResponse) error {
 			response, backoffMs, err1 :=
-				onBackupResponse(storeID, bo, backupTS, lockResolver, resp)
+				OnBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
@@ -806,8 +826,8 @@ func SendBackup(
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
 		log.Info("try backup",
-			zap.Stringer("StartKey", utils.WrapKey(req.StartKey)),
-			zap.Stringer("EndKey", utils.WrapKey(req.EndKey)),
+			zap.Stringer("StartKey", logutil.WrapKey(req.StartKey)),
+			zap.Stringer("EndKey", logutil.WrapKey(req.EndKey)),
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
@@ -856,8 +876,8 @@ backupLoop:
 			}
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
-				zap.Stringer("StartKey", utils.WrapKey(resp.GetStartKey())),
-				zap.Stringer("EndKey", utils.WrapKey(resp.GetEndKey())))
+				zap.Stringer("StartKey", logutil.WrapKey(resp.GetStartKey())),
+				zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey())))
 			err = respFn(resp)
 			if err != nil {
 				return err
