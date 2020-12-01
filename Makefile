@@ -124,6 +124,7 @@ static: prepare tools
 		--disable nlreturn \
 		--disable exhaustivestruct \
 		--disable gci \
+		--disable gocritic \
 		--disable gofumpt \
 		--disable gosec \
 		--disable errorlint \
