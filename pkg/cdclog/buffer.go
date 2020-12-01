@@ -122,7 +122,7 @@ func (t *TableBuffer) translateToDatum(row map[string]Column) ([]types.Datum, er
 	for _, col := range t.colNames {
 		val, err := row[col].ToDatum()
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		cols = append(cols, val)
 	}
@@ -138,7 +138,7 @@ func (t *TableBuffer) appendRow(
 ) error {
 	cols, err := t.translateToDatum(row)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	pair, size, err := encodeFn(cols, item.RowID, t.colPerm)
 	if err != nil {
@@ -174,7 +174,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		log.Debug("process update event", zap.Any("row", row))
 		err := t.appendRow(row.PreColumns, item, t.KvEncoder.RemoveRecord)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	if row.Update != nil {
@@ -184,7 +184,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		}
 		err := t.appendRow(row.Update, item, t.KvEncoder.AddRecord)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	if row.Delete != nil {
@@ -192,7 +192,7 @@ func (t *TableBuffer) Append(item *SortItem) error {
 		log.Debug("process delete event", zap.Any("row", row))
 		err := t.appendRow(row.Delete, item, t.KvEncoder.RemoveRecord)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	return nil

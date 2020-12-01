@@ -64,7 +64,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
@@ -74,7 +74,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	keepaliveCfg.PermitWithoutStream = true
 	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer client.Close()
 	client.SetRateLimit(cfg.RateLimit)
@@ -86,11 +86,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 
 	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if !client.IsRawKvMode() {

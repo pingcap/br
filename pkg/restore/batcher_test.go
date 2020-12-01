@@ -150,9 +150,7 @@ func (sender *drySender) BatchCount() int {
 	return sender.nBatch
 }
 
-var (
-	_ = Suite(&testBatcherSuite{})
-)
+var _ = Suite(&testBatcherSuite{})
 
 func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 	tbl := &utils.Table{
@@ -274,7 +272,8 @@ func (*testBatcherSuite) TestSplitRangeOnSameTable(c *C) {
 		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
 		fakeRange("cae", "caf"), fakeRange("cag", "cai"),
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
-		fakeRange("can", "cao"), fakeRange("cap", "caq")})
+		fakeRange("can", "cao"), fakeRange("cap", "caq"),
+	})
 
 	batcher.Add(simpleTable)
 	batcher.Close()
@@ -293,10 +292,12 @@ func (*testBatcherSuite) TestRewriteRules(c *C) {
 	tableRanges := [][]rtree.Range{
 		{fakeRange("aaa", "aab")},
 		{fakeRange("baa", "bab"), fakeRange("bac", "bad")},
-		{fakeRange("caa", "cab"), fakeRange("cac", "cad"),
+		{
+			fakeRange("caa", "cab"), fakeRange("cac", "cad"),
 			fakeRange("cae", "caf"), fakeRange("cag", "cai"),
 			fakeRange("caj", "cak"), fakeRange("cal", "cam"),
-			fakeRange("can", "cao"), fakeRange("cap", "caq")},
+			fakeRange("can", "cao"), fakeRange("cap", "caq"),
+		},
 	}
 	rewriteRules := []*restore.RewriteRules{
 		fakeRewriteRules("a", "ada"),
@@ -353,13 +354,15 @@ func (*testBatcherSuite) TestBatcherLen(c *C) {
 		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
 		fakeRange("cae", "caf"), fakeRange("cag", "cai"),
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
-		fakeRange("can", "cao"), fakeRange("cap", "caq")})
+		fakeRange("can", "cao"), fakeRange("cap", "caq"),
+	})
 
 	simpleTable2 := fakeTableWithRange(2, []rtree.Range{
 		fakeRange("caa", "cab"), fakeRange("cac", "cad"),
 		fakeRange("cae", "caf"), fakeRange("cag", "cai"),
 		fakeRange("caj", "cak"), fakeRange("cal", "cam"),
-		fakeRange("can", "cao"), fakeRange("cap", "caq")})
+		fakeRange("can", "cao"), fakeRange("cap", "caq"),
+	})
 
 	batcher.Add(simpleTable)
 	waitForSend()
