@@ -164,7 +164,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Merge small ranges to reduce split and scatter regions.
 	stat, err := restore.MergeRanges(backupMeta, cfg.MergeSmallRegionKeyCount, cfg.MergeSmallRegionKeyCount)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	log.Info("Reduce file done",
 		zap.Int("Files(total)", stat.TotalFiles),

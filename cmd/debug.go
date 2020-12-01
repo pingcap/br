@@ -163,37 +163,37 @@ func newBackupMetaMergeCommand() *cobra.Command {
 
 			output, err := cmd.Flags().GetString("output")
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			mergeSize, err := cmd.Flags().GetUint64(task.FlagMergeRegionSizeBytes)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			mergeKeys, err := cmd.Flags().GetUint64(task.FlagMergeRegionKeyCount)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			var cfg task.Config
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				log.Error("read backupmeta failed", zap.Error(err))
-				return err
+				return errors.Trace(err)
 			}
 			mergedRangesStats, err := restore.MergeRanges(backupMeta, mergeSize, mergeKeys)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			backupMetaData, err := proto.Marshal(backupMeta)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
-			err = ioutil.WriteFile(output, backupMetaData, 0644) // nolint:gosec
+			err = ioutil.WriteFile(output, backupMetaData, 0o644) // nolint:gosec
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			cmd.Println("Reduce file done",
