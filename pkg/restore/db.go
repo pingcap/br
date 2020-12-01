@@ -231,7 +231,7 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 			zap.Int("originalReplicaCount", table.TiFlashReplicas),
 			zap.Int("replicaCount", count))
 	}
-	return err
+	return errors.Trace(err)
 }
 
 // Close closes the connection.

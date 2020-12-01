@@ -5,10 +5,6 @@ linters-settings:
 issues:
   # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
-    - path: .go
-      text: "Potential HTTP request made with variable url"
-      linters:
-        - gosec
     # TODO Remove it.
     - path: split_client.go
       text: "SA1019:"

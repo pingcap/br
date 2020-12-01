@@ -5,6 +5,8 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+
+	"github.com/pingcap/errors"
 )
 
 // CompressType represents the type of compression.
@@ -68,7 +70,7 @@ type simpleCompressBuffer struct {
 func (b *simpleCompressBuffer) Write(p []byte) (int, error) {
 	written, err := b.compressWriter.Write(p)
 	b.len += written
-	return written, err
+	return written, errors.Trace(err)
 }
 
 func (b *simpleCompressBuffer) Len() int {
@@ -120,19 +122,19 @@ func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 			w, err := u.buf.Write(prewrite)
 			bytesWritten += w
 			if err != nil {
-				return bytesWritten, err
+				return bytesWritten, errors.Trace(err)
 			}
 			p = p[w:]
 		}
 		u.buf.Flush()
 		err := u.uploadChunk(ctx)
 		if err != nil {
-			return 0, err
+			return 0, errors.Trace(err)
 		}
 	}
 	w, err := u.buf.Write(p)
 	bytesWritten += w
-	return bytesWritten, err
+	return bytesWritten, errors.Trace(err)
 }
 
 func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
@@ -148,7 +150,7 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return u.uploader.CompleteUpload(ctx)
 }
@@ -162,7 +164,8 @@ func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressTy
 func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
 	return &uploaderWriter{
 		uploader: uploader,
-		buf:      newInterceptBuffer(chunkSize, compressType)}
+		buf:      newInterceptBuffer(chunkSize, compressType),
+	}
 }
 
 // BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
