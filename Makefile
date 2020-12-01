@@ -110,6 +110,7 @@ static: prepare tools
 	@#           nlreturn - no need to ensure a new line before continue or return
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
+	@#              gosec - too many false positive
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
