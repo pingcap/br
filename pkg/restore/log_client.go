@@ -108,7 +108,7 @@ func NewLogRestoreClient(
 		// so we get current ts from restore cluster
 		endTS, err = restoreClient.GetTS(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 
@@ -201,7 +201,7 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 		fileName := filepath.Base(path)
 		shouldRestore, err := l.needRestoreDDL(fileName)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		if shouldRestore {
 			ddlFiles = append(ddlFiles, path)
@@ -209,7 +209,7 @@ func (l *LogClient) collectDDLFiles(ctx context.Context) ([]string, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	sort.Sort(sort.Reverse(sort.StringSlice(ddlFiles)))
@@ -341,7 +341,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 			fileName := filepath.Base(path)
 			shouldRestore, err := l.NeedRestoreRowChange(fileName)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			if shouldRestore {
 				rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
@@ -349,7 +349,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 			return nil
 		})
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 
@@ -390,12 +390,12 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	for _, peer := range region.Region.GetPeers() {
 		cli, err := l.importerClient.GetImportClient(ctx, peer.StoreId)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		wstream, err := cli.Write(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		// Bind uuid for this write request
@@ -405,7 +405,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 			},
 		}
 		if err = wstream.Send(req); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
@@ -452,7 +452,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 			for i := range clients {
 				requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs
 				if err := clients[i].Send(requests[i]); err != nil {
-					return nil, err
+					return nil, errors.Trace(err)
 				}
 			}
 			count = 0
@@ -464,7 +464,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 		for i := range clients {
 			requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs[:count]
 			if err := clients[i].Send(requests[i]); err != nil {
-				return nil, err
+				return nil, errors.Trace(err)
 			}
 		}
 	}
@@ -472,7 +472,7 @@ func (l *LogClient) writeToTiKV(ctx context.Context, kvs kv.Pairs, region *Regio
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
 		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
-			return nil, closeErr
+			return nil, errors.Trace(closeErr)
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
 			log.Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
@@ -496,7 +496,7 @@ func (l *LogClient) Ingest(ctx context.Context, meta *sst.SSTMeta, region *Regio
 
 	cli, err := l.importerClient.GetImportClient(ctx, leader.StoreId)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	reqCtx := &kvrpcpb.Context{
 		RegionId:    region.Region.GetId(),
@@ -510,7 +510,7 @@ func (l *LogClient) Ingest(ctx context.Context, meta *sst.SSTMeta, region *Regio
 	}
 	resp, err := cli.Ingest(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return resp, nil
 }
@@ -545,7 +545,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 	metas, err := l.writeToTiKV(ctx, kvs[start:end], region)
 	if err != nil {
 		log.Warn("write to tikv failed", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 
 	for _, meta := range metas {
@@ -645,7 +645,7 @@ WriteAndIngest:
 	if err == nil {
 		err = errors.Annotate(berrors.ErrRestoreWriteAndIngest, "all retry failed")
 	}
-	return err
+	return errors.Trace(err)
 }
 
 func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {

@@ -31,8 +31,10 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
-var recordPrefixSep = []byte("_r")
-var quoteRegexp = regexp.MustCompile("`(?:[^`]|``)*`")
+var (
+	recordPrefixSep = []byte("_r")
+	quoteRegexp     = regexp.MustCompile("`(?:[^`]|``)*`")
+)
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
@@ -184,7 +186,7 @@ func ValidateFileRanges(
 		if !fileAppended[file.GetName()] && strings.Contains(file.GetName(), "write") {
 			rng, err := validateAndGetFileRange(file, rewriteRules)
 			if err != nil {
-				return nil, err
+				return nil, errors.Trace(err)
 			}
 			ranges = append(ranges, rng)
 			fileAppended[file.GetName()] = true
@@ -274,7 +276,7 @@ func GoValidateFileRanges(
 func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Range, error) {
 	err := ValidateFileRewriteRule(file, rules)
 	if err != nil {
-		return rtree.Range{}, err
+		return rtree.Range{}, errors.Trace(err)
 	}
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
@@ -548,7 +550,7 @@ func (rs rangesSliceObjectMixin) MarshalLogObject(encoder zapcore.ObjectEncoder)
 func ParseQuoteName(name string) (string, string) {
 	names := quoteRegexp.FindAllStringSubmatch(name, -1)
 	if len(names) != 2 {
-		log.Fatal("failed to parse schema name",
+		log.Panic("failed to parse schema name",
 			zap.String("origin name", name),
 			zap.Any("parsed names", names))
 	}

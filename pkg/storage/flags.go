@@ -3,6 +3,7 @@
 package storage
 
 import (
+	"github.com/pingcap/errors"
 	"github.com/spf13/pflag"
 )
 
@@ -15,7 +16,7 @@ func DefineFlags(flags *pflag.FlagSet) {
 // ParseFromFlags obtains the backend options from the flag set.
 func (options *BackendOptions) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err := options.S3.parseFromFlags(flags); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return options.GCS.parseFromFlags(flags)
 }
