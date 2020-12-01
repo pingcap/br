@@ -92,7 +92,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
-	credFeilPerm := os.FileMode(0o600)
+	var credFeilPerm os.FileMode = 0o600
 	fakeCredentialsFile := filepath.Join(c.MkDir(), "fakeCredentialsFile")
 	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), credFeilPerm)
 	c.Assert(err, IsNil)

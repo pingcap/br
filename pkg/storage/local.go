@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	localDirPerm  = os.FileMode(0o755)
-	localFilePerm = os.FileMode(0o644)
+	localDirPerm  os.FileMode = 0o755
+	localFilePerm os.FileMode = 0o644
 )
 
 // LocalStorage represents local file system storage.
