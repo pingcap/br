@@ -346,7 +346,7 @@ func (s *testRestoreUtilSuite) TestGetSplitKeys(c *C) {
 	// this key should truncated already, then it's as same as HighExclude endkey.
 	highPrefixNext := keyMap[1][0]
 	highWithoutPrefixNext := tablecodec.EncodeRowKey(tableID, codec.EncodeInt(nil, r[0].HighVal[0].GetInt64()))
-	c.Assert(bytes.Compare(highPrefixNext, highWithoutPrefixNext), Equals, 0)
+	c.Assert(bytes.Equal(highPrefixNext, highWithoutPrefixNext), IsTrue)
 }
 
 func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {
