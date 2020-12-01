@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/util/codec"
@@ -156,4 +157,13 @@ func (s *testPDControllerSuite) TestRegionCount(c *C) {
 	resp, err = pdController.getRegionCountWith(ctx, mock, []byte{1, 2}, []byte{1, 4})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 2)
+}
+
+func (s *testPDControllerSuite) TestPDVersion(c *C) {
+	v := []byte("\"v4.1.0-alpha1\"\n")
+	r := parseVersion(v)
+	expectV := semver.New("4.1.0-alpha1")
+	c.Assert(r.Major, Equals, expectV.Major)
+	c.Assert(r.Minor, Equals, expectV.Minor)
+	c.Assert(r.PreRelease, Equals, expectV.PreRelease)
 }

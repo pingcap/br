@@ -82,7 +82,7 @@ tools:
 
 check:
 	@# Tidy first to avoid go.mod being affected by static and lint
-	@make prepare tidy
+	@make tidy
 	@# Build tools for targets errdoc, static and lint
 	@make tools errdoc static lint
 
