@@ -20,8 +20,7 @@ import (
 // RestoreRawConfig is the configuration specific for raw kv restore tasks.
 type RestoreRawConfig struct {
 	RawKvConfig
-
-	Online bool `json:"online" toml:"online"`
+	RestoreCommonConfig
 }
 
 // DefineRawRestoreFlags defines common flags for the backup command.
@@ -31,9 +30,7 @@ func DefineRawRestoreFlags(command *cobra.Command) {
 	command.Flags().StringP(flagStartKey, "", "", "restore raw kv start key, key is inclusive")
 	command.Flags().StringP(flagEndKey, "", "", "restore raw kv end key, key is exclusive")
 
-	command.Flags().Bool(flagOnline, false, "Whether online when restore")
-	// TODO remove hidden flag if it's stable
-	_ = command.Flags().MarkHidden(flagOnline)
+	DefineRestoreCommonFlags(command.PersistentFlags())
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -43,11 +40,16 @@ func (cfg *RestoreRawConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	err = cfg.RestoreCommonConfig.ParseFromFlags(flags)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	return cfg.RawKvConfig.ParseFromFlags(flags)
 }
 
 func (cfg *RestoreRawConfig) adjust() {
 	cfg.Config.adjust()
+	cfg.RestoreCommonConfig.adjust()
 
 	if cfg.Concurrency == 0 {
 		cfg.Concurrency = defaultRestoreConcurrency
@@ -108,7 +110,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	summary.CollectInt("restore files", len(files))
 
-	ranges, err := restore.ValidateFileRanges(files, nil)
+	ranges, _, err := restore.MergeFileRanges(
+		files, cfg.MergeSmallRegionKeyCount, cfg.MergeSmallRegionKeyCount)
 	if err != nil {
 		return errors.Trace(err)
 	}

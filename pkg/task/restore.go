@@ -39,12 +39,9 @@ const (
 	defaultDDLConcurrency     = 16
 )
 
-// RestoreConfig is the configuration specific for restore tasks.
-type RestoreConfig struct {
-	Config
-
-	Online   bool `json:"online" toml:"online"`
-	NoSchema bool `json:"no-schema" toml:"no-schema"`
+// RestoreCommonConfig is the common configuration for all BR restore tasks.
+type RestoreCommonConfig struct {
+	Online bool `json:"online" toml:"online"`
 
 	// MergeSmallRegionSizeBytes is the threshold of merging small regions (Default 96MB, region split size).
 	// MergeSmallRegionKeyCount is the threshold of merging smalle regions (Default 960_000, region split key count).
@@ -53,13 +50,21 @@ type RestoreConfig struct {
 	MergeSmallRegionKeyCount  uint64 `json:"merge-region-key-count" toml:"merge-region-key-count"`
 }
 
-// DefineRestoreFlags defines common flags for the restore command.
-func DefineRestoreFlags(flags *pflag.FlagSet) {
+// adjust adjusts the abnormal config value in the current config.
+// useful when not starting BR from CLI (e.g. from BRIE in SQL).
+func (cfg *RestoreCommonConfig) adjust() {
+	if cfg.MergeSmallRegionKeyCount == 0 {
+		cfg.MergeSmallRegionKeyCount = restore.DefaultMergeRegionKeyCount
+	}
+	if cfg.MergeSmallRegionSizeBytes == 0 {
+		cfg.MergeSmallRegionSizeBytes = restore.DefaultMergeRegionSizeBytes
+	}
+}
+
+// DefineRestoreCommonFlags defines common flags for the restore command.
+func DefineRestoreCommonFlags(flags *pflag.FlagSet) {
 	// TODO remove experimental tag if it's stable
 	flags.Bool(flagOnline, false, "(experimental) Whether online when restore")
-	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
-	// Do not expose this flag
-	_ = flags.MarkHidden(flagNoSchema)
 
 	flags.Uint64(FlagMergeRegionSizeBytes, restore.DefaultMergeRegionSizeBytes,
 		"the threshold of merging small regions (Default 96MB, region split size)")
@@ -69,18 +74,54 @@ func DefineRestoreFlags(flags *pflag.FlagSet) {
 	_ = flags.MarkHidden(FlagMergeRegionKeyCount)
 }
 
-// ParseFromFlags parses the restore-related flags from the flag set.
-func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
+// ParseFromFlags parses the config from the flag set.
+func (cfg *RestoreCommonConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
 	cfg.Online, err = flags.GetBool(flagOnline)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.MergeSmallRegionKeyCount, err = flags.GetUint64(FlagMergeRegionKeyCount)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.MergeSmallRegionSizeBytes, err = flags.GetUint64(FlagMergeRegionSizeBytes)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return errors.Trace(err)
+}
+
+// RestoreConfig is the configuration specific for restore tasks.
+type RestoreConfig struct {
+	Config
+	RestoreCommonConfig
+
+	NoSchema bool `json:"no-schema" toml:"no-schema"`
+}
+
+// DefineRestoreFlags defines common flags for the restore tidb command.
+func DefineRestoreFlags(flags *pflag.FlagSet) {
+	// TODO remove experimental tag if it's stable
+	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
+	// Do not expose this flag
+	_ = flags.MarkHidden(flagNoSchema)
+
+	DefineRestoreCommonFlags(flags)
+}
+
+// ParseFromFlags parses the restore-related flags from the flag set.
+func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
+	var err error
 	cfg.NoSchema, err = flags.GetBool(flagNoSchema)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	err = cfg.Config.ParseFromFlags(flags)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = cfg.RestoreCommonConfig.ParseFromFlags(flags)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -96,19 +137,14 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 // we should set proper value in this function.
 // so that both binary and TiDB will use same default value.
 func (cfg *RestoreConfig) adjustRestoreConfig() {
-	cfg.adjust()
+	cfg.Config.adjust()
+	cfg.RestoreCommonConfig.adjust()
 
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultRestoreConcurrency
 	}
 	if cfg.Config.SwitchModeInterval == 0 {
 		cfg.Config.SwitchModeInterval = defaultSwitchInterval
-	}
-	if cfg.MergeSmallRegionKeyCount == 0 {
-		cfg.MergeSmallRegionKeyCount = restore.DefaultMergeRegionKeyCount
-	}
-	if cfg.MergeSmallRegionSizeBytes == 0 {
-		cfg.MergeSmallRegionSizeBytes = restore.DefaultMergeRegionSizeBytes
 	}
 }
 
@@ -160,23 +196,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
-
-	// Merge small ranges to reduce split and scatter regions.
-	stat, err := restore.MergeRanges(backupMeta, cfg.MergeSmallRegionKeyCount, cfg.MergeSmallRegionKeyCount)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Info("Reduce file done",
-		zap.Int("Files(total)", stat.TotalFiles),
-		zap.Int("File(write)", stat.TotalWriteCFFile),
-		zap.Int("File(default)", stat.TotalDefaultCFFile),
-		zap.Int("Region(total)", stat.TotalRegions),
-		zap.Int("Regoin(keys avg)", stat.RegionKeysAvg),
-		zap.Int("Region(bytes avg)", stat.RegionBytesAvg),
-		zap.Int("Merged(files)", stat.MergedFiles),
-		zap.Int("Merged(regions)", stat.MergedRegions),
-		zap.Int("Merged(keys avg)", stat.MergedRegionKeysAvg),
-		zap.Int("Merged(bytes avg)", stat.MergedRegionBytesAvg))
 
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)
@@ -268,7 +287,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	tableFileMap := restore.MapTableToFiles(files)
 	log.Debug("mapped table to files", zap.Any("result map", tableFileMap))
 
-	rangeStream := restore.GoValidateFileRanges(ctx, tableStream, tableFileMap, errCh)
+	rangeStream := restore.GoValidateFileRanges(
+		ctx, tableStream, tableFileMap, cfg.MergeSmallRegionKeyCount, cfg.MergeSmallRegionKeyCount, errCh)
 
 	rangeSize := restore.EstimateRangeSize(files)
 	summary.CollectInt("restore ranges", rangeSize)

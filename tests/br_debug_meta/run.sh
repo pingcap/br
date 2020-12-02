@@ -69,28 +69,3 @@ if [ "${row_count_ori}" != "${row_count_new}" ];then
 fi
 
 run_sql "DROP DATABASE $DB;"
-
-# Test merge ranges
-run_br debug backupmeta merge -s "local://$TEST_DIR/$DB" -o $TEST_DIR/$DB/merged
-
-# should generate merged
-if [ ! -f "$TEST_DIR/$DB/merged" ]; then
-    echo "TEST: [$TEST_NAME] reduce file failed!"
-    exit 1
-fi
-
-# replace backupmeta
-mv "$TEST_DIR/$DB/merged" "$TEST_DIR/$DB/backupmeta"
-
-# restore table
-echo "restore start..."
-run_br --pd $PD_ADDR restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB"
-
-row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
-
-if [ "${row_count_ori}" != "${row_count_new}" ];then
-    echo "TEST: [$TEST_NAME] failed!, row count not equal after restore"
-    exit 1
-fi
-
-run_sql "DROP DATABASE $DB;"

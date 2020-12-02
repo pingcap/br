@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io/ioutil"
 	"path"
 	"reflect"
 
@@ -149,73 +148,6 @@ func newBackupMetaCommand() *cobra.Command {
 		SilenceUsage: false,
 	}
 	command.AddCommand(newBackupMetaValidateCommand())
-	command.AddCommand(newBackupMetaMergeCommand())
-	return command
-}
-
-func newBackupMetaMergeCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "merge",
-		Short: "Merge empty or small ranges in backupmeta",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithCancel(GetDefaultContext())
-			defer cancel()
-
-			output, err := cmd.Flags().GetString("output")
-			if err != nil {
-				return errors.Trace(err)
-			}
-			mergeSize, err := cmd.Flags().GetUint64(task.FlagMergeRegionSizeBytes)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			mergeKeys, err := cmd.Flags().GetUint64(task.FlagMergeRegionKeyCount)
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			var cfg task.Config
-			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return errors.Trace(err)
-			}
-			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
-			if err != nil {
-				log.Error("read backupmeta failed", zap.Error(err))
-				return errors.Trace(err)
-			}
-			mergedRangesStats, err := restore.MergeRanges(backupMeta, mergeSize, mergeKeys)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			backupMetaData, err := proto.Marshal(backupMeta)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			err = ioutil.WriteFile(output, backupMetaData, 0o644) // nolint:gosec
-			if err != nil {
-				return errors.Trace(err)
-			}
-
-			cmd.Println("Reduce file done",
-				"\nFiles:            ", mergedRangesStats.TotalFiles,
-				"\n  Write CF:       ", mergedRangesStats.TotalWriteCFFile,
-				"\n  Default CF:     ", mergedRangesStats.TotalDefaultCFFile,
-				"\nRegions:          ", mergedRangesStats.TotalRegions,
-				"\nKeys avg:         ", mergedRangesStats.RegionKeysAvg,
-				"\nBytes avg:        ", mergedRangesStats.RegionBytesAvg, "(byte)",
-				"\nMerged files:     ", mergedRangesStats.MergedFiles,
-				"\nMerged regions:   ", mergedRangesStats.MergedRegions,
-				"\nMerged keys avg:  ", mergedRangesStats.MergedRegionKeysAvg,
-				"\nMerged bytes avg: ", mergedRangesStats.MergedRegionBytesAvg, "(byte)",
-			)
-			return nil
-		},
-	}
-	command.Flags().StringP("output", "o", "", "write reduced backupmeta to a given path")
-	command.Flags().Uint64(task.FlagMergeRegionSizeBytes, restore.DefaultMergeRegionSizeBytes,
-		"the threshold of merging small regions (Default 96MB, region split size)")
-	command.Flags().Uint64(task.FlagMergeRegionKeyCount, restore.DefaultMergeRegionKeyCount,
-		"the threshold of merging smalle regions (Default 960_000, region split key count)")
 	return command
 }
 

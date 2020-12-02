@@ -3,6 +3,8 @@
 package restore
 
 import (
+	"strings"
+
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/kv"
@@ -20,6 +22,9 @@ const (
 
 	// DefaultMergeRegionKeyCount is the default region key count, 960000.
 	DefaultMergeRegionKeyCount uint64 = 960000
+
+	writeCFName   = "write"
+	defaultCFName = "default"
 )
 
 // MergeRangesStat holds statistics for the MergeRanges.
@@ -30,30 +35,34 @@ type MergeRangesStat struct {
 	TotalRegions         int
 	RegionKeysAvg        int
 	RegionBytesAvg       int
-	MergedFiles          int
 	MergedRegions        int
 	MergedRegionKeysAvg  int
 	MergedRegionBytesAvg int
 }
 
-// MergeRanges merges small ranges into a bigger one.
-// It speeds up restoring a backup that contains many small ranges (regions),
-// as it reduces split region and scatter region.
-// Note: this function modify backupMeta in place.
-func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount uint64) (*MergeRangesStat, error) {
-	// Skip if the backup is empty.
-	if len(backupMeta.Files) == 0 {
-		return &MergeRangesStat{}, nil
+// MergeFileRanges returns ranges of the files are merged based on
+// splitSizeBytes and splitKeyCount.
+//
+// By merging small ranges, it speeds up restoring a backup that contains many
+// small ranges (regions) as it reduces split region and scatter region.
+func MergeFileRanges(
+	files []*kvproto.File, splitSizeBytes, splitKeyCount uint64,
+) ([]rtree.Range, *MergeRangesStat, error) {
+	if len(files) == 0 {
+		return []rtree.Range{}, &MergeRangesStat{}, nil
 	}
 	totalBytes := uint64(0)
 	totalKvs := uint64(0)
-	totalFiles := len(backupMeta.Files)
+	totalFiles := len(files)
 	writeCFFile := 0
 	defaultCFFile := 0
+
 	filesMap := make(map[string][]*kvproto.File)
-	for _, file := range backupMeta.Files {
+	for _, file := range files {
 		filesMap[string(file.StartKey)] = append(filesMap[string(file.StartKey)], file)
-		if file.Cf == "write" {
+
+		// We skips all default cf files because we don't range overlap.
+		if file.Cf == writeCFName || strings.Contains(file.GetName(), writeCFName) {
 			writeCFFile++
 		} else {
 			defaultCFFile++
@@ -61,8 +70,9 @@ func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount u
 		totalBytes += file.TotalBytes
 		totalKvs += file.TotalKvs
 	}
-	rangeTree := rtree.NewRangeTree()
+
 	// Check if files are overlapped
+	rangeTree := rtree.NewRangeTree()
 	for key := range filesMap {
 		files := filesMap[key]
 		if out := rangeTree.InsertRange(rtree.Range{
@@ -70,7 +80,7 @@ func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount u
 			EndKey:   files[0].GetEndKey(),
 			Files:    files,
 		}); out != nil {
-			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange,
+			return nil, nil, errors.Annotatef(berrors.ErrRestoreInvalidRange,
 				"duplicate range %s files %+v", out, files)
 		}
 	}
@@ -100,19 +110,9 @@ func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount u
 			continue
 		}
 		sortedRanges[i-1].EndKey = sortedRanges[i].EndKey
-		startKey, endKey := sortedRanges[i-1].StartKey, sortedRanges[i-1].EndKey
 		sortedRanges[i-1].Files = append(sortedRanges[i-1].Files, sortedRanges[i].Files...)
-		for j := range sortedRanges[i-1].Files {
-			sortedRanges[i-1].Files[j].StartKey = startKey
-			sortedRanges[i-1].Files[j].EndKey = endKey
-		}
 		// TODO: this is slow when there are lots of ranges need to merge.
 		sortedRanges = append(sortedRanges[:i], sortedRanges[i+1:]...)
-	}
-
-	backupMeta.Files = backupMeta.Files[:0]
-	for i := range sortedRanges {
-		backupMeta.Files = append(backupMeta.Files, sortedRanges[i].Files...)
 	}
 
 	regionBytesAvg := totalBytes / uint64(writeCFFile)
@@ -120,14 +120,13 @@ func MergeRanges(backupMeta *kvproto.BackupMeta, splitSizeBytes, splitKeyCount u
 	mergedRegionBytesAvg := totalBytes / uint64(len(sortedRanges))
 	mergedRegionKeysAvg := totalKvs / uint64(len(sortedRanges))
 
-	return &MergeRangesStat{
+	return sortedRanges, &MergeRangesStat{
 		TotalFiles:           totalFiles,
 		TotalWriteCFFile:     writeCFFile,
 		TotalDefaultCFFile:   defaultCFFile,
 		TotalRegions:         writeCFFile,
 		RegionKeysAvg:        int(regionKeysAvg),
 		RegionBytesAvg:       int(regionBytesAvg),
-		MergedFiles:          len(backupMeta.Files),
 		MergedRegions:        len(sortedRanges),
 		MergedRegionKeysAvg:  int(mergedRegionKeysAvg),
 		MergedRegionBytesAvg: int(mergedRegionBytesAvg),
