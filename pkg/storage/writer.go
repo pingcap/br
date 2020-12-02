@@ -119,7 +119,7 @@ func (b *simpleCompressBuffer) write(p []byte) (int, error) {
 // b.len accurately indicate the output size.
 func (b *simpleCompressBuffer) flush() error {
 	if err := b.compressWriter.Flush(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// the buffer is now "anchored", where b.buffer is now up-to-date with
 	// the data in b.compressWriter, so we also set b.len to the actual buffer size.
@@ -145,7 +145,7 @@ func (b *simpleCompressBuffer) extract(cap int) []byte {
 // finish. These remaining bytes are returned.
 func (b *simpleCompressBuffer) finish() ([]byte, error) {
 	if err := b.compressWriter.Close(); err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	// closing the compressWriter always "anchor" the buffer.
 	return b.buffer.Bytes(), nil
@@ -203,7 +203,7 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 	if len(b) != 0 {
 		err = u.uploader.UploadPart(ctx, b)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	return u.uploader.CompleteUpload(ctx)
