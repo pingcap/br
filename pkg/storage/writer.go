@@ -112,7 +112,7 @@ func (b *simpleCompressBuffer) write(p []byte) (int, error) {
 	// the buffer is "floating", where b.len overestimates the actual size and
 	// b.buffer is not yet up-to-date with the bytes written into b.compressWriter.
 	b.len += written
-	return written, err
+	return written, errors.Trace(err)
 }
 
 // flush flushes any pending compressed data into the buffer. This also makes
@@ -198,7 +198,7 @@ func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
 func (u *uploaderWriter) Close(ctx context.Context) error {
 	b, err := u.buf.finish()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if len(b) != 0 {
 		err = u.uploader.UploadPart(ctx, b)

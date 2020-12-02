@@ -645,7 +645,7 @@ func (s *s3Suite) TestOpenSeek(c *C) {
 	ctx := aws.BackgroundContext()
 
 	someRandomBytes := make([]byte, 1000000)
-	rand.Read(someRandomBytes) //nolint:gosec
+	rand.Read(someRandomBytes)
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
 	// The first call should serve the first 64 KiB.

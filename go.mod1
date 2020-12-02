@@ -19,15 +19,14 @@ require (
 	github.com/pingcap/kvproto v0.0.0-20201124110645-494a2fb764b7
 	github.com/pingcap/log v0.0.0-20201112100606-8f1e84a3abc8
 	github.com/pingcap/parser v0.0.0-20201123080035-8f4c6ab94e11
-	github.com/pingcap/tidb v1.1.0-beta.0.20201125030655-07ff41d0c43e
+	github.com/pingcap/tidb v1.1.0-beta.0.20201126054322-f7f48e3586b3
 	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
 	github.com/pingcap/tipb v0.0.0-20201026044621-45e60c77588f
 	github.com/prometheus/client_golang v1.5.1
-	github.com/prometheus/common v0.9.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/tikv/pd v1.1.0-beta.0.20201119072453-d0da131104d0
+	github.com/tikv/pd v1.1.0-beta.0.20201125070607-d4b90eee0c70
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0

@@ -22,7 +22,7 @@ const (
 	brServiceSafePointIDFormat      = "br-%s"
 	preUpdateServiceSafePointFactor = 3
 	checkGCSafePointGapTime         = 5 * time.Second
-	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min
+	// DefaultBRGCSafePointTTL means PD keep safePoint limit at least 5min.
 	DefaultBRGCSafePointTTL = 5 * 60
 )
 
@@ -49,7 +49,7 @@ func (sp BRServiceSafePoint) MarshalLogObject(encoder zapcore.ObjectEncoder) err
 func getGCSafePoint(ctx context.Context, pdClient pd.Client) (uint64, error) {
 	safePoint, err := pdClient.UpdateGCSafePoint(ctx, 0)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 	return safePoint, nil
 }
@@ -87,7 +87,7 @@ func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, sp BRServic
 			zap.Object("safePoint", sp),
 		)
 	}
-	return err
+	return errors.Trace(err)
 }
 
 // StartServiceSafePointKeeper will run UpdateServiceSafePoint periodicity

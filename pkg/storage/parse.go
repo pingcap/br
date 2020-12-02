@@ -65,7 +65,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		}
 		ExtractQueryParameters(u, &options.S3)
 		if err := options.S3.Apply(s3); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 
@@ -76,7 +76,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		}
 		ExtractQueryParameters(u, &options.GCS)
 		if err := options.GCS.apply(gcs); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Gcs{Gcs: gcs}}, nil
 
