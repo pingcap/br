@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
@@ -139,7 +140,7 @@ func Init(cmd *cobra.Command) (err error) {
 			utils.StartDynamicPProfListener()
 		}
 	})
-	return err
+	return errors.Trace(err)
 }
 
 // HasLogFile returns whether we set a log file.

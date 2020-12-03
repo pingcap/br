@@ -56,7 +56,7 @@ func (builder *ExecutorBuilder) SetConcurrency(conc uint) *ExecutorBuilder {
 func (builder *ExecutorBuilder) Build() (*Executor, error) {
 	reqs, err := buildChecksumRequest(builder.table, builder.oldTable, builder.ts, builder.concurrency)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return &Executor{reqs: reqs}, nil
 }
@@ -79,7 +79,7 @@ func buildChecksumRequest(
 	}
 	rs, err := buildRequest(newTable, newTable.ID, oldTable, oldTableID, startTS, concurrency)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	reqs = append(reqs, rs...)
 
@@ -113,7 +113,7 @@ func buildRequest(
 	reqs := make([]*kv.Request, 0)
 	req, err := buildTableRequest(tableID, oldTable, oldTableID, startTS, concurrency)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	reqs = append(reqs, req)
 
@@ -142,7 +142,7 @@ func buildRequest(
 		req, err = buildIndexRequest(
 			tableID, indexInfo, oldTableID, oldIndexInfo, startTS, concurrency)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		reqs = append(reqs, req)
 	}
@@ -221,7 +221,7 @@ func sendChecksumRequest(
 ) (resp *tipb.ChecksumResponse, err error) {
 	res, err := distsql.Checksum(ctx, client, req, vars)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	res.Fetch(ctx)
 	defer func() {
@@ -235,14 +235,14 @@ func sendChecksumRequest(
 	for {
 		data, err := res.NextRaw(ctx)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		if data == nil {
 			break
 		}
 		checksum := &tipb.ChecksumResponse{}
 		if err = checksum.Unmarshal(data); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		updateChecksumResponse(resp, checksum)
 	}
@@ -271,7 +271,7 @@ func (exec *Executor) Each(f func(*kv.Request) error) error {
 	for _, req := range exec.reqs {
 		err := f(req)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	return nil
@@ -284,7 +284,7 @@ func (exec *Executor) RawRequests() ([]*tipb.ChecksumRequest, error) {
 	for _, req := range exec.reqs {
 		rawReq := new(tipb.ChecksumRequest)
 		if err := proto.Unmarshal(req.Data, rawReq); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		res = append(res, rawReq)
 	}
@@ -306,7 +306,7 @@ func (exec *Executor) Execute(
 		killed := uint32(0)
 		resp, err := sendChecksumRequest(ctx, client, req, kv.NewVariables(&killed))
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		updateChecksumResponse(checksumResp, resp)
 		updateFn()
