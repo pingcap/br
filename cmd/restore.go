@@ -54,6 +54,7 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	return nil
 }
 
+<<<<<<< HEAD
 func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
@@ -68,6 +69,8 @@ func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) err
 	return nil
 }
 
+=======
+>>>>>>> cf1c9b2... test: update coverage (#594)
 // NewRestoreCommand returns a restore subcommand.
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
@@ -91,7 +94,6 @@ func NewRestoreCommand() *cobra.Command {
 		newTableRestoreCommand(),
 		newLogRestoreCommand(),
 		newRawRestoreCommand(),
-		newTiflashReplicaRestoreCommand(),
 	)
 	task.DefineRestoreFlags(command.PersistentFlags())
 
@@ -148,18 +150,6 @@ func newLogRestoreCommand() *cobra.Command {
 	}
 	task.DefineFilterFlags(command)
 	task.DefineLogRestoreFlags(command)
-	return command
-}
-
-func newTiflashReplicaRestoreCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "tiflash-replica",
-		Short: "restore the tiflash replica removed by a failed restore of the older version BR",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRestoreTiflashReplicaCommand(cmd, "Restore TiFlash Replica")
-		},
-	}
 	return command
 }
 

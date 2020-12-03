@@ -384,6 +384,7 @@ func restorePostWork(
 	}
 }
 
+<<<<<<< HEAD
 // RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
 func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	defer summary.Summary(cmdName)
@@ -435,6 +436,8 @@ func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cf
 	return nil
 }
 
+=======
+>>>>>>> cf1c9b2... test: update coverage (#594)
 // enableTiDBConfig tweaks some of configs of TiDB to make the restore progress go well.
 // return a function that could restore the config to origin.
 func enableTiDBConfig() func() {

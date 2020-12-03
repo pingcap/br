@@ -201,6 +201,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	return errors.Trace(err)
 }
 
+<<<<<<< HEAD
 // AlterTiflashReplica alters the replica count of tiflash.
 func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count int) error {
 	switchDBSQL := fmt.Sprintf("use %s;", utils.EncloseName(table.DB.Name.O))
@@ -234,6 +235,8 @@ func (db *DB) AlterTiflashReplica(ctx context.Context, table *utils.Table, count
 	return err
 }
 
+=======
+>>>>>>> cf1c9b2... test: update coverage (#594)
 // Close closes the connection.
 func (db *DB) Close() {
 	db.se.Close()
