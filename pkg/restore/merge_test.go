@@ -10,10 +10,12 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -165,6 +167,31 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 			}
 		}
 	}
+}
+
+func (s *testMergeRangesSuite) TestMergeRawKVRanges(c *C) {
+	files := make([]*kvproto.File, 0)
+	fb := fileBulder{}
+	files = append(files, fb.build(1, 2, 1, 1)...)
+	// RawKV does not have write cf
+	files = files[1:]
+	_, stat, err := restore.MergeFileRanges(
+		files, restore.DefaultMergeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
+	c.Assert(err, IsNil)
+	c.Assert(stat.TotalRegions, Equals, 1)
+	c.Assert(stat.MergedRegions, Equals, 1)
+}
+
+func (s *testMergeRangesSuite) TestInvalidRanges(c *C) {
+	files := make([]*kvproto.File, 0)
+	fb := fileBulder{}
+	files = append(files, fb.build(1, 1, 1, 1)...)
+	files[0].Name = "invalid.sst"
+	files[0].Cf = "invalid"
+	_, _, err := restore.MergeFileRanges(
+		files, restore.DefaultMergeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
+	c.Assert(err, NotNil)
+	c.Assert(errors.Cause(err), Equals, berrors.ErrRestoreInvalidBackup)
 }
 
 // Benchmark results on Intel(R) Xeon(R) CPU E5-2630 v4 @ 2.20GHz

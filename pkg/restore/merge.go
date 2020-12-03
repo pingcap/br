@@ -64,11 +64,21 @@ func MergeFileRanges(
 		// We skips all default cf files because we don't range overlap.
 		if file.Cf == writeCFName || strings.Contains(file.GetName(), writeCFName) {
 			writeCFFile++
-		} else {
+		} else if file.Cf == defaultCFName || strings.Contains(file.GetName(), defaultCFName) {
 			defaultCFFile++
 		}
 		totalBytes += file.TotalBytes
 		totalKvs += file.TotalKvs
+	}
+	if writeCFFile == 0 && defaultCFFile == 0 {
+		return []rtree.Range{}, nil, errors.Annotatef(berrors.ErrRestoreInvalidBackup,
+			"unknown backup data from neither Wrtie CF nor Default CF")
+	}
+
+	// RawKV does not have data in write CF.
+	totalRegions := writeCFFile
+	if defaultCFFile > writeCFFile {
+		totalRegions = defaultCFFile
 	}
 
 	// Check if files are overlapped
@@ -115,8 +125,8 @@ func MergeFileRanges(
 		sortedRanges = append(sortedRanges[:i], sortedRanges[i+1:]...)
 	}
 
-	regionBytesAvg := totalBytes / uint64(writeCFFile)
-	regionKeysAvg := totalKvs / uint64(writeCFFile)
+	regionBytesAvg := totalBytes / uint64(totalRegions)
+	regionKeysAvg := totalKvs / uint64(totalRegions)
 	mergedRegionBytesAvg := totalBytes / uint64(len(sortedRanges))
 	mergedRegionKeysAvg := totalKvs / uint64(len(sortedRanges))
 
@@ -124,7 +134,7 @@ func MergeFileRanges(
 		TotalFiles:           totalFiles,
 		TotalWriteCFFile:     writeCFFile,
 		TotalDefaultCFFile:   defaultCFFile,
-		TotalRegions:         writeCFFile,
+		TotalRegions:         totalRegions,
 		RegionKeysAvg:        int(regionKeysAvg),
 		RegionBytesAvg:       int(regionBytesAvg),
 		MergedRegions:        len(sortedRanges),
