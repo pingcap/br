@@ -54,7 +54,7 @@ run_sql "DROP DATABASE $DB"
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 # wating for TiFlash sync
-sleep 1
+sleep 100
 AFTER_BR_COUNT=`run_sql "SELECT count(*) FROM $DB.kv;" | sed -n "s/[^0-9]//g;/^[0-9]*$/p" | tail -n1`
 if [ "$AFTER_BR_COUNT" -ne "$RECORD_COUNT" ]; then
     echo "failed to restore, before: $RECORD_COUNT; after: $AFTER_BR_COUNT"
