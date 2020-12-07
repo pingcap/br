@@ -242,19 +242,19 @@ func (c *pdClient) sendSplitRegionRequest(
 	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
 ) (*kvrpcpb.SplitRegionResponse, error) {
 	var splitErrors error
-	var peer *metapb.Peer
-	// scanRegions may return empty Leader in https://github.com/tikv/pd/blob/v4.0.8/server/grpc_service.go#L524
-	// so wee also need check Leader.Id != 0
-	if regionInfo.Leader != nil && regionInfo.Leader.Id != 0 {
-		peer = regionInfo.Leader
-	} else {
-		if len(regionInfo.Region.Peers) == 0 {
-			return nil, multierr.Append(splitErrors,
-				errors.Annotatef(berrors.ErrRestoreNoPeer, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
-		}
-		peer = regionInfo.Region.Peers[0]
-	}
 	for i := 0; i < splitRegionMaxRetryTime; i++ {
+		var peer *metapb.Peer
+		// scanRegions may return empty Leader in https://github.com/tikv/pd/blob/v4.0.8/server/grpc_service.go#L524
+		// so wee also need check Leader.Id != 0
+		if regionInfo.Leader != nil && regionInfo.Leader.Id != 0 {
+			peer = regionInfo.Leader
+		} else {
+			if len(regionInfo.Region.Peers) == 0 {
+				return nil, multierr.Append(splitErrors,
+					errors.Annotatef(berrors.ErrRestoreNoPeer, "region[%d] doesn't have any peer", regionInfo.Region.GetId()))
+			}
+			peer = regionInfo.Region.Peers[0]
+		}
 		storeID := peer.GetStoreId()
 		store, err := c.GetStore(ctx, storeID)
 		if err != nil {
