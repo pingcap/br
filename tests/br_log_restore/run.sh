@@ -61,6 +61,8 @@ sleep 2
 # create change feed for s3 log
 bin/cdc cli changefeed create --pd=http://$PD_ADDR --sink-uri="s3://$BUCKET/$DB?endpoint=http://$S3_ENDPOINT" --changefeed-id="simple-replication-task"
 
+start_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}' | xargs)
+
 # Fill in the database
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -86,6 +88,13 @@ run_sql "insert into ${DB}_DDl2.t2 values (2, 'x');"
 run_sql "drop table ${DB}_DDL2.t2;"
 run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10));"
 run_sql "insert into ${DB}_DDL2.t2 values (3, 'x');"
+run_sql "delete from ${DB}_DDL2.t2 where a = 3;"
+run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
+
+end_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}' | xargs)
+
+# if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
+run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 
 # sleep wait cdc log sync to storage
 # TODO find another way to check cdc log has synced
@@ -104,17 +113,36 @@ run_sql "DROP DATABASE ${DB}_DDL2"
 # restore full
 echo "restore start..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
-    --log-file "restore.log" --log-level "info"
+    --log-file "restore.log" --log-level "info" --start-ts $start_ts --end-ts $end_ts
 
 for i in $(seq $DB_COUNT); do
     row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
 fail=false
-row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE id=3;" | awk '/COUNT/{print $2}')
-if [ "$row_count" -ne 1 ]; then
+row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE a=4;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne "1" ]; then
     fail=true
     echo "TEST: [$TEST_NAME] fail on dml&ddl drop test."
+fi
+
+
+# record a=5 shouldn't be restore, because we set -end-ts without this record.
+row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE a=5;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne "0" ]; then
+    fail=true
+    echo "TEST: [$TEST_NAME] fail on ts range test."
+fi
+
+echo "restore again to restore a=5 record..."
+run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+    --log-file "restore.log" --log-level "info" --start-ts $end_ts
+
+# record a=5 should be restore, because we set -end-ts without this record.
+row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE a=5;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne "1" ]; then
+    fail=true
+    echo "TEST: [$TEST_NAME] fail on recover ts range test."
 fi
 
 for i in $(seq $DB_COUNT); do

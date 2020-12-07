@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "github.com/pingcap/check"
+	kvproto "github.com/pingcap/kvproto/pkg/backup"
 )
 
 var _ = Suite(&testBackupSuite{})
@@ -35,4 +36,26 @@ func (s *testBackupSuite) TestParseTSString(c *C) {
 	ts, err = parseTSString("2018-05-11 01:42:23")
 	c.Assert(err, IsNil)
 	c.Assert(int(ts), Equals, 400032515489792000-(offset*1000)<<18)
+}
+
+func (s *testBackupSuite) TestParseCompressionType(c *C) {
+	var (
+		ct  kvproto.CompressionType
+		err error
+	)
+	ct, err = parseCompressionType("lz4")
+	c.Assert(err, IsNil)
+	c.Assert(int(ct), Equals, 1)
+
+	ct, err = parseCompressionType("snappy")
+	c.Assert(err, IsNil)
+	c.Assert(int(ct), Equals, 2)
+
+	ct, err = parseCompressionType("zstd")
+	c.Assert(err, IsNil)
+	c.Assert(int(ct), Equals, 3)
+
+	ct, err = parseCompressionType("Other Compression (strings)")
+	c.Assert(err, ErrorMatches, "invalid compression.*")
+	c.Assert(int(ct), Equals, 0)
 }
