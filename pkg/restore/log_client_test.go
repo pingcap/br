@@ -69,4 +69,30 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 	collected, err = s.client.NeedRestoreRowChange(fileName3)
 	c.Assert(err, IsNil)
 	c.Assert(collected, IsFalse)
+
+	// format cdclog will collect, because file sink will generate cdclog for streaming write.
+	fileName4 := "cdclog"
+	collected, err = s.client.NeedRestoreRowChange(fileName4)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsTrue)
+
+	for _, fileName := range []string{"cdclog.3.1", "cdclo.3"} {
+		// wrong format won't collect
+		collected, err = s.client.NeedRestoreRowChange(fileName)
+		c.Assert(err, IsNil)
+		c.Assert(collected, IsFalse)
+	}
+
+	// format cdclog will collect, because file sink will generate cdclog for streaming write.
+	ddlFile := "ddl.1"
+	collected, err = s.client.NeedRestoreDDL(ddlFile)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsTrue)
+
+	for _, fileName := range []string{"ddl", "dld"} {
+		// wrong format won't collect
+		collected, err = s.client.NeedRestoreDDL(fileName)
+		c.Assert(err, IsNil)
+		c.Assert(collected, IsFalse)
+	}
 }

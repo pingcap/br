@@ -385,57 +385,6 @@ func restorePostWork(
 	}
 }
 
-// RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
-func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
-	defer summary.Summary(cmdName)
-	ctx, cancel := context.WithCancel(c)
-	defer cancel()
-
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	defer mgr.Close()
-
-	// Load saved backupmeta
-	_, _, backupMeta, err := ReadBackupMeta(ctx, utils.SavedMetaFile, &cfg.Config)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	se, err := restore.NewDB(g, mgr.GetTiKV())
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	tables := make([]*utils.Table, 0)
-	for _, db := range dbs {
-		tables = append(tables, db.Tables...)
-	}
-	updateCh := g.StartProgress(
-		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
-	for _, t := range tables {
-		log.Info("get table", zap.Stringer("name", t.Info.Name),
-			zap.Int("replica", t.TiFlashReplicas))
-		if t.TiFlashReplicas > 0 {
-			err := se.AlterTiflashReplica(ctx, t, t.TiFlashReplicas)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			updateCh.Inc()
-		}
-	}
-	updateCh.Close()
-	summary.CollectInt("recover tables", len(tables))
-
-	// Set task summary to success status.
-	summary.SetSuccessStatus(true)
-	return nil
-}
-
 // enableTiDBConfig tweaks some of configs of TiDB to make the restore progress go well.
 // return a function that could restore the config to origin.
 func enableTiDBConfig() func() {
