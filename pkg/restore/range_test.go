@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore_test
+package restore
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/tidb/tablecodec"
 
-	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 )
 
@@ -45,7 +44,7 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 		{OldKeyPrefix: tablecodec.GenTableRecordPrefix(1), NewKeyPrefix: tablecodec.GenTableRecordPrefix(4)},
 		{OldKeyPrefix: tablecodec.GenTableRecordPrefix(2), NewKeyPrefix: tablecodec.GenTableRecordPrefix(5)},
 	}
-	rewriteRules := &restore.RewriteRules{
+	rewriteRules := &RewriteRules{
 		Table: make([]*import_sstpb.RewriteRule, 0),
 		Data:  dataRules,
 	}
@@ -55,7 +54,7 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 			EndKey:   append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...), Files: nil,
 		},
 	}
-	rs1, err := restore.SortRanges(ranges1, rewriteRules)
+	rs1, err := SortRanges(ranges1, rewriteRules)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
 	c.Assert(rs1, RangeEquals, []rtree.Range{
 		{
@@ -70,12 +69,12 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 			EndKey:   append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...), Files: nil,
 		},
 	}
-	_, err = restore.SortRanges(ranges2, rewriteRules)
+	_, err = SortRanges(ranges2, rewriteRules)
 	c.Assert(err, ErrorMatches, "table id mismatch.*")
 
 	ranges3 := initRanges()
 	rewriteRules1 := initRewriteRules()
-	rs3, err := restore.SortRanges(ranges3, rewriteRules1)
+	rs3, err := SortRanges(ranges3, rewriteRules1)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
 	c.Assert(rs3, RangeEquals, []rtree.Range{
 		{StartKey: []byte("bbd"), EndKey: []byte("bbf"), Files: nil},

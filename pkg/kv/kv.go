@@ -30,6 +30,77 @@ import (
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
 
+type KeyIter interface {
+	IsEmpty() bool
+	Error() error
+	First() []byte
+	Last() []byte
+	Valid() bool
+	Next() bool
+	Key() []byte
+	Value() []byte
+	Close() error
+}
+
+type SimpleKeyIter struct {
+	index int
+	pairs Pairs
+}
+
+func NewSimpleKeyIter(pairs Pairs) KeyIter {
+	return &SimpleKeyIter{
+		index: 0,
+		pairs: pairs,
+	}
+}
+
+func (s *SimpleKeyIter) IsEmpty() bool {
+	return len(s.pairs) == 0
+}
+
+func (s *SimpleKeyIter) Error() error {
+	return nil
+}
+
+func (s *SimpleKeyIter) First() []byte{
+	if s.IsEmpty() {
+		return nil
+	}
+	return s.pairs[0].Key
+}
+
+func (s *SimpleKeyIter) Last() []byte {
+	if s.IsEmpty() {
+		return nil
+	}
+	return s.pairs[len(s.pairs)-1].Key
+}
+
+func (s *SimpleKeyIter) Valid() bool {
+	return s.index <= len(s.pairs)
+}
+
+func (s *SimpleKeyIter) Next() bool {
+	s.index ++
+	return s.Valid()
+}
+
+func (s *SimpleKeyIter) Key() []byte {
+	return s.pairs[s.index].Key
+}
+
+func (s *SimpleKeyIter) Value() []byte {
+	return s.pairs[s.index].Val
+}
+
+func (s *SimpleKeyIter) Close() error {
+	return nil
+}
+
+
+
+
+
 // Encoder encodes a row of SQL values into some opaque type which can be
 // consumed by OpenEngine.WriteEncoded.
 type Encoder interface {
@@ -309,3 +380,18 @@ func (kvs Pairs) ClassifyAndAppend(
 func (kvs Pairs) Clear() Pairs {
 	return kvs[:0]
 }
+
+// NextKey return the smallest []byte that is bigger than current bytes.
+// special case when key is empty, empty bytes means infinity in our context, so directly return itself.
+func NextKey(key []byte) []byte {
+	if len(key) == 0 {
+		return []byte{}
+	}
+	res := make([]byte, 0, len(key)+1)
+	res = append(res, key...)
+	res = append(res, 0)
+	return res
+}
+
+
+

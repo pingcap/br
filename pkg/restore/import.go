@@ -31,7 +31,6 @@ import (
 
 const (
 	importScanRegionTime      = 10 * time.Second
-	scanRegionPaginationLimit = int(128)
 	gRPCBackOffMaxDelay       = 3 * time.Second
 )
 
@@ -224,7 +223,7 @@ func (importer *FileImporter) Import(
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, errScanRegion := PaginateScanRegion(
-			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+			tctx, importer.metaClient, startKey, endKey, ScanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
@@ -303,7 +302,7 @@ func (importer *FileImporter) Import(
 						logutil.Region(info.Region),
 						zap.Stringer("newLeader", newInfo.Leader))
 
-					if !checkRegionEpoch(newInfo, info) {
+					if !CheckRegionEpoch(newInfo, info) {
 						errIngest = errors.Trace(berrors.ErrKVEpochNotMatch)
 						break ingestRetry
 					}
@@ -477,11 +476,4 @@ func (importer *FileImporter) ingestSST(
 	return resp, nil
 }
 
-func checkRegionEpoch(new, old *RegionInfo) bool {
-	if new.Region.GetId() == old.Region.GetId() &&
-		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
-		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
-		return true
-	}
-	return false
-}
+

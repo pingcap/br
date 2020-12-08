@@ -255,8 +255,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
 					log.Error("[doDBDDLJob] exec ddl failed",
-						zap.String("query", ddl.Query),
-						zap.Error(err))
+						zap.String("query", ddl.Query), zap.Error(err))
 					return errors.Trace(err)
 				}
 				if ddl.Type == model.ActionDropSchema {
@@ -320,11 +319,8 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	for name, tableID := range nameIDMap {
 		schema, table := ParseQuoteName(name)
 		if !l.tableFilter.MatchTable(schema, table) {
-			log.Info("filter tables",
-				zap.String("schema", schema),
-				zap.String("table", table),
-				zap.Int64("tableID", tableID),
-			)
+			log.Info("filter tables", zap.String("schema", schema),
+				zap.String("table", table), zap.Int64("tableID", tableID))
 			continue
 		}
 		tableIDs = append(tableIDs, tableID)
@@ -534,7 +530,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 		}
 	}
 	for i := len(kvs) - 1; i >= 0; i-- {
-		if beforeEnd(kvs[i].Key, endKey) {
+		if BeforeEnd(kvs[i].Key, endKey) {
 			end = i + 1
 			break
 		}
@@ -605,7 +601,7 @@ WriteAndIngest:
 		}
 
 		startKey := codec.EncodeBytes([]byte{}, pairStart)
-		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
+		endKey := codec.EncodeBytes([]byte{}, kv.NextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, l.splitClient, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
 			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)))
@@ -675,6 +671,8 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 		}
 		newKvs = append(newKvs, kvs[i])
 	}
+
+	kv.NewSimpleKeyIter(newKvs)
 
 	return l.writeAndIngestPairs(ctx, newKvs)
 }
@@ -1023,7 +1021,7 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
 			var currentRegion *metapb.Region
 			for _, r := range currentRegions {
-				if insideRegion(r, meta) {
+				if InsideRegion(r, meta) {
 					currentRegion = r
 					break
 				}
@@ -1049,7 +1047,3 @@ func isIngestRetryable(resp *sst.IngestResponse, region *RegionInfo, meta *sst.S
 	return false, nil, errors.Annotatef(berrors.ErrKVUnknown, "non retryable error: %s", resp.GetError().GetMessage())
 }
 
-func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
-	rg := meta.GetRange()
-	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
-}

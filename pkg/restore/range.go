@@ -4,6 +4,8 @@ package restore
 
 import (
 	"bytes"
+	"sort"
+	"sync"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -17,6 +19,38 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
+// Range record start and end key for localStoreDir.DB
+// so we can write it to tikv in streaming
+type Range struct {
+	Start  []byte
+	End    []byte
+	Length int
+}
+
+type SyncdRanges struct {
+	sync.Mutex
+	ranges []Range
+}
+
+func (r *SyncdRanges) add(g Range) {
+	r.Lock()
+	r.ranges = append(r.ranges, g)
+	r.Unlock()
+}
+
+func (r *SyncdRanges) take() []Range {
+	r.Lock()
+	rg := r.ranges
+	r.ranges = []Range{}
+	r.Unlock()
+	if len(rg) > 0 {
+		sort.Slice(rg, func(i, j int) bool {
+			return bytes.Compare(rg[i].Start, rg[j].Start) < 0
+		})
+	}
+	return rg
+}
+
 // SortRanges checks if the range overlapped and sort them.
 func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
 	rangeTree := rtree.NewRangeTree()
@@ -26,7 +60,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			endID := tablecodec.DecodeTableID(rg.EndKey)
 			var rule *import_sstpb.RewriteRule
 			if startID == endID {
-				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
+				rg.StartKey, rule = ReplacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
 				} else {
@@ -35,7 +69,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 						zap.Stringer("key", logutil.WrapKey(rg.StartKey)),
 						logutil.RewriteRule(rule))
 				}
-				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
+				rg.EndKey, rule = ReplacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
 				} else {

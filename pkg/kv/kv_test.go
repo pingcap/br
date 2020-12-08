@@ -20,6 +20,8 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/restore"
 )
 
 type rowSuite struct{}
@@ -38,5 +40,5 @@ func (s *rowSuite) TestMarshal(c *C) {
 	dats[3] = types.MinNotNullDatum()
 
 	// save coverage for MarshalLogArray
-	log.Info("row marshal", zap.Array("row", rowArrayMarshaler(dats)))
+	log.Info("row marshal", zap.Array("row", restore.rowArrayMarshaler(dats)))
 }
