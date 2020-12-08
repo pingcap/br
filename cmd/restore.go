@@ -54,23 +54,6 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	return nil
 }
 
-<<<<<<< HEAD
-func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) error {
-	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
-	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
-		command.SilenceUsage = false
-		return err
-	}
-
-	if err := task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
-		log.Error("failed to restore tiflash replica", zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-=======
->>>>>>> cf1c9b2... test: update coverage (#594)
 // NewRestoreCommand returns a restore subcommand.
 func NewRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
