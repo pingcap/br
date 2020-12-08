@@ -131,7 +131,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Array("keys", logutil.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Any("region", region), zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
