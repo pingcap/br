@@ -12,7 +12,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/tidb/distsql"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/pingcap/tidb/util/ranger"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
 
@@ -314,6 +317,36 @@ FindRegion:
 		return false
 	}
 	return true
+}
+
+func (s *testRestoreUtilSuite) TestGetSplitKeys(c *C) {
+	rewriteRules := &restore.RewriteRules{}
+	regions := []*restore.RegionInfo{
+		{
+			// last region's endkey is empty.
+			Region: &metapb.Region{
+				Id:       1,
+				StartKey: codec.EncodeBytes([]byte{}, []byte("t1")),
+				EndKey:   nil,
+			},
+		},
+	}
+	r := ranger.FullIntRange(false)
+	tableID := int64(1)
+	kvRanges := distsql.TableRangesToKVRanges(tableID, r, nil)
+	ranges := []rtree.Range{
+		{
+			StartKey: kvRanges[0].StartKey,
+			// this endkey is HighInclude, so it will generate one more zero byte.
+			EndKey: kvRanges[0].EndKey,
+		},
+	}
+	keyMap := restore.GetSplitKeys(rewriteRules, ranges, regions)
+	c.Assert(len(keyMap[1]), Equals, 1)
+	// this key should truncated already, then it's as same as HighExclude endkey.
+	highPrefixNext := keyMap[1][0]
+	highWithoutPrefixNext := tablecodec.EncodeRowKey(tableID, codec.EncodeInt(nil, r[0].HighVal[0].GetInt64()))
+	c.Assert(bytes.Equal(highPrefixNext, highWithoutPrefixNext), IsTrue)
 }
 
 func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {

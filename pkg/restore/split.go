@@ -107,7 +107,7 @@ SplitRegions:
 			log.Warn("cannot scan any region")
 			return nil
 		}
-		splitKeyMap := getSplitKeys(rewriteRules, sortedRanges, regions)
+		splitKeyMap := GetSplitKeys(rewriteRules, sortedRanges, regions)
 		regionMap := make(map[uint64]*RegionInfo)
 		for _, region := range regions {
 			regionMap[region.Region.GetId()] = region
@@ -260,9 +260,9 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	return newRegions, nil
 }
 
-// getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
+// GetSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // the ranges, groups the split keys by region id.
-func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
+func GetSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
 	for _, rule := range rewriteRules.Table {
