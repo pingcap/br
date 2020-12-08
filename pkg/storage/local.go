@@ -25,15 +25,9 @@ type LocalStorage struct {
 }
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
-<<<<<<< HEAD
-	filepath := filepath.Join(l.base, name)
-	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
-	// the backupmeta file _is_ intended to be world-readable.
-=======
 	path := filepath.Join(l.base, name)
 	return ioutil.WriteFile(path, data, localFilePerm)
 	// the backup meta file _is_ intended to be world-readable.
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
 }
 
 func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {

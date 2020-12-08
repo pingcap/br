@@ -36,13 +36,8 @@ const (
 	s3ACLOption          = "s3.acl"
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
-<<<<<<< HEAD
-	// number of retries to make of operations
-	maxRetries = 3
-=======
 	// number of retries to make of operations.
 	maxRetries = 6
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
 
 	// the maximum number of byte to read for seek.
 	maxSkipOffsetByRead = 1 << 16 // 64KB

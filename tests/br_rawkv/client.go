@@ -42,14 +42,9 @@ func main() {
 	if err != nil {
 		log.Panic("Invalid endKey: %v, err: %+v", zap.String("endkey", *endKeyStr), zap.Error(err))
 	}
-<<<<<<< HEAD
+
 	if len(endKey) == 0 {
-		log.Fatal("Empty endKey is not supported yet")
-=======
-	// For "put" mode, the key range is not used. So no need to throw error here.
-	if len(endKey) == 0 && *runMode != "put" {
 		log.Panic("Empty endKey is not supported yet")
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
 	}
 
 	if *runMode == "test-rand-key" {
@@ -237,11 +232,7 @@ func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
 		res ^= digest.Sum64()
 	}
 
-<<<<<<< HEAD
-=======
 	log.Info("Checksum result", zap.Uint64("checksum", res))
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
-	fmt.Printf("Checksum result: %016x\n", res)
 	return nil
 }
 
@@ -277,38 +268,6 @@ func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
 	return nil
 }
 
-<<<<<<< HEAD
-=======
-func put(client *tikv.RawKVClient, dataStr string) error {
-	keys := make([][]byte, 0)
-	values := make([][]byte, 0)
-
-	for _, pairStr := range strings.Split(dataStr, ",") {
-		pair := strings.Split(pairStr, ":")
-		if len(pair) != 2 {
-			return errors.Errorf("invalid kv pair string %q", pairStr)
-		}
-
-		key, err := hex.DecodeString(strings.Trim(pair[0], " "))
-		if err != nil {
-			return errors.Annotatef(err, "invalid kv pair string %q", pairStr)
-		}
-		value, err := hex.DecodeString(strings.Trim(pair[1], " "))
-		if err != nil {
-			return errors.Annotatef(err, "invalid kv pair string %q", pairStr)
-		}
-
-		keys = append(keys, key)
-		values = append(values, value)
-	}
-
-	log.Info("Put rawkv data", zap.ByteStrings("keys", keys), zap.ByteStrings("values", values))
-
-	err := client.BatchPut(keys, values)
-	return errors.Trace(err)
-}
-
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
 const defaultScanBatchSize = 128
 
 type rawKVScanner struct {

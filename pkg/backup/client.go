@@ -991,19 +991,19 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 func FilterSchema(backupMeta *kvproto.BackupMeta) error {
 	dbs, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
 	for _, schema := range backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
 		if len(tbl.Files) > 0 {

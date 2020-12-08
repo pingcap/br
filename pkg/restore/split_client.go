@@ -320,11 +320,7 @@ func (c *pdClient) BatchSplitRegions(
 ) ([]*RegionInfo, error) {
 	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
 	if err != nil {
-<<<<<<< HEAD
-		return nil, err
-=======
-		return nil, nil, errors.Trace(err)
->>>>>>> e963d46... *: upgrade golangci-lint (#621)
+		return nil, errors.Trace(err)
 	}
 
 	regions := resp.GetRegions()
