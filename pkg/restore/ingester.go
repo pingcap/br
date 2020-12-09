@@ -141,7 +141,7 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 
 func (i *Ingester) writeAndIngestByRange(
 	ctxt context.Context,
-	iter kv.KeyIter,
+	iter kv.PairIter,
 	remainRanges *syncdRanges,
 ) error {
 	if iter.IsEmpty() {
@@ -208,7 +208,7 @@ WriteAndIngest:
 
 func (i *Ingester) writeAndIngestPairs(
 	ctx context.Context,
-	iter kv.KeyIter,
+	iter kv.PairIter,
 	region *RegionInfo,
 	start, end []byte,
 ) (*Range, error) {
@@ -285,7 +285,7 @@ loopWrite:
 // tikv will takes the responsibility to do so.
 func (i *Ingester) writeToTiKV(
 	ctx context.Context,
-	iter kv.KeyIter,
+	iter kv.PairIter,
 	region *RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, error) {

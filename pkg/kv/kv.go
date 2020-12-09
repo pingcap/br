@@ -30,70 +30,93 @@ import (
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
 
-type KeyIter interface {
+
+// PairIter abstract iterator method for Ingester.
+type PairIter interface {
+	// IsEmpty checks whether iter has no pairs.
 	IsEmpty() bool
+	// Error return current error on this iter.
 	Error() error
+	// First return the first key in this iter.
 	First() []byte
+	// Last return the last key in this iter.
 	Last() []byte
+	// Valid check this iter reach the end.
 	Valid() bool
+	// Next moves this iter forward.
 	Next() bool
+	// Key represents current position pair's key.
 	Key() []byte
+	// Value represents current position pair's Value.
 	Value() []byte
+	// Close close this iter.
 	Close() error
 }
 
-type SimpleKeyIter struct {
+// SimplePairIter represents simple pair iterator.
+// which is used for log restore.
+type SimplePairIter struct {
 	index int
 	pairs Pairs
 }
 
-func NewSimpleKeyIter(pairs Pairs) KeyIter {
-	return &SimpleKeyIter{
+// NewSimpleKeyIter creates SimplePairIter.
+func NewSimpleKeyIter(pairs Pairs) PairIter {
+	return &SimplePairIter{
 		index: 0,
 		pairs: pairs,
 	}
 }
 
-func (s *SimpleKeyIter) IsEmpty() bool {
+// IsEmpty implements PairIter.IsEmpty
+func (s *SimplePairIter) IsEmpty() bool {
 	return len(s.pairs) == 0
 }
 
-func (s *SimpleKeyIter) Error() error {
+// Error implements PairIter.Error
+func (s *SimplePairIter) Error() error {
 	return nil
 }
 
-func (s *SimpleKeyIter) First() []byte {
+// First implements PairIter.First
+func (s *SimplePairIter) First() []byte {
 	if s.IsEmpty() {
 		return nil
 	}
 	return s.pairs[0].Key
 }
 
-func (s *SimpleKeyIter) Last() []byte {
+// Last implements PairIter.Last
+func (s *SimplePairIter) Last() []byte {
 	if s.IsEmpty() {
 		return nil
 	}
 	return s.pairs[len(s.pairs)-1].Key
 }
 
-func (s *SimpleKeyIter) Valid() bool {
+// Valid implements PairIter.Valid
+func (s *SimplePairIter) Valid() bool {
 	return s.index <= len(s.pairs)
 }
 
-func (s *SimpleKeyIter) Next() bool {
+// Next implements PairIter.Next
+func (s *SimplePairIter) Next() bool {
 	s.index++
 	return s.Valid()
 }
 
-func (s *SimpleKeyIter) Key() []byte {
+// Key implements PairIter.Key
+func (s *SimplePairIter) Key() []byte {
 	return s.pairs[s.index].Key
 }
 
-func (s *SimpleKeyIter) Value() []byte {
+// Value implements PairIter.Value
+func (s *SimplePairIter) Value() []byte {
 	return s.pairs[s.index].Val
 }
 
-func (s *SimpleKeyIter) Close() error {
+// Close implements PairIter.Close
+func (s *SimplePairIter) Close() error {
 	return nil
 }
 

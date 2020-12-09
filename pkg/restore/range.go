@@ -66,7 +66,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			endID := tablecodec.DecodeTableID(rg.EndKey)
 			var rule *import_sstpb.RewriteRule
 			if startID == endID {
-				rg.StartKey, rule = ReplacePrefix(rg.StartKey, rewriteRules)
+				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
 				} else {
@@ -75,7 +75,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 						zap.Stringer("key", logutil.WrapKey(rg.StartKey)),
 						logutil.RewriteRule(rule))
 				}
-				rg.EndKey, rule = ReplacePrefix(rg.EndKey, rewriteRules)
+				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
 				} else {
