@@ -225,7 +225,7 @@ type DrainResult struct {
 
 // Files returns all files of this drain result.
 func (result DrainResult) Files() []*backup.File {
-	var files = make([]*backup.File, 0, len(result.Ranges)*2)
+	files := make([]*backup.File, 0, len(result.Ranges)*2)
 	for _, fs := range result.Ranges {
 		files = append(files, fs.Files...)
 	}

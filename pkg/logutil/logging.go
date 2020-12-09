@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -70,7 +71,7 @@ func (sstMeta zapMarshalSSTMetaMixIn) MarshalLogObject(enc zapcore.ObjectEncoder
 
 	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	enc.AddString("UUID", sstUUID.String())
 	return nil

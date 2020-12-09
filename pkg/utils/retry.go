@@ -36,12 +36,12 @@ func WithRetry(
 			allErrors = multierr.Append(allErrors, err)
 			select {
 			case <-ctx.Done():
-				return allErrors
+				return allErrors // nolint:wrapcheck
 			case <-time.After(backoffer.NextBackoff(err)):
 			}
 		} else {
 			return nil
 		}
 	}
-	return allErrors
+	return allErrors // nolint:wrapcheck
 }

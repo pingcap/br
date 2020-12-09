@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -52,16 +53,16 @@ type tidbSession struct {
 func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
 	se, err := session.CreateSession(store)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	dom, err := session.GetDomain(store)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	// create stats handler for backup and restore.
 	err = dom.UpdateTableStatsLoop(se)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return dom, nil
 }
@@ -70,7 +71,7 @@ func (Glue) GetDomain(store kv.Storage) (*domain.Domain, error) {
 func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 	se, err := session.CreateSession(store)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	tiSession := &tidbSession{
 		se: se,
@@ -100,7 +101,7 @@ func (g Glue) Record(name string, value uint64) {
 
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
-	return err
+	return errors.Trace(err)
 }
 
 // CreateDatabase implements glue.Session.
@@ -108,7 +109,7 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 	d := domain.GetDomain(gs.se).DDL()
 	query, err := gs.showCreateDatabase(schema)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	gs.se.SetValue(sessionctx.QueryString, query)
 	schema = schema.Clone()
@@ -123,7 +124,7 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 	d := domain.GetDomain(gs.se).DDL()
 	query, err := gs.showCreateTable(table)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	gs.se.SetValue(sessionctx.QueryString, query)
 	// Clone() does not clone partitions yet :(
@@ -149,7 +150,7 @@ func (gs *tidbSession) showCreateTable(tbl *model.TableInfo) (string, error) {
 	// this can never fail.
 	_, _ = result.WriteString(brComment)
 	if err := executor.ConstructResultOfShowCreateTable(gs.se, tbl, autoid.Allocators{}, result); err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 	return result.String(), nil
 }
@@ -160,7 +161,7 @@ func (gs *tidbSession) showCreateDatabase(db *model.DBInfo) (string, error) {
 	// this can never fail.
 	_, _ = result.WriteString(brComment)
 	if err := executor.ConstructResultOfShowCreateDatabase(gs.se, db, true, result); err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 	return result.String(), nil
 }

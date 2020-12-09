@@ -12,6 +12,11 @@ import (
 	"github.com/pingcap/errors"
 )
 
+const (
+	localDirPerm  os.FileMode = 0o755
+	localFilePerm os.FileMode = 0o644
+)
+
 // LocalStorage represents local file system storage.
 //
 // export for using in tests.
@@ -20,9 +25,9 @@ type LocalStorage struct {
 }
 
 func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
-	filepath := filepath.Join(l.base, name)
-	return ioutil.WriteFile(filepath, data, 0644) // nolint:gosec
-	// the backupmeta file _is_ intended to be world-readable.
+	path := filepath.Join(l.base, name)
+	return ioutil.WriteFile(path, data, localFilePerm)
+	// the backup meta file _is_ intended to be world-readable.
 }
 
 func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
@@ -84,7 +89,7 @@ type localStorageUploader struct {
 
 func (l *localStorageUploader) UploadPart(ctx context.Context, data []byte) error {
 	_, err := l.file.Write(data)
-	return err
+	return errors.Trace(err)
 }
 
 func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
@@ -94,9 +99,9 @@ func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
 // CreateUploader implements ExternalStorage interface.
 func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
 	path := filepath.Join(l.base, name)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, localFilePerm)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return &localStorageUploader{file: f}, nil
 }
@@ -112,7 +117,7 @@ func pathExists(_path string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, err
+		return false, errors.Trace(err)
 	}
 	return true, nil
 }
@@ -123,12 +128,12 @@ func pathExists(_path string) (bool, error) {
 func NewLocalStorage(base string) (*LocalStorage, error) {
 	ok, err := pathExists(base)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	if !ok {
 		err := mkdirAll(base)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 	return &LocalStorage{base: base}, nil

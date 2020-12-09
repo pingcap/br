@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
@@ -60,17 +61,17 @@ func NewCluster() (*Cluster, error) {
 	client, pdClient, err := mocktikv.NewTiKVAndPDClient(cluster, nil, "")
 	mocktikv.BootstrapWithSingleStore(cluster)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	storage, err := tikv.NewTestTiKVStore(client, pdClient, nil, nil, 0)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	session.SetSchemaLease(0)
 	session.DisableStats4Test()
 	dom, err := session.BootstrapSession(storage)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return &Cluster{
 		Cluster:   cluster,
@@ -85,20 +86,20 @@ func NewCluster() (*Cluster, error) {
 func (mock *Cluster) Start() error {
 	statusURL, err := url.Parse(tempurl.Alloc())
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	statusPort, err := strconv.ParseInt(statusURL.Port(), 10, 32)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	addrURL, err := url.Parse(tempurl.Alloc())
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	addrPort, err := strconv.ParseInt(addrURL.Port(), 10, 32)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	_ = addrPort
 
@@ -111,7 +112,7 @@ func (mock *Cluster) Start() error {
 
 	svr, err := server.NewServer(cfg, mock.TiDBDriver)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	mock.Server = svr
 	go func() {
@@ -148,7 +149,7 @@ var defaultDSNConfig = mysql.Config{
 
 // getDSN generates a DSN string for MySQL connection.
 func getDSN(overriders ...configOverrider) string {
-	var cfg = defaultDSNConfig
+	cfg := defaultDSNConfig
 	for _, overrider := range overriders {
 		if overrider != nil {
 			overrider(&cfg)
@@ -172,12 +173,12 @@ func waitUntilServerOnline(addr string, statusPort uint) string {
 		}
 	}
 	if retry == retryTime {
-		log.Fatal("failed to connect DB in every 10 ms", zap.Int("retryTime", retryTime))
+		log.Panic("failed to connect DB in every 10 ms", zap.Int("retryTime", retryTime))
 	}
 	// connect http status
 	statusURL := fmt.Sprintf("http://127.0.0.1:%d/status", statusPort)
 	for retry = 0; retry < retryTime; retry++ {
-		resp, err := http.Get(statusURL)
+		resp, err := http.Get(statusURL) // nolint:noctx
 		if err == nil {
 			// Ignore errors.
 			_, _ = ioutil.ReadAll(resp.Body)
@@ -187,7 +188,7 @@ func waitUntilServerOnline(addr string, statusPort uint) string {
 		time.Sleep(time.Millisecond * 10)
 	}
 	if retry == retryTime {
-		log.Fatal("failed to connect HTTP status in every 10 ms",
+		log.Panic("failed to connect HTTP status in every 10 ms",
 			zap.Int("retryTime", retryTime))
 	}
 	return strings.SplitAfter(dsn, "/")[0]

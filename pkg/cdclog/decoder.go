@@ -112,7 +112,7 @@ func formatColumnVal(c Column) Column {
 			if c.Flag&BinaryFlag != 0 {
 				val, err := strconv.Unquote("\"" + s + "\"")
 				if err != nil {
-					log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+					log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 				}
 				c.Value = val
 			}
@@ -123,14 +123,14 @@ func formatColumnVal(c Column) Column {
 			var err error
 			c.Value, err = base64.StdEncoding.DecodeString(s)
 			if err != nil {
-				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 		}
 	case mysql.TypeBit:
 		if s, ok := c.Value.(json.Number); ok {
 			intNum, err := s.Int64()
 			if err != nil {
-				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 			c.Value = uint64(intNum)
 		}
@@ -247,7 +247,7 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 	}
 	nextKey, err := b.decodeNextKey()
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])

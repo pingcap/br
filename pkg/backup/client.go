@@ -154,7 +154,7 @@ func (bc *Client) SetStorage(ctx context.Context, backend *kvproto.StorageBacken
 	var err error
 	bc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// backupmeta already exists
 	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
@@ -220,7 +220,7 @@ func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 	for _, def := range pis.Definitions {
 		rgs, err := appendRanges(tbl, def.ID)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		ranges = append(ranges, rgs...)
 	}
@@ -356,7 +356,7 @@ func BuildBackupRangeAndSchema(
 
 			tableRanges, err := BuildTableRanges(tableInfo)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, errors.Trace(err)
 			}
 			for _, r := range tableRanges {
 				ranges = append(ranges, rtree.Range{
@@ -457,7 +457,7 @@ func (bc *Client) BackupRanges(
 				if err == nil {
 					filesCh <- files
 				}
-				return err
+				return errors.Trace(err)
 			})
 		}
 		if err := eg.Wait(); err != nil {
@@ -469,7 +469,7 @@ func (bc *Client) BackupRanges(
 
 	for err := range errCh {
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 
@@ -520,7 +520,7 @@ func (bc *Client) BackupRange(
 	var results rtree.RangeTree
 	results, err = push.pushBackup(ctx, req, allStores, updateCh)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
@@ -530,7 +530,7 @@ func (bc *Client) BackupRange(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
 		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if req.IsRawKv {
@@ -650,7 +650,7 @@ func (bc *Client) fineGrainedBackup(
 			select {
 			case err := <-errCh:
 				// TODO: should we handle err here?
-				return err
+				return errors.Trace(err)
 			case resp, ok := <-respCh:
 				if !ok {
 					// Finished.
@@ -762,7 +762,7 @@ func (bc *Client) handleFineGrained(
 ) (int, error) {
 	leader, pderr := bc.findRegionLeader(ctx, rg.StartKey)
 	if pderr != nil {
-		return 0, pderr
+		return 0, errors.Trace(pderr)
 	}
 	storeID := leader.GetStoreId()
 	max := 0
@@ -807,7 +807,7 @@ func (bc *Client) handleFineGrained(
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 	return max, nil
 }
@@ -856,7 +856,7 @@ backupLoop:
 		for {
 			resp, err := bcli.Recv()
 			if err != nil {
-				if err == io.EOF {
+				if errors.Cause(err) == io.EOF { // nolint:errorlint
 					log.Info("backup streaming finish",
 						zap.Uint64("StoreID", storeID),
 						zap.Int("retry time", retry))
@@ -880,7 +880,7 @@ backupLoop:
 				zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey())))
 			err = respFn(resp)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 	}
@@ -947,7 +947,7 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 
 	dbs, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	checksums := make([]Checksum, 0, len(backupMeta.Schemas))
@@ -955,12 +955,12 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 		dbInfo := &model.DBInfo{}
 		err = json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
 
@@ -991,19 +991,19 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 func FilterSchema(backupMeta *kvproto.BackupMeta) error {
 	dbs, err := utils.LoadBackupTables(backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
 	for _, schema := range backupMeta.Schemas {
 		dbInfo := &model.DBInfo{}
 		err := json.Unmarshal(schema.Db, dbInfo)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		tblInfo := &model.TableInfo{}
 		err = json.Unmarshal(schema.Table, tblInfo)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
 		if len(tbl.Files) > 0 {

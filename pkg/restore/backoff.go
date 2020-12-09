@@ -53,7 +53,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 }
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
-	switch errors.Cause(err) {
+	switch errors.Cause(err) { // nolint:errorlint
 	case berrors.ErrKVEpochNotMatch, berrors.ErrKVDownloadFailed, berrors.ErrKVIngestFailed:
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
