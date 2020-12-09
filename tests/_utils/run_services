@@ -37,11 +37,13 @@ cleanup_data() {
 }
 
 stop_services() {
-    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
-        # tiflash and br do not have "-server"
-        killall -9 $svc-server &> /dev/null || true
-        killall -9 $svc &> /dev/null || true
+    for svc in "br" "tidb-server" "tiflash" "TiFlashManager" "tikv-server" "pd-server"; do
+        killall -v -1 $svc || continue
+        sleep 1 # give some grace shutdown period
+        killall -v -9 $svc || continue
     done
+    sleep 1 # give some time for the OS to reap all processes
+    lsof -n -P -i :2379 -i :4000 -i :10080 -i :20160 -i :20161 -i :20162 -i :20180 -i :20181 -i :20182 -i :17000 -i :8125 || true
 }
 
 start_services() {
