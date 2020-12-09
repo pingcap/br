@@ -51,6 +51,12 @@ func (r *SyncdRanges) take() []Range {
 	return rg
 }
 
+func NewSyncdRanges() *SyncdRanges {
+	return &SyncdRanges{
+		ranges: make([]Range, 0, 128),
+	}
+}
+
 // SortRanges checks if the range overlapped and sort them.
 func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
 	rangeTree := rtree.NewRangeTree()
