@@ -403,11 +403,9 @@ func (i *Ingester) writeToTiKV(
 	for i, wStream := range clients {
 		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
 			return nil, nil, closeErr
-		} else {
-			if leaderID == region.Region.Peers[i].GetId() {
-				leaderPeerMetas = resp.Metas
-				log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
-			}
+		} else if leaderID == region.Region.Peers[i].GetId() {
+			leaderPeerMetas = resp.Metas
+			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 

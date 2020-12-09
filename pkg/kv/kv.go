@@ -30,7 +30,6 @@ import (
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
 
-
 // PairIter abstract iterator method for Ingester.
 type PairIter interface {
 	// IsEmpty checks whether iter has no pairs.
