@@ -121,7 +121,7 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 	if addr == "" {
 		addr = store.GetAddress()
 	}
-	conn, err := grpc.DialContext(
+	grpcConn, err := grpc.DialContext(
 		ctx,
 		addr,
 		opt,
@@ -136,7 +136,7 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return conn, nil
+	return grpcConn, nil
 }
 
 func (i *Ingester) writeAndIngestByRange(
