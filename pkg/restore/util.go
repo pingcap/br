@@ -473,7 +473,6 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-
 // ZapTables make zap field of table for debuging, including table names.
 func ZapTables(tables []CreatedTable) zapcore.Field {
 	return zap.Array("tables", tableSliceArrayMixIn(tables))

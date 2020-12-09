@@ -62,7 +62,7 @@ func (s *SimpleKeyIter) Error() error {
 	return nil
 }
 
-func (s *SimpleKeyIter) First() []byte{
+func (s *SimpleKeyIter) First() []byte {
 	if s.IsEmpty() {
 		return nil
 	}
@@ -81,7 +81,7 @@ func (s *SimpleKeyIter) Valid() bool {
 }
 
 func (s *SimpleKeyIter) Next() bool {
-	s.index ++
+	s.index++
 	return s.Valid()
 }
 
@@ -96,10 +96,6 @@ func (s *SimpleKeyIter) Value() []byte {
 func (s *SimpleKeyIter) Close() error {
 	return nil
 }
-
-
-
-
 
 // Encoder encodes a row of SQL values into some opaque type which can be
 // consumed by OpenEngine.WriteEncoded.
@@ -392,6 +388,3 @@ func NextKey(key []byte) []byte {
 	res = append(res, 0)
 	return res
 }
-
-
-

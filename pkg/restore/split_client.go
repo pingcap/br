@@ -286,7 +286,7 @@ func (c *pdClient) sendSplitRegionRequest(
 					if findLeaderErr != nil {
 						return nil, multierr.Append(splitErrors, findLeaderErr)
 					}
-					if !CheckRegionEpoch(newRegionInfo, regionInfo) {
+					if !checkRegionEpoch(newRegionInfo, regionInfo) {
 						return nil, multierr.Append(splitErrors, berrors.ErrKVEpochNotMatch)
 					}
 					log.Info("find new leader", zap.Uint64("new leader", newRegionInfo.Leader.Id))
@@ -472,7 +472,7 @@ func (c *pdClient) getPDAPIAddr() string {
 	return strings.TrimRight(addr, "/")
 }
 
-func CheckRegionEpoch(new, old *RegionInfo) bool {
+func checkRegionEpoch(new, old *RegionInfo) bool {
 	if new.Region.GetId() == old.Region.GetId() &&
 		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
 		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {

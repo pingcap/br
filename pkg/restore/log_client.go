@@ -69,6 +69,8 @@ type LogClient struct {
 	splitClient    SplitClient
 	importerClient ImporterClient
 
+	// ingester is used to write and ingest kvs to tikv.
+	// lightning has the simlar logic and can reuse it.
 	ingester *Ingester
 
 	// range of log backup
@@ -119,9 +121,8 @@ func NewLogRestoreClient(
 		BatchWriteKVPairs: batchWriteKVPairs,
 	}
 
-
+	// commitTS append into encode key. we use a unified ts for once log restore.
 	commitTS := oracle.ComposeTS(time.Now().Unix()*1000, 0)
-
 	lc := &LogClient{
 		restoreClient:  restoreClient,
 		splitClient:    splitClient,
@@ -133,7 +134,8 @@ func NewLogRestoreClient(
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
 		tableBuffers:   make(map[int64]*cdclog.TableBuffer),
 		tableFilter:    tableFilter,
-		ingester: NewIngester(splitClient, 128, 128, commitTS),
+		// TODO make ingestConcurrency & tcpConcurrency meaningful
+		ingester: NewIngester(splitClient, cfg.Concurrency, 128, commitTS),
 	}
 	return lc, nil
 }
@@ -393,8 +395,8 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 		newKvs = append(newKvs, kvs[i])
 	}
 
-	iter:= kv.NewSimpleKeyIter(newKvs)
-	remainRange := NewSyncdRanges()
+	iter := kv.NewSimpleKeyIter(newKvs)
+	remainRange := newSyncdRanges()
 	return l.ingester.writeAndIngestByRange(ctx, iter, remainRange)
 }
 

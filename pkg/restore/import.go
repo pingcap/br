@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	importScanRegionTime      = 10 * time.Second
-	gRPCBackOffMaxDelay       = 3 * time.Second
+	importScanRegionTime = 10 * time.Second
+	gRPCBackOffMaxDelay  = 3 * time.Second
 )
 
 // ImporterClient is used to import a file to TiKV.
@@ -302,7 +302,7 @@ func (importer *FileImporter) Import(
 						logutil.Region(info.Region),
 						zap.Stringer("newLeader", newInfo.Leader))
 
-					if !CheckRegionEpoch(newInfo, info) {
+					if !checkRegionEpoch(newInfo, info) {
 						errIngest = errors.Trace(berrors.ErrKVEpochNotMatch)
 						break ingestRetry
 					}
@@ -475,5 +475,3 @@ func (importer *FileImporter) ingestSST(
 	}
 	return resp, nil
 }
-
-

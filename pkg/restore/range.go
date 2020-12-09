@@ -27,18 +27,18 @@ type Range struct {
 	Length int
 }
 
-type SyncdRanges struct {
+type syncdRanges struct {
 	sync.Mutex
 	ranges []Range
 }
 
-func (r *SyncdRanges) add(g Range) {
+func (r *syncdRanges) add(g Range) {
 	r.Lock()
 	r.ranges = append(r.ranges, g)
 	r.Unlock()
 }
 
-func (r *SyncdRanges) take() []Range {
+func (r *syncdRanges) take() []Range {
 	r.Lock()
 	rg := r.ranges
 	r.ranges = []Range{}
@@ -51,8 +51,8 @@ func (r *SyncdRanges) take() []Range {
 	return rg
 }
 
-func NewSyncdRanges() *SyncdRanges {
-	return &SyncdRanges{
+func newSyncdRanges() *syncdRanges {
+	return &syncdRanges{
 		ranges: make([]Range, 0, 128),
 	}
 }

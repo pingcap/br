@@ -41,7 +41,7 @@ import (
 )
 
 const (
-	dialTimeout          = 5 * time.Second
+	dialTimeout = 5 * time.Second
 
 	gRPCKeepAliveTime    = 10 * time.Second
 	gRPCKeepAliveTimeout = 3 * time.Second
@@ -72,6 +72,8 @@ func (conns *gRPCConns) Close() {
 	}
 }
 
+// Ingester writes and ingests kv to TiKV.
+// which used for both BR log restore and Lightning local backend.
 type Ingester struct {
 	// commit ts appends to key in tikv
 	TS uint64
@@ -82,21 +84,21 @@ type Ingester struct {
 	workerPool *utils.WorkerPool
 
 	batchWriteKVPairs int
-	regionSplitSize int64
-	tcpConcurrency int
-
+	regionSplitSize   int64
+	tcpConcurrency    int
 }
 
+// NewIngester creates Ingester.
 func NewIngester(splitCli SplitClient, ingestConcurrency uint, tcpConcurrency int, commitTS uint64) *Ingester {
 	workerPool := utils.NewWorkerPool(ingestConcurrency, "ingest worker")
 	return &Ingester{
 		conns: gRPCConns{
 			conns: make(map[uint64]*conn.ConnPool),
 		},
-		splitCli: splitCli,
-		workerPool: workerPool,
+		splitCli:       splitCli,
+		workerPool:     workerPool,
 		tcpConcurrency: tcpConcurrency,
-		TS: commitTS,
+		TS:             commitTS,
 	}
 }
 
@@ -140,7 +142,7 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 func (i *Ingester) writeAndIngestByRange(
 	ctxt context.Context,
 	iter kv.KeyIter,
-	remainRanges *SyncdRanges,
+	remainRanges *syncdRanges,
 ) error {
 	if iter.IsEmpty() {
 		log.L().Debug("There is no pairs in iterator")
@@ -226,7 +228,7 @@ loopWrite:
 			for errCnt < maxRetryTimes {
 				log.L().Debug("ingest meta", zap.Reflect("meta", meta))
 				var resp *sst.IngestResponse
-				resp, err = i.Ingest(ctx, meta, region)
+				resp, err = i.ingest(ctx, meta, region)
 				if err != nil {
 					log.L().Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 						zap.Reflect("region", region))
@@ -237,10 +239,12 @@ loopWrite:
 					switch val.(string) {
 					case "notleader":
 						resp.Error.NotLeader = &errorpb.NotLeader{
-							RegionId: region.Region.Id, Leader: region.Leader}
+							RegionId: region.Region.Id, Leader: region.Leader,
+						}
 					case "epochnotmatch":
 						resp.Error.EpochNotMatch = &errorpb.EpochNotMatch{
-							CurrentRegions: []*metapb.Region{region.Region}}
+							CurrentRegions: []*metapb.Region{region.Region},
+						}
 					}
 				})
 				var retryTy retryType
@@ -435,7 +439,7 @@ func (i *Ingester) writeToTiKV(
 	return leaderPeerMetas, remainRange, nil
 }
 
-func (i *Ingester) Ingest(ctx context.Context, meta *sst.SSTMeta, region *RegionInfo) (*sst.IngestResponse, error) {
+func (i *Ingester) ingest(ctx context.Context, meta *sst.SSTMeta, region *RegionInfo) (*sst.IngestResponse, error) {
 	leader := region.Leader
 	if leader == nil {
 		leader = region.Region.GetPeers()[0]
@@ -531,7 +535,7 @@ func (i *Ingester) isIngestRetryable(
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
 			var currentRegion *metapb.Region
 			for _, r := range currentRegions {
-				if InsideRegion(r, meta) {
+				if insideRegion(r, meta) {
 					currentRegion = r
 					break
 				}

@@ -11,9 +11,9 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
-	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/zap"
@@ -361,7 +361,7 @@ func ReplacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.
 	return s, nil
 }
 
-func BeforeEnd(key []byte, end []byte) bool {
+func beforeEnd(key []byte, end []byte) bool {
 	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
@@ -376,18 +376,18 @@ func intersectRange(region *metapb.Region, rg Range) Range {
 	if len(region.EndKey) > 0 {
 		_, endKey, _ = codec.DecodeBytes(region.EndKey)
 	}
-	if BeforeEnd(rg.End, endKey) {
+	if beforeEnd(rg.End, endKey) {
 		endKey = rg.End
 	}
 
 	return Range{Start: startKey, End: endKey}
 }
 
-func InsideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
+func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
 	rg := meta.GetRange()
 	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
 }
 
 func keyInsideRegion(region *metapb.Region, key []byte) bool {
-	return bytes.Compare(key, region.GetStartKey()) >= 0 && (BeforeEnd(key, region.GetEndKey()))
+	return bytes.Compare(key, region.GetStartKey()) >= 0 && (beforeEnd(key, region.GetEndKey()))
 }
