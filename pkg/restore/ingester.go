@@ -47,7 +47,7 @@ const (
 	gRPCKeepAliveTimeout = 3 * time.Second
 
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
-	regionMaxKeyCount = 1_440_000
+	regionMaxKeyCount = 1440000
 )
 
 type retryType int
@@ -60,7 +60,7 @@ const (
 
 type gRPCConns struct {
 	mu    sync.Mutex
-	conns map[uint64]*conn.ConnPool
+	conns map[uint64]*conn.Pool
 }
 
 func (conns *gRPCConns) Close() {
@@ -93,7 +93,7 @@ func NewIngester(splitCli SplitClient, ingestConcurrency uint, tcpConcurrency in
 	workerPool := utils.NewWorkerPool(ingestConcurrency, "ingest worker")
 	return &Ingester{
 		conns: gRPCConns{
-			conns: make(map[uint64]*conn.ConnPool),
+			conns: make(map[uint64]*conn.Pool),
 		},
 		splitCli:       splitCli,
 		workerPool:     workerPool,

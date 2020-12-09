@@ -36,10 +36,10 @@ const (
 	resetRetryTimes = 3
 )
 
-// ConnPool is a lazy pool of gRPC channels.
+// Pool is a lazy pool of gRPC channels.
 // When `Get` called, it lazily allocates new connection if connection not full.
 // If it's full, then it will return allocated channels round-robin.
-type ConnPool struct {
+type Pool struct {
 	mu sync.Mutex
 
 	conns   []*grpc.ClientConn
@@ -49,7 +49,7 @@ type ConnPool struct {
 	newConn func(ctx context.Context) (*grpc.ClientConn, error)
 }
 
-func (p *ConnPool) takeConns() (conns []*grpc.ClientConn) {
+func (p *Pool) takeConns() (conns []*grpc.ClientConn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.conns, conns = nil, p.conns
@@ -58,7 +58,7 @@ func (p *ConnPool) takeConns() (conns []*grpc.ClientConn) {
 }
 
 // Close closes the conn pool.
-func (p *ConnPool) Close() {
+func (p *Pool) Close() {
 	for _, c := range p.takeConns() {
 		if err := c.Close(); err != nil {
 			log.L().Warn("failed to close clientConn", zap.String("target", c.Target()), zap.Error(err))
@@ -67,7 +67,7 @@ func (p *ConnPool) Close() {
 }
 
 // Get tries to get an existing connection from the pool, or make a new one if the pool not full.
-func (p *ConnPool) Get(ctx context.Context) (*grpc.ClientConn, error) {
+func (p *Pool) Get(ctx context.Context) (*grpc.ClientConn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if len(p.conns) < p.cap {
@@ -84,9 +84,9 @@ func (p *ConnPool) Get(ctx context.Context) (*grpc.ClientConn, error) {
 	return conn, nil
 }
 
-// NewConnPool creates a new ConnPool by the specified conn factory function and capacity.
-func NewConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, error)) *ConnPool {
-	return &ConnPool{
+// NewConnPool creates a new Pool by the specified conn factory function and capacity.
+func NewConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, error)) *Pool {
+	return &Pool{
 		cap:     cap,
 		conns:   make([]*grpc.ClientConn, 0, cap),
 		newConn: newConn,
