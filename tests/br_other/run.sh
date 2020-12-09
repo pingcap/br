@@ -84,6 +84,10 @@ echo "pprof started..."
 
 curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": false'
 curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-pending-peer-count"' | grep "2147483647"
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep -E "^0$"
+curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep -E "^0$"
+
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --concurrency 4 || backup_fail=1
@@ -126,7 +130,8 @@ default_pd_values='{
   "max-merge-region-size": 20,
   "leader-schedule-limit": 4,
   "region-schedule-limit": 2048,
-  "max-snapshot-count":    3
+  "max-snapshot-count":    3,
+  "max-pending-peer-count": 16
 }'
 
 for key in $(echo $default_pd_values | jq 'keys[]'); do
