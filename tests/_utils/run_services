@@ -221,7 +221,7 @@ start_services_with_tls() {
           echo 'Failed to initialize TiKV cluster'
           exit 1
        fi
-       sleep 3
+       sleep 4
     done
 
     echo "Starting TiDB..."
