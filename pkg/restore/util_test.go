@@ -60,22 +60,33 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 
 func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 	filesOfTable1 := []*backup.File{
-		{Name: "table1-1.sst",
+		{
+			Name:     "table1-1.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
-			EndKey:   tablecodec.EncodeTablePrefix(1)},
-		{Name: "table1-2.sst",
+			EndKey:   tablecodec.EncodeTablePrefix(1),
+		},
+		{
+			Name:     "table1-2.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
-			EndKey:   tablecodec.EncodeTablePrefix(1)},
-		{Name: "table1-3.sst",
+			EndKey:   tablecodec.EncodeTablePrefix(1),
+		},
+		{
+			Name:     "table1-3.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
-			EndKey:   tablecodec.EncodeTablePrefix(1)}}
+			EndKey:   tablecodec.EncodeTablePrefix(1),
+		},
+	}
 	filesOfTable2 := []*backup.File{
-		{Name: "table2-1.sst",
+		{
+			Name:     "table2-1.sst",
 			StartKey: tablecodec.EncodeTablePrefix(2),
-			EndKey:   tablecodec.EncodeTablePrefix(2)},
-		{Name: "table2-2.sst",
+			EndKey:   tablecodec.EncodeTablePrefix(2),
+		},
+		{
+			Name:     "table2-2.sst",
 			StartKey: tablecodec.EncodeTablePrefix(2),
-			EndKey:   tablecodec.EncodeTablePrefix(2)},
+			EndKey:   tablecodec.EncodeTablePrefix(2),
+		},
 	}
 
 	result := restore.MapTableToFiles(append(filesOfTable2, filesOfTable1...))

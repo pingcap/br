@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -29,7 +30,7 @@ const (
 	flagNoSchema = "no-schema"
 
 	defaultRestoreConcurrency = 128
-	maxRestoreBatchSizeLimit  = 256
+	maxRestoreBatchSizeLimit  = 10240
 	defaultDDLConcurrency     = 16
 )
 
@@ -98,7 +99,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
@@ -106,16 +107,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	keepaliveCfg.PermitWithoutStream = true
 	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer client.Close()
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	client.SetRateLimit(cfg.RateLimit)
 	client.SetConcurrency(uint(cfg.Concurrency))
@@ -128,16 +129,16 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	client.SetSwitchModeInterval(cfg.SwitchModeInterval)
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if client.IsRawKvMode() {
@@ -151,7 +152,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	restoreTS, err := client.GetTS(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	sp := utils.BRServiceSafePoint{
@@ -191,7 +192,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	for _, db := range dbs {
 		err = client.CreateDatabase(ctx, db.Info)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -234,7 +235,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	restoreSchedulers, err := restorePreWork(ctx, client, mgr)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// Always run the post-work even on error, so we don't stuck in the import
 	// mode or emptied schedulers
@@ -245,7 +246,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if !client.IsIncremental() {
 		if err = client.ResetTS(ctx, cfg.PD); err != nil {
 			log.Error("reset pd TS failed", zap.Error(err))
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -266,7 +267,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	defer updateCh.Close()
 	sender, err := restore.NewTiKVSender(ctx, client, updateCh)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	manager := restore.NewBRContextManager(client)
 	batcher, afterRestoreStream := restore.NewBatcher(ctx, sender, manager, errCh)
@@ -292,7 +293,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	// If any error happened, return now.
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Set task summary to success status.
@@ -353,9 +354,9 @@ func filterRestoreFiles(
 
 // restorePreWork executes some prepare work before restore.
 // TODO make this function returns a restore post work.
-func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (utils.UndoFunc, error) {
+func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) (pdutil.UndoFunc, error) {
 	if client.IsOnline() {
-		return utils.Nop, nil
+		return pdutil.Nop, nil
 	}
 
 	// Switch TiKV cluster to import mode (adjust rocksdb configuration).
@@ -367,7 +368,7 @@ func restorePreWork(ctx context.Context, client *restore.Client, mgr *conn.Mgr) 
 // restorePostWork executes some post work after restore.
 // TODO: aggregate all lifetime manage methods into batcher's context manager field.
 func restorePostWork(
-	ctx context.Context, client *restore.Client, restoreSchedulers utils.UndoFunc,
+	ctx context.Context, client *restore.Client, restoreSchedulers pdutil.UndoFunc,
 ) {
 	if ctx.Err() != nil {
 		log.Warn("context canceled, try shutdown")
@@ -382,57 +383,6 @@ func restorePostWork(
 	if err := restoreSchedulers(ctx); err != nil {
 		log.Warn("failed to restore PD schedulers", zap.Error(err))
 	}
-}
-
-// RunRestoreTiflashReplica restores the replica of tiflash saved in the last restore.
-func RunRestoreTiflashReplica(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
-	defer summary.Summary(cmdName)
-	ctx, cancel := context.WithCancel(c)
-	defer cancel()
-
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
-	if err != nil {
-		return err
-	}
-	defer mgr.Close()
-
-	// Load saved backupmeta
-	_, _, backupMeta, err := ReadBackupMeta(ctx, utils.SavedMetaFile, &cfg.Config)
-	if err != nil {
-		return err
-	}
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return err
-	}
-	se, err := restore.NewDB(g, mgr.GetTiKV())
-	if err != nil {
-		return err
-	}
-
-	tables := make([]*utils.Table, 0)
-	for _, db := range dbs {
-		tables = append(tables, db.Tables...)
-	}
-	updateCh := g.StartProgress(
-		ctx, "RecoverTiflashReplica", int64(len(tables)), !cfg.LogProgress)
-	for _, t := range tables {
-		log.Info("get table", zap.Stringer("name", t.Info.Name),
-			zap.Int("replica", t.TiFlashReplicas))
-		if t.TiFlashReplicas > 0 {
-			err := se.AlterTiflashReplica(ctx, t, t.TiFlashReplicas)
-			if err != nil {
-				return err
-			}
-			updateCh.Inc()
-		}
-	}
-	updateCh.Close()
-	summary.CollectInt("recover tables", len(tables))
-
-	// Set task summary to success status.
-	summary.SetSuccessStatus(true)
-	return nil
 }
 
 // enableTiDBConfig tweaks some of configs of TiDB to make the restore progress go well.

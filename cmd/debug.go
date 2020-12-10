@@ -22,6 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -36,7 +37,7 @@ func NewDebugCommand() *cobra.Command {
 		SilenceUsage: false,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			utils.LogBRInfo()
 			task.LogArguments(c)
@@ -66,12 +67,12 @@ func newCheckSumCommand() *cobra.Command {
 
 			var cfg task.Config
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			dbs, err := utils.LoadBackupTables(backupMeta)
@@ -106,8 +107,8 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.Stringer("startKey", utils.WrapKey(file.GetStartKey())),
-						zap.Stringer("endKey", utils.WrapKey(file.GetEndKey())),
+						zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+						zap.Stringer("endKey", logutil.WrapKey(file.GetEndKey())),
 					)
 
 					var data []byte
@@ -151,22 +152,22 @@ func newBackupMetaCommand() *cobra.Command {
 
 			tableIDOffset, err := cmd.Flags().GetUint64("offset")
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			var cfg task.Config
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
 			if err != nil {
 				log.Error("read backupmeta failed", zap.Error(err))
-				return err
+				return errors.Trace(err)
 			}
 			dbs, err := utils.LoadBackupTables(backupMeta)
 			if err != nil {
 				log.Error("load tables failed", zap.Error(err))
-				return err
+				return errors.Trace(err)
 			}
 			files := make([]*backup.File, 0)
 			tables := make([]*utils.Table, 0)
@@ -186,7 +187,7 @@ func newBackupMetaCommand() *cobra.Command {
 					log.Error(
 						"file ranges overlapped",
 						zap.Stringer("out", out),
-						utils.ZapFile(file),
+						logutil.File(file),
 					)
 				}
 			}
@@ -225,7 +226,7 @@ func newBackupMetaCommand() *cobra.Command {
 			for _, file := range files {
 				err = restore.ValidateFileRewriteRule(file, rewriteRules)
 				if err != nil {
-					return err
+					return errors.Trace(err)
 				}
 			}
 			cmd.Println("Check backupmeta done")
@@ -309,11 +310,11 @@ func encodeBackupMetaCommand() *cobra.Command {
 
 			var cfg task.Config
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			_, s, err := task.GetStorage(ctx, &cfg)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			metaData, err := s.Read(ctx, utils.MetaJSONFile)
@@ -357,12 +358,12 @@ func setPDConfigCommand() *cobra.Command {
 
 			var cfg task.Config
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 
 			mgr, err := task.NewMgr(ctx, tidbGlue, cfg.PD, cfg.TLS, task.GetKeepalive(&cfg), cfg.CheckRequirements)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			defer mgr.Close()
 

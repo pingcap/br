@@ -29,6 +29,10 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
 
+	// https://github.com/pingcap/br/issues/603
+	// In aws the secret key may contain '/+=' and '+' has a special meaning in URL.
+	// Replace "+" by "%2B" here to avoid this problem.
+	rawURL = strings.ReplaceAll(rawURL, "+", "%2B")
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -61,7 +65,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		}
 		ExtractQueryParameters(u, &options.S3)
 		if err := options.S3.Apply(s3); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 
@@ -72,7 +76,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		}
 		ExtractQueryParameters(u, &options.GCS)
 		if err := options.GCS.apply(gcs); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_Gcs{Gcs: gcs}}, nil
 

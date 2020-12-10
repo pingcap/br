@@ -9,9 +9,6 @@ import (
 	// revive is a file-based linter
 	_ "github.com/mgechev/revive/lint"
 
-	// goimports formats Go code
-	_ "golang.org/x/tools/imports"
-
 	// overalls performs test coverage
 	_ "github.com/go-playground/overalls"
 
@@ -22,5 +19,8 @@ import (
 	_ "github.com/pingcap/failpoint"
 
 	// errdoc-gen generates errors.toml.
-	_ "github.com/pingcap/tiup/components/errdoc/errdoc-gen"
+	_ "github.com/pingcap/errors/errdoc-gen"
+
+	// A stricter gofmt
+	_ "mvdan.cc/gofumpt/gofumports"
 )

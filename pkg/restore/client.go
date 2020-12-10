@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -37,6 +38,8 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -79,6 +82,12 @@ type Client struct {
 	backend            *backup.StorageBackend
 	switchModeInterval time.Duration
 	switchCh           chan struct{}
+
+	// statHandler and dom are used for analyze table after restore.
+	// it will backup stats with #dump.DumpStatsToJSON
+	// and restore stats with #dump.LoadStatsFromJSON
+	statsHandler *handle.Handle
+	dom          *domain.Domain
 }
 
 // NewRestoreClient returns a new RestoreClient.
@@ -93,6 +102,16 @@ func NewRestoreClient(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	dom, err := g.GetDomain(store)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var statsHandle *handle.Handle
+	// tikv.Glue will return nil, tidb.Glue will return available domain
+	if dom != nil {
+		statsHandle = dom.StatsHandle()
+	}
 
 	return &Client{
 		pdClient:      pdClient,
@@ -101,6 +120,8 @@ func NewRestoreClient(
 		tlsConf:       tlsConf,
 		keepaliveConf: keepaliveConf,
 		switchCh:      make(chan struct{}),
+		dom:           dom,
+		statsHandler:  statsHandle,
 	}, nil
 }
 
@@ -114,7 +135,7 @@ func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend
 	var err error
 	rc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	rc.backend = backend
 	return nil
@@ -261,7 +282,7 @@ func (rc *Client) ResetTS(ctx context.Context, pdAddrs []string) error {
 	return utils.WithRetry(ctx, func() error {
 		idx := i % len(pdAddrs)
 		i++
-		return utils.ResetTS(pdAddrs[idx], restoreTS, rc.tlsConf)
+		return pdutil.ResetTS(ctx, pdAddrs[idx], restoreTS, rc.tlsConf)
 	}, newPDReqBackoffer())
 }
 
@@ -273,10 +294,10 @@ func (rc *Client) GetPlacementRules(ctx context.Context, pdAddrs []string) ([]pl
 		var err error
 		idx := i % len(pdAddrs)
 		i++
-		placementRules, err = utils.GetPlacementRules(pdAddrs[idx], rc.tlsConf)
-		return err
+		placementRules, err = pdutil.GetPlacementRules(ctx, pdAddrs[idx], rc.tlsConf)
+		return errors.Trace(err)
 	}, newPDReqBackoffer())
-	return placementRules, errRetry
+	return placementRules, errors.Trace(errRetry)
 }
 
 // GetDatabases returns all databases.
@@ -352,7 +373,7 @@ func (rc *Client) CreateTables(
 	select {
 	case err, ok := <-errCh:
 		if ok {
-			return nil, nil, err
+			return nil, nil, errors.Trace(err)
 		}
 	default:
 	}
@@ -374,12 +395,12 @@ func (rc *Client) createTable(
 		// we just take a small step here :<
 		err := db.CreateTable(ctx, table)
 		if err != nil {
-			return CreatedTable{}, err
+			return CreatedTable{}, errors.Trace(err)
 		}
 	}
 	newTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
 	if err != nil {
-		return CreatedTable{}, err
+		return CreatedTable{}, errors.Trace(err)
 	}
 	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 	et := CreatedTable{
@@ -416,7 +437,7 @@ func (rc *Client) GoCreateTables(
 				zap.Error(err),
 				zap.Stringer("db", t.DB.Name),
 				zap.Stringer("table", t.Info.Name))
-			return err
+			return errors.Trace(err)
 		}
 		log.Debug("table created and send to next",
 			zap.Int("output chan size", len(outCh)),
@@ -446,7 +467,7 @@ func (rc *Client) createTablesWithSoleDB(ctx context.Context,
 	tables []*utils.Table) error {
 	for _, t := range tables {
 		if err := createOneTable(ctx, rc.db, t); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	return nil
@@ -491,12 +512,12 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	if !rc.hasSpeedLimited && rc.rateLimit != 0 {
 		stores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.SkipTiFlash)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		for _, store := range stores {
 			err = rc.fileImporter.setDownloadSpeedLimit(ctx, store.GetId())
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 		rc.hasSpeedLimited = true
@@ -517,7 +538,7 @@ func (rc *Client) RestoreFiles(
 		if err == nil {
 			log.Info("Restore files",
 				zap.Duration("take", elapsed),
-				utils.ZapFiles(files))
+				logutil.Files(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
@@ -528,7 +549,7 @@ func (rc *Client) RestoreFiles(
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	for _, file := range files {
@@ -537,7 +558,7 @@ func (rc *Client) RestoreFiles(
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", utils.ZapFile(fileReplica),
+					log.Info("import file done", logutil.File(fileReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
@@ -550,7 +571,7 @@ func (rc *Client) RestoreFiles(
 			"restore files failed",
 			zap.Error(err),
 		)
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -591,7 +612,7 @@ func (rc *Client) RestoreRaw(
 			zap.String("endKey", hex.EncodeToString(endKey)),
 			zap.Error(err),
 		)
-		return err
+		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
@@ -720,7 +741,7 @@ func (rc *Client) GoValidateChecksum(
 				workers.ApplyOnErrorGroup(wg, func() error {
 					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
-						return err
+						return errors.Trace(err)
 					}
 					updateCh.Inc()
 					return nil
@@ -774,6 +795,17 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		)
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
+	if table.Stats != nil {
+		log.Info("start loads analyze after validate checksum",
+			zap.Stringer("db name", tbl.OldTable.DB.Name),
+			zap.Stringer("name", tbl.OldTable.Info.Name),
+			zap.Int64("old id", tbl.OldTable.Info.ID),
+			zap.Int64("new id", tbl.Table.ID),
+		)
+		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
+			log.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
+		}
+	}
 	return nil
 }
 
@@ -790,7 +822,7 @@ func (rc *Client) LoadRestoreStores(ctx context.Context) error {
 
 	stores, err := rc.pdClient.GetAllStores(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	for _, s := range stores {
 		if s.GetState() != metapb.StoreState_Up {
@@ -824,7 +856,7 @@ func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.Table
 	log.Info("start setting placement rules")
 	rule, err := rc.toolClient.GetPlacementRule(ctx, "pd", "default")
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	rule.Index = 100
 	rule.Override = true
@@ -839,7 +871,7 @@ func (rc *Client) SetupPlacementRules(ctx context.Context, tables []*model.Table
 		rule.EndKeyHex = hex.EncodeToString(codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1)))
 		err = rc.toolClient.SetPlacementRule(ctx, rule)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	log.Info("finish setting placement rules")
@@ -859,7 +891,7 @@ func (rc *Client) WaitPlacementSchedule(ctx context.Context, tables []*model.Tab
 		case <-ticker.C:
 			ok, progress, err := rc.checkRegions(ctx, tables)
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			if ok {
 				log.Info("finish waiting placement schedule")
@@ -878,7 +910,7 @@ func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (
 		end := codec.EncodeBytes([]byte{}, tablecodec.EncodeTablePrefix(t.ID+1))
 		ok, regionProgress, err := rc.checkRange(ctx, start, end)
 		if err != nil {
-			return false, "", err
+			return false, "", errors.Trace(err)
 		}
 		if !ok {
 			return false, fmt.Sprintf("table %v/%v, %s", i, len(tables), regionProgress), nil
@@ -890,7 +922,7 @@ func (rc *Client) checkRegions(ctx context.Context, tables []*model.TableInfo) (
 func (rc *Client) checkRange(ctx context.Context, start, end []byte) (bool, string, error) {
 	regions, err := rc.toolClient.ScanRegions(ctx, start, end, -1)
 	if err != nil {
-		return false, "", err
+		return false, "", errors.Trace(err)
 	}
 	for i, r := range regions {
 	NEXT_PEER:
