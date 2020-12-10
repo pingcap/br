@@ -205,6 +205,7 @@ start_services_with_tls() {
         bin/tikv-server \
             --pd "$PD_ADDR" \
             -A "$TIKV_ADDR$i" \
+            --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
             -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
