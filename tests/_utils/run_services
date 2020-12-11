@@ -37,11 +37,13 @@ cleanup_data() {
 }
 
 stop_services() {
-    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
-        # tiflash and br do not have "-server"
-        killall -9 $svc-server &> /dev/null || true
-        killall -9 $svc &> /dev/null || true
+    for svc in "br" "tidb-server" "tiflash" "TiFlashMain" "tikv-server" "pd-server"; do
+        killall -v -1 $svc || continue
+        sleep 1 # give some grace shutdown period
+        killall -v -9 $svc || continue
     done
+    sleep 1 # give some time for the OS to reap all processes
+    lsof -n -P -i :2379 -i :4000 -i :10080 -i :20161 -i :20162 -i :20163 -i :20181 -i :20182 -i :20183 -i :17000 -i :8125 || true
 }
 
 start_services() {
@@ -219,7 +221,7 @@ start_services_with_tls() {
           echo 'Failed to initialize TiKV cluster'
           exit 1
        fi
-       sleep 3
+       sleep 4
     done
 
     echo "Starting TiDB..."
