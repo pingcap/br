@@ -116,14 +116,14 @@ func (c *testClient) SplitRegion(
 }
 
 func (c *testClient) BatchSplitRegionsWithOrigin(
-	ctx context.Context, regionInfo *kv.RegionInfo, keys [][]byte,
-) (*kv.RegionInfo, []*kv.RegionInfo, error) {
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) (*RegionInfo, []*RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	newRegions := make([]*kv.RegionInfo, 0)
-	var region *kv.RegionInfo
+	newRegions := make([]*RegionInfo, 0)
+	var region *RegionInfo
 	for _, key := range keys {
-		var target *kv.RegionInfo
+		var target *RegionInfo
 		splitKey := codec.EncodeBytes([]byte{}, key)
 		for _, region := range c.regions {
 			if region.ContainsInterior(splitKey) {
@@ -133,7 +133,7 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 		if target == nil {
 			continue
 		}
-		newRegion := &kv.RegionInfo{
+		newRegion := &RegionInfo{
 			Region: &metapb.Region{
 				Peers:    target.Region.Peers,
 				Id:       c.nextRegionID,
@@ -152,13 +152,13 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 }
 
 func (c *testClient) BatchSplitRegions(
-	ctx context.Context, regionInfo *kv.RegionInfo, keys [][]byte,
-) ([]*kv.RegionInfo, error) {
+	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
+) ([]*RegionInfo, error) {
 	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
 	return newRegions, err
 }
 
-func (c *testClient) ScatterRegion(ctx context.Context, regionInfo *kv.RegionInfo) error {
+func (c *testClient) ScatterRegion(ctx context.Context, regionInfo *RegionInfo) error {
 	return nil
 }
 
@@ -168,11 +168,11 @@ func (c *testClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.Ge
 	}, nil
 }
 
-func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*kv.RegionInfo, error) {
+func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
 	infos := c.regionsInfo.ScanRange(key, endKey, limit)
-	regions := make([]*kv.RegionInfo, 0, len(infos))
+	regions := make([]*RegionInfo, 0, len(infos))
 	for _, info := range infos {
-		regions = append(regions, &kv.RegionInfo{
+		regions = append(regions, &RegionInfo{
 			Region: info.GetMeta(),
 			Leader: info.GetLeader(),
 		})
@@ -231,7 +231,7 @@ func initTestClient() *testClient {
 		StoreId: 1,
 	}
 	keys := [6]string{"", "aay", "bba", "bbh", "cca", ""}
-	regions := make(map[uint64]*kv.RegionInfo)
+	regions := make(map[uint64]*RegionInfo)
 	for i := uint64(1); i < 6; i++ {
 		startKey := []byte(keys[i-1])
 		if len(startKey) != 0 {
@@ -241,7 +241,7 @@ func initTestClient() *testClient {
 		if len(endKey) != 0 {
 			endKey = codec.EncodeBytes([]byte{}, endKey)
 		}
-		regions[i] = &kv.RegionInfo{
+		regions[i] = &RegionInfo{
 			Region: &metapb.Region{
 				Id:       i,
 				Peers:    peers,
@@ -279,7 +279,7 @@ func initRanges() []rtree.Range {
 	return ranges[:]
 }
 
-func initRewriteRules() *kv.RewriteRules {
+func initRewriteRules() *RewriteRules {
 	var rules [2]*import_sstpb.RewriteRule
 	rules[0] = &import_sstpb.RewriteRule{
 		OldKeyPrefix: []byte("aa"),
@@ -289,7 +289,7 @@ func initRewriteRules() *kv.RewriteRules {
 		OldKeyPrefix: []byte("cc"),
 		NewKeyPrefix: []byte("bb"),
 	}
-	return &kv.RewriteRules{
+	return &RewriteRules{
 		Table: rules[:],
 		Data:  rules[:],
 	}
