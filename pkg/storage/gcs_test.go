@@ -156,13 +156,14 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			PredefinedAcl:   "private",
 			CredentialsBlob: "",
 		}
-		_, err = newGCSStorage(ctx, gcs, &ExternalStorageOptions{
+		s, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
 			SendCredentials: false,
 			SkipCheckPath:   false,
 			HTTPClient:      server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
+		c.Assert(s.objectName("x"), Equals, "a/b/x")
 	}
 
 	{
@@ -180,5 +181,23 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			HTTPClient:      server.HTTPClient(),
 		})
 		c.Assert(err, NotNil)
+	}
+
+	{
+		gcs := &backup.GCS{
+			Bucket:          bucketName,
+			Prefix:          "a/b",
+			StorageClass:    "NEARLINE",
+			PredefinedAcl:   "private",
+			CredentialsBlob: "FakeCredentials",
+		}
+		s, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
+			SendCredentials: false,
+			SkipCheckPath:   false,
+			HTTPClient:      server.HTTPClient(),
+		})
+		c.Assert(err, IsNil)
+		c.Assert(gcs.CredentialsBlob, Equals, "")
+		c.Assert(s.objectName("x"), Equals, "a/b/x")
 	}
 }
