@@ -21,6 +21,10 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 )
 
+func TestT(t *testing.T) {
+	TestingT(t)
+}
+
 var _ = Suite(&testRestoreSchemaSuite{})
 
 type testRestoreSchemaSuite struct {
@@ -32,9 +36,6 @@ func (s *testRestoreSchemaSuite) SetUpSuite(c *C) {
 	s.mock, err = mock.NewCluster()
 	c.Assert(err, IsNil)
 	c.Assert(s.mock.Start(), IsNil)
-}
-func TestT(t *testing.T) {
-	TestingT(t)
 }
 
 func (s *testRestoreSchemaSuite) TearDownSuite(c *C) {

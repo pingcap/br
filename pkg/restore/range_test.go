@@ -50,19 +50,25 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 		Data:  dataRules,
 	}
 	ranges1 := []rtree.Range{
-		{StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
-			EndKey: append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...), Files: nil},
+		{
+			StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			EndKey:   append(tablecodec.GenTableRecordPrefix(1), []byte("bbb")...), Files: nil,
+		},
 	}
 	rs1, err := restore.SortRanges(ranges1, rewriteRules)
 	c.Assert(err, IsNil, Commentf("sort range1 failed: %v", err))
 	c.Assert(rs1, RangeEquals, []rtree.Range{
-		{StartKey: append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...),
-			EndKey: append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...), Files: nil},
+		{
+			StartKey: append(tablecodec.GenTableRecordPrefix(4), []byte("aaa")...),
+			EndKey:   append(tablecodec.GenTableRecordPrefix(4), []byte("bbb")...), Files: nil,
+		},
 	})
 
 	ranges2 := []rtree.Range{
-		{StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
-			EndKey: append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...), Files: nil},
+		{
+			StartKey: append(tablecodec.GenTableRecordPrefix(1), []byte("aaa")...),
+			EndKey:   append(tablecodec.GenTableRecordPrefix(2), []byte("bbb")...), Files: nil,
+		},
 	}
 	_, err = restore.SortRanges(ranges2, rewriteRules)
 	c.Assert(err, ErrorMatches, "table id mismatch.*")

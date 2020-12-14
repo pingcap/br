@@ -101,36 +101,36 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	keepaliveCfg := GetKeepalive(&cfg.Config)
 	keepaliveCfg.PermitWithoutStream = true
 	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer client.Close()
 
 	if err = client.SetStorage(ctx, u, false); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	err = client.LoadRestoreStores(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	logClient, err := restore.NewLogRestoreClient(
 		ctx, client, cfg.StartTS, cfg.EndTS, cfg.TableFilter, uint(cfg.Concurrency),
 		cfg.BatchFlushKVPairs, cfg.BatchFlushKVSize, cfg.BatchWriteKVPairs)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return logClient.RestoreLogData(ctx, mgr.GetDomain())

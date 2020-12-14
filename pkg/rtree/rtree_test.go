@@ -179,7 +179,8 @@ func BenchmarkRangeTreeUpdate(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		item := rtree.Range{
 			StartKey: []byte(fmt.Sprintf("%20d", i)),
-			EndKey:   []byte(fmt.Sprintf("%20d", i+1))}
+			EndKey:   []byte(fmt.Sprintf("%20d", i+1)),
+		}
 		rangeTree.Update(item)
 	}
 }

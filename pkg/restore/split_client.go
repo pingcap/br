@@ -95,7 +95,7 @@ func (c *pdClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store,
 	}
 	store, err := c.client.GetStore(ctx, storeID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	c.storeCache[storeID] = store
 	return store, nil
@@ -104,7 +104,7 @@ func (c *pdClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store,
 func (c *pdClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, error) {
 	region, err := c.client.GetRegion(ctx, key)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	if region == nil {
 		return nil, nil
@@ -118,7 +118,7 @@ func (c *pdClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, erro
 func (c *pdClient) GetRegionByID(ctx context.Context, regionID uint64) (*RegionInfo, error) {
 	region, err := c.client.GetRegionByID(ctx, regionID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	if region == nil {
 		return nil, nil
@@ -142,11 +142,11 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	storeID := peer.GetStoreId()
 	store, err := c.GetStore(ctx, storeID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	conn, err := grpc.Dial(store.GetAddress(), grpc.WithInsecure())
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	defer conn.Close()
 
@@ -160,7 +160,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		SplitKey: key,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	if resp.RegionError != nil {
 		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
@@ -310,11 +310,11 @@ func (c *pdClient) sendSplitRegionRequest(
 				)
 				continue
 			}
-			return nil, splitErrors
+			return nil, errors.Trace(splitErrors)
 		}
 		return resp, nil
 	}
-	return nil, splitErrors
+	return nil, errors.Trace(splitErrors)
 }
 
 func (c *pdClient) BatchSplitRegions(
@@ -322,7 +322,7 @@ func (c *pdClient) BatchSplitRegions(
 ) ([]*RegionInfo, error) {
 	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	regions := resp.GetRegions()
@@ -361,7 +361,7 @@ func (c *pdClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetO
 func (c *pdClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
 	regions, leaders, err := c.client.ScanRegions(ctx, key, endKey, limit)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	regionInfos := make([]*RegionInfo, 0, len(regions))
 

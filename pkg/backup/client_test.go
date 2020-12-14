@@ -111,8 +111,8 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	high := kv.Key(codec.EncodeInt(nil, math.MaxInt64)).PrefixNext()
 	cases := []Case{
 		{ids: []int64{1}, trs: []kv.KeyRange{
-			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)}},
-		},
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+		}},
 		{ids: []int64{1, 2, 3}, trs: []kv.KeyRange{
 			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
 			{StartKey: tablecodec.EncodeRowKey(2, low), EndKey: tablecodec.EncodeRowKey(2, high)},

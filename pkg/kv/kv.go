@@ -116,7 +116,7 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 		default:
 			str, err = datum.ToString()
 			if err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 		_ = encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
@@ -176,7 +176,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, errors.Trace(err)
 		}
 
 		record = append(record, value)
@@ -204,7 +204,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 			value, err = types.NewIntDatum(rowID), nil
 		}
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, errors.Trace(err)
 		}
 		record = append(record, value)
 		_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
@@ -256,7 +256,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, errors.Trace(err)
 		}
 		record = append(record, value)
 	}
