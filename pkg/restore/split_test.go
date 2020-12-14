@@ -27,7 +27,7 @@ type testClient struct {
 	nextRegionID uint64
 }
 
-func newTestClient(
+func NewTestClient(
 	stores map[uint64]*metapb.Store,
 	regions map[uint64]*RegionInfo,
 	nextRegionID uint64,
@@ -254,7 +254,7 @@ func initTestClient() *testClient {
 	stores[1] = &metapb.Store{
 		Id: 1,
 	}
-	return newTestClient(stores, regions, 6)
+	return NewTestClient(stores, regions, 6)
 }
 
 // range: [aaa, aae), [aae, aaz), [ccd, ccf), [ccf, ccj)
