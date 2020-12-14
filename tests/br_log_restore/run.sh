@@ -97,7 +97,11 @@ run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 # sleep wait cdc log sync to storage
 # TODO find another way to check cdc log has synced
 # need wait more time for cdc log synced, because we add some ddl.
+<<<<<<< HEAD
 sleep 50
+=======
+sleep 80
+>>>>>>> 948c362... gcs: fix wrong path of gcs prefix (#647)
 
 # remove the change feed, because we don't want to record the drop ddl.
 echo "Y" | bin/cdc cli unsafe reset --pd=http://$PD_ADDR
