@@ -6,7 +6,7 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
-	"strings"
+	"path"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
@@ -86,10 +86,7 @@ type gcsStorage struct {
 }
 
 func (s *gcsStorage) objectName(name string) string {
-	if strings.HasSuffix(s.gcs.Prefix, "/") {
-		return s.gcs.Prefix + name
-	}
-	return s.gcs.Prefix + "/" + name
+	return path.Join(s.gcs.Prefix, name)
 }
 
 // Write file to storage.
