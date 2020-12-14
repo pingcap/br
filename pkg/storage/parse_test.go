@@ -87,7 +87,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	gcs := s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket2")
-	c.Assert(gcs.Prefix, Equals, "prefix/")
+	c.Assert(gcs.Prefix, Equals, "prefix")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
@@ -103,7 +103,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	gcs = s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket")
-	c.Assert(gcs.Prefix, Equals, "more/prefix/")
+	c.Assert(gcs.Prefix, Equals, "more/prefix")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCredentials")
 
@@ -114,7 +114,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	gcs = s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket4")
-	c.Assert(gcs.Prefix, Equals, "backup/")
+	c.Assert(gcs.Prefix, Equals, "backup")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCreds2")
 
 	s, err = ParseBackend("/test", nil)
