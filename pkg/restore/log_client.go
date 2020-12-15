@@ -398,7 +398,12 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 	iter := kv.NewSimpleKeyIter(newKvs)
 	remainRange := newSyncdRanges()
 	for {
-		l.ingester.writeAndIngestByRange(ctx, iter, remainRange)
+		err := l.ingester.writeAndIngestByRange(ctx, iter, remainRange)
+		if err != nil {
+			log.Info("writeRows failed", zap.Error(err))
+			return errors.Trace(err)
+		}
+
 		remain := remainRange.take()
 		if len(remain) == 0 {
 			break

@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/utils"
@@ -415,7 +416,7 @@ func (i *Ingester) writeToTiKV(
 		log.L().Warn("write to tikv no leader", zap.Reflect("region", region),
 			zap.Uint64("leader_id", leaderID), zap.Reflect("meta", meta),
 			zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size))
-		return nil, nil, errors.Errorf("write to tikv with no leader returned, region '%d', leader: %d",
+		return nil, nil, errors.Annotatef(berrors.ErrPDLeaderNotFound, "write to tikv with no leader returned, region '%d', leader: %d",
 			region.Region.Id, leaderID)
 	}
 
@@ -460,7 +461,7 @@ func (i *Ingester) ingest(ctx context.Context, meta *sst.SSTMeta, region *Region
 	}
 	resp, err := cli.Ingest(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return resp, nil
 }
@@ -471,7 +472,7 @@ func (i *Ingester) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.
 
 	conn, err := i.getGrpcConnLocked(ctx, peer.GetStoreId())
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return sst.NewImportSSTClient(conn), nil
 }
@@ -529,7 +530,7 @@ func (i *Ingester) isIngestRetryable(
 				return retryNone, nil, errors.Trace(err)
 			}
 		}
-		return retryIngest, newRegion, errors.Errorf("not leader: %s", errPb.GetMessage())
+		return retryIngest, newRegion, errors.Annotatef(berrors.ErrKVNotLeader, "not leader: %s", errPb.GetMessage())
 	case errPb.EpochNotMatch != nil:
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
 			var currentRegion *metapb.Region
@@ -559,14 +560,14 @@ func (i *Ingester) isIngestRetryable(
 		if newRegion != nil {
 			retryTy = retryWrite
 		}
-		return retryTy, newRegion, errors.Errorf("epoch not match: %s", errPb.GetMessage())
+		return retryTy, newRegion, errors.Annotatef(berrors.ErrKVEpochNotMatch, "epoch not match: %s", errPb.GetMessage())
 	case strings.Contains(errPb.Message, "raft: proposal dropped"):
 		// TODO: we should change 'Raft raft: proposal dropped' to a error type like 'NotLeader'
 		newRegion, err = getRegion()
 		if err != nil {
 			return retryNone, nil, errors.Trace(err)
 		}
-		return retryIngest, newRegion, errors.New(errPb.GetMessage())
+		return retryIngest, newRegion, errors.Annotate(berrors.ErrKVUnknown, errPb.GetMessage())
 	}
-	return retryNone, nil, errors.Errorf("non-retryable error: %s", resp.GetError().GetMessage())
+	return retryNone, nil, errors.Annotatef(berrors.ErrKVUnknown, "non-retryable error: %s", resp.GetError().GetMessage())
 }
