@@ -36,20 +36,38 @@ const (
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
+
+	// set max-pending-peer-count to a large value to avoid scatter region failed.
+	maxPendingPeerUnlimited uint64 = math.MaxInt32
 )
 
-type pauseConfigExpectation uint8
+// pauseConfigGenerator generate a config value according to store count and current value.
+type pauseConfigGenerator func(int, interface{}) interface{}
 
-const (
-	// pauseConfigSetZero sets the config to 0.
-	pauseConfigSetZero pauseConfigExpectation = iota
-	// pauseConfigSetMulStoresCount multiplies the existing value by
-	// number of stores. The value is limited to 40, as larger value
-	// may make the cluster unstable.
-	pauseConfigMulStoresCount
-	// pauseConfigSetFalse sets the config to "false".
-	pauseConfigSetFalse
-)
+// zeroPauseConfig sets the config to 0.
+func zeroPauseConfig(int, interface{}) interface{} {
+	return 0
+}
+
+// pauseConfigMulStores multiplies the existing value by
+// number of stores. The value is limited to 40, as larger value
+// may make the cluster unstable.
+func pauseConfigMulStores(stores int, raw interface{}) interface{} {
+	rawCfg := raw.(float64)
+	return math.Min(40, rawCfg*float64(stores))
+}
+
+// pauseConfigFalse sets the config to "false".
+func pauseConfigFalse(int, interface{}) interface{} {
+	return "false"
+}
+
+// constConfigGeneratorBuilder build a pauseConfigGenerator based on a given const value.
+func constConfigGeneratorBuilder(val interface{}) pauseConfigGenerator {
+	return func(int, interface{}) interface{} {
+		return val
+	}
+}
 
 // clusterConfig represents a set of scheduler whose config have been modified
 // along with their original config.
@@ -79,17 +97,18 @@ var (
 		"shuffle-region-scheduler":     {},
 		"shuffle-hot-region-scheduler": {},
 	}
-	expectPDCfg = map[string]pauseConfigExpectation{
-		"max-merge-region-keys": pauseConfigSetZero,
-		"max-merge-region-size": pauseConfigSetZero,
+	expectPDCfg = map[string]pauseConfigGenerator{
+		"max-merge-region-keys": zeroPauseConfig,
+		"max-merge-region-size": zeroPauseConfig,
 		// TODO "leader-schedule-limit" and "region-schedule-limit" don't support ttl for now,
 		// but we still need set these config for compatible with old version.
 		// we need wait for https://github.com/tikv/pd/pull/3131 merged.
 		// see details https://github.com/pingcap/br/pull/592#discussion_r522684325
-		"leader-schedule-limit":       pauseConfigMulStoresCount,
-		"region-schedule-limit":       pauseConfigMulStoresCount,
-		"max-snapshot-count":          pauseConfigMulStoresCount,
-		"enable-location-replacement": pauseConfigSetFalse,
+		"leader-schedule-limit":       pauseConfigMulStores,
+		"region-schedule-limit":       pauseConfigMulStores,
+		"max-snapshot-count":          pauseConfigMulStores,
+		"enable-location-replacement": pauseConfigFalse,
+		"max-pending-peer-count":      constConfigGeneratorBuilder(maxPendingPeerUnlimited),
 	}
 
 	// defaultPDCfg find by https://github.com/tikv/pd/blob/master/conf/config.toml.
@@ -100,6 +119,7 @@ var (
 		"region-schedule-limit":       2048,
 		"max-snapshot-count":          3,
 		"enable-location-replacement": "true",
+		"max-pending-peer-count":      16,
 	}
 )
 
@@ -539,23 +559,13 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo UndoFunc, err
 		return
 	}
 	disablePDCfg := make(map[string]interface{})
-	for cfgKey, cfgVal := range expectPDCfg {
+	for cfgKey, cfgValFunc := range expectPDCfg {
 		value, ok := scheduleCfg[cfgKey]
 		if !ok {
 			// Ignore non-exist config.
 			continue
 		}
-		switch cfgVal {
-		case pauseConfigSetZero:
-			disablePDCfg[cfgKey] = 0
-		case pauseConfigSetFalse:
-			// this has to be a string instead of a boolean otherwise
-			// pd will return unmarshal string failure.
-			disablePDCfg[cfgKey] = "false"
-		case pauseConfigMulStoresCount:
-			limit := int(value.(float64))
-			disablePDCfg[cfgKey] = math.Min(40, float64(limit*len(stores)))
-		}
+		disablePDCfg[cfgKey] = cfgValFunc(len(stores), value)
 	}
 	undo = p.makeUndoFunctionByConfig(clusterConfig{scheduleCfg: scheduleCfg})
 	log.Debug("saved PD config", zap.Any("config", scheduleCfg))

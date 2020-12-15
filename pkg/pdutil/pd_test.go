@@ -53,6 +53,7 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 		"max-merge-region-keys":       0,
 		"max-snapshot":                1,
 		"enable-location-replacement": false,
+		"max-pending-peer-count":      uint64(16),
 	}
 	_, err = pdController.pauseSchedulersAndConfigWith(ctx, []string{}, cfg, mock)
 	c.Assert(err, ErrorMatches, "failed to update PD.*")
