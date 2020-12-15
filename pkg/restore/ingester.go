@@ -177,13 +177,14 @@ WriteAndIngest:
 
 		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
+			regionReplica := region
 			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
 			var rg *Range
 			i.workerPool.ApplyOnErrorGroup(eg, func() error {
-				rg, err = i.writeAndIngestPairs(ectx, iter, region, pairStart, pairEnd)
+				rg, err = i.writeAndIngestPairs(ectx, iter, regionReplica, pairStart, pairEnd)
 				return err
 			})
 			if eg.Wait() != nil {
@@ -374,7 +375,7 @@ func (i *Ingester) writeToTiKV(
 			for i := range clients {
 				requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs[:count]
 				if err := clients[i].Send(requests[i]); err != nil {
-					return nil, nil, err
+					return nil, nil, errors.Trace(err)
 				}
 			}
 			count = 0
@@ -390,7 +391,7 @@ func (i *Ingester) writeToTiKV(
 		for i := range clients {
 			requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs[:count]
 			if err := clients[i].Send(requests[i]); err != nil {
-				return nil, nil, err
+				return nil, nil, errors.Trace(err)
 			}
 		}
 	}
@@ -402,7 +403,7 @@ func (i *Ingester) writeToTiKV(
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
 		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
-			return nil, nil, closeErr
+			return nil, nil, errors.Trace(closeErr)
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
 			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))

@@ -43,7 +43,6 @@ type Pool struct {
 	mu sync.Mutex
 
 	conns   []*grpc.ClientConn
-	name    string
 	next    int
 	cap     int
 	newConn func(ctx context.Context) (*grpc.ClientConn, error)

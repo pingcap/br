@@ -397,7 +397,15 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 
 	iter := kv.NewSimpleKeyIter(newKvs)
 	remainRange := newSyncdRanges()
-	return l.ingester.writeAndIngestByRange(ctx, iter, remainRange)
+	for {
+		l.ingester.writeAndIngestByRange(ctx, iter, remainRange)
+		remain := remainRange.take()
+		if len(remain) == 0 {
+			break
+		}
+		log.Info("writeRows ranges unfinished, retry it", zap.Int("remain ranges", len(remain)))
+	}
+	return nil
 }
 
 func (l *LogClient) reloadTableMeta(dom *domain.Domain, tableID int64, item *cdclog.SortItem) error {
