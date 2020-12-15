@@ -35,8 +35,8 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/utils"
 )
