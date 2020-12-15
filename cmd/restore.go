@@ -3,6 +3,7 @@
 package cmd
 
 import (
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -17,11 +18,11 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
-		return err
+		return errors.Trace(err)
 	}
 	if err := task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to restore", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -30,11 +31,11 @@ func runLogRestoreCommand(command *cobra.Command) error {
 	cfg := task.LogRestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
-		return err
+		return errors.Trace(err)
 	}
 	if err := task.RunLogRestore(GetDefaultContext(), tidbGlue, &cfg); err != nil {
 		log.Error("failed to restore", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -45,25 +46,11 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
-		return err
+		return errors.Trace(err)
 	}
 	if err := task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
 		log.Error("failed to restore raw kv", zap.Error(err))
-		return err
-	}
-	return nil
-}
-
-func runRestoreTiflashReplicaCommand(command *cobra.Command, cmdName string) error {
-	cfg := task.RestoreConfig{Config: task.Config{LogProgress: HasLogFile()}}
-	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
-		command.SilenceUsage = false
-		return err
-	}
-
-	if err := task.RunRestoreTiflashReplica(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
-		log.Error("failed to restore tiflash replica", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -76,7 +63,7 @@ func NewRestoreCommand() *cobra.Command {
 		SilenceUsage: true,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			utils.LogBRInfo()
 			task.LogArguments(c)
@@ -91,7 +78,6 @@ func NewRestoreCommand() *cobra.Command {
 		newTableRestoreCommand(),
 		newLogRestoreCommand(),
 		newRawRestoreCommand(),
-		newTiflashReplicaRestoreCommand(),
 	)
 	task.DefineRestoreFlags(command.PersistentFlags())
 
@@ -148,18 +134,6 @@ func newLogRestoreCommand() *cobra.Command {
 	}
 	task.DefineFilterFlags(command)
 	task.DefineLogRestoreFlags(command)
-	return command
-}
-
-func newTiflashReplicaRestoreCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:   "tiflash-replica",
-		Short: "restore the tiflash replica removed by a failed restore of the older version BR",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runRestoreTiflashReplicaCommand(cmd, "Restore TiFlash Replica")
-		},
-	}
 	return command
 }
 

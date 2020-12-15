@@ -131,7 +131,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Array("keys", logutil.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Any("region", region), zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
@@ -170,7 +170,7 @@ SplitRegions:
 func (rs *RegionSplitter) hasRegion(ctx context.Context, regionID uint64) (bool, error) {
 	regionInfo, err := rs.client.GetRegionByID(ctx, regionID)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 	return regionInfo != nil, nil
 }
@@ -178,7 +178,7 @@ func (rs *RegionSplitter) hasRegion(ctx context.Context, regionID uint64) (bool,
 func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID uint64) (bool, error) {
 	resp, err := rs.client.GetOperator(ctx, regionID)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 	// Heartbeat may not be sent to PD
 	if respErr := resp.GetHeader().GetError(); respErr != nil {
@@ -247,7 +247,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 ) ([]*RegionInfo, error) {
 	newRegions, err := rs.client.BatchSplitRegions(ctx, regionInfo, keys)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	for _, region := range newRegions {
 		// Wait for a while until the regions successfully split.
