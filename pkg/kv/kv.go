@@ -95,7 +95,7 @@ func (s *SimplePairIter) Last() []byte {
 
 // Valid implements PairIter.Valid
 func (s *SimplePairIter) Valid() bool {
-	return s.index <= len(s.pairs)
+	return s.index < len(s.pairs)
 }
 
 // Next implements PairIter.Next
