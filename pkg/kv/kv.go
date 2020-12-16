@@ -57,7 +57,7 @@ type PairIter interface {
 // SimplePairIter represents simple pair iterator.
 // which is used for log restore.
 type SimplePairIter struct {
-	mu sync.Mutex
+	mu    sync.Mutex
 	index int
 	pairs Pairs
 }

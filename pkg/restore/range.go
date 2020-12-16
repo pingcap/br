@@ -22,8 +22,8 @@ import (
 // Range record start and end key for localStoreDir.DB
 // so we can write it to tikv in streaming
 type Range struct {
-	Start  []byte
-	End    []byte
+	Start []byte
+	End   []byte
 }
 
 type syncdRanges struct {

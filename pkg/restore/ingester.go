@@ -59,8 +59,8 @@ const (
 )
 
 type gRPCConns struct {
-	mu    sync.Mutex
-	conns map[uint64]*conn.Pool
+	mu             sync.Mutex
+	conns          map[uint64]*conn.Pool
 	tcpConcurrency int
 }
 
@@ -94,11 +94,11 @@ func NewIngester(splitCli SplitClient, ingestConcurrency uint, tcpConcurrency in
 	return &Ingester{
 		conns: gRPCConns{
 			tcpConcurrency: tcpConcurrency,
-			conns: make(map[uint64]*conn.Pool),
+			conns:          make(map[uint64]*conn.Pool),
 		},
-		splitCli:       splitCli,
-		workerPool:     workerPool,
-		TS:             commitTS,
+		splitCli:   splitCli,
+		workerPool: workerPool,
+		TS:         commitTS,
 	}
 }
 
