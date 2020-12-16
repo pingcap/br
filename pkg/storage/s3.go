@@ -550,7 +550,9 @@ func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 		maxCnt = int64(len(p))
 	}
 	n, err = r.reader.Read(p[:maxCnt])
-	if err != nil && errors.Cause(err) != io.EOF && r.retryCnt < maxErrorRetries {
+	// TODO: maybe we should use !errors.Is(err, io.EOF) here to avoid error lint, but currently, pingcap/errors
+	// doesn't implement this method yet.
+	if err != nil && errors.Cause(err) != io.EOF && r.retryCnt < maxErrorRetries { //nolint:errorlint
 		// if can retry, reopen a new reader and try read again
 		end := r.rangeInfo.End + 1
 		if end == r.rangeInfo.Size {
