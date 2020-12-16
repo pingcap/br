@@ -19,10 +19,11 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/spf13/pflag"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
+	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 )
@@ -38,6 +39,8 @@ const (
 	notFound             = "NotFound"
 	// number of retries to make of operations.
 	maxRetries = 6
+	// max number of retries when meets error
+	maxErrorRetries = 3
 
 	// the maximum number of byte to read for seek.
 	maxSkipOffsetByRead = 1 << 16 // 64KB
@@ -536,7 +539,8 @@ type s3ObjectReader struct {
 	// reader context used for implement `io.Seek`
 	// currently, lightning depends on package `xitongsys/parquet-go` to read parquet file and it needs `io.Seeker`
 	// See: https://github.com/xitongsys/parquet-go/blob/207a3cee75900b2b95213627409b7bac0f190bb3/source/source.go#L9-L10
-	ctx context.Context
+	ctx      context.Context
+	retryCnt int
 }
 
 // Read implement the io.Reader interface.
@@ -546,6 +550,26 @@ func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 		maxCnt = int64(len(p))
 	}
 	n, err = r.reader.Read(p[:maxCnt])
+	// TODO: maybe we should use !errors.Is(err, io.EOF) here to avoid error lint, but currently, pingcap/errors
+	// doesn't implement this method yet.
+	if err != nil && errors.Cause(err) != io.EOF && r.retryCnt < maxErrorRetries { //nolint:errorlint
+		// if can retry, reopen a new reader and try read again
+		end := r.rangeInfo.End + 1
+		if end == r.rangeInfo.Size {
+			end = 0
+		}
+		_ = r.reader.Close()
+
+		newReader, _, err1 := r.storage.open(r.ctx, r.name, r.pos, end)
+		if err1 != nil {
+			log.Warn("open new s3 reader failed", zap.String("file", r.name), zap.Error(err1))
+			return
+		}
+		r.reader = newReader
+		r.retryCnt++
+		n, err = r.reader.Read(p[:maxCnt])
+	}
+
 	r.pos += int64(n)
 	return
 }
