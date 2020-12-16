@@ -244,7 +244,9 @@ func (c *pdClient) sendSplitRegionRequest(
 	var splitErrors error
 	for i := 0; i < splitRegionMaxRetryTime; i++ {
 		var peer *metapb.Peer
-		if regionInfo.Leader != nil {
+		// scanRegions may return empty Leader in https://github.com/tikv/pd/blob/v4.0.8/server/grpc_service.go#L524
+		// so wee also need check Leader.Id != 0
+		if regionInfo.Leader != nil && regionInfo.Leader.Id != 0 {
 			peer = regionInfo.Leader
 		} else {
 			if len(regionInfo.Region.Peers) == 0 {

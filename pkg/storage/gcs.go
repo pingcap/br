@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"io/ioutil"
+	"path"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
@@ -84,9 +85,13 @@ type gcsStorage struct {
 	bucket *storage.BucketHandle
 }
 
+func (s *gcsStorage) objectName(name string) string {
+	return path.Join(s.gcs.Prefix, name)
+}
+
 // Write file to storage.
 func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error {
-	object := s.gcs.Prefix + name
+	object := s.objectName(name)
 	wc := s.bucket.Object(object).NewWriter(ctx)
 	wc.StorageClass = s.gcs.StorageClass
 	wc.PredefinedACL = s.gcs.PredefinedAcl
@@ -99,7 +104,7 @@ func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error 
 
 // Read storage file.
 func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
-	object := s.gcs.Prefix + name
+	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -113,7 +118,7 @@ func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 
 // FileExists return true if file exists.
 func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) {
-	object := s.gcs.Prefix + name
+	object := s.objectName(name)
 	_, err := s.bucket.Object(object).Attrs(ctx)
 	if err != nil {
 		if errors.Cause(err) == storage.ErrObjectNotExist { // nolint:errorlint
