@@ -73,6 +73,7 @@ func (pool *WorkerPool) ApplyWithIDInErrorGroup(eg *errgroup.Group, fn func(id u
 	})
 }
 
+// ApplyWorker apply a worker.
 func (pool *WorkerPool) ApplyWorker() *Worker {
 	var worker *Worker
 	select {
@@ -84,6 +85,7 @@ func (pool *WorkerPool) ApplyWorker() *Worker {
 	return worker
 }
 
+// RecycleWorker recycle a worker.
 func (pool *WorkerPool) RecycleWorker(worker *Worker) {
 	if worker == nil {
 		panic("invalid restore worker")
