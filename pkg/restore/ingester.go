@@ -30,7 +30,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/keepalive"
@@ -182,13 +181,10 @@ WriteAndIngest:
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
-			var rg *Range
-			eg, ectx := errgroup.WithContext(ctx)
-			i.workerPool.ApplyOnErrorGroup(eg, func() error {
-				rg, err = i.writeAndIngestPairs(ectx, iter, regionReplica, pairStart, pairEnd)
-				return err
-			})
-			if eg.Wait() != nil {
+			w := i.workerPool.ApplyWorker()
+			rg, err := i.writeAndIngestPairs(ctx, iter, regionReplica, pairStart, pairEnd)
+			i.workerPool.RecycleWorker(w)
+			if err != nil {
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey)
 				// if we have at least succeeded one region, retry without increasing the retry count
 				if bytes.Compare(regionStart, pairStart) > 0 {

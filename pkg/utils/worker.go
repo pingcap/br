@@ -39,41 +39,41 @@ func NewWorkerPool(limit uint, name string) *WorkerPool {
 
 // Apply executes a task.
 func (pool *WorkerPool) Apply(fn taskFunc) {
-	worker := pool.apply()
+	worker := pool.ApplyWorker()
 	go func() {
-		defer pool.recycle(worker)
+		defer pool.RecycleWorker(worker)
 		fn()
 	}()
 }
 
 // ApplyWithID execute a task and provides it with the worker ID.
 func (pool *WorkerPool) ApplyWithID(fn identifiedTaskFunc) {
-	worker := pool.apply()
+	worker := pool.ApplyWorker()
 	go func() {
-		defer pool.recycle(worker)
+		defer pool.RecycleWorker(worker)
 		fn(worker.ID)
 	}()
 }
 
 // ApplyOnErrorGroup executes a task in an errorgroup.
 func (pool *WorkerPool) ApplyOnErrorGroup(eg *errgroup.Group, fn func() error) {
-	worker := pool.apply()
+	worker := pool.ApplyWorker()
 	eg.Go(func() error {
-		defer pool.recycle(worker)
+		defer pool.RecycleWorker(worker)
 		return fn()
 	})
 }
 
 // ApplyWithIDInErrorGroup executes a task in an errorgroup and provides it with the worker ID.
 func (pool *WorkerPool) ApplyWithIDInErrorGroup(eg *errgroup.Group, fn func(id uint64) error) {
-	worker := pool.apply()
+	worker := pool.ApplyWorker()
 	eg.Go(func() error {
-		defer pool.recycle(worker)
+		defer pool.RecycleWorker(worker)
 		return fn(worker.ID)
 	})
 }
 
-func (pool *WorkerPool) apply() *Worker {
+func (pool *WorkerPool) ApplyWorker() *Worker {
 	var worker *Worker
 	select {
 	case worker = <-pool.workers:
@@ -84,7 +84,7 @@ func (pool *WorkerPool) apply() *Worker {
 	return worker
 }
 
-func (pool *WorkerPool) recycle(worker *Worker) {
+func (pool *WorkerPool) RecycleWorker(worker *Worker) {
 	if worker == nil {
 		panic("invalid restore worker")
 	}

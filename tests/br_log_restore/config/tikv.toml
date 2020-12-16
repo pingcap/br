@@ -1,0 +1,3 @@
+# config of tikv
+[cdc]
+hibernate_regions_compatible=false
