@@ -24,7 +24,6 @@ import (
 type Range struct {
 	Start  []byte
 	End    []byte
-	Length int
 }
 
 type syncdRanges struct {

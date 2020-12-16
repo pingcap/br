@@ -62,6 +62,7 @@ const (
 type gRPCConns struct {
 	mu    sync.Mutex
 	conns map[uint64]*conn.Pool
+	tcpConcurrency int
 }
 
 func (conns *gRPCConns) Close() {
@@ -86,7 +87,6 @@ type Ingester struct {
 
 	batchWriteKVPairs int
 	regionSplitSize   int64
-	tcpConcurrency    int
 }
 
 // NewIngester creates Ingester.
@@ -94,11 +94,11 @@ func NewIngester(splitCli SplitClient, ingestConcurrency uint, tcpConcurrency in
 	workerPool := utils.NewWorkerPool(ingestConcurrency, "ingest worker")
 	return &Ingester{
 		conns: gRPCConns{
+			tcpConcurrency: tcpConcurrency,
 			conns: make(map[uint64]*conn.Pool),
 		},
 		splitCli:       splitCli,
 		workerPool:     workerPool,
-		tcpConcurrency: tcpConcurrency,
 		TS:             commitTS,
 	}
 }
@@ -479,7 +479,7 @@ func (i *Ingester) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.
 
 func (i *Ingester) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
 	if _, ok := i.conns.conns[storeID]; !ok {
-		i.conns.conns[storeID] = conn.NewConnPool(i.tcpConcurrency, func(ctx context.Context) (*grpc.ClientConn, error) {
+		i.conns.conns[storeID] = conn.NewConnPool(i.conns.tcpConcurrency, func(ctx context.Context) (*grpc.ClientConn, error) {
 			return i.makeConn(ctx, storeID)
 		})
 	}
