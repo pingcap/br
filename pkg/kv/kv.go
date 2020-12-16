@@ -62,7 +62,7 @@ type SimplePairIter struct {
 // NewSimpleKeyIter creates SimplePairIter.
 func NewSimpleKeyIter(pairs Pairs) PairIter {
 	return &SimplePairIter{
-		index: 0,
+		index: -1,
 		pairs: pairs,
 	}
 }
@@ -82,7 +82,8 @@ func (s *SimplePairIter) First() []byte {
 	if s.IsEmpty() {
 		return nil
 	}
-	return s.pairs[0].Key
+	s.index = 0
+	return s.pairs[s.index].Key
 }
 
 // Last implements PairIter.Last
@@ -90,11 +91,15 @@ func (s *SimplePairIter) Last() []byte {
 	if s.IsEmpty() {
 		return nil
 	}
-	return s.pairs[len(s.pairs)-1].Key
+	s.index = len(s.pairs) - 1
+	return s.pairs[s.index].Key
 }
 
 // Valid implements PairIter.Valid
 func (s *SimplePairIter) Valid() bool {
+	if s.index == -1 {
+		return false
+	}
 	return s.index < len(s.pairs)
 }
 
