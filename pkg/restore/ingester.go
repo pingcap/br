@@ -182,7 +182,8 @@ WriteAndIngest:
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
 			w := i.workerPool.ApplyWorker()
-			rg, err := i.writeAndIngestPairs(ctx, iter, regionReplica, pairStart, pairEnd)
+			var rg *Range
+			rg, err = i.writeAndIngestPairs(ctx, iter, regionReplica, pairStart, pairEnd)
 			i.workerPool.RecycleWorker(w)
 			if err != nil {
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey)
