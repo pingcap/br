@@ -14,6 +14,8 @@
 package kv
 
 import (
+	"sync"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -55,6 +57,7 @@ type PairIter interface {
 // SimplePairIter represents simple pair iterator.
 // which is used for log restore.
 type SimplePairIter struct {
+	mu sync.Mutex
 	index int
 	pairs Pairs
 }
@@ -79,6 +82,8 @@ func (s *SimplePairIter) Error() error {
 
 // First implements PairIter.First
 func (s *SimplePairIter) First() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.IsEmpty() {
 		return nil
 	}
@@ -88,6 +93,8 @@ func (s *SimplePairIter) First() []byte {
 
 // Last implements PairIter.Last
 func (s *SimplePairIter) Last() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.IsEmpty() {
 		return nil
 	}
@@ -97,6 +104,8 @@ func (s *SimplePairIter) Last() []byte {
 
 // Valid implements PairIter.Valid
 func (s *SimplePairIter) Valid() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.index == -1 {
 		return false
 	}
@@ -105,17 +114,23 @@ func (s *SimplePairIter) Valid() bool {
 
 // Next implements PairIter.Next
 func (s *SimplePairIter) Next() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.index++
 	return s.Valid()
 }
 
 // Key implements PairIter.Key
 func (s *SimplePairIter) Key() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.pairs[s.index].Key
 }
 
 // Value implements PairIter.Value
 func (s *SimplePairIter) Value() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.pairs[s.index].Val
 }
 

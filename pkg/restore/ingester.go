@@ -176,7 +176,6 @@ WriteAndIngest:
 			continue
 		}
 
-		eg, ectx := errgroup.WithContext(ctx)
 		for _, region := range regions {
 			regionReplica := region
 			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
@@ -184,6 +183,7 @@ WriteAndIngest:
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
 			var rg *Range
+			eg, ectx := errgroup.WithContext(ctx)
 			i.workerPool.ApplyOnErrorGroup(eg, func() error {
 				rg, err = i.writeAndIngestPairs(ectx, iter, regionReplica, pairStart, pairEnd)
 				return err
