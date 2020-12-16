@@ -5,6 +5,7 @@ package storage
 import (
 	"io/ioutil"
 	"net/url"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -87,12 +88,13 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	gcs := s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket2")
-	c.Assert(gcs.Prefix, Equals, "prefix/")
+	c.Assert(gcs.Prefix, Equals, "prefix")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
+	var credFeilPerm os.FileMode = 0o600
 	fakeCredentialsFile := filepath.Join(c.MkDir(), "fakeCredentialsFile")
-	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), 0600)
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), credFeilPerm)
 	c.Assert(err, IsNil)
 
 	gcsOpt.GCS.CredentialsFile = fakeCredentialsFile
@@ -102,18 +104,18 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	gcs = s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket")
-	c.Assert(gcs.Prefix, Equals, "more/prefix/")
+	c.Assert(gcs.Prefix, Equals, "more/prefix")
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCredentials")
 
-	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCreds2"), 0600)
+	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCreds2"), credFeilPerm)
 	c.Assert(err, IsNil)
 	s, err = ParseBackend("gs://bucket4/backup/?credentials-file="+url.QueryEscape(fakeCredentialsFile), nil)
 	c.Assert(err, IsNil)
 	gcs = s.GetGcs()
 	c.Assert(gcs, NotNil)
 	c.Assert(gcs.Bucket, Equals, "bucket4")
-	c.Assert(gcs.Prefix, Equals, "backup/")
+	c.Assert(gcs.Prefix, Equals, "backup")
 	c.Assert(gcs.CredentialsBlob, Equals, "fakeCreds2")
 
 	s, err = ParseBackend("/test", nil)

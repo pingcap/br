@@ -13,7 +13,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
@@ -132,7 +131,7 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Array("keys", logutil.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Any("region", region), zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
@@ -171,7 +170,7 @@ SplitRegions:
 func (rs *RegionSplitter) hasRegion(ctx context.Context, regionID uint64) (bool, error) {
 	regionInfo, err := rs.client.GetRegionByID(ctx, regionID)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 	return regionInfo != nil, nil
 }
@@ -179,7 +178,7 @@ func (rs *RegionSplitter) hasRegion(ctx context.Context, regionID uint64) (bool,
 func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID uint64) (bool, error) {
 	resp, err := rs.client.GetOperator(ctx, regionID)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 	// Heartbeat may not be sent to PD
 	if respErr := resp.GetHeader().GetError(); respErr != nil {
@@ -248,7 +247,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 ) ([]*RegionInfo, error) {
 	newRegions, err := rs.client.BatchSplitRegions(ctx, regionInfo, keys)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	for _, region := range newRegions {
 		// Wait for a while until the regions successfully split.
@@ -272,7 +271,7 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
 	for _, rg := range ranges {
-		checkKeys = append(checkKeys, truncateRowKey(rg.EndKey))
+		checkKeys = append(checkKeys, rg.EndKey)
 	}
 	for _, key := range checkKeys {
 		if region := NeedSplit(key, regions); region != nil {
@@ -308,21 +307,6 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 		}
 	}
 	return nil
-}
-
-var (
-	tablePrefix  = []byte{'t'}
-	idLen        = 8
-	recordPrefix = []byte("_r")
-)
-
-func truncateRowKey(key []byte) []byte {
-	if bytes.HasPrefix(key, tablePrefix) &&
-		len(key) > tablecodec.RecordRowKeyLen &&
-		bytes.HasPrefix(key[len(tablePrefix)+idLen:], recordPrefix) {
-		return key[:tablecodec.RecordRowKeyLen]
-	}
-	return key
 }
 
 func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {

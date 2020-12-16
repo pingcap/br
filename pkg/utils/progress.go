@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 )
@@ -128,7 +129,7 @@ func (ww *wrappedWriter) Write(p []byte) (int, error) {
 		S string
 	}
 	if err := json.Unmarshal(p, &info); err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 	ww.log("progress",
 		zap.String("step", ww.name),

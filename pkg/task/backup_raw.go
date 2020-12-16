@@ -58,23 +58,23 @@ func DefineRawBackupFlags(command *cobra.Command) {
 func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	format, err := flags.GetString(flagKeyFormat)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	start, err := flags.GetString(flagStartKey)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	cfg.StartKey, err = utils.ParseKey(format, start)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	end, err := flags.GetString(flagEndKey)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	cfg.EndKey, err = utils.ParseKey(format, end)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
@@ -82,7 +82,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
@@ -94,7 +94,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 func (cfg *RawKvConfig) ParseBackupConfigFromFlags(flags *pflag.FlagSet) error {
 	err := cfg.ParseFromFlags(flags)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	compressionCfg, err := parseCompressionFlags(flags)
@@ -126,20 +126,20 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
 	client, err := backup.NewBackupClient(ctx, mgr)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	backupRange := rtree.Range{StartKey: cfg.StartKey, EndKey: cfg.EndKey}
@@ -156,14 +156,14 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 			}
 		}()
 		if e != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
 	// The number of regions need to backup
 	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	summary.CollectInt("backup total regions", approximateRegions)
@@ -185,7 +185,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	}
 	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
@@ -194,11 +194,11 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	rawRanges := []*kvproto.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
 	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	g.Record("Size", utils.ArchiveSize(&backupMeta))

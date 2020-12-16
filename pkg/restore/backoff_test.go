@@ -61,7 +61,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 		defer func() { counter++ }()
 		switch counter {
 		case 0:
-			return gRPCError
+			return gRPCError // nolint:wrapcheck
 		case 1:
 			return berrors.ErrKVEpochNotMatch
 		case 2:
@@ -86,7 +86,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalRawGRPCError(c *C) {
 	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
-		return canceledError
+		return canceledError // nolint:wrapcheck
 	}, backoffer)
 	c.Assert(counter, Equals, 1)
 	c.Assert(multierr.Errors(err), DeepEquals, []error{

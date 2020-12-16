@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
-	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"
@@ -21,6 +19,9 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/kvproto/pkg/metapb"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
@@ -75,27 +76,24 @@ func GetAllTiKVStores(
 	// get all live stores.
 	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	// filter out all stores which are TiFlash.
 	j := 0
-skipStore:
 	for _, store := range stores {
-		var isTiFlash bool
-		for _, label := range store.Labels {
-			if label.Key == "engine" && label.Value == "tiflash" {
-				if storeBehavior == SkipTiFlash {
-					continue skipStore
-				} else if storeBehavior == ErrorOnTiFlash {
-					return nil, errors.Annotatef(berrors.ErrPDInvalidResponse,
-						"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
-				}
-				isTiFlash = true
+		isTiFlash := false
+		if utils.IsTiFlash(store) {
+			if storeBehavior == SkipTiFlash {
+				continue
+			} else if storeBehavior == ErrorOnTiFlash {
+				return nil, errors.Annotatef(berrors.ErrPDInvalidResponse,
+					"cannot restore to a cluster with active TiFlash stores (store %d at %s)", store.Id, store.Address)
 			}
+			isTiFlash = true
 		}
 		if !isTiFlash && storeBehavior == TiFlashOnly {
-			continue skipStore
+			continue
 		}
 		stores[j] = store
 		j++
@@ -118,7 +116,7 @@ func NewMgr(
 	controller, err := pdutil.NewPdController(ctx, pdAddrs, tlsConf, securityOption)
 	if err != nil {
 		log.Error("fail to create pd controller", zap.Error(err))
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
 		err = utils.CheckClusterVersion(ctx, controller.GetPDClient())
@@ -133,7 +131,7 @@ func NewMgr(
 	stores, err := GetAllTiKVStores(ctx, controller.GetPDClient(), storeBehavior)
 	if err != nil {
 		log.Error("fail to get store", zap.Error(err))
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	liveStoreCount := 0
 	for _, s := range stores {

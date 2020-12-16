@@ -76,12 +76,12 @@ func (pending *Schemas) Start(
 				table := model.TableInfo{}
 				err := json.Unmarshal(schema.Table, &table)
 				if err != nil {
-					return err
+					return errors.Trace(err)
 				}
 				checksumResp, err := calculateChecksum(
 					ectx, &table, store.GetClient(), backupTS, copConcurrency)
 				if err != nil {
-					return err
+					return errors.Trace(err)
 				}
 				schema.Crc64Xor = checksumResp.Checksum
 				schema.TotalKvs = checksumResp.TotalKvs

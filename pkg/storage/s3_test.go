@@ -646,7 +646,7 @@ func (s *s3Suite) TestOpenSeek(c *C) {
 	ctx := aws.BackgroundContext()
 
 	someRandomBytes := make([]byte, 1000000)
-	rand.Read(someRandomBytes) //nolint:gosec
+	rand.Read(someRandomBytes)
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
 	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 998000, 990100}, func(data []byte, offset int) io.ReadCloser {
