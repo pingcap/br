@@ -19,10 +19,11 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
-	"github.com/spf13/pflag"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
+	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 )
@@ -551,17 +552,19 @@ func (r *s3ObjectReader) Read(p []byte) (n int, err error) {
 		maxCnt = int64(len(p))
 	}
 	n, err = r.reader.Read(p[:maxCnt])
-	if err != nil && !errors.ErrorEqual(err, io.EOF) && r.retryCnt < maxErrorRetries {
+	if err != nil && errors.Cause(err) != io.EOF && r.retryCnt < maxErrorRetries {
 		// if can retry, reopen a new reader and try read again
 		end := r.rangeInfo.End + 1
 		if end == r.rangeInfo.Size {
 			end = 0
 		}
+		_ = r.reader.Close()
+
 		newReader, _, err1 := r.storage.open(r.ctx, r.name, r.pos, end)
 		if err1 != nil {
+			log.Warn("open new s3 reader failed", zap.String("file", r.name), zap.Error(err1))
 			return
 		}
-		_ = r.reader.Close()
 		r.reader = newReader
 		r.retryCnt++
 		n, err = r.reader.Read(p[:maxCnt])
