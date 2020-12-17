@@ -60,7 +60,7 @@ func (p *Pool) takeConns() (conns []*grpc.ClientConn) {
 func (p *Pool) Close() {
 	for _, c := range p.takeConns() {
 		if err := c.Close(); err != nil {
-			log.L().Warn("failed to close clientConn", zap.String("target", c.Target()), zap.Error(err))
+			log.Warn("failed to close clientConn", zap.String("target", c.Target()), zap.Error(err))
 		}
 	}
 }

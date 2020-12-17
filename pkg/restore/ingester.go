@@ -145,7 +145,7 @@ func (i *Ingester) writeAndIngestByRange(
 	remainRanges *syncdRanges,
 ) error {
 	if iter.IsEmpty() {
-		log.L().Debug("There is no pairs in iterator")
+		log.Debug("There is no pairs in iterator")
 		return nil
 	}
 	pairStart := append([]byte{}, iter.First()...)
@@ -169,7 +169,7 @@ WriteAndIngest:
 		endKey := codec.EncodeBytes(kv.NextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, i.splitCli, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
-			log.L().Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)),
+			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)),
 				zap.Binary("startKey", startKey), zap.Binary("endKey", endKey), zap.Int("retry", retry))
 			retry++
 			continue
@@ -177,7 +177,7 @@ WriteAndIngest:
 
 		for _, region := range regions {
 			regionReplica := region
-			log.L().Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
+			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
@@ -193,7 +193,7 @@ WriteAndIngest:
 				} else {
 					retry++
 				}
-				log.L().Info("retry write and ingest kv pairs", zap.Binary("startKey", pairStart),
+				log.Info("retry write and ingest kv pairs", zap.Binary("startKey", pairStart),
 					zap.Binary("endKey", pairEnd), zap.Error(err), zap.Int("retry", retry))
 				continue WriteAndIngest
 			}
@@ -218,18 +218,18 @@ loopWrite:
 		var metas []*sst.SSTMeta
 		metas, remainRange, err = i.writeToTiKV(ctx, iter, region, start, end)
 		if err != nil {
-			log.L().Warn("write to tikv failed", zap.Error(err))
+			log.Warn("write to tikv failed", zap.Error(err))
 			return nil, err
 		}
 
 		for _, meta := range metas {
 			errCnt := 0
 			for errCnt < maxRetryTimes {
-				log.L().Debug("ingest meta", zap.Reflect("meta", meta))
+				log.Debug("ingest meta", zap.Reflect("meta", meta))
 				var resp *sst.IngestResponse
 				resp, err = i.ingest(ctx, meta, region)
 				if err != nil {
-					log.L().Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
+					log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 						zap.Reflect("region", region))
 					errCnt++
 					continue
@@ -255,7 +255,7 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-					log.L().Warn("ingest failed and do not retry", zap.Error(err), zap.Reflect("meta", meta),
+					log.Warn("ingest failed and do not retry", zap.Error(err), zap.Reflect("meta", meta),
 						zap.Reflect("region", region))
 					// met non-retryable error retry whole Write procedure
 					return remainRange, err
@@ -270,7 +270,7 @@ loopWrite:
 		}
 
 		if err != nil {
-			log.L().Warn("write and ingest region, will retry import full range", zap.Error(err),
+			log.Warn("write and ingest region, will retry import full range", zap.Error(err),
 				zap.Stringer("region", region.Region), zap.Binary("start", start), zap.Binary("end", end))
 		}
 		return remainRange, errors.Trace(err)
@@ -292,7 +292,7 @@ func (i *Ingester) writeToTiKV(
 	regionRange := intersectRange(region.Region, Range{Start: start, End: end})
 
 	if iter.IsEmpty() {
-		log.L().Info("keys within region is empty, skip ingest", zap.Binary("start", start),
+		log.Info("keys within region is empty, skip ingest", zap.Binary("start", start),
 			zap.Binary("regionStart", region.Region.StartKey), zap.Binary("end", end),
 			zap.Binary("regionEnd", region.Region.EndKey))
 		return nil, nil, nil
@@ -404,20 +404,20 @@ func (i *Ingester) writeToTiKV(
 			return nil, nil, errors.Trace(closeErr)
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
-			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
+			log.Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
 	// if there is not leader currently, we should directly return an error
 	if leaderPeerMetas == nil {
-		log.L().Warn("write to tikv no leader", zap.Reflect("region", region),
+		log.Warn("write to tikv no leader", zap.Reflect("region", region),
 			zap.Uint64("leader_id", leaderID), zap.Reflect("meta", meta),
 			zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size))
 		return nil, nil, errors.Annotatef(berrors.ErrPDLeaderNotFound, "write to tikv with no leader returned, region '%d', leader: %d",
 			region.Region.Id, leaderID)
 	}
 
-	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
+	log.Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int("kv_pairs", totalCount), zap.Int64("total_bytes", size),
 		zap.Int64("buf_size", bytesBuf.TotalSize()),
@@ -427,7 +427,7 @@ func (i *Ingester) writeToTiKV(
 	if iter.Valid() && iter.Next() {
 		firstKey := append([]byte{}, iter.Key()...)
 		remainRange = &Range{Start: firstKey, End: regionRange.End}
-		log.L().Info("write to tikv partial finish", zap.Int("count", totalCount),
+		log.Info("write to tikv partial finish", zap.Int("count", totalCount),
 			zap.Int64("size", size), zap.Binary("startKey", regionRange.Start), zap.Binary("endKey", regionRange.End),
 			zap.Binary("remainStart", remainRange.Start), zap.Binary("remainEnd", remainRange.End),
 			zap.Reflect("region", region))
@@ -502,7 +502,7 @@ func (i *Ingester) isIngestRetryable(
 			if newRegion != nil {
 				return newRegion, nil
 			}
-			log.L().Warn("get region by key return nil, will retry", zap.Reflect("region", region),
+			log.Warn("get region by key return nil, will retry", zap.Reflect("region", region),
 				zap.Int("retry", retry))
 			select {
 			case <-ctx.Done():
