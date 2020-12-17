@@ -48,6 +48,8 @@ const (
 
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
 	regionMaxKeyCount = 1440000
+
+	defaultSplitSize = 96 * 1024 * 1024
 )
 
 type retryType int
@@ -89,16 +91,18 @@ type Ingester struct {
 }
 
 // NewIngester creates Ingester.
-func NewIngester(splitCli SplitClient, ingestConcurrency uint, tcpConcurrency int, commitTS uint64) *Ingester {
-	workerPool := utils.NewWorkerPool(ingestConcurrency, "ingest worker")
+func NewIngester(splitCli SplitClient, cfg concurrencyCfg, commitTS uint64) *Ingester {
+	workerPool := utils.NewWorkerPool(cfg.IngestConcurrency, "ingest worker")
 	return &Ingester{
 		conns: gRPCConns{
-			tcpConcurrency: tcpConcurrency,
+			tcpConcurrency: cfg.TcpConcurrency,
 			conns:          make(map[uint64]*conn.Pool),
 		},
-		splitCli:   splitCli,
-		workerPool: workerPool,
-		TS:         commitTS,
+		splitCli:          splitCli,
+		workerPool:        workerPool,
+		batchWriteKVPairs: cfg.BatchWriteKVPairs,
+		regionSplitSize:   defaultSplitSize,
+		TS:                commitTS,
 	}
 }
 
