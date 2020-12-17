@@ -14,6 +14,8 @@
 package kv
 
 import (
+	"bytes"
+	"sort"
 	"sync"
 
 	"github.com/pingcap/errors"
@@ -54,6 +56,28 @@ type PairIter interface {
 	Close() error
 }
 
+// SimplePairIterGen generate iter with range.
+type SimplePairIterGen struct {
+	pairs Pairs
+}
+
+func NewSimplePairIterGen(pairs Pairs) *SimplePairIterGen {
+	return &SimplePairIterGen{
+		pairs: pairs,
+	}
+}
+
+// GenerateIter generate SimplePairIter with given range[start, end].
+func (g *SimplePairIterGen) GenerateIter(start []byte, end []byte) PairIter {
+	startIndex := sort.Search(len(g.pairs), func(i int) bool {
+		return bytes.Compare(g.pairs[i].Key, start) < 1
+	})
+	endIndex := sort.Search(len(g.pairs), func(i int) bool {
+		return bytes.Compare(g.pairs[i].Key, end) < 1
+	})
+	return newSimpleKeyIter(g.pairs[startIndex : endIndex+1])
+}
+
 // SimplePairIter represents simple pair iterator.
 // which is used for log restore.
 type SimplePairIter struct {
@@ -62,8 +86,8 @@ type SimplePairIter struct {
 	pairs Pairs
 }
 
-// NewSimpleKeyIter creates SimplePairIter.
-func NewSimpleKeyIter(pairs Pairs) PairIter {
+// newSimpleKeyIter creates SimplePairIter.
+func newSimpleKeyIter(pairs Pairs) PairIter {
 	return &SimplePairIter{
 		index: -1,
 		pairs: pairs,
