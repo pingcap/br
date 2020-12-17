@@ -61,6 +61,7 @@ type SimplePairIterGen struct {
 	pairs Pairs
 }
 
+// NewSimplePairIterGen creates SimplePairIterGen.
 func NewSimplePairIterGen(pairs Pairs) *SimplePairIterGen {
 	return &SimplePairIterGen{
 		pairs: pairs,
@@ -70,10 +71,10 @@ func NewSimplePairIterGen(pairs Pairs) *SimplePairIterGen {
 // GenerateIter generate SimplePairIter with given range[start, end].
 func (g *SimplePairIterGen) GenerateIter(start []byte, end []byte) PairIter {
 	startIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(g.pairs[i].Key, start) < 1
+		return bytes.Compare(start, g.pairs[i].Key) < 0
 	})
 	endIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(g.pairs[i].Key, end) < 1
+		return bytes.Compare(end, g.pairs[i].Key) < 0
 	})
 	return newSimpleKeyIter(g.pairs[startIndex : endIndex+1])
 }
