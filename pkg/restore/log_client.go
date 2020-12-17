@@ -51,7 +51,7 @@ type concurrencyCfg struct {
 	BatchFlushKVPairs int
 	BatchFlushKVSize  int64
 	Concurrency       uint
-	TcpConcurrency    int
+	TCPConcurrency    int
 	IngestConcurrency uint
 }
 
@@ -122,7 +122,7 @@ func NewLogRestoreClient(
 		BatchFlushKVSize:  batchFlushSize,
 		BatchWriteKVPairs: batchWriteKVPairs,
 		IngestConcurrency: concurrency * 16,
-		TcpConcurrency:    int(concurrency) * 16,
+		TCPConcurrency:    int(concurrency) * 16,
 	}
 
 	// commitTS append into encode key. we use a unified ts for once log restore.

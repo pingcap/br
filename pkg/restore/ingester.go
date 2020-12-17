@@ -95,7 +95,7 @@ func NewIngester(splitCli SplitClient, cfg concurrencyCfg, commitTS uint64) *Ing
 	workerPool := utils.NewWorkerPool(cfg.IngestConcurrency, "ingest worker")
 	return &Ingester{
 		conns: gRPCConns{
-			tcpConcurrency: cfg.TcpConcurrency,
+			tcpConcurrency: cfg.TCPConcurrency,
 			conns:          make(map[uint64]*conn.Pool),
 		},
 		splitCli:          splitCli,

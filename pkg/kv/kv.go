@@ -117,7 +117,7 @@ func (s *SimplePairIter) Next() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.index++
-	return s.index < len(s.pairs)
+	return s.index <= len(s.pairs)
 }
 
 // Key implements PairIter.Key
