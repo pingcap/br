@@ -104,8 +104,6 @@ func (s *SimplePairIter) Last() []byte {
 
 // Valid implements PairIter.Valid
 func (s *SimplePairIter) Valid() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.index == -1 {
 		return false
 	}
