@@ -71,10 +71,10 @@ func NewSimplePairIterGen(pairs Pairs) *SimplePairIterGen {
 // GenerateIter generate SimplePairIter with given range[start, end].
 func (g *SimplePairIterGen) GenerateIter(start []byte, end []byte) PairIter {
 	startIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(start, g.pairs[i].Key) < 0
+		return bytes.Compare(start, g.pairs[i].Key) < 1
 	})
 	endIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(end, g.pairs[i].Key) < 0
+		return bytes.Compare(end, g.pairs[i].Key) < 1
 	})
 	return newSimpleKeyIter(g.pairs[startIndex : endIndex+1])
 }
