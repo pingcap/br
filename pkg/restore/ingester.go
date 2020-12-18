@@ -151,6 +151,11 @@ func (i *Ingester) writeAndIngestByRange(
 	end []byte,
 	remainRanges *syncdRanges,
 ) error {
+	select {
+	case <-ctxt.Done():
+		return ctxt.Err()
+	default:
+	}
 	if iter.First() != nil {
 		log.Debug("There is no pairs in iterator")
 		return nil
@@ -232,6 +237,11 @@ func (i *Ingester) writeAndIngestPairs(
 	var remainRange *Range
 loopWrite:
 	for retry := 0; retry < maxRetryTimes; retry++ {
+		select {
+		case <-ctx.Done():
+			return remainRange, ctx.Err()
+		default:
+		}
 		var metas []*sst.SSTMeta
 		metas, remainRange, err = i.writeToTiKV(ctx, iter, region, start, end)
 		if err != nil {
