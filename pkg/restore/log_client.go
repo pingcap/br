@@ -401,12 +401,13 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 	remainRange := newSyncdRanges()
 	remainRange.add(Range{
 		Start: newKvs[0].Key,
-		End:   kv.NextKey(newKvs[len(newKvs)-1].Key),
+		End:   newKvs[len(newKvs)-1].Key,
 	})
 	iter := kv.NewSimpleKeyIter(newKvs)
 	for {
 		remain := remainRange.take()
 		if len(remain) == 0 {
+			log.Info("writeRows finish")
 			break
 		}
 		for _, r := range remain {
