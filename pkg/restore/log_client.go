@@ -414,7 +414,7 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 		for _, r := range remain {
 			rangeReplica := r
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				iter := iterGen.GenerateIter(r.Start, r.End)
+				iter := iterGen.GenerateIter(rangeReplica.Start, rangeReplica.End)
 				err := l.ingester.writeAndIngestByRange(ectx, iter, remainRange)
 				if err != nil {
 					log.Warn("writeRows failed with range",

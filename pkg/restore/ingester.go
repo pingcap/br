@@ -205,6 +205,7 @@ WriteAndIngest:
 				remainRanges.add(*rg)
 			}
 		}
+		break
 	}
 	return err
 }
