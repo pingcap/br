@@ -143,17 +143,29 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 	return grpcConn, nil
 }
 
+// write [start, end) kv in to tikv.
 func (i *Ingester) writeAndIngestByRange(
 	ctxt context.Context,
 	iter kv.PairIter,
+	start []byte,
+	end []byte,
 	remainRanges *syncdRanges,
 ) error {
-	if iter.IsEmpty() {
+	if iter.First() != nil {
 		log.Debug("There is no pairs in iterator")
 		return nil
 	}
-	pairStart := append([]byte{}, iter.First()...)
-	pairEnd := append([]byte{}, iter.Last()...)
+	iter.Seek(start)
+	pairStart := append([]byte{}, iter.Key()...)
+	var pairEnd []byte
+	if iter.Seek(end) {
+		pairEnd = append([]byte{}, iter.Key()...)
+	} else {
+		// seek position is out of range.
+		log.Info("end key is not in iterator",
+			zap.Binary("endKey", end), zap.Binary("iter last key", iter.Last()))
+		pairEnd = append([]byte{}, iter.Last()...)
+	}
 
 	var regions []*RegionInfo
 	var err error
@@ -293,18 +305,25 @@ func (i *Ingester) writeToTiKV(
 	region *RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, error) {
-	begin := time.Now()
-	regionRange := intersectRange(region.Region, Range{Start: start, End: end})
-
-	if iter.IsEmpty() {
+	if iter.First() == nil {
 		log.Info("keys within region is empty, skip ingest", zap.Binary("start", start),
 			zap.Binary("regionStart", region.Region.StartKey), zap.Binary("end", end),
 			zap.Binary("regionEnd", region.Region.EndKey))
 		return nil, nil, nil
 	}
+	begin := time.Now()
+	regionRange := intersectRange(region.Region, Range{Start: start, End: end})
 
-	firstKey := codec.EncodeBytes(iter.First())
-	lastKey := codec.EncodeBytes(iter.Last())
+	iter.Seek(regionRange.Start)
+	firstKey := codec.EncodeBytes(iter.Key())
+	var lastKey []byte
+	if iter.Seek(regionRange.End) {
+		lastKey = codec.EncodeBytes(iter.Key())
+	} else {
+		log.Info("region range's end key not in iter, shouldn't happen",
+			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Last()))
+		lastKey = codec.EncodeBytes(iter.Last())
+	}
 
 	u := uuid.New()
 	meta := &sst.SSTMeta{

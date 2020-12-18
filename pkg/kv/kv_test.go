@@ -14,6 +14,7 @@
 package kv
 
 import (
+	"bytes"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -39,4 +40,43 @@ func (s *rowSuite) TestMarshal(c *C) {
 
 	// save coverage for MarshalLogArray
 	log.Info("row marshal", zap.Array("row", rowArrayMarshaler(dats)))
+}
+
+func (s *kvSuite) TestSimplePairIter(c *C) {
+	pairs := []Pair{
+		{Key: []byte("1"), Val: []byte("a")},
+		{Key: []byte("2"), Val: []byte("b")},
+		{Key: []byte("3"), Val: []byte("c")},
+		{Key: []byte("5"), Val: []byte("d")},
+	}
+	iter := NewSimpleKeyIter(pairs)
+	c.Assert(bytes.Equal(iter.First(), []byte("1")), IsTrue)
+	c.Assert(bytes.Equal(iter.Last(), []byte("5")), IsTrue)
+
+	c.Assert(iter.Seek([]byte("1")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("1")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("a")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	c.Assert(iter.Seek([]byte("2")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("2")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("b")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	c.Assert(iter.Seek([]byte("3")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("3")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("c")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	// 4 not exists, so seek position will move to 5.
+	c.Assert(iter.Seek([]byte("4")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("5")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("d")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	// 6 not exists, so seek position will move to 5.
+	c.Assert(iter.Seek([]byte("6")), IsFalse)
+	c.Assert(bytes.Equal(iter.Key(), []byte("5")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("d")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
 }

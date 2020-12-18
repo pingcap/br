@@ -36,8 +36,9 @@ var extraHandleColumnInfo = model.NewExtraHandleColInfo()
 
 // PairIter abstract iterator method for Ingester.
 type PairIter interface {
-	// IsEmpty checks whether iter has no pairs.
-	IsEmpty() bool
+	// Seek seek to specify position.
+	// if key not found, seeks next key position in iter.
+	Seek(key []byte) bool
 	// Error return current error on this iter.
 	Error() error
 	// First return the first key in this iter.
@@ -56,29 +57,6 @@ type PairIter interface {
 	Close() error
 }
 
-// SimplePairIterGen generate iter with range.
-type SimplePairIterGen struct {
-	pairs Pairs
-}
-
-// NewSimplePairIterGen creates SimplePairIterGen.
-func NewSimplePairIterGen(pairs Pairs) *SimplePairIterGen {
-	return &SimplePairIterGen{
-		pairs: pairs,
-	}
-}
-
-// GenerateIter generate SimplePairIter with given range[start, end].
-func (g *SimplePairIterGen) GenerateIter(start []byte, end []byte) PairIter {
-	startIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(start, g.pairs[i].Key) < 1
-	})
-	endIndex := sort.Search(len(g.pairs), func(i int) bool {
-		return bytes.Compare(end, g.pairs[i].Key) < 1
-	})
-	return newSimpleKeyIter(g.pairs[startIndex : endIndex+1])
-}
-
 // SimplePairIter represents simple pair iterator.
 // which is used for log restore.
 type SimplePairIter struct {
@@ -87,57 +65,65 @@ type SimplePairIter struct {
 	pairs Pairs
 }
 
-// newSimpleKeyIter creates SimplePairIter.
-func newSimpleKeyIter(pairs Pairs) PairIter {
+// NewSimpleKeyIter creates SimplePairIter.
+func NewSimpleKeyIter(pairs Pairs) PairIter {
 	return &SimplePairIter{
 		index: -1,
 		pairs: pairs,
 	}
 }
 
-// IsEmpty implements PairIter.IsEmpty
-func (s *SimplePairIter) IsEmpty() bool {
-	return len(s.pairs) == 0
+// Seek implements PairIter.Seek.
+func (s *SimplePairIter) Seek(key []byte) bool {
+	index := sort.Search(len(s.pairs), func(i int) bool {
+		return bytes.Compare(key, s.pairs[i].Key) < 1
+	})
+	if index < len(s.pairs) {
+		s.mu.Lock()
+		s.index = index
+		s.mu.Unlock()
+		return true
+	}
+	// key not found in pairs.
+	s.index = len(s.pairs) - 1
+	return false
 }
 
-// Error implements PairIter.Error
+// Error implements PairIter.Error.
 func (s *SimplePairIter) Error() error {
 	return nil
 }
 
-// First implements PairIter.First
+// First implements PairIter.First.
 func (s *SimplePairIter) First() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.IsEmpty() {
+	if len(s.pairs) == 0 {
 		return nil
 	}
 	s.index = 0
 	return s.pairs[s.index].Key
 }
 
-// Last implements PairIter.Last
+// Last implements PairIter.Last.
 func (s *SimplePairIter) Last() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.IsEmpty() {
+	if len(s.pairs) == 0 {
 		return nil
 	}
 	s.index = len(s.pairs) - 1
 	return s.pairs[s.index].Key
 }
 
-// Valid implements PairIter.Valid
+// Valid implements PairIter.Valid.
 func (s *SimplePairIter) Valid() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.index == -1 {
-		return false
-	}
-	return s.index < len(s.pairs)
+	return s.index >= 0 && s.index < len(s.pairs)
 }
 
-// Next implements PairIter.Next
+// Next implements PairIter.Next.
 func (s *SimplePairIter) Next() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,21 +131,27 @@ func (s *SimplePairIter) Next() bool {
 	return s.index <= len(s.pairs)
 }
 
-// Key implements PairIter.Key
+// Key implements PairIter.Key.
 func (s *SimplePairIter) Key() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.pairs[s.index].Key
+	if s.index >= 0 && s.index < len(s.pairs) {
+		return s.pairs[s.index].Key
+	}
+	return nil
 }
 
-// Value implements PairIter.Value
+// Value implements PairIter.Value.
 func (s *SimplePairIter) Value() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.pairs[s.index].Val
+	if s.index >= 0 && s.index < len(s.pairs) {
+		return s.pairs[s.index].Val
+	}
+	return nil
 }
 
-// Close implements PairIter.Close
+// Close implements PairIter.Close.
 func (s *SimplePairIter) Close() error {
 	return nil
 }

@@ -398,12 +398,12 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 		newKvs = append(newKvs, kvs[i])
 	}
 
-	iterGen := kv.NewSimplePairIterGen(newKvs)
 	remainRange := newSyncdRanges()
 	remainRange.add(Range{
 		Start: newKvs[0].Key,
 		End:   newKvs[len(newKvs)-1].Key,
 	})
+	iter := kv.NewSimpleKeyIter(newKvs)
 	workerPool := utils.NewWorkerPool(l.concurrencyCfg.Concurrency, "remain range")
 	for {
 		remain := remainRange.take()
@@ -414,8 +414,7 @@ func (l *LogClient) writeRows(ctx context.Context, kvs kv.Pairs) error {
 		for _, r := range remain {
 			rangeReplica := r
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				iter := iterGen.GenerateIter(rangeReplica.Start, rangeReplica.End)
-				err := l.ingester.writeAndIngestByRange(ectx, iter, remainRange)
+				err := l.ingester.writeAndIngestByRange(ectx, iter, rangeReplica.Start, rangeReplica.End, remainRange)
 				if err != nil {
 					log.Warn("writeRows failed with range",
 						zap.Any("range", rangeReplica), zap.Error(err))
