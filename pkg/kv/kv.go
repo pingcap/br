@@ -78,10 +78,10 @@ func (s *SimplePairIter) Seek(key []byte) bool {
 	index := sort.Search(len(s.pairs), func(i int) bool {
 		return bytes.Compare(key, s.pairs[i].Key) < 1
 	})
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if index < len(s.pairs) {
-		s.mu.Lock()
 		s.index = index
-		s.mu.Unlock()
 		return true
 	}
 	// key not found in pairs.

@@ -197,14 +197,13 @@ WriteAndIngest:
 		}
 
 		for _, region := range regions {
-			regionReplica := region
 			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
 			w := i.workerPool.ApplyWorker()
 			var rg *Range
-			rg, err = i.writeAndIngestPairs(ctx, iter, regionReplica, pairStart, pairEnd)
+			rg, err = i.writeAndIngestPairs(ctx, iter, region, pairStart, pairEnd)
 			i.workerPool.RecycleWorker(w)
 			if err != nil {
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey)
