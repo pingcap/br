@@ -167,7 +167,7 @@ func (i *Ingester) writeAndIngestByRange(
 			zap.Binary("endKey", end), zap.Binary("iter last key", iter.Last()))
 		pairEnd = append([]byte{}, iter.Last()...)
 	}
-	if bytes.Compare(pairStart, pairEnd) >= 0 {
+	if bytes.Compare(pairStart, pairEnd) > 0 {
 		log.Debug("There is no pairs in iterator")
 		return nil
 	}
@@ -313,12 +313,6 @@ func (i *Ingester) writeToTiKV(
 	region *RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, error) {
-	if iter.First() == nil {
-		log.Info("keys within region is empty, skip ingest", zap.Binary("start", start),
-			zap.Binary("regionStart", region.Region.StartKey), zap.Binary("end", end),
-			zap.Binary("regionEnd", region.Region.EndKey))
-		return nil, nil, nil
-	}
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{Start: start, End: end})
 
@@ -331,6 +325,13 @@ func (i *Ingester) writeToTiKV(
 		log.Info("region range's end key not in iter, shouldn't happen",
 			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Last()))
 		lastKey = codec.EncodeBytes(iter.Last())
+	}
+
+	if bytes.Compare(firstKey, lastKey) > 0 {
+		log.Info("keys within region is empty, skip ingest", zap.Binary("start", start),
+			zap.Binary("regionStart", region.Region.StartKey), zap.Binary("end", end),
+			zap.Binary("regionEnd", region.Region.EndKey))
+		return nil, nil, nil
 	}
 
 	u := uuid.New()
