@@ -217,6 +217,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	}
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
+		// TODO: REDACT
 		log.Error("kv add Record failed",
 			zap.Array("originalRow", rowArrayMarshaler(row)),
 			zap.Array("convertedRow", rowArrayMarshaler(record)),
@@ -268,6 +269,7 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	}
 	err = kvcodec.tbl.RemoveRecord(kvcodec.se, kv.IntHandle(rowID), record)
 	if err != nil {
+		// TODO: REDACT
 		log.Error("kv remove record failed",
 			zap.Array("originalRow", rowArrayMarshaler(row)),
 			zap.Array("convertedRow", rowArrayMarshaler(record)),

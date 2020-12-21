@@ -254,6 +254,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 			if l.isDBRelatedDDL(ddl) && l.tsInRange(item.TS) {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
+					// TODO: REDACT
 					log.Error("[doDBDDLJob] exec ddl failed",
 						zap.String("query", ddl.Query),
 						zap.Error(err))
@@ -554,6 +555,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
+				// TODO: REDACT
 				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				continue
@@ -564,6 +566,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
+				// TODO: REDACT
 				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
 					zap.Reflect("region", region))
 				// met non-retryable error retry whole Write procedure
@@ -573,6 +576,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
+				// TODO: REDACT
 				log.Warn("retry ingest due to",
 					zap.Reflect("meta", meta), zap.Reflect("region", region),
 					zap.Reflect("new region", newRegion), zap.Error(errIngest))
@@ -827,6 +831,7 @@ func (l *LogClient) restoreTableFromPuller(
 			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
 			if !(schema == item.Schema && (table == item.Table || l.isDBRelatedDDL(ddl))) {
+				// TODO: REDACT
 				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
 					zap.String("item table", item.Table),
 					zap.String("table", table),
@@ -869,6 +874,7 @@ func (l *LogClient) restoreTableFromPuller(
 			// if table dropped, we will pull next event to see if this table will create again.
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
+				// TODO: REDACT
 				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue

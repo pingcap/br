@@ -500,6 +500,7 @@ func (rc *Client) ExecDDLs(ctx context.Context, ddlJobs []*model.Job) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
+		// TODO: REDACT
 		log.Info("execute ddl query",
 			zap.String("db", job.SchemaName),
 			zap.String("query", job.Query),
@@ -583,6 +584,7 @@ func (rc *Client) RestoreRaw(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
+		// TODO: REDACT
 		log.Info("Restore Raw",
 			zap.String("startKey", hex.EncodeToString(startKey)),
 			zap.String("endKey", hex.EncodeToString(endKey)),
@@ -606,6 +608,7 @@ func (rc *Client) RestoreRaw(
 			})
 	}
 	if err := eg.Wait(); err != nil {
+		// TODO: REDACT
 		log.Error(
 			"restore raw range failed",
 			zap.String("startKey", hex.EncodeToString(startKey)),

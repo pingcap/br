@@ -78,6 +78,7 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	}
 	err = db.se.Execute(ctx, ddlJob.Query)
 	if err != nil {
+		// TODO: REDACT
 		log.Error("execute ddl query failed",
 			zap.String("query", ddlJob.Query),
 			zap.String("db", ddlJob.SchemaName),
@@ -130,6 +131,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			}
 			err = db.se.Execute(ctx, setValSQL)
 			if err != nil {
+				// TODO: REDACT
 				log.Error("restore meta sql failed",
 					zap.String("query", setValSQL),
 					zap.Stringer("db", table.DB.Name),
@@ -141,6 +143,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			// trigger cycle round > 0
 			err = db.se.Execute(ctx, nextSeqSQL)
 			if err != nil {
+				// TODO: REDACT
 				log.Error("restore meta sql failed",
 					zap.String("query", nextSeqSQL),
 					zap.Stringer("db", table.DB.Name),
@@ -170,6 +173,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	}
 
 	if err != nil {
+		// TODO: REDACT
 		log.Error("restore meta sql failed",
 			zap.String("query", restoreMetaSQL),
 			zap.Stringer("db", table.DB.Name),
@@ -190,6 +194,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 
 		err = db.se.Execute(ctx, alterAutoRandIDSQL)
 		if err != nil {
+			// TODO: REDACT
 			log.Error("alter AutoRandID failed",
 				zap.String("query", alterAutoRandIDSQL),
 				zap.Stringer("db", table.DB.Name),

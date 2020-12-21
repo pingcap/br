@@ -28,6 +28,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
+					// TODO: REDACT
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
 				} else {
 					log.Debug(
@@ -37,6 +38,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
+					// TODO: REDACT
 					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
 				} else {
 					log.Debug(
@@ -45,6 +47,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 						logutil.RewriteRule(rule))
 				}
 			} else {
+				// TODO: REDACT
 				log.Warn("table id does not match",
 					zap.Stringer("startKey", logutil.WrapKey(rg.StartKey)),
 					zap.Stringer("endKey", logutil.WrapKey(rg.EndKey)),
