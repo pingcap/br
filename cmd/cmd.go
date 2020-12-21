@@ -18,10 +18,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/gluetidb"
+	brlogutil "github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
-	brlogutil "github.com/pingcap/br/pkg/logutil"
 )
 
 var (

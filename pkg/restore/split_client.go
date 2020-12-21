@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/pingcap/br/pkg/logutil"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -32,6 +31,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 )
 
 const (

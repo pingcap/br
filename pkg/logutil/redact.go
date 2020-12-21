@@ -7,9 +7,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var (
-	_enableRedactLog bool
-)
+var _enableRedactLog bool
 
 // InitRedact inits the _enableRedactLog
 func InitRedact(redact bool) {
