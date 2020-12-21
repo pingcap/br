@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/pingcap/br/pkg/logutil"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -165,7 +166,11 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 		return nil, errors.Trace(err)
 	}
 	if resp.RegionError != nil {
-		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "region=%v, key=%x, err=%v", regionInfo.Region, key, resp.RegionError)
+		log.Error("fail to split region",
+			logutil.Region(regionInfo.Region),
+			zap.ByteString("key", key),
+			zap.Stringer("regionErr", resp.RegionError))
+		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "err=%v", resp.RegionError)
 	}
 
 	// BUG: Left is deprecated, it may be nil even if split is succeed!
@@ -275,9 +280,11 @@ func (c *pdClient) sendSplitRegionRequest(
 			return nil, multierr.Append(splitErrors, err)
 		}
 		if resp.RegionError != nil {
+			log.Error("fail to split region",
+				logutil.Region(regionInfo.Region),
+				zap.Stringer("regionErr", resp.RegionError))
 			splitErrors = multierr.Append(splitErrors,
-				errors.Annotatef(berrors.ErrRestoreSplitFailed, "split region failed: region=%v, err=%v",
-					regionInfo.Region, resp.RegionError))
+				errors.Annotatef(berrors.ErrRestoreSplitFailed, "split region failed: err=%v", resp.RegionError))
 			if nl := resp.RegionError.NotLeader; nl != nil {
 				if leader := nl.GetLeader(); leader != nil {
 					regionInfo.Leader = leader

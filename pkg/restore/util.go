@@ -481,8 +481,10 @@ func PaginateScanRegion(
 	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey, startKey %s, endkey %s",
-			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+		log.Error("restore range startKey >= endKey",
+			logutil.Redact(zap.String("startKey", hex.EncodeToString(startKey))),
+			logutil.Redact(zap.String("endKey", hex.EncodeToString(endKey))))
+		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey")
 	}
 
 	regions := []*RegionInfo{}
