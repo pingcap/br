@@ -498,10 +498,9 @@ func (bc *Client) BackupRange(
 			summary.CollectFailureUnit(key, err)
 		}
 	}()
-	// TODO: REDACT
 	log.Info("backup started",
-		zap.Stringer("StartKey", logutil.WrapKey(startKey)),
-		zap.Stringer("EndKey", logutil.WrapKey(endKey)),
+		logutil.Redact(zap.Stringer("StartKey", logutil.WrapKey(startKey))),
+		logutil.Redact(zap.Stringer("EndKey", logutil.WrapKey(endKey))),
 		zap.Uint64("RateLimit", req.RateLimit),
 		zap.Uint32("Concurrency", req.Concurrency))
 
@@ -534,11 +533,10 @@ func (bc *Client) BackupRange(
 		return nil, errors.Trace(err)
 	}
 
-	// TODO: REDACT
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)),
+			logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
+			logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -572,13 +570,11 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 			continue
 		}
 		if region.Leader != nil {
-			// TODO: REDACT
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", logutil.WrapKey(key)))
+				zap.Reflect("Leader", region.Leader), logutil.Redact(zap.Stringer("Key", logutil.WrapKey(key))))
 			return region.Leader, nil
 		}
-		// TODO: REDACT
-		log.Warn("no region found", zap.Stringer("Key", logutil.WrapKey(key)))
+		log.Warn("no region found", logutil.Redact(zap.Stringer("Key", logutil.WrapKey(key))))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
@@ -664,10 +660,9 @@ func (bc *Client) fineGrainedBackup(
 					log.Panic("unexpected backup error",
 						zap.Reflect("error", resp.Error))
 				}
-				// TODO: REDACT
 				log.Info("put fine grained range",
-					zap.Stringer("StartKey", logutil.WrapKey(resp.StartKey)),
-					zap.Stringer("EndKey", logutil.WrapKey(resp.EndKey)),
+					logutil.Redact(zap.Stringer("StartKey", logutil.WrapKey(resp.StartKey))),
+					logutil.Redact(zap.Stringer("EndKey", logutil.WrapKey(resp.EndKey))),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -738,7 +733,6 @@ func OnBackupResponse(
 			log.Error("unexpect region error", zap.Reflect("RegionError", regionErr))
 			return nil, backoffMs, errors.Annotatef(berrors.ErrKVUnknown, "storeID: %d OnBackupResponse error %v", storeID, v)
 		}
-		// TODO: REDUCT
 		log.Warn("backup occur region error",
 			zap.Reflect("RegionError", regionErr),
 			zap.Uint64("storeID", storeID))
@@ -831,10 +825,9 @@ func SendBackup(
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
-		// TODO: REDACT
 		log.Info("try backup",
-			zap.Stringer("StartKey", logutil.WrapKey(req.StartKey)),
-			zap.Stringer("EndKey", logutil.WrapKey(req.EndKey)),
+			logutil.Redact(zap.Stringer("StartKey", logutil.WrapKey(req.StartKey))),
+			logutil.Redact(zap.Stringer("EndKey", logutil.WrapKey(req.EndKey))),
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
@@ -882,10 +875,9 @@ backupLoop:
 				return errors.Annotatef(err, "failed to connect to store: %d with retry times:%d", storeID, retry)
 			}
 			// TODO: handle errors in the resp.
-			// TODO: REDACT
 			log.Info("range backuped",
-				zap.Stringer("StartKey", logutil.WrapKey(resp.GetStartKey())),
-				zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey())))
+				logutil.Redact(zap.Stringer("StartKey", logutil.WrapKey(resp.GetStartKey()))),
+				logutil.Redact(zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey()))))
 			err = respFn(resp)
 			if err != nil {
 				return errors.Trace(err)

@@ -500,10 +500,9 @@ func (rc *Client) ExecDDLs(ctx context.Context, ddlJobs []*model.Job) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
-		// TODO: REDACT
 		log.Info("execute ddl query",
 			zap.String("db", job.SchemaName),
-			zap.String("query", job.Query),
+			logutil.Redact(zap.String("query", job.Query)),
 			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
 	}
 	return nil
@@ -584,10 +583,9 @@ func (rc *Client) RestoreRaw(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		// TODO: REDACT
 		log.Info("Restore Raw",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			logutil.Redact(zap.String("startKey", hex.EncodeToString(startKey))),
+			logutil.Redact(zap.String("endKey", hex.EncodeToString(endKey))),
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
@@ -608,19 +606,18 @@ func (rc *Client) RestoreRaw(
 			})
 	}
 	if err := eg.Wait(); err != nil {
-		// TODO: REDACT
 		log.Error(
 			"restore raw range failed",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			logutil.Redact(zap.String("startKey", hex.EncodeToString(startKey))),
+			logutil.Redact(zap.String("endKey", hex.EncodeToString(endKey))),
 			zap.Error(err),
 		)
 		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
-		zap.String("startKey", hex.EncodeToString(startKey)),
-		zap.String("endKey", hex.EncodeToString(endKey)),
+		logutil.Redact(zap.String("startKey", hex.EncodeToString(startKey))),
+		logutil.Redact(zap.String("endKey", hex.EncodeToString(endKey))),
 	)
 	return nil
 }

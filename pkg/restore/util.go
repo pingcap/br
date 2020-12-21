@@ -333,7 +333,6 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file start key",
 			zap.Int64("tableID", tableID),
-			// TODO: REDACT
 			logutil.File(file),
 		)
 		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
@@ -345,7 +344,6 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 		log.Error(
 			"cannot find rewrite rule for file end key",
 			zap.Int64("tableID", tableID),
-			// TODO: REDACT
 			logutil.File(file),
 		)
 		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
@@ -360,7 +358,6 @@ func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) erro
 			zap.Int64("endTableID", endTableID),
 			zap.Stringer("startRule", startRule),
 			zap.Stringer("endRule", endRule),
-			// TODO: REDACT
 			logutil.File(file),
 		)
 		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "unexpected rewrite rules")
@@ -448,8 +445,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				// TODO: REDACT
-				zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+				logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey()))),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
@@ -461,12 +457,11 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 			return
 		}
 	} else {
-		// TODO: REDACT
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)))
+			logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
+			logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))))
 		err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "invalid table id")
 	}
 	return

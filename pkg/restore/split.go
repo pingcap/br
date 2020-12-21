@@ -118,10 +118,9 @@ SplitRegions:
 			if errSplit != nil {
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
-						// TODO: REDACT
 						log.Error("no valid key",
-							zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
-							zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)),
+							logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey))),
+							logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey))),
 							zap.Stringer("key", logutil.WrapKey(codec.EncodeBytes([]byte{}, key))))
 					}
 					return errors.Trace(errSplit)
@@ -132,8 +131,11 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					// TODO: REDACT
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Any("region", region), zap.Array("keys", logutil.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it",
+						zap.Error(errSplit),
+						logutil.Region(region.Region),
+						zap.Any("leader", region.Leader),
+						zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
@@ -229,7 +231,6 @@ func (rs *RegionSplitter) waitForScatterRegion(ctx context.Context, regionInfo *
 		ctx1 := context.WithValue(ctx, retryTimes, i)
 		ok, err := rs.isScatterRegionFinished(ctx1, regionID)
 		if err != nil {
-			// TODO: REDACT
 			log.Warn("scatter region failed: do not have the region",
 				logutil.Region(regionInfo.Region))
 			return
@@ -256,7 +257,6 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
 		if err = rs.client.ScatterRegion(ctx, region); err != nil {
-			// TODO: REDACT
 			log.Warn("scatter region failed", logutil.Region(region.Region), zap.Error(err))
 		}
 	}

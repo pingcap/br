@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	brlogutil "github.com/pingcap/br/pkg/logutil"
 )
 
 var (
@@ -38,6 +39,8 @@ const (
 	FlagLogFile = "log-file"
 	// FlagLogFormat is the name of log-format flag.
 	FlagLogFormat = "log-format"
+	// FlagLogRedact is whether to redact sensitive information in log.
+	FlagLogRedact = "log-redact"
 	// FlagStatusAddr is the name of status-addr flag.
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
@@ -63,6 +66,8 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to temp file")
 	cmd.PersistentFlags().String(FlagLogFormat, "text",
 		"Set the log format")
+	cmd.PersistentFlags().Bool(FlagLogRedact, false,
+		"Set whether to redact sensitive info in log")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	task.DefineCommonFlags(cmd.PersistentFlags())
@@ -106,6 +111,13 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 		log.ReplaceGlobals(lg, p)
+
+		logRedact, e := cmd.Flags().GetBool(FlagLogRedact)
+		if e != nil {
+			err = e
+			return
+		}
+		brlogutil.InitRedact(logRedact)
 
 		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
 		if e != nil {

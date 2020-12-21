@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/br/pkg/cdclog"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -254,9 +255,8 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 			if l.isDBRelatedDDL(ddl) && l.tsInRange(item.TS) {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
-					// TODO: REDACT
 					log.Error("[doDBDDLJob] exec ddl failed",
-						zap.String("query", ddl.Query),
+						logutil.Redact(zap.String("query", ddl.Query)),
 						zap.Error(err))
 					return errors.Trace(err)
 				}
@@ -555,9 +555,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				// TODO: REDACT
-				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
-					zap.Reflect("region", region))
+				log.Warn("ingest failed", zap.Error(err), logutil.Redact(zap.Reflect("meta", meta)),
+					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				continue
 			}
 			needRetry, newRegion, errIngest := isIngestRetryable(resp, region, meta)
@@ -566,9 +565,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				// TODO: REDACT
-				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
-					zap.Reflect("region", region))
+				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.Redact(zap.Reflect("meta", meta)),
+					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
 			}
@@ -576,10 +574,9 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				// TODO: REDACT
 				log.Warn("retry ingest due to",
-					zap.Reflect("meta", meta), zap.Reflect("region", region),
-					zap.Reflect("new region", newRegion), zap.Error(errIngest))
+					logutil.Redact(zap.Reflect("meta", meta)), logutil.Region(region.Region), zap.Any("leader", region.Leader),
+					logutil.Redact(zap.Reflect("new region", newRegion)), zap.Error(errIngest))
 				return errIngest
 			}
 		}
@@ -831,14 +828,13 @@ func (l *LogClient) restoreTableFromPuller(
 			ddl := item.Data.(*cdclog.MessageDDL)
 			// ddl not influence on this schema/table
 			if !(schema == item.Schema && (table == item.Table || l.isDBRelatedDDL(ddl))) {
-				// TODO: REDACT
 				log.Info("[restoreFromPuller] meet unrelated ddl, and continue pulling",
 					zap.String("item table", item.Table),
 					zap.String("table", table),
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
-					zap.String("query", ddl.Query),
+					logutil.Redact(zap.String("query", ddl.Query)),
 					zap.Int64("table id", tableID))
 				continue
 			}
@@ -874,8 +870,7 @@ func (l *LogClient) restoreTableFromPuller(
 			// if table dropped, we will pull next event to see if this table will create again.
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
-				// TODO: REDACT
-				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", logutil.Redact(zap.String("ddl", ddl.Query)))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue
 			}

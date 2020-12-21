@@ -250,22 +250,20 @@ func (importer *FileImporter) Import(
 					switch errors.Cause(e) { // nolint:errorlint
 					case berrors.ErrKVRewriteRuleNotFound, berrors.ErrKVRangeIsEmpty:
 						// Skip this region
-						// TODO: REDACT
 						log.Warn("download file skipped",
 							logutil.File(file),
 							logutil.Region(info.Region),
-							zap.Stringer("startKey", logutil.WrapKey(startKey)),
-							zap.Stringer("endKey", logutil.WrapKey(endKey)),
+							logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
+							logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))),
 							logutil.ShortError(e))
 						continue regionLoop
 					}
 				}
-				// TODO: REDACT
 				log.Error("download file failed",
 					logutil.File(file),
 					logutil.Region(info.Region),
-					zap.Stringer("startKey", logutil.WrapKey(startKey)),
-					zap.Stringer("endKey", logutil.WrapKey(endKey)),
+					logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
+					logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))),
 					logutil.ShortError(errDownload))
 				return errors.Trace(errDownload)
 			}
@@ -296,8 +294,7 @@ func (importer *FileImporter) Import(
 						}
 						// do not get region info, wait a second and continue
 						if newInfo == nil {
-							// TODO: REDACT
-							log.Warn("get region by key return nil", zap.Reflect("region", info.Region))
+							log.Warn("get region by key return nil", logutil.Region(info.Region))
 							time.Sleep(time.Second)
 							continue
 						}
@@ -328,10 +325,9 @@ func (importer *FileImporter) Import(
 			}
 
 			if errIngest != nil {
-				// TODO: REDACT
 				log.Error("ingest file failed",
 					logutil.File(file),
-					zap.Stringer("range", downloadMeta.GetRange()),
+					logutil.Redact(zap.Stringer("range", downloadMeta.GetRange())),
 					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errors.Trace(errIngest)

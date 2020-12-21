@@ -23,8 +23,10 @@ func (file zapMarshalFileMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) erro
 	enc.AddString("name", file.GetName())
 	enc.AddString("CF", file.GetCf())
 	enc.AddString("sha256", hex.EncodeToString(file.GetSha256()))
-	enc.AddString("startKey", WrapKey(file.GetStartKey()).String())
-	enc.AddString("endKey", WrapKey(file.GetEndKey()).String())
+	if !NeedRedact() {
+		enc.AddString("startKey", WrapKey(file.GetStartKey()).String())
+		enc.AddString("endKey", WrapKey(file.GetEndKey()).String())
+	}
 	enc.AddUint64("startVersion", file.GetStartVersion())
 	enc.AddUint64("endVersion", file.GetEndVersion())
 	enc.AddUint64("totalKvs", file.GetTotalKvs())
@@ -50,8 +52,10 @@ func (region zapMarshalRegionMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) 
 		peers = append(peers, peer.String())
 	}
 	enc.AddUint64("ID", region.Id)
-	enc.AddString("startKey", WrapKey(region.GetStartKey()).String())
-	enc.AddString("endKey", WrapKey(region.GetEndKey()).String())
+	if !NeedRedact() {
+		enc.AddString("startKey", WrapKey(region.GetStartKey()).String())
+		enc.AddString("endKey", WrapKey(region.GetEndKey()).String())
+	}
 	enc.AddString("epoch", region.GetRegionEpoch().String())
 	enc.AddString("peers", strings.Join(peers, ","))
 	return nil

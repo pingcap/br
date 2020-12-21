@@ -26,6 +26,8 @@ import (
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/pingcap/br/pkg/logutil"
 )
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
@@ -217,10 +219,9 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	}
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
-		// TODO: REDACT
 		log.Error("kv add Record failed",
-			zap.Array("originalRow", rowArrayMarshaler(row)),
-			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			logutil.Redact(zap.Array("originalRow", rowArrayMarshaler(row))),
+			logutil.Redact(zap.Array("convertedRow", rowArrayMarshaler(record))),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)
@@ -269,10 +270,9 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	}
 	err = kvcodec.tbl.RemoveRecord(kvcodec.se, kv.IntHandle(rowID), record)
 	if err != nil {
-		// TODO: REDACT
 		log.Error("kv remove record failed",
-			zap.Array("originalRow", rowArrayMarshaler(row)),
-			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			logutil.Redact(zap.Array("originalRow", rowArrayMarshaler(row))),
+			logutil.Redact(zap.Array("convertedRow", rowArrayMarshaler(record))),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)

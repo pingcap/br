@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -78,9 +79,8 @@ func (db *DB) ExecDDL(ctx context.Context, ddlJob *model.Job) error {
 	}
 	err = db.se.Execute(ctx, ddlJob.Query)
 	if err != nil {
-		// TODO: REDACT
 		log.Error("execute ddl query failed",
-			zap.String("query", ddlJob.Query),
+			logutil.Redact(zap.String("query", ddlJob.Query)),
 			zap.String("db", ddlJob.SchemaName),
 			zap.Int64("historySchemaVersion", ddlJob.BinlogInfo.SchemaVersion),
 			zap.Error(err))
@@ -131,9 +131,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			}
 			err = db.se.Execute(ctx, setValSQL)
 			if err != nil {
-				// TODO: REDACT
 				log.Error("restore meta sql failed",
-					zap.String("query", setValSQL),
+					logutil.Redact(zap.String("query", setValSQL)),
 					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
@@ -143,9 +142,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			// trigger cycle round > 0
 			err = db.se.Execute(ctx, nextSeqSQL)
 			if err != nil {
-				// TODO: REDACT
 				log.Error("restore meta sql failed",
-					zap.String("query", nextSeqSQL),
+					logutil.Redact(zap.String("query", nextSeqSQL)),
 					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
@@ -173,9 +171,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	}
 
 	if err != nil {
-		// TODO: REDACT
 		log.Error("restore meta sql failed",
-			zap.String("query", restoreMetaSQL),
+			logutil.Redact(zap.String("query", restoreMetaSQL)),
 			zap.Stringer("db", table.DB.Name),
 			zap.Stringer("table", table.Info.Name),
 			zap.Error(err))
@@ -194,9 +191,8 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 
 		err = db.se.Execute(ctx, alterAutoRandIDSQL)
 		if err != nil {
-			// TODO: REDACT
 			log.Error("alter AutoRandID failed",
-				zap.String("query", alterAutoRandIDSQL),
+				logutil.Redact(zap.String("query", alterAutoRandIDSQL)),
 				zap.Stringer("db", table.DB.Name),
 				zap.Stringer("table", table.Info.Name),
 				zap.Error(err))
