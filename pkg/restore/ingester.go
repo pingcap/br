@@ -165,7 +165,7 @@ func (i *Ingester) writeAndIngestByRange(
 		// seek position is out of range.
 		log.Info("end key is not in iterator",
 			zap.Binary("endKey", end), zap.Binary("iter last key", iter.Last()))
-		pairEnd = append([]byte{}, iter.Last()...)
+		pairEnd = append([]byte{}, kv.NextKey(iter.Last())...)
 	}
 	if bytes.Compare(pairStart, pairEnd) > 0 {
 		log.Debug("There is no pairs in iterator")
@@ -186,7 +186,7 @@ WriteAndIngest:
 			}
 		}
 		startKey := codec.EncodeBytes(pairStart)
-		endKey := codec.EncodeBytes(kv.NextKey(pairEnd))
+		endKey := codec.EncodeBytes(pairEnd)
 		regions, err = PaginateScanRegion(ctx, i.splitCli, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
 			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)),
@@ -324,7 +324,7 @@ func (i *Ingester) writeToTiKV(
 	} else {
 		log.Info("region range's end key not in iter, shouldn't happen",
 			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Last()))
-		lastKey = codec.EncodeBytes(iter.Last())
+		lastKey = codec.EncodeBytes(kv.NextKey(iter.Last()))
 	}
 
 	if bytes.Compare(firstKey, lastKey) > 0 {
@@ -386,7 +386,7 @@ func (i *Ingester) writeToTiKV(
 	firstLoop := true
 	regionMaxSize := i.regionSplitSize * 4 / 3
 
-	for iter.Seek(regionRange.Start); iter.Valid() && bytes.Compare(iter.Key(), regionRange.End) <= 0; iter.Next() {
+	for iter.Seek(regionRange.Start); iter.Valid() && bytes.Compare(iter.Key(), regionRange.End) < 0; iter.Next() {
 		size += int64(len(iter.Key()) + len(iter.Value()))
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
