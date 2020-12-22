@@ -34,8 +34,8 @@ import (
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
 
-// PairIter abstract iterator method for Ingester.
-type PairIter interface {
+// Iter abstract iterator method for Ingester.
+type Iter interface {
 	// Seek seek to specify position.
 	// if key not found, seeks next key position in iter.
 	Seek(key []byte) bool
@@ -57,24 +57,58 @@ type PairIter interface {
 	Close() error
 }
 
-// SimplePairIter represents simple pair iterator.
+// IterProducer produces iterator with given range.
+type IterProducer interface {
+	// Produce produces iterator with given range [start, end).
+	Produce(start []byte, end []byte) Iter
+}
+
+// SimpleKVIterProducer represents kv iter producer.
+type SimpleKVIterProducer struct {
+	pairs Pairs
+}
+
+// NewSimpleKVIterProducer creates SimpleKVIterProducer.
+func NewSimpleKVIterProducer(pairs Pairs) IterProducer {
+	return &SimpleKVIterProducer{
+		pairs: pairs,
+	}
+}
+
+// Produce implements Iter.Producer.Produce.
+func (p *SimpleKVIterProducer) Produce(start []byte, end []byte) Iter {
+	startIndex := sort.Search(len(p.pairs), func(i int) bool {
+		return bytes.Compare(start, p.pairs[i].Key) < 1
+	})
+	endIndex := sort.Search(len(p.pairs), func(i int) bool {
+		return bytes.Compare(end, p.pairs[i].Key) < 1
+	})
+	if startIndex >= endIndex {
+		log.Error("produce failed due to start key is large than end key",
+			zap.Binary("start", start), zap.Binary("end", end))
+		return nil
+	}
+	return newSimpleKVIter(p.pairs[startIndex:endIndex])
+}
+
+// SimpleKVIter represents simple pair iterator.
 // which is used for log restore.
-type SimplePairIter struct {
+type SimpleKVIter struct {
 	mu    sync.Mutex
 	index int
 	pairs Pairs
 }
 
-// NewSimpleKeyIter creates SimplePairIter.
-func NewSimpleKeyIter(pairs Pairs) PairIter {
-	return &SimplePairIter{
+// newSimpleKVIter creates SimpleKVIter.
+func newSimpleKVIter(pairs Pairs) Iter {
+	return &SimpleKVIter{
 		index: -1,
 		pairs: pairs,
 	}
 }
 
-// Seek implements PairIter.Seek.
-func (s *SimplePairIter) Seek(key []byte) bool {
+// Seek implements Iter.Seek.
+func (s *SimpleKVIter) Seek(key []byte) bool {
 	index := sort.Search(len(s.pairs), func(i int) bool {
 		return bytes.Compare(key, s.pairs[i].Key) < 1
 	})
@@ -89,13 +123,13 @@ func (s *SimplePairIter) Seek(key []byte) bool {
 	return false
 }
 
-// Error implements PairIter.Error.
-func (s *SimplePairIter) Error() error {
+// Error implements Iter.Error.
+func (s *SimpleKVIter) Error() error {
 	return nil
 }
 
-// First implements PairIter.First.
-func (s *SimplePairIter) First() []byte {
+// First implements Iter.First.
+func (s *SimpleKVIter) First() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pairs) == 0 {
@@ -105,8 +139,8 @@ func (s *SimplePairIter) First() []byte {
 	return s.pairs[s.index].Key
 }
 
-// Last implements PairIter.Last.
-func (s *SimplePairIter) Last() []byte {
+// Last implements Iter.Last.
+func (s *SimpleKVIter) Last() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(s.pairs) == 0 {
@@ -116,23 +150,23 @@ func (s *SimplePairIter) Last() []byte {
 	return s.pairs[s.index].Key
 }
 
-// Valid implements PairIter.Valid.
-func (s *SimplePairIter) Valid() bool {
+// Valid implements Iter.Valid.
+func (s *SimpleKVIter) Valid() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.index >= 0 && s.index < len(s.pairs)
 }
 
-// Next implements PairIter.Next.
-func (s *SimplePairIter) Next() bool {
+// Next implements Iter.Next.
+func (s *SimpleKVIter) Next() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.index++
 	return s.index <= len(s.pairs)
 }
 
-// Key implements PairIter.Key.
-func (s *SimplePairIter) Key() []byte {
+// Key implements Iter.Key.
+func (s *SimpleKVIter) Key() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.index >= 0 && s.index < len(s.pairs) {
@@ -141,8 +175,8 @@ func (s *SimplePairIter) Key() []byte {
 	return nil
 }
 
-// Value implements PairIter.Value.
-func (s *SimplePairIter) Value() []byte {
+// Value implements Iter.Value.
+func (s *SimpleKVIter) Value() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.index >= 0 && s.index < len(s.pairs) {
@@ -151,8 +185,8 @@ func (s *SimplePairIter) Value() []byte {
 	return nil
 }
 
-// Close implements PairIter.Close.
-func (s *SimplePairIter) Close() error {
+// Close implements Iter.Close.
+func (s *SimpleKVIter) Close() error {
 	return nil
 }
 

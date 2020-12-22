@@ -84,7 +84,7 @@ type Ingester struct {
 	conns gRPCConns
 
 	splitCli   SplitClient
-	workerPool *utils.WorkerPool
+	WorkerPool *utils.WorkerPool
 
 	batchWriteKVPairs int
 	regionSplitSize   int64
@@ -99,7 +99,7 @@ func NewIngester(splitCli SplitClient, cfg concurrencyCfg, commitTS uint64) *Ing
 			conns:          make(map[uint64]*conn.Pool),
 		},
 		splitCli:          splitCli,
-		workerPool:        workerPool,
+		WorkerPool:        workerPool,
 		batchWriteKVPairs: cfg.BatchWriteKVPairs,
 		regionSplitSize:   defaultSplitSize,
 		TS:                commitTS,
@@ -146,7 +146,7 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 // write [start, end) kv in to tikv.
 func (i *Ingester) writeAndIngestByRange(
 	ctxt context.Context,
-	iter kv.PairIter,
+	iterProducer kv.IterProducer,
 	start []byte,
 	end []byte,
 	remainRanges *syncdRanges,
@@ -156,19 +156,12 @@ func (i *Ingester) writeAndIngestByRange(
 		return ctxt.Err()
 	default:
 	}
-	iter.Seek(start)
-	pairStart := append([]byte{}, iter.Key()...)
-	var pairEnd []byte
-	if iter.Seek(end) {
-		pairEnd = append([]byte{}, iter.Key()...)
-	} else {
-		// seek position is out of range.
-		log.Info("end key is not in iterator",
-			zap.Binary("endKey", end), zap.Binary("iter last key", iter.Last()))
-		pairEnd = append([]byte{}, kv.NextKey(iter.Last())...)
-	}
+	iter := iterProducer.Produce(start, end)
+	pairStart := append([]byte{}, iter.First()...)
+	pairEnd := append([]byte{}, iter.Last()...)
 	if bytes.Compare(pairStart, pairEnd) > 0 {
-		log.Debug("There is no pairs in iterator")
+		log.Debug("There is no pairs in iterator", zap.Binary("start", start),
+			zap.Binary("end", end), zap.Binary("pairStart", pairStart), zap.Binary("pairEnd", pairEnd))
 		return nil
 	}
 	var regions []*RegionInfo
@@ -186,7 +179,7 @@ WriteAndIngest:
 			}
 		}
 		startKey := codec.EncodeBytes(pairStart)
-		endKey := codec.EncodeBytes(pairEnd)
+		endKey := codec.EncodeBytes(kv.NextKey(pairEnd))
 		regions, err = PaginateScanRegion(ctx, i.splitCli, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
 			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)),
@@ -200,10 +193,10 @@ WriteAndIngest:
 				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
 				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
-			w := i.workerPool.ApplyWorker()
+			w := i.WorkerPool.ApplyWorker()
 			var rg *Range
 			rg, err = i.writeAndIngestPairs(ctx, iter, region, pairStart, pairEnd)
-			i.workerPool.RecycleWorker(w)
+			i.WorkerPool.RecycleWorker(w)
 			if err != nil {
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey)
 				// if we have at least succeeded one region, retry without increasing the retry count
@@ -227,7 +220,7 @@ WriteAndIngest:
 
 func (i *Ingester) writeAndIngestPairs(
 	ctx context.Context,
-	iter kv.PairIter,
+	iter kv.Iter,
 	region *RegionInfo,
 	start, end []byte,
 ) (*Range, error) {
@@ -309,7 +302,7 @@ loopWrite:
 // tikv will takes the responsibility to do so.
 func (i *Ingester) writeToTiKV(
 	ctx context.Context,
-	iter kv.PairIter,
+	iter kv.Iter,
 	region *RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, error) {
@@ -386,7 +379,7 @@ func (i *Ingester) writeToTiKV(
 	firstLoop := true
 	regionMaxSize := i.regionSplitSize * 4 / 3
 
-	for iter.Seek(regionRange.Start); iter.Valid() && bytes.Compare(iter.Key(), regionRange.End) < 0; iter.Next() {
+	for iter.Seek(regionRange.Start); iter.Valid() && bytes.Compare(iter.Key(), regionRange.End) <= 0; iter.Next() {
 		size += int64(len(iter.Key()) + len(iter.Value()))
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
