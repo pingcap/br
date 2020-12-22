@@ -70,8 +70,10 @@ func (sstMeta zapMarshalSSTMetaMixIn) MarshalLogObject(enc zapcore.ObjectEncoder
 	enc.AddUint64("length", sstMeta.Length)
 	enc.AddUint64("regionID", sstMeta.RegionId)
 	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
-	enc.AddString("rangeStart", WrapKey(sstMeta.GetRange().GetStart()).String())
-	enc.AddString("rangeEnd", WrapKey(sstMeta.GetRange().GetEnd()).String())
+	if !NeedRedact() {
+		enc.AddString("rangeStart", WrapKey(sstMeta.GetRange().GetStart()).String())
+		enc.AddString("rangeEnd", WrapKey(sstMeta.GetRange().GetEnd()).String())
+	}
 
 	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
 	if err != nil {

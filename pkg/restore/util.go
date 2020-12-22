@@ -127,8 +127,8 @@ func GetSSTMetaFromFile(
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Panic("range start exceed range end",
 			logutil.File(file),
-			zap.Stringer("rangeStart", logutil.WrapKey(rangeStart)),
-			zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd)))
+			logutil.Redact(zap.Stringer("rangeStart", logutil.WrapKey(rangeStart))),
+			logutil.Redact(zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd))))
 	}
 
 	log.Debug("get sstMeta",
@@ -205,14 +205,14 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 		if tableID != tableEndID {
 			log.Panic("key range spread between many files.",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Redact(zap.Stringer("start key", logutil.WrapKey(file.GetStartKey()))),
+				logutil.Redact(zap.Stringer("end key", logutil.WrapKey(file.GetEndKey()))))
 		}
 		if tableID == 0 {
 			log.Panic("invalid table key of file",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Redact(zap.Stringer("start key", logutil.WrapKey(file.GetStartKey()))),
+				logutil.Redact(zap.Stringer("end key", logutil.WrapKey(file.GetEndKey()))))
 		}
 		result[tableID] = append(result[tableID], file)
 	}
@@ -309,8 +309,8 @@ func AttachFilesToRanges(
 		})
 		if rg == nil {
 			log.Panic("range not found",
-				zap.Stringer("startKey", logutil.WrapKey(f.GetStartKey())),
-				zap.Stringer("endKey", logutil.WrapKey(f.GetEndKey())))
+				logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(f.GetStartKey()))),
+				logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(f.GetEndKey()))))
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)
