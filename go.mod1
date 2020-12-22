@@ -13,6 +13,7 @@ require (
 	github.com/golang/mock v1.4.4
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
+	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
