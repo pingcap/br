@@ -45,7 +45,7 @@ func RedactStringer(arg fmt.Stringer) fmt.Stringer {
 	return arg
 }
 
-type stringer struct {}
+type stringer struct{}
 
 // String implement fmt.Stringer
 func (s stringer) String() string {

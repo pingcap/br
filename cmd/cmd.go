@@ -39,12 +39,12 @@ const (
 	FlagLogFile = "log-file"
 	// FlagLogFormat is the name of log-format flag.
 	FlagLogFormat = "log-format"
-	// FlagLogRedact is whether to redact sensitive information in log.
-	FlagLogRedact = "log-redact"
 	// FlagStatusAddr is the name of status-addr flag.
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
+	// FlagRedactInfoLog is whether to redact sensitive information in log.
+	FlagRedactInfoLog = "redact-info-log"
 
 	flagVersion      = "version"
 	flagVersionShort = "V"
@@ -66,7 +66,7 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to temp file")
 	cmd.PersistentFlags().String(FlagLogFormat, "text",
 		"Set the log format")
-	cmd.PersistentFlags().Bool(FlagLogRedact, false,
+	cmd.PersistentFlags().Bool(FlagRedactInfoLog, false,
 		"Set whether to redact sensitive info in log")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
@@ -112,12 +112,12 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 		log.ReplaceGlobals(lg, p)
 
-		logRedact, e := cmd.Flags().GetBool(FlagLogRedact)
+		redactInfoLog, e := cmd.Flags().GetBool(FlagRedactInfoLog)
 		if e != nil {
 			err = e
 			return
 		}
-		brlogutil.InitRedact(logRedact)
+		brlogutil.InitRedact(redactInfoLog)
 
 		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
 		if e != nil {
