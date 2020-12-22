@@ -256,7 +256,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
 					log.Error("[doDBDDLJob] exec ddl failed",
-						logutil.Redact(zap.String("query", ddl.Query)),
+						zap.String("query", logutil.RedactString(ddl.Query)),
 						zap.Error(err))
 					return errors.Trace(err)
 				}
@@ -555,7 +555,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.Warn("ingest failed", zap.Error(err), logutil.Redact(zap.Reflect("meta", meta)),
+				log.Warn("ingest failed", zap.Error(err), logutil.SSTMeta(meta),
 					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				continue
 			}
@@ -565,7 +565,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.Redact(zap.Reflect("meta", meta)),
+				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
 					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
@@ -574,9 +574,9 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.Warn("retry ingest due to",
-					logutil.Redact(zap.Reflect("meta", meta)), logutil.Region(region.Region), zap.Any("leader", region.Leader),
-					logutil.Redact(zap.Reflect("new region", newRegion)), zap.Error(errIngest))
+				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
+					zap.Any("leader", region.Leader), logutil.RedactReflect("new region", newRegion),
+					zap.Error(errIngest))
 				return errIngest
 			}
 		}
@@ -834,7 +834,7 @@ func (l *LogClient) restoreTableFromPuller(
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
-					logutil.Redact(zap.String("query", ddl.Query)),
+					zap.String("query", logutil.RedactString(ddl.Query)),
 					zap.Int64("table id", tableID))
 				continue
 			}
@@ -870,7 +870,8 @@ func (l *LogClient) restoreTableFromPuller(
 			// if table dropped, we will pull next event to see if this table will create again.
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
-				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", logutil.Redact(zap.String("ddl", ddl.Query)))
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl",
+					zap.String("ddl", logutil.RedactString(ddl.Query)))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue
 			}

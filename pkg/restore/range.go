@@ -28,7 +28,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", logutil.Redact(zap.Stringer("key", logutil.WrapKey(rg.StartKey))))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
 				} else {
 					log.Debug(
 						"rewrite start key",
@@ -37,7 +37,7 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", logutil.Redact(zap.Stringer("key", logutil.WrapKey(rg.EndKey))))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
 				} else {
 					log.Debug(
 						"rewrite end key",
@@ -46,8 +46,8 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 				}
 			} else {
 				log.Warn("table id does not match",
-					logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(rg.StartKey))),
-					logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(rg.EndKey))),
+					zap.Stringer("startKey", logutil.WrapKey(rg.StartKey)),
+					zap.Stringer("endKey", logutil.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "table id mismatch")
@@ -55,8 +55,8 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
 			log.Error("insert ranges overlapped",
-				logutil.Redact(zap.Reflect("out", out)),
-				logutil.Redact(zap.Reflect("range", rg)))
+				logutil.RedactReflect("out", out),
+				logutil.RedactReflect("range", rg))
 			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped")
 		}
 	}

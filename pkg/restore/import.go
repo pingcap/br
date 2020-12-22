@@ -253,8 +253,8 @@ func (importer *FileImporter) Import(
 						log.Warn("download file skipped",
 							logutil.File(file),
 							logutil.Region(info.Region),
-							logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
-							logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))),
+							zap.Stringer("startKey", logutil.WrapKey(startKey)),
+							zap.Stringer("endKey", logutil.WrapKey(endKey)),
 							logutil.ShortError(e))
 						continue regionLoop
 					}
@@ -262,8 +262,8 @@ func (importer *FileImporter) Import(
 				log.Error("download file failed",
 					logutil.File(file),
 					logutil.Region(info.Region),
-					logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(startKey))),
-					logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(endKey))),
+					zap.Stringer("startKey", logutil.WrapKey(startKey)),
+					zap.Stringer("endKey", logutil.WrapKey(endKey)),
 					logutil.ShortError(errDownload))
 				return errors.Trace(errDownload)
 			}
@@ -327,7 +327,7 @@ func (importer *FileImporter) Import(
 			if errIngest != nil {
 				log.Error("ingest file failed",
 					logutil.File(file),
-					logutil.Redact(zap.Stringer("range", downloadMeta.GetRange())),
+					zap.Stringer("range", logutil.RedactStringer(downloadMeta.GetRange())),
 					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errors.Trace(errIngest)

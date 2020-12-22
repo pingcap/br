@@ -23,10 +23,8 @@ func (file zapMarshalFileMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) erro
 	enc.AddString("name", file.GetName())
 	enc.AddString("CF", file.GetCf())
 	enc.AddString("sha256", hex.EncodeToString(file.GetSha256()))
-	if !NeedRedact() {
-		enc.AddString("startKey", WrapKey(file.GetStartKey()).String())
-		enc.AddString("endKey", WrapKey(file.GetEndKey()).String())
-	}
+	enc.AddString("startKey", WrapKey(file.GetStartKey()).String())
+	enc.AddString("endKey", WrapKey(file.GetEndKey()).String())
 	enc.AddUint64("startVersion", file.GetStartVersion())
 	enc.AddUint64("endVersion", file.GetEndVersion())
 	enc.AddUint64("totalKvs", file.GetTotalKvs())
@@ -52,10 +50,8 @@ func (region zapMarshalRegionMixIn) MarshalLogObject(enc zapcore.ObjectEncoder) 
 		peers = append(peers, peer.String())
 	}
 	enc.AddUint64("ID", region.Id)
-	if !NeedRedact() {
-		enc.AddString("startKey", WrapKey(region.GetStartKey()).String())
-		enc.AddString("endKey", WrapKey(region.GetEndKey()).String())
-	}
+	enc.AddString("startKey", WrapKey(region.GetStartKey()).String())
+	enc.AddString("endKey", WrapKey(region.GetEndKey()).String())
 	enc.AddString("epoch", region.GetRegionEpoch().String())
 	enc.AddString("peers", strings.Join(peers, ","))
 	return nil
@@ -70,10 +66,8 @@ func (sstMeta zapMarshalSSTMetaMixIn) MarshalLogObject(enc zapcore.ObjectEncoder
 	enc.AddUint64("length", sstMeta.Length)
 	enc.AddUint64("regionID", sstMeta.RegionId)
 	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
-	if !NeedRedact() {
-		enc.AddString("rangeStart", WrapKey(sstMeta.GetRange().GetStart()).String())
-		enc.AddString("rangeEnd", WrapKey(sstMeta.GetRange().GetEnd()).String())
-	}
+	enc.AddString("rangeStart", WrapKey(sstMeta.GetRange().GetStart()).String())
+	enc.AddString("rangeEnd", WrapKey(sstMeta.GetRange().GetEnd()).String())
 
 	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
 	if err != nil {
@@ -109,7 +103,7 @@ func (fs files) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 
 // WrapKey wrap a key as a Stringer that can print proper upper hex format.
 func WrapKey(key []byte) fmt.Stringer {
-	return kv.Key(key)
+	return RedactStringer(kv.Key(key))
 }
 
 // WrapKeys wrap keys as an ArrayMarshaler that can print proper upper hex format.

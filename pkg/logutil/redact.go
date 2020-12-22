@@ -3,6 +3,8 @@
 package logutil
 
 import (
+	"fmt"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -19,10 +21,33 @@ func NeedRedact() bool {
 	return _enableRedactLog
 }
 
-// Redact returns zap.Skip() if we need to redact this field
-func Redact(field zapcore.Field) zapcore.Field {
+// RedactReflect receives zap.Reflect and return omitted information if redact log enabled
+func RedactReflect(key string, val interface{}) zapcore.Field {
 	if NeedRedact() {
-		return zap.Skip()
+		return zap.String(key, "?")
 	}
-	return field
+	return zap.Reflect(key, val)
+}
+
+// RedactString receives string argument and return omitted information if redact log enabled
+func RedactString(arg string) string {
+	if NeedRedact() {
+		return "?"
+	}
+	return arg
+}
+
+// RedactStringer receives stringer argument and return omitted information if redact log enabled
+func RedactStringer(arg fmt.Stringer) fmt.Stringer {
+	if NeedRedact() {
+		return stringer{}
+	}
+	return arg
+}
+
+type stringer struct {}
+
+// String implement fmt.Stringer
+func (s stringer) String() string {
+	return "?"
 }

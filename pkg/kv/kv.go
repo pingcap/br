@@ -129,7 +129,7 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 		}
 		_ = encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
-			enc.AddString("val", str)
+			enc.AddString("val", logutil.RedactString(str))
 			return nil
 		}))
 	}
@@ -220,8 +220,8 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
 		log.Error("kv add Record failed",
-			logutil.Redact(zap.Array("originalRow", rowArrayMarshaler(row))),
-			logutil.Redact(zap.Array("convertedRow", rowArrayMarshaler(record))),
+			zap.Array("originalRow", rowArrayMarshaler(row)),
+			zap.Array("convertedRow", rowArrayMarshaler(record)),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)
@@ -271,8 +271,8 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	err = kvcodec.tbl.RemoveRecord(kvcodec.se, kv.IntHandle(rowID), record)
 	if err != nil {
 		log.Error("kv remove record failed",
-			logutil.Redact(zap.Array("originalRow", rowArrayMarshaler(row))),
-			logutil.Redact(zap.Array("convertedRow", rowArrayMarshaler(record))),
+			zap.Array("originalRow", rowArrayMarshaler(row)),
+			zap.Array("convertedRow", rowArrayMarshaler(record)),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)

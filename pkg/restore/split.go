@@ -119,8 +119,8 @@ SplitRegions:
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
 						log.Error("no valid key",
-							logutil.Redact(zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey))),
-							logutil.Redact(zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey))),
+							zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
+							zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)),
 							zap.Stringer("key", logutil.WrapKey(codec.EncodeBytes([]byte{}, key))))
 					}
 					return errors.Trace(errSplit)
