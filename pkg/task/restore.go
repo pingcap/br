@@ -102,7 +102,6 @@ type RestoreConfig struct {
 
 // DefineRestoreFlags defines common flags for the restore tidb command.
 func DefineRestoreFlags(flags *pflag.FlagSet) {
-	// TODO remove experimental tag if it's stable
 	flags.Bool(flagNoSchema, false, "skip creating schemas and tables, reuse existing empty ones")
 	// Do not expose this flag
 	_ = flags.MarkHidden(flagNoSchema)
