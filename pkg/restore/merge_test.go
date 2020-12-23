@@ -8,11 +8,14 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+	"time"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -27,7 +30,7 @@ type fileBulder struct {
 	tableID, startKeyOffset int64
 }
 
-func (fb *fileBulder) build(tableID, num, bytes, kv int) (files []*kvproto.File) {
+func (fb *fileBulder) build(tableID, indexID, num, bytes, kv int) (files []*kvproto.File) {
 	if num != 1 && num != 2 {
 		panic("num must be 1 or 2")
 	}
@@ -41,10 +44,29 @@ func (fb *fileBulder) build(tableID, num, bytes, kv int) (files []*kvproto.File)
 	low := codec.EncodeInt(nil, fb.startKeyOffset)
 	fb.startKeyOffset += 10
 	high := codec.EncodeInt(nil, fb.startKeyOffset)
+
+	startKey := tablecodec.EncodeRowKey(fb.tableID, low)
+	endKey := tablecodec.EncodeRowKey(fb.tableID, high)
+	if indexID != 0 {
+		lowVal := types.NewIntDatum(fb.startKeyOffset - 10)
+		highVal := types.NewIntDatum(fb.startKeyOffset)
+		sc := &stmtctx.StatementContext{TimeZone: time.UTC}
+		lowValue, err := codec.EncodeKey(sc, nil, lowVal)
+		if err != nil {
+			panic(err)
+		}
+		highValue, err := codec.EncodeKey(sc, nil, highVal)
+		if err != nil {
+			panic(err)
+		}
+		startKey = tablecodec.EncodeIndexSeekKey(int64(tableID), int64(indexID), lowValue)
+		endKey = tablecodec.EncodeIndexSeekKey(int64(tableID), int64(indexID), highValue)
+	}
+
 	files = append(files, &kvproto.File{
 		Name:       fmt.Sprint(rand.Int63n(math.MaxInt64), "_write.sst"),
-		StartKey:   tablecodec.EncodeRowKey(fb.tableID, low),
-		EndKey:     tablecodec.EncodeRowKey(fb.tableID, high),
+		StartKey:   startKey,
+		EndKey:     endKey,
 		TotalKvs:   uint64(kv),
 		TotalBytes: uint64(bytes),
 		Cf:         "write",
@@ -69,7 +91,7 @@ func (fb *fileBulder) build(tableID, num, bytes, kv int) (files []*kvproto.File)
 
 func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 	type Case struct {
-		files  [][4]int // tableID, num, bytes, kv
+		files  [][5]int // tableID, indexID num, bytes, kv
 		merged []int    // length of each merged range
 		stat   restore.MergeRangesStat
 	}
@@ -78,70 +100,107 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 	cases := []Case{
 		// Empty backup.
 		{
-			files:  [][4]int{},
+			files:  [][5]int{},
 			merged: []int{},
 			stat:   restore.MergeRangesStat{TotalRegions: 0, MergedRegions: 0},
 		},
 
 		// Do not merge big range.
 		{
-			files:  [][4]int{{1, 1, splitSizeBytes, 1}, {1, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, splitSizeBytes, 1}, {1, 0, 1, 1, 1}},
 			merged: []int{1, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
 		},
 		{
-			files:  [][4]int{{1, 1, 1, 1}, {1, 1, splitSizeBytes, 1}},
+			files:  [][5]int{{1, 0, 1, 1, 1}, {1, 0, 1, splitSizeBytes, 1}},
 			merged: []int{1, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
 		},
 		{
-			files:  [][4]int{{1, 1, 1, splitKeyCount}, {1, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, 1, splitKeyCount}, {1, 0, 1, 1, 1}},
 			merged: []int{1, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
 		},
 		{
-			files:  [][4]int{{1, 1, 1, 1}, {1, 1, 1, splitKeyCount}},
+			files:  [][5]int{{1, 0, 1, 1, 1}, {1, 0, 1, 1, splitKeyCount}},
 			merged: []int{1, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
 		},
 
 		// 3 -> 1
 		{
-			files:  [][4]int{{1, 1, 1, 1}, {1, 1, 1, 1}, {1, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, 1, 1}, {1, 0, 1, 1, 1}, {1, 0, 1, 1, 1}},
 			merged: []int{3},
 			stat:   restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 1},
 		},
-		// 3 -> 2, [split*1/3, split*1/3, split*1/2] -> [split*2/3, split*1/2]
+		// 3 -> 2, size: [split*1/3, split*1/3, split*1/2] -> [split*2/3, split*1/2]
 		{
-			files:  [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 2, 1}},
+			files:  [][5]int{{1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes / 2, 1}},
 			merged: []int{2, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 2},
 		},
-		// 4 -> 2, [split*1/3, split*1/3, split*1/2, 1] -> [split*2/3, split*1/2 +1]
+		// 4 -> 2, size: [split*1/3, split*1/3, split*1/2, 1] -> [split*2/3, split*1/2 +1]
 		{
-			files:  [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 2, 1}, {1, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes / 2, 1}, {1, 0, 1, 1, 1}},
 			merged: []int{2, 2},
 			stat:   restore.MergeRangesStat{TotalRegions: 4, MergedRegions: 2},
 		},
-		// 5 -> 3, [split*1/3, split*1/3, split, split*1/2, 1] -> [split*2/3, split, split*1/2 +1]
+		// 5 -> 3, size: [split*1/3, split*1/3, split, split*1/2, 1] -> [split*2/3, split, split*1/2 +1]
 		{
-			files:  [][4]int{{1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes / 3, 1}, {1, 1, splitSizeBytes, 1}, {1, 1, splitSizeBytes / 2, 1}, {1, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes / 3, 1}, {1, 0, 1, splitSizeBytes, 1}, {1, 0, 1, splitSizeBytes / 2, 1}, {1, 0, 1, 1, 1}},
 			merged: []int{2, 1, 2},
 			stat:   restore.MergeRangesStat{TotalRegions: 5, MergedRegions: 3},
 		},
 
 		// Do not merge ranges from different tables
-		// 2 -> 2, [1, 1] -> [1, 1]
+		// 2 -> 2, size: [1, 1] -> [1, 1], table ID: [1, 2] -> [1, 2]
 		{
-			files:  [][4]int{{1, 1, 1, 1}, {2, 1, 1, 1}},
+			files:  [][5]int{{1, 0, 1, 1, 1}, {2, 0, 1, 1, 1}},
 			merged: []int{1, 1},
 			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
 		},
-		// 3 -> 2, [1@split*1/3, 2@split*1/3, 2@split*1/2] -> [1@split*1/3, 2@split*5/6]
+		// 3 -> 2, size: [1@split*1/3, 2@split*1/3, 2@split*1/2] -> [1@split*1/3, 2@split*5/6]
 		{
-			files:  [][4]int{{1, 1, splitSizeBytes / 3, 1}, {2, 1, splitSizeBytes / 3, 1}, {2, 1, splitSizeBytes / 2, 1}},
+			files:  [][5]int{{1, 0, 1, splitSizeBytes / 3, 1}, {2, 0, 1, splitSizeBytes / 3, 1}, {2, 0, 1, splitSizeBytes / 2, 1}},
 			merged: []int{1, 2},
 			stat:   restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 2},
+		},
+
+		// Do not merge ranges from different indexes.
+		// 2 -> 2, size: [1, 1] -> [1, 1], index ID: [1, 2] -> [1, 2]
+		{
+			files:  [][5]int{{1, 1, 1, 1, 1}, {1, 2, 1, 1, 1}},
+			merged: []int{1, 1},
+			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
+		},
+		// Index ID out of order.
+		// 2 -> 2, size: [1, 1] -> [1, 1], index ID: [2, 1] -> [1, 2]
+		{
+			files:  [][5]int{{1, 2, 1, 1, 1}, {1, 1, 1, 1, 1}},
+			merged: []int{1, 1},
+			stat:   restore.MergeRangesStat{TotalRegions: 2, MergedRegions: 2},
+		},
+		// 3 -> 3, size: [1, 1, 1] -> [1, 1, 1]
+		// (table ID, index ID): [(1, 0), (2, 1), (2, 2)] -> [(1, 0), (2, 1), (2, 2)]
+		{
+			files:  [][5]int{{1, 0, 1, 1, 1}, {2, 1, 1, 1, 1}, {2, 2, 1, 1, 1}},
+			merged: []int{1, 1, 1},
+			stat:   restore.MergeRangesStat{TotalRegions: 3, MergedRegions: 3},
+		},
+		// 4 -> 3, size: [1, 1, 1, 1] -> [1, 1, 2]
+		// (table ID, index ID): [(1, 0), (2, 1), (2, 0), (2, 0)] -> [(1, 0), (2, 1), (2, 0)]
+		{
+			files:  [][5]int{{1, 0, 1, 1, 1}, {2, 1, 1, 1, 1}, {2, 0, 1, 1, 1}, {2, 0, 1, 1, 1}},
+			merged: []int{1, 1, 2},
+			stat:   restore.MergeRangesStat{TotalRegions: 4, MergedRegions: 3},
+		},
+		// Merge the same table ID and index ID.
+		// 4 -> 3, size: [1, 1, 1, 1] -> [1, 2, 1]
+		// (table ID, index ID): [(1, 0), (2, 1), (2, 1), (2, 0)] -> [(1, 0), (2, 1), (2, 0)]
+		{
+			files:  [][5]int{{1, 0, 1, 1, 1}, {2, 1, 1, 1, 1}, {2, 1, 1, 1, 1}, {2, 0, 1, 1, 1}},
+			merged: []int{1, 2, 1},
+			stat:   restore.MergeRangesStat{TotalRegions: 4, MergedRegions: 3},
 		},
 	}
 
@@ -149,7 +208,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 		files := make([]*kvproto.File, 0)
 		fb := fileBulder{}
 		for _, f := range cs.files {
-			files = append(files, fb.build(f[0], f[1], f[2], f[3])...)
+			files = append(files, fb.build(f[0], f[1], f[2], f[3], f[4])...)
 		}
 		rngs, stat, err := restore.MergeFileRanges(
 			files, restore.DefaultMergeRegionSizeBytes, restore.DefaultMergeRegionKeyCount)
@@ -159,7 +218,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 
 		c.Assert(len(rngs), Equals, len(cs.merged), Commentf("case %d", i))
 		for i, rg := range rngs {
-			c.Assert(len(rg.Files), Equals, cs.merged[i])
+			c.Assert(len(rg.Files), Equals, cs.merged[i], Commentf("%+v", cs))
 			// Files range must be in [Range.StartKey, Range.EndKey].
 			for _, f := range rg.Files {
 				c.Assert(bytes.Compare(rg.StartKey, f.StartKey), LessEqual, 0)
@@ -172,7 +231,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 func (s *testMergeRangesSuite) TestMergeRawKVRanges(c *C) {
 	files := make([]*kvproto.File, 0)
 	fb := fileBulder{}
-	files = append(files, fb.build(1, 2, 1, 1)...)
+	files = append(files, fb.build(1, 0, 2, 1, 1)...)
 	// RawKV does not have write cf
 	files = files[1:]
 	_, stat, err := restore.MergeFileRanges(
@@ -185,7 +244,7 @@ func (s *testMergeRangesSuite) TestMergeRawKVRanges(c *C) {
 func (s *testMergeRangesSuite) TestInvalidRanges(c *C) {
 	files := make([]*kvproto.File, 0)
 	fb := fileBulder{}
-	files = append(files, fb.build(1, 1, 1, 1)...)
+	files = append(files, fb.build(1, 0, 1, 1, 1)...)
 	files[0].Name = "invalid.sst"
 	files[0].Cf = "invalid"
 	_, _, err := restore.MergeFileRanges(
@@ -206,7 +265,7 @@ func benchmarkMergeRanges(b *testing.B, filesCount int) {
 	files := make([]*kvproto.File, 0)
 	fb := fileBulder{}
 	for i := 0; i < filesCount; i++ {
-		files = append(files, fb.build(1, 1, 1, 1)...)
+		files = append(files, fb.build(1, 0, 1, 1, 1)...)
 	}
 	var err error
 	for i := 0; i < b.N; i++ {

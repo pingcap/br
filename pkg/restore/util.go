@@ -37,9 +37,7 @@ var (
 
 // GetRewriteRules returns the rewrite rule of the new table and the old table.
 func GetRewriteRules(
-	newTable *model.TableInfo,
-	oldTable *model.TableInfo,
-	newTimeStamp uint64,
+	newTable, oldTable *model.TableInfo, newTimeStamp uint64,
 ) *RewriteRules {
 	tableIDs := make(map[int64]int64)
 	tableIDs[oldTable.ID] = newTable.ID
@@ -196,7 +194,8 @@ func MapTableToFiles(files []*kvproto.File) map[int64][]*kvproto.File {
 	return result
 }
 
-// GoValidateFileRanges validate files by a stream of tables and yields tables with range.
+// GoValidateFileRanges validate files by a stream of tables and yields
+// tables with range.
 func GoValidateFileRanges(
 	ctx context.Context,
 	tableStream <-chan CreatedTable,
