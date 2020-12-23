@@ -103,7 +103,7 @@ func (fs files) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 
 // WrapKey wrap a key as a Stringer that can print proper upper hex format.
 func WrapKey(key []byte) fmt.Stringer {
-	return kv.Key(key)
+	return RedactStringer(kv.Key(key))
 }
 
 // WrapKeys wrap keys as an ArrayMarshaler that can print proper upper hex format.

@@ -578,7 +578,8 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
+	log.Error("can not find leader", zap.Stringer("key", logutil.WrapKey(key)))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
 func (bc *Client) fineGrainedBackup(
