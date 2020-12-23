@@ -9,20 +9,25 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var _enableRedactLog bool
+var enableRedactLog bool
 
-// InitRedact inits the _enableRedactLog
+// InitRedact inits the enableRedactLog
 func InitRedact(redact bool) {
-	_enableRedactLog = redact
+	enableRedactLog = redact
 }
 
 // NeedRedact returns whether to redact log
 func NeedRedact() bool {
-	return _enableRedactLog
+	return enableRedactLog
 }
 
-// RedactReflect receives zap.Reflect and return omitted information if redact log enabled
-func RedactReflect(key string, val interface{}) zapcore.Field {
+// ZapRedactString receives string argument and return omitted information in zap.Field if redact log enabled
+func ZapRedactString(key string, val string) zapcore.Field {
+	return zap.String(key, RedactString(val))
+}
+
+// ZapRedactReflect receives zap.Reflect and return omitted information if redact log enabled
+func ZapRedactReflect(key string, val interface{}) zapcore.Field {
 	if NeedRedact() {
 		return zap.String(key, "?")
 	}

@@ -256,7 +256,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
 					log.Error("[doDBDDLJob] exec ddl failed",
-						zap.String("query", logutil.RedactString(ddl.Query)),
+						logutil.ZapRedactString("query", ddl.Query),
 						zap.Error(err))
 					return errors.Trace(err)
 				}
@@ -575,7 +575,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				region = newRegion
 			} else {
 				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
-					zap.Any("leader", region.Leader), logutil.RedactReflect("new region", newRegion),
+					zap.Any("leader", region.Leader), logutil.ZapRedactReflect("new region", newRegion),
 					zap.Error(errIngest))
 				return errIngest
 			}
@@ -834,7 +834,7 @@ func (l *LogClient) restoreTableFromPuller(
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
-					zap.String("query", logutil.RedactString(ddl.Query)),
+					logutil.ZapRedactString("query", ddl.Query),
 					zap.Int64("table id", tableID))
 				continue
 			}
@@ -871,7 +871,7 @@ func (l *LogClient) restoreTableFromPuller(
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
 				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl",
-					zap.String("ddl", logutil.RedactString(ddl.Query)))
+					logutil.ZapRedactString("ddl", ddl.Query))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue
 			}

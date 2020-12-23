@@ -5,7 +5,6 @@ package restore
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -482,8 +481,8 @@ func PaginateScanRegion(
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
 		log.Error("restore range startKey >= endKey",
-			zap.String("startKey", logutil.RedactString(hex.EncodeToString(startKey))),
-			zap.String("endKey", logutil.RedactString(hex.EncodeToString(endKey))))
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)))
 		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey")
 	}
 
