@@ -135,7 +135,7 @@ static: prepare tools
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
-		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
 
 lint: prepare tools
 	@echo "linting"
