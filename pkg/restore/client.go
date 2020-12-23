@@ -502,7 +502,7 @@ func (rc *Client) ExecDDLs(ctx context.Context, ddlJobs []*model.Job) error {
 		}
 		log.Info("execute ddl query",
 			zap.String("db", job.SchemaName),
-			logutil.ZapRedactString("query", job.Query),
+			zap.String("query", job.Query),
 			zap.Int64("historySchemaVersion", job.BinlogInfo.SchemaVersion))
 	}
 	return nil

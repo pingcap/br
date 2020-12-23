@@ -5,25 +5,19 @@ package logutil
 import (
 	"fmt"
 
+	perrors "github.com/pingcap/errors"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
-var enableRedactLog bool
-
 // InitRedact inits the enableRedactLog
-func InitRedact(redact bool) {
-	enableRedactLog = redact
+func InitRedact(redactLog bool) {
+	perrors.RedactLogEnabled.Store(redactLog)
 }
 
 // NeedRedact returns whether to redact log
 func NeedRedact() bool {
-	return enableRedactLog
-}
-
-// ZapRedactString receives string argument and return omitted information in zap.Field if redact log enabled
-func ZapRedactString(key string, val string) zapcore.Field {
-	return zap.String(key, RedactString(val))
+	return perrors.RedactLogEnabled.Load()
 }
 
 // ZapRedactReflect receives zap.Reflect and return omitted information if redact log enabled
@@ -32,6 +26,11 @@ func ZapRedactReflect(key string, val interface{}) zapcore.Field {
 		return zap.String(key, "?")
 	}
 	return zap.Reflect(key, val)
+}
+
+// ZapRedactStringer receives stringer argument and return omitted information in zap.Field  if redact log enabled
+func ZapRedactStringer(key string, arg fmt.Stringer) zap.Field {
+	return zap.Stringer(key, RedactStringer(arg))
 }
 
 // RedactString receives string argument and return omitted information if redact log enabled

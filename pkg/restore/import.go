@@ -327,7 +327,7 @@ func (importer *FileImporter) Import(
 			if errIngest != nil {
 				log.Error("ingest file failed",
 					logutil.File(file),
-					zap.Stringer("range", logutil.RedactStringer(downloadMeta.GetRange())),
+					logutil.ZapRedactStringer("range", downloadMeta.GetRange()),
 					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errors.Trace(errIngest)

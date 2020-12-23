@@ -256,7 +256,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 				err = l.restoreClient.db.se.Execute(ctx, ddl.Query)
 				if err != nil {
 					log.Error("[doDBDDLJob] exec ddl failed",
-						logutil.ZapRedactString("query", ddl.Query),
+						zap.String("query", ddl.Query),
 						zap.Error(err))
 					return errors.Trace(err)
 				}
@@ -834,7 +834,7 @@ func (l *LogClient) restoreTableFromPuller(
 					zap.String("item schema", item.Schema),
 					zap.String("schema", schema),
 					zap.Int64("backup table id", tableID),
-					logutil.ZapRedactString("query", ddl.Query),
+					zap.String("query", ddl.Query),
 					zap.Int64("table id", tableID))
 				continue
 			}
@@ -871,7 +871,7 @@ func (l *LogClient) restoreTableFromPuller(
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
 				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl",
-					logutil.ZapRedactString("ddl", ddl.Query))
+					zap.String("ddl", ddl.Query))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue
 			}
