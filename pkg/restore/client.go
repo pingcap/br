@@ -776,7 +776,6 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		return nil
 	}
 
-
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.execChecksum", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
