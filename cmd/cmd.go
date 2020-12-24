@@ -11,14 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	tracing "github.com/uber/jaeger-client-go/config"
-	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/summary"
@@ -139,11 +136,7 @@ func Init(cmd *cobra.Command) (err error) {
 		//	err = e
 		//	return
 		//}
-		//e = setupTracing(enableOpentracing)
-		//if e != nil {
-		//	err = e
-		//	return
-		//}
+
 
 		// Initialize the pprof server.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
@@ -156,10 +149,6 @@ func Init(cmd *cobra.Command) (err error) {
 		} else {
 			utils.StartDynamicPProfListener()
 		}
-		span := opentracing.GlobalTracer().StartSpan("trace")
-		ctx := GetDefaultContext()
-		ctx = opentracing.ContextWithSpan(ctx, span)
-		SetDefaultContext(ctx)
 	})
 	return errors.Trace(err)
 }
@@ -177,19 +166,4 @@ func SetDefaultContext(ctx context.Context) {
 // GetDefaultContext returns the default context for command line usage.
 func GetDefaultContext() context.Context {
 	return defaultContext
-}
-
-func setupTracing(enableOpentracing bool) error {
-	tracingCfg := &tracing.Configuration{
-		Disabled:    !enableOpentracing,
-		ServiceName: "BR",
-		Reporter:    &tracing.ReporterConfig{LogSpans: true},
-	}
-	tracer, _, err := tracingCfg.NewTracer()
-	if err != nil {
-		log.Error("setup jaeger tracer failed", zap.String("error message", err.Error()))
-		return errors.Trace(err)
-	}
-	opentracing.SetGlobalTracer(tracer)
-	return nil
 }

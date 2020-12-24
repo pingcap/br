@@ -21,7 +21,10 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return errors.Trace(err)
 	}
-	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
+
+	ctx, recorder := utils.TracerStartSpan(GetDefaultContext())
+	defer utils.TracerFinishSpan(ctx, recorder)
+	if err := task.RunBackup(ctx, tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to backup", zap.Error(err))
 		return errors.Trace(err)
 	}
