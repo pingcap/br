@@ -70,6 +70,8 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log format")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
+	cmd.PersistentFlags().Bool(FlagEnableOpentracing, false,
+		"Set whether to enable opentracing during the backup/restore process")
 	task.DefineCommonFlags(cmd.PersistentFlags())
 
 	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
@@ -132,16 +134,16 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		enableOpentracing, e := cmd.Flags().GetBool(FlagEnableOpentracing)
-		if e != nil {
-			err = e
-			return
-		}
-		e = setupTracing(enableOpentracing)
-		if e != nil {
-			err = e
-			return
-		}
+		//enableOpentracing, e := cmd.Flags().GetBool(FlagEnableOpentracing)
+		//if e != nil {
+		//	err = e
+		//	return
+		//}
+		//e = setupTracing(enableOpentracing)
+		//if e != nil {
+		//	err = e
+		//	return
+		//}
 
 		// Initialize the pprof server.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
@@ -154,6 +156,10 @@ func Init(cmd *cobra.Command) (err error) {
 		} else {
 			utils.StartDynamicPProfListener()
 		}
+		span := opentracing.GlobalTracer().StartSpan("trace")
+		ctx := GetDefaultContext()
+		ctx = opentracing.ContextWithSpan(ctx, span)
+		SetDefaultContext(ctx)
 	})
 	return errors.Trace(err)
 }
@@ -177,11 +183,12 @@ func setupTracing(enableOpentracing bool) error {
 	tracingCfg := &tracing.Configuration{
 		Disabled:    !enableOpentracing,
 		ServiceName: "BR",
+		Reporter:    &tracing.ReporterConfig{LogSpans: true},
 	}
 	tracer, _, err := tracingCfg.NewTracer()
 	if err != nil {
 		log.Error("setup jaeger tracer failed", zap.String("error message", err.Error()))
-		return err
+		return errors.Trace(err)
 	}
 	opentracing.SetGlobalTracer(tracer)
 	return nil
