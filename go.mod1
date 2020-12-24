@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/storage v1.6.0
 	github.com/aws/aws-sdk-go v1.35.3
 	github.com/cheggaaa/pb/v3 v3.0.4
+	github.com/cheynewallace/tabby v1.1.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/fsouza/fake-gcs-server v1.19.0
 	github.com/go-sql-driver/mysql v1.5.0
@@ -28,7 +29,6 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
 	github.com/tikv/pd v1.1.0-beta.0.20201125070607-d4b90eee0c70
-	github.com/uber/jaeger-client-go v2.22.1+incompatible
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
@@ -36,4 +36,5 @@ require (
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
+	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )

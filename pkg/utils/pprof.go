@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
 	// #nosec
 	// register HTTP handler for /debug/pprof
 	_ "net/http/pprof"

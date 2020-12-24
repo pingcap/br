@@ -5,9 +5,6 @@ package utils
 import (
 	"context"
 	"fmt"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
-	"go.uber.org/zap"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,6 +13,8 @@ import (
 
 	"github.com/cheynewallace/tabby"
 	"github.com/opentracing/opentracing-go"
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
 	"sourcegraph.com/sourcegraph/appdash"
 	traceImpl "sourcegraph.com/sourcegraph/appdash/opentracing"
 )
@@ -34,16 +33,16 @@ func TracerStartSpan(ctx context.Context) (context.Context, *appdash.MemoryStore
 }
 
 // TracerFinishSpan finishes the tracer for BR
-func TracerFinishSpan(ctx context.Context, store *appdash.MemoryStore) error {
+func TracerFinishSpan(ctx context.Context, store appdash.Queryer) {
 	span := opentracing.SpanFromContext(ctx)
 	traces, err := store.Traces(appdash.TracesOpts{})
 	if err != nil {
 		log.Error("fail to get traces", zap.Error(err))
-		return errors.Trace(err)
+		return
 	}
 	span.Finish()
 	if len(traces) < 1 {
-		return nil
+		return
 	}
 	trace := traces[0]
 
@@ -51,7 +50,7 @@ func TracerFinishSpan(ctx context.Context, store *appdash.MemoryStore) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Error("fail to open trace file", zap.Error(err))
-		return errors.Trace(err)
+		return
 	}
 	defer file.Close()
 	fmt.Fprintf(os.Stderr, "Detail BR trace in %s \n", filename)
@@ -60,7 +59,6 @@ func TracerFinishSpan(ctx context.Context, store *appdash.MemoryStore) error {
 
 	dfsTree(trace, "", false, tub)
 	tub.Print()
-	return nil
 }
 
 func dfsTree(t *appdash.Trace, prefix string, isLast bool, tub *tabby.Tabby) {

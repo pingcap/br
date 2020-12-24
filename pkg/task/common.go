@@ -122,16 +122,16 @@ type Config struct {
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter        filter.Filter `json:"-" toml:"-"`
-	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
+	TableFilter       filter.Filter `json:"-" toml:"-"`
+	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
+	// Enabletracing is whether to enable opentracing
+	EnableTracing      bool          `json:"enable-tracing" toml:"enable-tracing"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
 	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
 	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
-	// Enabletracing is whether to enable opentracing
-	EnableTracing bool `json:"enable-tracing" toml:"enable-tracing"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
