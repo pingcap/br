@@ -390,9 +390,6 @@ func (rc *Client) createTable(
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
 	} else {
-		// don't use rc.ctx here...
-		// remove the ctx field of Client would be a great work,
-		// we just take a small step here :<
 		err := db.CreateTable(ctx, table)
 		if err != nil {
 			return CreatedTable{}, errors.Trace(err)

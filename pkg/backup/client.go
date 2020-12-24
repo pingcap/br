@@ -244,7 +244,9 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 	return kvRanges, nil
 }
 
-// BuildBackupRangeAndSchema gets the range and schema of tables.
+// BuildBackupRangeAndSchema gets KV range and schema of tables.
+// KV ranges are separated by Table IDs.
+// Also, KV ranges are separated by Index IDs in the same table.
 func BuildBackupRangeAndSchema(
 	dom *domain.Domain,
 	storage kv.Storage,

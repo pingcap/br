@@ -18,6 +18,8 @@ DB="$TEST_NAME"
 TABLE="usertable"
 DDL_COUNT=10
 LOG=/$TEST_DIR/backup.log
+BACKUP_STAT=/$TEST_DIR/backup_stat
+RESOTRE_STAT=/$TEST_DIR/restore_stat
 
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
@@ -61,7 +63,7 @@ run_sql "analyze table $DB.$TABLE;"
 #        }
 #     ]
 # }
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > backup_stats
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $BACKUP_STAT
 
 # backup full
 echo "backup start..."
@@ -92,7 +94,7 @@ fi
 # restore full
 echo "restore start..."
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG || cat $LOG
 export GO_FAILPOINTS=""
 
 pause_count=$(cat $LOG | grep "pause configs successful"| wc -l | xargs)
@@ -115,15 +117,15 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
 
-if diff -q backup_stats restore_stats > /dev/null
+if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "stats are equal"
 else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
-  cat $backup_stats | head 1000
-  cat $restore_stats | head 1000
+  cat $BACKUP_STAT | head 1000
+  cat $RESOTRE_STAT | head 1000
   exit 1
 fi
 
