@@ -18,6 +18,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"strconv"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -46,6 +47,9 @@ const (
 const (
 	// BatchVersion1 represents the version of batch format.
 	BatchVersion1 uint64 = 1
+)
+
+const (
 	// BinaryFlag means the Column charset is binary.
 	BinaryFlag ColumnFlagType = 1 << ColumnFlagType(iota)
 	// HandleKeyFlag means the Column is selected as the handle key.
@@ -81,7 +85,7 @@ func (c Column) ToDatum() (types.Datum, error) {
 	)
 
 	switch c.Type {
-	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong:
+	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong, mysql.TypeYear:
 		val, err = c.Value.(json.Number).Int64()
 		if err != nil {
 			return types.Datum{}, errors.Trace(err)
@@ -99,20 +103,34 @@ func (c Column) ToDatum() (types.Datum, error) {
 
 func formatColumnVal(c Column) Column {
 	switch c.Type {
+	case mysql.TypeVarchar, mysql.TypeString:
+		if s, ok := c.Value.(string); ok {
+			// according to open protocol https://docs.pingcap.com/tidb/dev/ticdc-open-protocol
+			// CHAR/BINARY have the same type: 254
+			// VARCHAR/VARBINARY have the same type: 15
+			// we need to process it by its flag.
+			if c.Flag&BinaryFlag != 0 {
+				val, err := strconv.Unquote("\"" + s + "\"")
+				if err != nil {
+					log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				}
+				c.Value = val
+			}
+		}
 	case mysql.TypeTinyBlob, mysql.TypeMediumBlob,
 		mysql.TypeLongBlob, mysql.TypeBlob:
 		if s, ok := c.Value.(string); ok {
 			var err error
 			c.Value, err = base64.StdEncoding.DecodeString(s)
 			if err != nil {
-				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 		}
 	case mysql.TypeBit:
 		if s, ok := c.Value.(json.Number); ok {
 			intNum, err := s.Int64()
 			if err != nil {
-				log.Fatal("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
+				log.Panic("invalid Column value, please report a bug", zap.Any("col", c), zap.Error(err))
 			}
 			c.Value = uint64(intNum)
 		}
@@ -229,7 +247,7 @@ func (b *JSONEventBatchMixedDecoder) NextEvent(itemType ItemType) (*SortItem, er
 	}
 	nextKey, err := b.decodeNextKey()
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	valueLen := binary.BigEndian.Uint64(b.mixedBytes[:8])
@@ -267,6 +285,9 @@ func (b *JSONEventBatchMixedDecoder) HasNext() bool {
 
 // NewJSONEventBatchDecoder creates a new JSONEventBatchDecoder.
 func NewJSONEventBatchDecoder(data []byte) (*JSONEventBatchMixedDecoder, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
 	version := binary.BigEndian.Uint64(data[:8])
 	data = data[8:]
 	if version != BatchVersion1 {

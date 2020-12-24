@@ -26,6 +26,9 @@ all: build check test
 prepare:
 	$(PREPARE_MOD)
 
+finish-prepare:
+	$(FINISH_MOD)
+
 build:
 	$(PREPARE_MOD)
 	$(GOBUILD) $(RACEFLAG) -o bin/br
@@ -79,20 +82,21 @@ tools:
 
 check:
 	@# Tidy first to avoid go.mod being affected by static and lint
-	@make prepare tidy
+	@make tidy
 	@# Build tools for targets errdoc, static and lint
 	@make tools errdoc static lint
 
 static: export GO111MODULE=on
-static: tools
+static: prepare tools
 	@ # Not running vet and fmt through metalinter becauase it ends up looking at vendor
-	tools/bin/goimports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
+	tools/bin/gofumports -w -d -format-only -local $(BR_PKG) $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 	tools/bin/govet --shadow $$($(PACKAGE_DIRECTORIES)) 2>&1 | $(CHECKER)
 
 	@# why some lints are disabled?
 	@#   gochecknoglobals - disabled because we do use quite a lot of globals
-	@#          goimports - executed above already
+	@#          goimports - executed above already, gofumports
 	@#              gofmt - ditto
+	@#                gci - ditto
 	@#                wsl - too pedantic about the formatting
 	@#             funlen - PENDING REFACTORING
 	@#           gocognit - PENDING REFACTORING
@@ -102,10 +106,16 @@ static: tools
 	@#             nestif - PENDING REFACTORING
 	@#           goerr113 - it mistaken pingcap/errors with standard errors
 	@#                lll - pingcap/errors may need to write a long line
+	@#       paralleltest - no need to run test parallel
+	@#           nlreturn - no need to ensure a new line before continue or return
+	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
+	@#         exhaustive - no need to check exhaustiveness of enum switch statements
+	@#              gosec - too many false positive
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
+		--disable gci \
 		--disable wsl \
 		--disable funlen \
 		--disable gocognit \
@@ -115,15 +125,21 @@ static: tools
 		--disable nestif \
 		--disable goerr113 \
 		--disable lll \
+		--disable paralleltest \
+		--disable nlreturn \
+		--disable exhaustivestruct \
+		--disable exhaustive \
+		--disable godot \
+		--disable gosec \
 		$$($(PACKAGE_DIRECTORIES))
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
-		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
 
-lint: tools
+lint: prepare tools
 	@echo "linting"
 	CGO_ENABLED=0 tools/bin/revive -formatter friendly -config revive.toml $$($(PACKAGES))
 
@@ -133,7 +149,7 @@ tidy:
 	GO111MODULE=on go mod tidy
 	$(FINISH_MOD)
 	cd tests && GO111MODULE=on go mod tidy
-	git diff --quiet go.mod1 go.sum1 tools/go.mod tools/go.sum
+	git diff --exit-code go.mod1 go.sum1 tools/go.mod tools/go.sum
 
 errdoc: tools
 	@echo "generator errors.toml"

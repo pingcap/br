@@ -3,9 +3,9 @@
 package cmd
 
 import (
+	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/ddl"
-	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
@@ -19,11 +19,11 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.BackupConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
-		return err
+		return errors.Trace(err)
 	}
 	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to backup", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -32,11 +32,11 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	cfg := task.RawKvConfig{Config: task.Config{LogProgress: HasLogFile()}}
 	if err := cfg.ParseBackupConfigFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
-		return err
+		return errors.Trace(err)
 	}
 	if err := task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
 		log.Error("failed to backup raw kv", zap.Error(err))
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }
@@ -49,15 +49,13 @@ func NewBackupCommand() *cobra.Command {
 		SilenceUsage: true,
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			if err := Init(c); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			utils.LogBRInfo()
 			task.LogArguments(c)
 
 			// Do not run ddl worker in BR.
 			ddl.RunWorker = false
-			// Do not run stat worker in BR.
-			session.DisableStats4Test()
 
 			summary.SetUnit(summary.BackupUnit)
 			return nil
@@ -79,6 +77,9 @@ func newFullBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "full",
 		Short: "backup all database",
+		// prevents incorrect usage like `--checksum false` instead of `--checksum=false`.
+		// the former, according to pflag parsing rules, means `--checksum=true false`.
+		Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			// empty db/table means full backup.
 			return runBackupCommand(command, "Full backup")
@@ -93,6 +94,7 @@ func newDBBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
 		Short: "backup a database",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupCommand(command, "Database backup")
 		},
@@ -106,6 +108,7 @@ func newTableBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "table",
 		Short: "backup a table",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupCommand(command, "Table backup")
 		},
@@ -120,6 +123,7 @@ func newRawBackupCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "raw",
 		Short: "(experimental) backup a raw kv range from TiKV cluster",
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runBackupRawCommand(command, "Raw backup")
 		},

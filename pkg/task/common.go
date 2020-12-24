@@ -213,7 +213,7 @@ func (cfg *Config) normalizePDURLs() error {
 		var err error
 		cfg.PD[i], err = normalizePDURL(cfg.PD[i], cfg.TLS.IsEnabled())
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 	return nil
@@ -258,7 +258,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
 		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		cfg.TableFilter = f
 		caseSensitive, err = flags.GetBool(flagCaseSensitive)
@@ -312,10 +312,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 
 	if err = cfg.BackendOptions.ParseFromFlags(flags); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = cfg.TLS.ParseFromFlags(flags); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	cfg.PD, err = flags.GetStringSlice(flagPD)
 	if err != nil {
@@ -349,14 +349,14 @@ func NewMgr(ctx context.Context,
 		securityOption.KeyPath = tlsConfig.Key
 		tlsConf, err = tlsConfig.ToTLSConfig()
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 
 	// Disable GC because TiDB enables GC already.
 	store, err := g.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddress), securityOption)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
@@ -373,7 +373,7 @@ func GetStorage(
 ) (*backup.StorageBackend, storage.ExternalStorage, error) {
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Trace(err)
 	}
 	s, err := storage.Create(ctx, u, cfg.SendCreds)
 	if err != nil {
@@ -390,7 +390,7 @@ func ReadBackupMeta(
 ) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, errors.Trace(err)
 	}
 	metaData, err := s.Read(ctx, fileName)
 	if err != nil {
@@ -420,11 +420,11 @@ func flagToZapField(f *pflag.Flag) zap.Field {
 
 // LogArguments prints origin command arguments.
 func LogArguments(cmd *cobra.Command) {
-	var fields []zap.Field
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Changed {
-			fields = append(fields, flagToZapField(f))
-		}
+	flags := cmd.Flags()
+	fields := make([]zap.Field, 1, flags.NFlag()+1)
+	fields[0] = zap.String("__command", cmd.CommandPath())
+	flags.Visit(func(f *pflag.Flag) {
+		fields = append(fields, flagToZapField(f))
 	})
 	log.Info("arguments", fields...)
 }

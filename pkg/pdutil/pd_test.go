@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/util/codec"
@@ -38,7 +39,8 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	}
 	schedulerPauseCh := make(chan struct{})
 	pdController := &PdController{addrs: []string{"", ""}, schedulerPauseCh: schedulerPauseCh}
-	_, err := pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
+
+	_, err := pdController.pauseSchedulersAndConfigWith(ctx, []string{scheduler}, nil, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	go func() {
@@ -47,13 +49,26 @@ func (s *testPDControllerSuite) TestScheduler(c *C) {
 	err = pdController.resumeSchedulerWith(ctx, []string{scheduler}, mock)
 	c.Assert(err, IsNil)
 
+	cfg := map[string]interface{}{
+		"max-merge-region-keys":       0,
+		"max-snapshot":                1,
+		"enable-location-replacement": false,
+		"max-pending-peer-count":      uint64(16),
+	}
+	_, err = pdController.pauseSchedulersAndConfigWith(ctx, []string{}, cfg, mock)
+	c.Assert(err, ErrorMatches, "failed to update PD.*")
+	go func() {
+		<-schedulerPauseCh
+	}()
+
 	_, err = pdController.listSchedulersWith(ctx, mock)
 	c.Assert(err, ErrorMatches, "failed")
 
 	mock = func(context.Context, string, string, *http.Client, string, io.Reader) ([]byte, error) {
 		return []byte(`["` + scheduler + `"]`), nil
 	}
-	_, err = pdController.pauseSchedulersWith(ctx, []string{scheduler}, mock)
+
+	_, err = pdController.pauseSchedulersAndConfigWith(ctx, []string{scheduler}, cfg, mock)
 	c.Assert(err, IsNil)
 
 	go func() {
@@ -143,4 +158,13 @@ func (s *testPDControllerSuite) TestRegionCount(c *C) {
 	resp, err = pdController.getRegionCountWith(ctx, mock, []byte{1, 2}, []byte{1, 4})
 	c.Assert(err, IsNil)
 	c.Assert(resp, Equals, 2)
+}
+
+func (s *testPDControllerSuite) TestPDVersion(c *C) {
+	v := []byte("\"v4.1.0-alpha1\"\n")
+	r := parseVersion(v)
+	expectV := semver.New("4.1.0-alpha1")
+	c.Assert(r.Major, Equals, expectV.Major)
+	c.Assert(r.Minor, Equals, expectV.Minor)
+	c.Assert(r.PreRelease, Equals, expectV.PreRelease)
 }

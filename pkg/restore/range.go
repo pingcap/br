@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // SortRanges checks if the range overlapped and sort them.
@@ -28,33 +28,36 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.StartKey)))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
 				} else {
 					log.Debug(
 						"rewrite start key",
-						zap.Stringer("key", utils.WrapKey(rg.StartKey)),
-						utils.ZapRewriteRule(rule))
+						zap.Stringer("key", logutil.WrapKey(rg.StartKey)),
+						logutil.RewriteRule(rule))
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Stringer("key", utils.WrapKey(rg.EndKey)))
+					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
 				} else {
 					log.Debug(
 						"rewrite end key",
-						zap.Stringer("key", utils.WrapKey(rg.EndKey)),
-						utils.ZapRewriteRule(rule))
+						zap.Stringer("key", logutil.WrapKey(rg.EndKey)),
+						logutil.RewriteRule(rule))
 				}
 			} else {
 				log.Warn("table id does not match",
-					zap.Stringer("startKey", utils.WrapKey(rg.StartKey)),
-					zap.Stringer("endKey", utils.WrapKey(rg.EndKey)),
+					zap.Stringer("startKey", logutil.WrapKey(rg.StartKey)),
+					zap.Stringer("endKey", logutil.WrapKey(rg.EndKey)),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "table id mismatch")
 			}
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
-			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped: %s, %s", out, rg)
+			log.Error("insert ranges overlapped",
+				logutil.ZapRedactReflect("out", out),
+				logutil.ZapRedactReflect("range", rg))
+			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped")
 		}
 	}
 	sortedRanges := rangeTree.GetSortedRanges()

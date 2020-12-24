@@ -5,6 +5,7 @@ package task
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pingcap/br/pkg/utils"
@@ -34,6 +35,7 @@ const (
 	flagCompressionType  = "compression"
 	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
+	flagIgnoreStats      = "ignore-stats"
 
 	flagGCTTL = "gcttl"
 
@@ -56,6 +58,7 @@ type BackupConfig struct {
 	LastBackupTS     uint64        `json:"last-backup-ts" toml:"last-backup-ts"`
 	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
 	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
+	IgnoreStats      bool          `json:"ignore-stats" toml:"ignore-stats"`
 	CompressionConfig
 }
 
@@ -79,6 +82,11 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 		"disable the balance, shuffle and region-merge schedulers in PD to speed up backup")
 	// This flag can impact the online cluster, so hide it in case of abuse.
 	_ = flags.MarkHidden(flagRemoveSchedulers)
+
+	flags.Bool(flagIgnoreStats, false,
+		"ignore backup stats, used for test")
+	// This flag is used for test. we should backup stats all the time.
+	_ = flags.MarkHidden(flagIgnoreStats)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -118,9 +126,12 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err = cfg.Config.ParseFromFlags(flags); err != nil {
 		return errors.Trace(err)
 	}
-
 	cfg.RemoveSchedulers, err = flags.GetBool(flagRemoveSchedulers)
-	return err
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
+	return errors.Trace(err)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -175,30 +186,30 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	defer mgr.Close()
 
 	client, err := backup.NewBackupClient(ctx, mgr)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = client.SetLockFile(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	client.SetGCTTL(cfg.GCTTL)
 
 	backupTS, err := client.GetTS(ctx, cfg.TimeAgo, cfg.BackupTS)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	g.Record("BackupTS", backupTS)
 	sp := utils.BRServiceSafePoint{
@@ -230,7 +241,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			}
 		}()
 		if e != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -244,16 +255,19 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS)
+		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// nothing to backup
 	if ranges == nil {
 		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
 		if err2 != nil {
-			return err2
+			return errors.Trace(err2)
 		}
+		pdAddress := strings.Join(cfg.PD, ",")
+		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
+			zap.String("PD address", pdAddress))
 		return client.SaveBackupMeta(ctx, &backupMeta)
 	}
 
@@ -266,11 +280,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		err = utils.CheckGCSafePoint(ctx, mgr.GetPDClient(), cfg.LastBackupTS)
 		if err != nil {
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
-			return err
+			return errors.Trace(err)
 		}
 		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -280,7 +294,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		var regionCount int
 		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		approximateRegions += regionCount
 	}
@@ -294,14 +308,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
 
 	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Checksum from server, and then fulfill the backup metadata.
@@ -313,14 +327,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
 		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		// Checksum has finished
 		updateCh.Close()
 		// collect file information.
 		err = checkChecksums(&backupMeta)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	} else {
 		// Just... copy schemas from origin.
@@ -336,7 +350,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	err = client.SaveBackupMeta(ctx, &backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	g.Record("Size", utils.ArchiveSize(&backupMeta))
@@ -351,11 +365,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 func checkChecksums(backupMeta *kvproto.BackupMeta) error {
 	checksums, err := backup.CollectChecksums(backupMeta)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = backup.ChecksumMatches(backupMeta, checksums)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return nil
 }

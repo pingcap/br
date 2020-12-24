@@ -225,7 +225,7 @@ type DrainResult struct {
 
 // Files returns all files of this drain result.
 func (result DrainResult) Files() []*backup.File {
-	var files = make([]*backup.File, 0, len(result.Ranges)*2)
+	files := make([]*backup.File, 0, len(result.Ranges)*2)
 	for _, fs := range result.Ranges {
 		files = append(files, fs.Files...)
 	}
@@ -274,7 +274,7 @@ func (b *Batcher) drainRanges() DrainResult {
 
 		// the batch is full, we should stop here!
 		// we use strictly greater than because when we send a batch at equal, the offset should plus one.
-		// (because the last table is sent, we should put it in emptyTables), and this will intrduce extra complex.
+		// (because the last table is sent, we should put it in emptyTables), and this will introduce extra complex.
 		if thisTableLen+collected > b.batchSizeThreshold {
 			drainSize := b.batchSizeThreshold - collected
 			thisTableRanges := thisTable.Range

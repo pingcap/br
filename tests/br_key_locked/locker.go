@@ -55,37 +55,37 @@ var (
 func main() {
 	flag.Parse()
 	if *tidbStatusAddr == "" {
-		log.Fatal("tidb status address is empty")
+		log.Panic("tidb status address is empty")
 	}
 	if *pdAddr == "" {
-		log.Fatal("pd address is empty")
+		log.Panic("pd address is empty")
 	}
 	if *dbName == "" {
-		log.Fatal("database name is empty")
+		log.Panic("database name is empty")
 	}
 	if *tableName == "" {
-		log.Fatal("table name is empty")
+		log.Panic("table name is empty")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	http.DefaultClient.Timeout = *timeout
 
-	tableID, err := getTableID(*tidbStatusAddr, *dbName, *tableName)
+	tableID, err := getTableID(ctx, *tidbStatusAddr, *dbName, *tableName)
 	if err != nil {
-		log.Fatal("get table id failed", zap.Error(err))
+		log.Panic("get table id failed", zap.Error(err))
 	}
 
 	pdclient, err := pd.NewClient([]string{*pdAddr}, pd.SecurityOption{})
 	if err != nil {
-		log.Fatal("create pd client failed", zap.Error(err))
+		log.Panic("create pd client failed", zap.Error(err))
 	}
 	pdcli := &codecPDClient{Client: pdclient}
 
 	driver := tikv.Driver{}
 	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr))
 	if err != nil {
-		log.Fatal("create tikv client failed", zap.Error(err))
+		log.Panic("create tikv client failed", zap.Error(err))
 	}
 
 	locker := Locker{
@@ -97,12 +97,12 @@ func main() {
 	}
 	err = locker.generateLocks(ctx)
 	if err != nil {
-		log.Fatal("generate locks failed", zap.Error(err))
+		log.Panic("generate locks failed", zap.Error(err))
 	}
 }
 
 // getTableID of the table with specified table name.
-func getTableID(dbAddr, dbName, table string) (int64, error) {
+func getTableID(ctx context.Context, dbAddr, dbName, table string) (int64, error) {
 	dbHost, _, err := net.SplitHostPort(dbAddr)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -110,7 +110,11 @@ func getTableID(dbAddr, dbName, table string) (int64, error) {
 	dbStatusAddr := net.JoinHostPort(dbHost, "10080")
 	url := fmt.Sprintf("http://%s/schema/%s/%s", dbStatusAddr, dbName, table)
 
-	resp, err := http.Get(url)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}

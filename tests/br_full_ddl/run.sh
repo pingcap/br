@@ -34,13 +34,42 @@ for i in $(seq $DDL_COUNT); do
     fi
 done
 
+# run analyze to generate stats
+run_sql "analyze table $DB.$TABLE;"
+# record field0's stats and remove last_update_version
+# it's enough to compare with restore stats
+# the stats looks like
+# {
+#   "histogram": {
+#     "ndv": 10000,
+#     "buckets": [
+#       {
+#         "count": 40,
+#         "lower_bound": "QUFqVW1HZkt3UWhXakdCSlF0a2NHRFp0UWpFZ1lEUFFNWXVtVFFTRUh0U3N4RXhub2VMeUF1emhyT0FjWUZvWUhRZVZBcGJLRlVoWVlWR      0djSmRYbnhxc1NzcG1VTHFoZnJZbg==",
+#         "upper_bound": "QUp5bmVNc29FVUFIZ3ZKS3dCaUdGQ0xoV1BSQ0FWZ2VzZGpGU05na2xsYUhkY1VMVWdEeHZORUJLbW9tWGxSTWZQTmZYZVVWR3h5amVyW      EJXQ01GcU5mRWlHeEd1dndZa1BSRg==",
+#         "repeats": 1
+#       },
+#       ...(nearly 1000 rows)
+#     ],
+#   "cm_sketch": {
+#     "rows": [
+#        {
+#          "counters": [
+#             5,
+#             ...(nearly 10000 rows)
+#           ],
+#        }
+#     ]
+# }
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > backup_stats
+
 # backup full
 echo "backup start..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
-BR_LOG_TO_TERM=1
+cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
 
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
 if [ "${checksum_count}" != "1" ];then
@@ -51,9 +80,52 @@ fi
 
 run_sql "DROP DATABASE $DB;"
 
+cluster_index_before_restore=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
+# keep cluster index enable or disable at same time.
+if [[ "${cluster_index_before_backup}" != "${cluster_index_before_restore}" ]]; then
+  echo "TEST: [$TEST_NAME] must enable or disable cluster_index at same time"
+  echo "cluster index before backup is $cluster_index_before_backup"
+  echo "cluster index before restore is $cluster_index_before_restore"
+  exit 1
+fi
+
 # restore full
 echo "restore start..."
-run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+export GO_FAILPOINTS=""
+
+pause_count=$(cat $LOG | grep "pause configs successful"| wc -l | xargs)
+if [ "${pause_count}" != "1" ];then
+    echo "TEST: [$TEST_NAME] fail on pause config"
+    exit 1
+fi
+
+BR_LOG_TO_TERM=1
+
+skip_count=$(cat $LOG | grep "range is empty" | wc -l | xargs)
+
+# ensure there are only less than two(write + default) range empty error,
+# because backup range end key is large than reality.
+# so the last region may download nothing.
+# FIXME maybe we can treat endkey specially in the future.
+if [ "${skip_count}" -gt "2" ];then
+    echo "TEST: [$TEST_NAME] fail on download sst, too many skipped range"
+    echo $(cat $LOG | grep "range is empty")
+    exit 1
+fi
+
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+
+if diff -q backup_stats restore_stats > /dev/null
+then
+  echo "stats are equal"
+else
+  echo "TEST: [$TEST_NAME] fail due to stats are not equal"
+  cat $backup_stats | head 1000
+  cat $restore_stats | head 1000
+  exit 1
+fi
 
 row_count_new=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
