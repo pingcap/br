@@ -391,9 +391,6 @@ func (rc *Client) createTable(
 	if rc.IsSkipCreateSQL() {
 		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
 	} else {
-		// don't use rc.ctx here...
-		// remove the ctx field of Client would be a great work,
-		// we just take a small step here :<
 		err := db.CreateTable(ctx, table)
 		if err != nil {
 			return CreatedTable{}, errors.Trace(err)
@@ -599,8 +596,8 @@ func (rc *Client) RestoreRaw(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Raw",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)),
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
@@ -623,16 +620,16 @@ func (rc *Client) RestoreRaw(
 	if err := eg.Wait(); err != nil {
 		log.Error(
 			"restore raw range failed",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)),
 			zap.Error(err),
 		)
 		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
-		zap.String("startKey", hex.EncodeToString(startKey)),
-		zap.String("endKey", hex.EncodeToString(endKey)),
+		zap.Stringer("startKey", logutil.WrapKey(startKey)),
+		zap.Stringer("endKey", logutil.WrapKey(endKey)),
 	)
 	return nil
 }
