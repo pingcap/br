@@ -16,7 +16,6 @@ package kv
 import (
 	"bytes"
 	"sort"
-	"sync"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
