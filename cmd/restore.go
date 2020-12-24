@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"sourcegraph.com/sourcegraph/appdash"
 
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
@@ -20,6 +21,13 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return errors.Trace(err)
 	}
+
+	ctx := GetDefaultContext()
+	if cfg.EnableTracing {
+		var store *appdash.MemoryStore
+		ctx, store = utils.TracerStartSpan(ctx)
+		defer utils.TracerFinishSpan(ctx, store)
+	}
 	if err := task.RunRestore(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to restore", zap.Error(err))
 		return errors.Trace(err)
@@ -32,6 +40,13 @@ func runLogRestoreCommand(command *cobra.Command) error {
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
 		return errors.Trace(err)
+	}
+
+	ctx := GetDefaultContext()
+	if cfg.EnableTracing {
+		var store *appdash.MemoryStore
+		ctx, store = utils.TracerStartSpan(ctx)
+		defer utils.TracerFinishSpan(ctx, store)
 	}
 	if err := task.RunLogRestore(GetDefaultContext(), tidbGlue, &cfg); err != nil {
 		log.Error("failed to restore", zap.Error(err))
@@ -47,6 +62,13 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	if err := cfg.ParseFromFlags(command.Flags()); err != nil {
 		command.SilenceUsage = false
 		return errors.Trace(err)
+	}
+
+	ctx := GetDefaultContext()
+	if cfg.EnableTracing {
+		var store *appdash.MemoryStore
+		ctx, store = utils.TracerStartSpan(ctx)
+		defer utils.TracerFinishSpan(ctx, store)
 	}
 	if err := task.RunRestoreRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
 		log.Error("failed to restore raw kv", zap.Error(err))

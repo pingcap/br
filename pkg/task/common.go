@@ -62,6 +62,8 @@ const (
 	flagGrpcKeepaliveTime = "grpc-keepalive-time"
 	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
+	// flagEnableOpentracing is whether to enable opentracing
+	flagEnableOpentracing = "enable-opentracing"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -128,6 +130,8 @@ type Config struct {
 	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
 	// GrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	GRPCKeepaliveTimeout time.Duration `json:"grpc-keepalive-timeout" toml:"grpc-keepalive-timeout"`
+	// Enabletracing is whether to enable opentracing
+	EnableTracing bool `json:"enable-tracing" toml:"enable-tracing"`
 }
 
 // DefineCommonFlags defines the flags common to all BRIE commands.
@@ -166,6 +170,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"the max time a gRPC connection can keep idle before killed, must keep the same value with TiKV and PD")
 	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
 	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
+
+	flags.Bool(flagEnableOpentracing, false,
+		"Set whether to enable opentracing during the backup/restore process")
 
 	storage.DefineFlags(flags)
 }
@@ -303,6 +310,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.GRPCKeepaliveTimeout, err = flags.GetDuration(flagGrpcKeepaliveTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.EnableTracing, err = flags.GetBool(flagEnableOpentracing)
 	if err != nil {
 		return errors.Trace(err)
 	}

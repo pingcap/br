@@ -42,8 +42,6 @@ const (
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
-	// FlagEnableOpentracing is whether to enable opentracing
-	FlagEnableOpentracing = "enable-opentracing"
 
 	flagVersion      = "version"
 	flagVersionShort = "V"
@@ -67,8 +65,6 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log format")
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
-	cmd.PersistentFlags().Bool(FlagEnableOpentracing, false,
-		"Set whether to enable opentracing during the backup/restore process")
 	task.DefineCommonFlags(cmd.PersistentFlags())
 
 	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
@@ -131,12 +127,6 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		//enableOpentracing, e := cmd.Flags().GetBool(FlagEnableOpentracing)
-		//if e != nil {
-		//	err = e
-		//	return
-		//}
-
 
 		// Initialize the pprof server.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)

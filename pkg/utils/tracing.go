@@ -5,46 +5,101 @@ package utils
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
+	"go.uber.org/zap"
+	"os"
+	"path/filepath"
+	"sort"
+	"text/tabwriter"
+	"time"
 
 	"github.com/cheynewallace/tabby"
-	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
-	"github.com/pingcap/tidb/util/logutil"
+	"sourcegraph.com/sourcegraph/appdash"
+	traceImpl "sourcegraph.com/sourcegraph/appdash/opentracing"
 )
 
+func timestampTraceFileName() string {
+	return filepath.Join(os.TempDir(), time.Now().Format("br.trace.2006-01-02T15.04.05Z0700"))
+}
+
 // TracerStartSpan starts the tracer for BR
-func TracerStartSpan(ctx context.Context) (context.Context, *basictracer.InMemorySpanRecorder) {
-	recorder := basictracer.NewInMemoryRecorder()
-	tracer := basictracer.New(recorder)
+func TracerStartSpan(ctx context.Context) (context.Context, *appdash.MemoryStore) {
+	store := appdash.NewMemoryStore()
+	tracer := traceImpl.NewTracer(store)
 	span := tracer.StartSpan("trace")
-	return opentracing.ContextWithSpan(ctx, span), recorder
+	ctx = opentracing.ContextWithSpan(ctx, span)
+	return ctx, store
 }
 
 // TracerFinishSpan finishes the tracer for BR
-func TracerFinishSpan(ctx context.Context, recorder *basictracer.InMemorySpanRecorder) {
+func TracerFinishSpan(ctx context.Context, store *appdash.MemoryStore) error {
 	span := opentracing.SpanFromContext(ctx)
-	if recorder == nil || span == nil {
-		return
+	traces, err := store.Traces(appdash.TracesOpts{})
+	if err != nil {
+		log.Error("fail to get traces", zap.Error(err))
+		return errors.Trace(err)
 	}
 	span.Finish()
-	allSpans := recorder.GetSpans()
-	tub := tabby.New()
-	for rIdx := range allSpans {
-		span := &allSpans[rIdx]
+	if len(traces) < 1 {
+		return nil
+	}
+	trace := traces[0]
 
-		tub.AddLine(span.Start, "--- start span "+span.Operation+" ----", "", span.Operation)
+	filename := timestampTraceFileName()
+	file, err := os.Create(filename)
+	if err != nil {
+		log.Error("fail to open trace file", zap.Error(err))
+		return errors.Trace(err)
+	}
+	defer file.Close()
+	fmt.Fprintf(os.Stderr, "Detail BR trace in %s \n", filename)
+	log.Info("Detail BR trace", zap.String("filename", filename))
+	tub := tabby.NewCustom(tabwriter.NewWriter(file, 0, 0, 2, ' ', 0))
 
-		var tags string
-		if len(span.Tags) > 0 {
-			tags = fmt.Sprintf("%v", span.Tags)
-		}
-		for _, l := range span.Logs {
-			for _, field := range l.Fields {
-				if field.Key() == logutil.TraceEventKey {
-					tub.AddLine(l.Timestamp, field.Value().(string), tags, span.Operation)
-				}
-			}
+	dfsTree(trace, "", false, tub)
+	tub.Print()
+	return nil
+}
+
+func dfsTree(t *appdash.Trace, prefix string, isLast bool, tub *tabby.Tabby) {
+	var newPrefix, suffix string
+	if len(prefix) == 0 {
+		newPrefix = prefix + "  "
+	} else {
+		if !isLast {
+			suffix = "├─"
+			newPrefix = prefix + "│ "
+		} else {
+			suffix = "└─"
+			newPrefix = prefix + "  "
 		}
 	}
-	tub.Print()
+
+	var start time.Time
+	var duration time.Duration
+	if e, err := t.TimespanEvent(); err == nil {
+		start = e.Start()
+		end := e.End()
+		duration = end.Sub(start)
+	}
+
+	tub.AddLine(prefix+suffix+t.Span.Name(), start.Format("15:04:05.000000"), duration.String())
+
+	// Sort events by their start time
+	sort.Slice(t.Sub, func(i, j int) bool {
+		var istart, jstart time.Time
+		if ievent, err := t.Sub[i].TimespanEvent(); err == nil {
+			istart = ievent.Start()
+		}
+		if jevent, err := t.Sub[j].TimespanEvent(); err == nil {
+			jstart = jevent.Start()
+		}
+		return istart.Before(jstart)
+	})
+
+	for i, sp := range t.Sub {
+		dfsTree(sp, newPrefix, i == (len(t.Sub))-1 /*last element of array*/, tub)
+	}
 }
