@@ -116,22 +116,13 @@ func MergeFileRanges(
 		// tableID, indexID, indexValues, err
 		tableID1, indexID1, _, err1 := tablecodec.DecodeIndexKey(kv.Key(left.StartKey))
 		tableID2, indexID2, _, err2 := tablecodec.DecodeIndexKey(kv.Key(right.StartKey))
-		switch {
-		case (err1 != nil && err2 == nil) || (err1 == nil && err2 != nil):
-			return false
-		case err1 == nil && err2 == nil:
-			// Both of them are index keys.
-			if tableID1 != tableID2 || indexID1 != indexID2 {
-				// Do not merge if they are not the same index.
-				return false
-			}
-			// They are in the same index, merge left and right.
-			return true
-		default:
-			// err1 != nil && err2 != nil
-			// They are record keys, merge left and right.
-			return true
+		// If both of them are index keys, ...
+		if err1 == nil && err2 == nil {
+			// Merge left and right if they are in the same index.
+			return indexID1 == indexID2
 		}
+		// Otherwise, merge if they are both record keys
+		return err1 != nil && err2 != nil
 	}
 	sortedRanges := rangeTree.GetSortedRanges()
 	for i := 1; i < len(sortedRanges); {
