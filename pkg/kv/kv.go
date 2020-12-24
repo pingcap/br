@@ -96,7 +96,6 @@ func (p *SimpleKVIterProducer) Produce(start []byte, end []byte) Iter {
 // SimpleKVIter represents simple pair iterator.
 // which is used for log restore.
 type SimpleKVIter struct {
-	mu    sync.Mutex
 	index int
 	pairs Pairs
 }
@@ -114,8 +113,6 @@ func (s *SimpleKVIter) Seek(key []byte) bool {
 	index := sort.Search(len(s.pairs), func(i int) bool {
 		return bytes.Compare(key, s.pairs[i].Key) < 1
 	})
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if index < len(s.pairs) {
 		s.index = index
 		return true
@@ -132,8 +129,6 @@ func (s *SimpleKVIter) Error() error {
 
 // First implements Iter.First.
 func (s *SimpleKVIter) First() []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if len(s.pairs) == 0 {
 		return nil
 	}
@@ -143,8 +138,6 @@ func (s *SimpleKVIter) First() []byte {
 
 // Last implements Iter.Last.
 func (s *SimpleKVIter) Last() []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if len(s.pairs) == 0 {
 		return nil
 	}
@@ -154,23 +147,17 @@ func (s *SimpleKVIter) Last() []byte {
 
 // Valid implements Iter.Valid.
 func (s *SimpleKVIter) Valid() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	return s.index >= 0 && s.index < len(s.pairs)
 }
 
 // Next implements Iter.Next.
 func (s *SimpleKVIter) Next() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.index++
 	return s.index <= len(s.pairs)
 }
 
 // Key implements Iter.Key.
 func (s *SimpleKVIter) Key() []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.index >= 0 && s.index < len(s.pairs) {
 		return s.pairs[s.index].Key
 	}
@@ -179,8 +166,6 @@ func (s *SimpleKVIter) Key() []byte {
 
 // Value implements Iter.Value.
 func (s *SimpleKVIter) Value() []byte {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.index >= 0 && s.index < len(s.pairs) {
 		return s.pairs[s.index].Val
 	}
