@@ -293,7 +293,7 @@ func (importer *FileImporter) Import(
 						}
 						// do not get region info, wait a second and continue
 						if newInfo == nil {
-							log.Warn("get region by key return nil", zap.Reflect("region", info.Region))
+							log.Warn("get region by key return nil", logutil.Region(info.Region))
 							time.Sleep(time.Second)
 							continue
 						}
@@ -326,7 +326,7 @@ func (importer *FileImporter) Import(
 			if errIngest != nil {
 				log.Error("ingest file failed",
 					logutil.File(file),
-					zap.Stringer("range", downloadMeta.GetRange()),
+					logutil.ZapRedactStringer("range", downloadMeta.GetRange()),
 					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errors.Trace(errIngest)
