@@ -143,9 +143,18 @@ origin sha256 is %s`,
 
 func newBackupMetaCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "backupmeta",
-		Short: "check the backup meta",
-		Args:  cobra.NoArgs,
+		Use:          "backupmeta",
+		Short:        "utilities of backupmeta",
+		SilenceUsage: false,
+	}
+	command.AddCommand(newBackupMetaValidateCommand())
+	return command
+}
+
+func newBackupMetaValidateCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "validate",
+		Short: "validate key range and rewrite rules of backupmeta",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -234,7 +243,6 @@ func newBackupMetaCommand() *cobra.Command {
 		},
 	}
 	command.Flags().Uint64("offset", 0, "the offset of table id alloctor")
-	command.Hidden = true
 	return command
 }
 
