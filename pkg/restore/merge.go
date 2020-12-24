@@ -114,8 +114,8 @@ func MergeFileRanges(
 		// Do not merge ranges in different indexes even if they are in the same
 		// table, as rewrite rule only supports rewriting one pattern.
 		// tableID, indexID, indexValues, err
-		tableID1, indexID1, _, err1 := tablecodec.DecodeIndexKey(kv.Key(left.StartKey))
-		tableID2, indexID2, _, err2 := tablecodec.DecodeIndexKey(kv.Key(right.StartKey))
+		_, indexID1, _, err1 := tablecodec.DecodeIndexKey(kv.Key(left.StartKey))
+		_, indexID2, _, err2 := tablecodec.DecodeIndexKey(kv.Key(right.StartKey))
 		// If both of them are index keys, ...
 		if err1 == nil && err2 == nil {
 			// Merge left and right if they are in the same index.
