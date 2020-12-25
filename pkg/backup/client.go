@@ -251,7 +251,9 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 	return kvRanges, nil
 }
 
-// BuildBackupRangeAndSchema gets the range and schema of tables.
+// BuildBackupRangeAndSchema gets KV range and schema of tables.
+// KV ranges are separated by Table IDs.
+// Also, KV ranges are separated by Index IDs in the same table.
 func BuildBackupRangeAndSchema(
 	dom *domain.Domain,
 	storage kv.Storage,
@@ -591,7 +593,8 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
+	log.Error("can not find leader", zap.Stringer("key", logutil.WrapKey(key)))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
 func (bc *Client) fineGrainedBackup(

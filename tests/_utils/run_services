@@ -100,6 +100,7 @@ start_services_impl() {
             -A "$TIKV_ADDR$i" \
             --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
+            --log-level debug \
             -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
     done
@@ -207,6 +208,7 @@ start_services_with_tls() {
             -A "$TIKV_ADDR$i" \
             --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
+            --log-level debug \
             -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
     done
