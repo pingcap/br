@@ -62,8 +62,8 @@ const (
 	flagGrpcKeepaliveTime = "grpc-keepalive-time"
 	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
-	// flagEnableOpentracing is whether to enable opentracing
-	flagEnableOpentracing = "enable-opentracing"
+	// flagEnableOpenTracing is whether to enable opentracing
+	flagEnableOpenTracing = "enable-opentracing"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -124,8 +124,8 @@ type Config struct {
 
 	TableFilter       filter.Filter `json:"-" toml:"-"`
 	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
-	// EnableOpentracing is whether to enable opentracing
-	EnableOpentracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
+	// EnableOpenTracing is whether to enable opentracing
+	EnableOpenTracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -171,7 +171,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
 	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
 
-	flags.Bool(flagEnableOpentracing, false,
+	flags.Bool(flagEnableOpenTracing, false,
 		"Set whether to enable opentracing during the backup/restore process")
 
 	storage.DefineFlags(flags)
@@ -313,7 +313,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.EnableOpentracing, err = flags.GetBool(flagEnableOpentracing)
+	cfg.EnableOpenTracing, err = flags.GetBool(flagEnableOpenTracing)
 	if err != nil {
 		return errors.Trace(err)
 	}
