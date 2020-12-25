@@ -26,9 +26,6 @@ func (rg *Range) String() string {
 	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
-<<<<<<< HEAD
-// Intersect returns?
-=======
 // BytesAndKeys returns total bytes and keys in a range.
 func (rg *Range) BytesAndKeys() (bytes, keys uint64) {
 	for _, f := range rg.Files {
@@ -39,7 +36,6 @@ func (rg *Range) BytesAndKeys() (bytes, keys uint64) {
 }
 
 // Intersect returns intersect range in the tree.
->>>>>>> 1a527fb... restore: merge small ranges (#578)
 func (rg *Range) Intersect(
 	start, end []byte,
 ) (subStart, subEnd []byte, isIntersect bool) {
