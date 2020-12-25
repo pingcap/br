@@ -24,7 +24,7 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 	}
 
 	ctx := GetDefaultContext()
-	if cfg.EnableTracing {
+	if cfg.EnableOpentracing {
 		var store *appdash.MemoryStore
 		ctx, store = utils.TracerStartSpan(ctx)
 		defer utils.TracerFinishSpan(ctx, store)
@@ -44,7 +44,7 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	}
 
 	ctx := GetDefaultContext()
-	if cfg.EnableTracing {
+	if cfg.EnableOpentracing {
 		var store *appdash.MemoryStore
 		ctx, store = utils.TracerStartSpan(ctx)
 		defer utils.TracerFinishSpan(ctx, store)

@@ -124,8 +124,8 @@ type Config struct {
 
 	TableFilter       filter.Filter `json:"-" toml:"-"`
 	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
-	// Enabletracing is whether to enable opentracing
-	EnableTracing      bool          `json:"enable-tracing" toml:"enable-tracing"`
+	// EnableOpentracing is whether to enable opentracing
+	EnableOpentracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -313,7 +313,7 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.EnableTracing, err = flags.GetBool(flagEnableOpentracing)
+	cfg.EnableOpentracing, err = flags.GetBool(flagEnableOpentracing)
 	if err != nil {
 		return errors.Trace(err)
 	}

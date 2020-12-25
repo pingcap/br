@@ -23,7 +23,7 @@ func runRestoreCommand(command *cobra.Command, cmdName string) error {
 	}
 
 	ctx := GetDefaultContext()
-	if cfg.EnableTracing {
+	if cfg.EnableOpentracing {
 		var store *appdash.MemoryStore
 		ctx, store = utils.TracerStartSpan(ctx)
 		defer utils.TracerFinishSpan(ctx, store)
@@ -43,7 +43,7 @@ func runLogRestoreCommand(command *cobra.Command) error {
 	}
 
 	ctx := GetDefaultContext()
-	if cfg.EnableTracing {
+	if cfg.EnableOpentracing {
 		var store *appdash.MemoryStore
 		ctx, store = utils.TracerStartSpan(ctx)
 		defer utils.TracerFinishSpan(ctx, store)
@@ -65,7 +65,7 @@ func runRestoreRawCommand(command *cobra.Command, cmdName string) error {
 	}
 
 	ctx := GetDefaultContext()
-	if cfg.EnableTracing {
+	if cfg.EnableOpentracing {
 		var store *appdash.MemoryStore
 		ctx, store = utils.TracerStartSpan(ctx)
 		defer utils.TracerFinishSpan(ctx, store)
