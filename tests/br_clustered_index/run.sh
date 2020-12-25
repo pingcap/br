@@ -164,14 +164,14 @@ insert into t12 values('aaaa', 1, 1), ('bbb', 2, 2), ('ccc', 3, 3);
 
 # backup table
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup db -s "local://$TEST_DIR/$DB" --db $DB --ratelimit 5 --concurrency 4
 
 run_sql "DROP DATABASE $DB;"
 run_sql "CREATE DATABASE $DB;"
 
 # restore table
 echo "restore start..."
-run_br restore table --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 
 
 run_sql "DROP DATABASE $DB;"
