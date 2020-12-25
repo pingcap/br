@@ -342,10 +342,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		if isIncrementalBackup {
 			// Since we don't support checksum for incremental data, fast checksum should be skipped.
 			log.Info("Skip fast checksum in incremental backup")
-			err = backup.FilterSchema(&backupMeta)
-			if err != nil {
-				return errors.Trace(err)
-			}
 		} else {
 			// When user specified not to calculate checksum, don't calculate checksum.
 			log.Info("Skip fast checksum because user requirement.")
