@@ -21,14 +21,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/pingcap/br/pkg/storage"
-	"go.uber.org/zap"
-
 	"github.com/pingcap/errors"
+	"go.uber.org/zap"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var (

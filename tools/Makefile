@@ -1,4 +1,6 @@
-all: bin/gofumports bin/govet bin/revive bin/overalls bin/golangci-lint bin/failpoint-ctl bin/errdoc-gen
+all: bin/gofumports bin/govet bin/revive bin/golangci-lint \
+	bin/failpoint-ctl bin/errdoc-gen bin/vfsgendev bin/protoc-gen-gogofaster \
+	bin/gocovmerge bin/goveralls
 
 bin/gofumports:
 	go build -o $@ mvdan.cc/gofumpt/gofumports
@@ -9,9 +11,6 @@ bin/govet:
 bin/revive:
 	go build -o $@ github.com/mgechev/revive
 
-bin/overalls:
-	go build -o $@ github.com/go-playground/overalls
-
 bin/golangci-lint:
 	go build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
 
@@ -20,3 +19,16 @@ bin/failpoint-ctl:
 
 bin/errdoc-gen:
 	go build -o $@ github.com/pingcap/errors/errdoc-gen
+
+bin/vfsgendev:
+	go build -o $@ github.com/shurcooL/vfsgen/cmd/vfsgendev
+
+bin/protoc-gen-gogofaster:
+	go build -o $@ github.com/gogo/protobuf/protoc-gen-gogofaster
+
+bin/gocovmerge:
+	go build -o $@ github.com/wadey/gocovmerge
+
+bin/goveralls:
+	go build -o $@ github.com/mattn/goveralls
+

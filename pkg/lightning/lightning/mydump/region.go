@@ -21,13 +21,13 @@ import (
 
 	"github.com/pingcap/br/pkg/utils"
 
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/errors"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 const tableRegionSizeWarningThreshold int64 = 1024 * 1024 * 1024
@@ -45,12 +45,15 @@ type TableRegion struct {
 func (reg *TableRegion) RowIDMin() int64 {
 	return reg.Chunk.PrevRowIDMax + 1
 }
+
 func (reg *TableRegion) Rows() int64 {
 	return reg.Chunk.RowIDMax - reg.Chunk.PrevRowIDMax
 }
+
 func (reg *TableRegion) Offset() int64 {
 	return reg.Chunk.Offset
 }
+
 func (reg *TableRegion) Size() int64 {
 	return reg.Chunk.EndOffset - reg.Chunk.Offset
 }

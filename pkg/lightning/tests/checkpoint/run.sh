@@ -62,8 +62,8 @@ for BACKEND in importer tidb local; do
 
   # Set the failpoint to kill the lightning instance as soon as one table is imported
   # If checkpoint does work, this should only kill 9 instances of lightnings.
-  SLOWDOWN_FAILPOINTS='github.com/pingcap/tidb-lightning/lightning/restore/SlowDownImport=sleep(250)'
-  export GO_FAILPOINTS="$SLOWDOWN_FAILPOINTS;github.com/pingcap/tidb-lightning/lightning/restore/FailBeforeIndexEngineImported=return"
+  SLOWDOWN_FAILPOINTS='github.com/pingcap/br/pkg/lightning/lightning/restore/SlowDownImport=sleep(250)'
+  export GO_FAILPOINTS="$SLOWDOWN_FAILPOINTS;github.com/pingcap/br/pkg/lightning/lightning/restore/FailBeforeIndexEngineImported=return"
 
   # Start importing the tables.
   run_sql 'DROP DATABASE IF EXISTS cppk_tsr'
@@ -92,7 +92,7 @@ for BACKEND in importer tidb local; do
   run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint_test_cppk'
   run_sql 'DROP DATABASE IF EXISTS `tidb_lightning_checkpoint_test_cppk.1357924680.bak`'
 
-  export GO_FAILPOINTS="$SLOWDOWN_FAILPOINTS;github.com/pingcap/tidb-lightning/lightning/SetTaskID=return(1357924680);github.com/pingcap/tidb-lightning/lightning/restore/FailIfIndexEngineImported=return(1)"
+  export GO_FAILPOINTS="$SLOWDOWN_FAILPOINTS;github.com/pingcap/br/pkg/lightning/lightning/SetTaskID=return(1357924680);github.com/pingcap/br/pkg/lightning/lightning/restore/FailIfIndexEngineImported=return(1)"
 
   set +e
   for i in $(seq "$TABLE_COUNT"); do

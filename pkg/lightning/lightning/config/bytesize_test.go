@@ -20,7 +20,7 @@ import (
 	"github.com/BurntSushi/toml"
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
 )
 
 type byteSizeTestSuite struct{}

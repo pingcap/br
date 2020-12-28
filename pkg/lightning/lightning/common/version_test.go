@@ -17,7 +17,7 @@ import (
 	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 func (s *utilSuite) TestVersion(c *C) {

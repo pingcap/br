@@ -26,9 +26,9 @@ import (
 
 	kvpb "github.com/pingcap/kvproto/pkg/import_kvpb"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/mock"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/mock"
 )
 
 type importerSuite struct {
@@ -223,7 +223,7 @@ func BenchmarkMutationAlloc(b *testing.B) {
 		g = m
 	}
 
-	var _ = g
+	_ = g
 }
 
 func BenchmarkMutationPool(b *testing.B) {
@@ -245,5 +245,5 @@ func BenchmarkMutationPool(b *testing.B) {
 		p.Put(m)
 	}
 
-	var _ = g
+	_ = g
 }

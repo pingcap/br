@@ -7,11 +7,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pingcap/br/pkg/storage"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/types"
 	"github.com/xitongsys/parquet-go-source/local"
 	writer2 "github.com/xitongsys/parquet-go/writer"
+
+	"github.com/pingcap/br/pkg/storage"
 )
 
 type testParquetParserSuite struct{}
@@ -115,14 +116,14 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 	c.Assert(err, IsNil)
 
 	v := &Test{
-		Date:            18564,              //2020-10-29
+		Date:            18564,              // 2020-10-29
 		TimeMillis:      62775123,           // 17:26:15.123 (note all time are in UTC+8!)
 		TimeMicros:      62775123000,        // 17:26:15.123
 		TimestampMillis: 1603963672356,      // 2020-10-29T17:27:52.356
-		TimestampMicros: 1603963672356956,   //2020-10-29T17:27:52.356956
+		TimestampMicros: 1603963672356956,   // 2020-10-29T17:27:52.356956
 		Decimal1:        -12345678,          // -123456.78
 		Decimal2:        456,                // 0.0456
-		Decimal3:        123456789012345678, //1234567890123456.78
+		Decimal3:        123456789012345678, // 1234567890123456.78
 		Decimal4:        "-12345678.09",
 		Decimal5:        "-1234567890123456.78",
 		Decimal6:        -1, // -0.0001

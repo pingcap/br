@@ -24,7 +24,6 @@ import (
 	"sort"
 
 	"github.com/cockroachdb/pebble"
-	"github.com/pingcap/br/pkg/restore"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -36,7 +35,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/restore"
 )
 
 type localSuite struct{}
@@ -126,9 +126,9 @@ func (s *localSuite) TestRangeProperties(c *C) {
 		// handle "k": size(size = DISTANCE + 2, offset = DISTANCE / 8 * 25 + 11),keys(2,11)
 		{[]byte("l"), 0, defaultPropKeysIndexDistance / 2},
 		{[]byte("m"), 0, defaultPropKeysIndexDistance / 2},
-		//handle "m": keys = DEFAULT_PROP_KEYS_INDEX_DISTANCE,offset = 11+DEFAULT_PROP_KEYS_INDEX_DISTANCE
+		// handle "m": keys = DEFAULT_PROP_KEYS_INDEX_DISTANCE,offset = 11+DEFAULT_PROP_KEYS_INDEX_DISTANCE
 		{[]byte("n"), 1, defaultPropKeysIndexDistance},
-		//handle "n": keys = DEFAULT_PROP_KEYS_INDEX_DISTANCE, offset = 11+2*DEFAULT_PROP_KEYS_INDEX_DISTANCE
+		// handle "n": keys = DEFAULT_PROP_KEYS_INDEX_DISTANCE, offset = 11+2*DEFAULT_PROP_KEYS_INDEX_DISTANCE
 		{[]byte("o"), 1, 1},
 		// handle　"o": keys = 1, offset = 12 + 2*DEFAULT_PROP_KEYS_INDEX_DISTANCE
 	}
@@ -308,7 +308,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	db, err := pebble.Open(filepath.Join(dir, "test"), opt)
 	c.Assert(err, IsNil)
 	tmpPath := filepath.Join(dir, "tmp")
-	err = os.Mkdir(tmpPath, 0755)
+	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
 	_, engineUUID := MakeUUID("ww", 0)
@@ -316,7 +316,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
-	//kvs := make(kvPairs, 1000)
+	// kvs := make(kvPairs, 1000)
 	var kvs kvPairs
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {

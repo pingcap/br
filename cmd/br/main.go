@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/br/cmd"
+	"github.com/pingcap/br/cmd/br/cmd"
 )
 
 func main() {
@@ -56,7 +56,8 @@ func main() {
 
 	rootCmd.SetArgs(os.Args[1:])
 	if err := rootCmd.Execute(); err != nil {
+		cancel()
 		log.Error("br failed", zap.Error(err))
-		os.Exit(1)
+		os.Exit(1) // nolint:gocritic
 	}
 }

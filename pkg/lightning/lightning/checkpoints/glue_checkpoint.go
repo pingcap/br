@@ -22,15 +22,16 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/ast"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	verify "github.com/pingcap/tidb-lightning/lightning/verification"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/sqlexec"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	verify "github.com/pingcap/br/pkg/lightning/lightning/verification"
 )
 
 type Session interface {
@@ -548,8 +549,10 @@ func (g GlueCheckpointsDB) MoveCheckpoints(ctx context.Context, taskID int64) er
 	if err != nil {
 		return errors.Trace(err)
 	}
-	for _, tbl := range []string{CheckpointTableNameChunk, CheckpointTableNameEngine,
-		CheckpointTableNameTable, CheckpointTableNameTask} {
+	for _, tbl := range []string{
+		CheckpointTableNameChunk, CheckpointTableNameEngine,
+		CheckpointTableNameTable, CheckpointTableNameTask,
+	} {
 		query := fmt.Sprintf("RENAME TABLE %[1]s.%[3]s TO %[2]s.%[3]s", g.schema, newSchema, tbl)
 		err := common.Retry(fmt.Sprintf("move %s checkpoints table", tbl), logger, func() error {
 			_, err := se.Execute(ctx, query)

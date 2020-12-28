@@ -10,8 +10,8 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 type tikvSuite struct{}

@@ -27,7 +27,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 
-	. "github.com/pingcap/tidb-lightning/lightning/checkpoints"
+	. "github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
 )
 
 var _ = Suite(&checksumSuite{})
@@ -193,11 +193,9 @@ func (s *checksumSuite) TestDoChecksumWithTikv(c *C) {
 		c.Assert(ts <= startTs+1, IsTrue)
 		c.Assert(atomic.LoadUint32(&checksumExec.manager.started) > 0, IsTrue)
 	}
-
 }
 
 func (s *checksumSuite) TestDoChecksumWithTikvErrRetry(c *C) {
-
 }
 
 func (s *checksumSuite) TestDoChecksumWithErrorAndLongOriginalLifetime(c *C) {
@@ -350,6 +348,7 @@ func (r *mockResponse) Next(ctx context.Context) (resultSubset kv.ResultSubset, 
 	r.finished = true
 	return &mockResultSubset{data: r.data}, nil
 }
+
 func (r *mockResponse) Close() error {
 	return nil
 }
@@ -361,6 +360,7 @@ type mockErrorResponse struct {
 func (r *mockErrorResponse) Next(ctx context.Context) (resultSubset kv.ResultSubset, err error) {
 	return nil, errors.New(r.err)
 }
+
 func (r *mockErrorResponse) Close() error {
 	return nil
 }
@@ -376,9 +376,11 @@ func (r *mockResultSubset) GetData() []byte {
 func (r *mockResultSubset) GetStartKey() kv.Key {
 	return []byte{}
 }
+
 func (r *mockResultSubset) MemSize() int64 {
 	return 0
 }
+
 func (r *mockResultSubset) RespTime() time.Duration {
 	return time.Millisecond
 }

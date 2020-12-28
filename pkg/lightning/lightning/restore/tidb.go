@@ -29,33 +29,31 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
 
-	"github.com/pingcap/tidb-lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
 
-	. "github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/metric"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
+	. "github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
 
 	"go.uber.org/zap"
 )
 
-var (
-	// defaultImportantVariables is used in ObtainImportantVariables to retrieve the system
-	// variables from downstream which may affect KV encode result. The values record the default
-	// values if missing.
-	defaultImportantVariables = map[string]string{
-		"tidb_row_format_version": "1",
-		"max_allowed_packet":      "67108864",
-		"div_precision_increment": "4",
-		"time_zone":               "SYSTEM",
-		"lc_time_names":           "en_US",
-		"default_week_format":     "0",
-		"block_encryption_mode":   "aes-128-ecb",
-		"group_concat_max_len":    "1024",
-	}
-)
+// defaultImportantVariables is used in ObtainImportantVariables to retrieve the system
+// variables from downstream which may affect KV encode result. The values record the default
+// values if missing.
+var defaultImportantVariables = map[string]string{
+	"tidb_row_format_version": "1",
+	"max_allowed_packet":      "67108864",
+	"div_precision_increment": "4",
+	"time_zone":               "SYSTEM",
+	"lc_time_names":           "en_US",
+	"default_week_format":     "0",
+	"block_encryption_mode":   "aes-128-ecb",
+	"group_concat_max_len":    "1024",
+}
 
 type TiDBManager struct {
 	db     *sql.DB
@@ -166,7 +164,7 @@ loopCreate:
 			break
 		}
 
-		//TODO: maybe we should put these createStems into a transaction
+		// TODO: maybe we should put these createStems into a transaction
 		for _, s := range sqlCreateStmts {
 			err = sqlExecutor.ExecuteWithLog(
 				ctx,

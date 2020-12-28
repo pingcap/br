@@ -20,11 +20,11 @@ import (
 	"os"
 
 	"github.com/golang/mock/gomock"
-	"github.com/pingcap/br/pkg/storage"
 	. "github.com/pingcap/check"
 
-	. "github.com/pingcap/tidb-lightning/lightning/mydump"
-	"github.com/pingcap/tidb-lightning/mock"
+	. "github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/mock"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 //////////////////////////////////////////////////////////
@@ -65,14 +65,14 @@ func (s *testMydumpReaderSuite) TestExportStatementWithComment(c *C) {
 	defer os.Remove(file.Name())
 
 	_, err = file.Write([]byte(`
-		/* whatever blabla 
+		/* whatever blabla
 			multiple lines comment
 			multiple lines comment
 			multiple lines comment
 			multiple lines comment
 			multiple lines comment
 		 */;
-		CREATE DATABASE whatever;  
+		CREATE DATABASE whatever;
 `))
 	c.Assert(err, IsNil)
 	stat, err := file.Stat()
@@ -96,7 +96,7 @@ func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(
 	defer os.Remove(file.Name())
 
 	_, err = file.Write([]byte(`
-		/* whatever blabla 
+		/* whatever blabla
 			multiple lines comment
 			multiple lines comment
 			multiple lines comment
@@ -171,9 +171,11 @@ type AlwaysErrorReadSeekCloser struct{}
 func (AlwaysErrorReadSeekCloser) Read([]byte) (int, error) {
 	return 0, errors.New("read error!")
 }
+
 func (AlwaysErrorReadSeekCloser) Seek(int64, int) (int64, error) {
 	return 0, errors.New("seek error!")
 }
+
 func (AlwaysErrorReadSeekCloser) Close() error {
 	return nil
 }

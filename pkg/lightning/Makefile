@@ -1,10 +1,10 @@
 ### Makefile for tidb-lightning
 
-LDFLAGS += -X "github.com/pingcap/tidb-lightning/lightning/common.ReleaseVersion=$(shell git describe --tags --dirty="-dev")"
-LDFLAGS += -X "github.com/pingcap/tidb-lightning/lightning/common.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "github.com/pingcap/tidb-lightning/lightning/common.GitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "github.com/pingcap/tidb-lightning/lightning/common.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-LDFLAGS += -X "github.com/pingcap/tidb-lightning/lightning/common.GoVersion=$(shell go version)"
+LDFLAGS += -X "github.com/pingcap/br/pkg/lightning/lightning/common.ReleaseVersion=$(shell git describe --tags --dirty="-dev")"
+LDFLAGS += -X "github.com/pingcap/br/pkg/lightning/lightning/common.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "github.com/pingcap/br/pkg/lightning/lightning/common.GitHash=$(shell git rev-parse HEAD)"
+LDFLAGS += -X "github.com/pingcap/br/pkg/lightning/lightning/common.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
+LDFLAGS += -X "github.com/pingcap/br/pkg/lightning/lightning/common.GoVersion=$(shell go version)"
 
 LIGHTNING_BIN := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl
@@ -70,7 +70,7 @@ $(VFSGENDEV_BIN):
 
 data_parsers: $(VFSGENDEV_BIN) lightning/mydump/parser_generated.go
 	PATH="$(GOPATH)/bin":"$(PATH)" protoc -I. -I"$(GOPATH)/src" lightning/checkpoints/file_checkpoints.proto --gogofaster_out=.
-	$(VFSGENDEV_BIN) -source='"github.com/pingcap/tidb-lightning/lightning/web".Res' && mv res_vfsdata.go lightning/web/
+	$(VFSGENDEV_BIN) -source='"github.com/pingcap/br/pkg/lightning/lightning/web".Res' && mv res_vfsdata.go lightning/web/
 
 web:
 	cd web && npm install && npm run build
@@ -101,13 +101,13 @@ lightning_for_integration_test:
 	@make ensure_failpoint_ctl
 	$(FAILPOINT_ENABLE)
 	$(GOTEST) -c -cover -covermode=count \
-		-coverpkg=github.com/pingcap/tidb-lightning/... \
+		-coverpkg=github.com/pingcap/br/pkg/lightning/... \
 		-o $(LIGHTNING_BIN).test \
-		github.com/pingcap/tidb-lightning/cmd/tidb-lightning || ( $(FAILPOINT_DISABLE) && exit 1 )
+		github.com/pingcap/br/pkg/lightning/cmd/tidb-lightning || ( $(FAILPOINT_DISABLE) && exit 1 )
 	$(GOTEST) -c -cover -covermode=count \
-		-coverpkg=github.com/pingcap/tidb-lightning/... \
+		-coverpkg=github.com/pingcap/br/pkg/lightning/... \
 		-o $(LIGHTNING_CTL_BIN).test \
-		github.com/pingcap/tidb-lightning/cmd/tidb-lightning-ctl || ( $(FAILPOINT_DISABLE) && exit 1 )
+		github.com/pingcap/br/pkg/lightning/cmd/tidb-lightning-ctl || ( $(FAILPOINT_DISABLE) && exit 1 )
 	$(GOBUILD) $(RACE_FLAG) -o bin/parquet_gen tests/checkpoint_parquet/*.go
 	$(FAILPOINT_DISABLE)
 

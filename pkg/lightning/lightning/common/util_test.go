@@ -32,8 +32,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 type utilSuite struct{}
@@ -50,7 +50,7 @@ func (s *utilSuite) TestGetJSON(c *C) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	var request = TestPayload{
+	request := TestPayload{
 		Username: "lightning",
 		Password: "lightning-ctl",
 	}

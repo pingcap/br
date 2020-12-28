@@ -19,7 +19,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 var ecmaTable = crc64.MakeTable(crc64.ECMA)

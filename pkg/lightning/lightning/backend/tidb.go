@@ -32,19 +32,17 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/verification"
 )
 
-var (
-	extraHandleTableColumn = &table.Column{
-		ColumnInfo:    extraHandleColumnInfo,
-		GeneratedExpr: nil,
-		DefaultExpr:   nil,
-	}
-)
+var extraHandleTableColumn = &table.Column{
+	ColumnInfo:    extraHandleColumnInfo,
+	GeneratedExpr: nil,
+	DefaultExpr:   nil,
+}
 
 type tidbRow string
 

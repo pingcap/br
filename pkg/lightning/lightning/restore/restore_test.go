@@ -23,7 +23,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
-	"github.com/pingcap/br/pkg/storage"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -32,21 +31,22 @@ import (
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/tidb-lightning/lightning/glue"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/ddl"
 	tmock "github.com/pingcap/tidb/util/mock"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	"github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	. "github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	"github.com/pingcap/tidb-lightning/lightning/verification"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
-	"github.com/pingcap/tidb-lightning/mock"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	. "github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/mock"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var _ = Suite(&restoreSuite{})
@@ -258,14 +258,14 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 	for i := 1; i <= fakeDataFilesCount; i++ {
 		fakeFileName := fmt.Sprintf("db.table.%d.sql", i)
 		fakeDataPath := filepath.Join(fakeDataDir, fakeFileName)
-		err = ioutil.WriteFile(fakeDataPath, fakeDataFilesContent, 0644)
+		err = ioutil.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{TableName: filter.Table{"db", "table"}, FileMeta: mydump.SourceFileMeta{Path: fakeFileName, Type: mydump.SourceTypeSQL, SortKey: fmt.Sprintf("%d", i), FileSize: 37}})
 	}
 
 	fakeCsvContent := []byte("1,2,3\r\n4,5,6\r\n")
 	csvName := "db.table.99.csv"
-	err = ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0644)
+	err = ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
 	c.Assert(err, IsNil)
 	fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{TableName: filter.Table{"db", "table"}, FileMeta: mydump.SourceFileMeta{Path: csvName, Type: mydump.SourceTypeCSV, SortKey: "99", FileSize: 14}})
 
@@ -290,8 +290,8 @@ func (s *tableRestoreSuiteBase) SetUpTest(c *C) {
 }
 
 func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
-	failpoint.Enable("github.com/pingcap/tidb-lightning/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/tidb-lightning/lightning/restore/PopulateChunkTimestamp")
+	failpoint.Enable("github.com/pingcap/br/pkg/lightning/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/lightning/restore/PopulateChunkTimestamp")
 
 	cp := &TableCheckpoint{
 		Engines: make(map[int32]*EngineCheckpoint),
@@ -432,7 +432,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 	total := 0
 	for i, s := range fakeCsvContents {
 		csvName := fmt.Sprintf("db.table.%02d.csv", i)
-		err := ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0644)
+		err := ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 			TableName: filter.Table{"db", "table"},
@@ -448,8 +448,8 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 		DataFiles:  fakeDataFiles,
 	}
 
-	failpoint.Enable("github.com/pingcap/tidb-lightning/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/tidb-lightning/lightning/restore/PopulateChunkTimestamp")
+	failpoint.Enable("github.com/pingcap/br/pkg/lightning/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/lightning/restore/PopulateChunkTimestamp")
 
 	cp := &TableCheckpoint{
 		Engines: make(map[int32]*EngineCheckpoint),
@@ -670,7 +670,6 @@ func (s *tableRestoreSuite) TestCompareChecksumSuccess(c *C) {
 
 	c.Assert(db.Close(), IsNil)
 	c.Assert(mock.ExpectationsWereMet(), IsNil)
-
 }
 
 func (s *tableRestoreSuite) TestCompareChecksumFailure(c *C) {
@@ -920,25 +919,26 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 
 	saveCpCh := make(chan saveCp, 2)
 	go func() {
-		kvsCh <- []deliveredKVs{{
-			kvs: kv.MakeRowFromKvPairs([]common.KvPair{
-				{
-					Key: []byte("txxxxxxxx_ryyyyyyyy"),
-					Val: []byte("value1"),
-				},
-				{
-					Key: []byte("txxxxxxxx_rwwwwwwww"),
-					Val: []byte("value2"),
-				},
-				{
-					Key: []byte("txxxxxxxx_izzzzzzzz"),
-					Val: []byte("index1"),
-				},
-			}),
-			columns: mockCols,
-			offset:  12,
-			rowID:   76,
-		},
+		kvsCh <- []deliveredKVs{
+			{
+				kvs: kv.MakeRowFromKvPairs([]common.KvPair{
+					{
+						Key: []byte("txxxxxxxx_ryyyyyyyy"),
+						Val: []byte("value1"),
+					},
+					{
+						Key: []byte("txxxxxxxx_rwwwwwwww"),
+						Val: []byte("value2"),
+					},
+					{
+						Key: []byte("txxxxxxxx_izzzzzzzz"),
+						Val: []byte("index1"),
+					},
+				}),
+				columns: mockCols,
+				offset:  12,
+				rowID:   76,
+			},
 		}
 		kvsCh <- []deliveredKVs{}
 		close(kvsCh)
@@ -1043,7 +1043,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 	dir := c.MkDir()
 	fileName := "db.table.000.csv"
-	err := ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0644)
+	err := ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0o644)
 	c.Assert(err, IsNil)
 
 	store, err := storage.NewLocalStorage(dir)
@@ -1150,7 +1150,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	fakeDBName := "fakedb"
 	// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}-schema-create.sql'
 	fakeFileName := fmt.Sprintf("%s-schema-create.sql", fakeDBName)
-	err = store.Write(ctx, fakeFileName, []byte(fmt.Sprintf("CREATE DATABASE %s;", fakeDBName)))
+	err = store.WriteFile(ctx, fakeFileName, []byte(fmt.Sprintf("CREATE DATABASE %s;", fakeDBName)))
 	c.Assert(err, IsNil)
 	// restore table schema files
 	fakeTableFilesCount := 8
@@ -1159,7 +1159,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema.sql", fakeDBName, fakeTableName)
 		fakeFileContent := []byte(fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName))
-		err = store.Write(ctx, fakeFileName, fakeFileContent)
+		err = store.WriteFile(ctx, fakeFileName, fakeFileContent)
 		c.Assert(err, IsNil)
 	}
 	// restore view schema files
@@ -1169,7 +1169,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema-view.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema-view.sql", fakeDBName, fakeViewName)
 		fakeFileContent := []byte(fmt.Sprintf("CREATE ALGORITHM=UNDEFINED VIEW `%s` (`i`) AS SELECT `i` FROM `%s`.`%s`;", fakeViewName, fakeDBName, fmt.Sprintf("tbl%d", i)))
-		err = store.Write(ctx, fakeFileName, fakeFileContent)
+		err = store.WriteFile(ctx, fakeFileName, fakeFileContent)
 		c.Assert(err, IsNil)
 	}
 	config := config.NewConfig()

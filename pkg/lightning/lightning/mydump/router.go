@@ -10,7 +10,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb-tools/pkg/filter"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
 )
 
 type SourceType int
@@ -102,24 +102,20 @@ func parseCompressionType(t string) (Compression, error) {
 	}
 }
 
-var (
-	expandVariablePattern = regexp.MustCompile(`\$(?:\$|[\pL\p{Nd}_]+|\{[\pL\p{Nd}_]+\})`)
-)
+var expandVariablePattern = regexp.MustCompile(`\$(?:\$|[\pL\p{Nd}_]+|\{[\pL\p{Nd}_]+\})`)
 
-var (
-	defaultFileRouteRules = []*config.FileRouteRule{
-		// ignore *-schema-trigger.sql, *-schema-post.sql files
-		{Pattern: `(?i).*(-schema-trigger|-schema-post)\.sql$`, Type: "ignore"},
-		// db schema create file pattern, matches files like '{schema}-schema-create.sql'
-		{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)-schema-create\.sql$`, Schema: "$1", Table: "", Type: SchemaSchema},
-		// table schema create file pattern, matches files like '{schema}.{table}-schema.sql'
-		{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)-schema\.sql$`, Schema: "$1", Table: "$2", Type: TableSchema},
-		// view schema create file pattern, matches files like '{schema}.{table}-schema-view.sql'
-		{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)-schema-view\.sql$`, Schema: "$1", Table: "$2", Type: ViewSchema},
-		// source file pattern, matches files like '{schema}.{table}.0001.{sql|csv}'
-		{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)(?:\.([0-9]+))?\.(sql|csv|parquet)$`, Schema: "$1", Table: "$2", Type: "$4", Key: "$3"},
-	}
-)
+var defaultFileRouteRules = []*config.FileRouteRule{
+	// ignore *-schema-trigger.sql, *-schema-post.sql files
+	{Pattern: `(?i).*(-schema-trigger|-schema-post)\.sql$`, Type: "ignore"},
+	// db schema create file pattern, matches files like '{schema}-schema-create.sql'
+	{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)-schema-create\.sql$`, Schema: "$1", Table: "", Type: SchemaSchema},
+	// table schema create file pattern, matches files like '{schema}.{table}-schema.sql'
+	{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)-schema\.sql$`, Schema: "$1", Table: "$2", Type: TableSchema},
+	// view schema create file pattern, matches files like '{schema}.{table}-schema-view.sql'
+	{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)-schema-view\.sql$`, Schema: "$1", Table: "$2", Type: ViewSchema},
+	// source file pattern, matches files like '{schema}.{table}.0001.{sql|csv}'
+	{Pattern: `(?i)^(?:[^/]*/)*([^/.]+)\.(.*?)(?:\.([0-9]+))?\.(sql|csv|parquet)$`, Schema: "$1", Table: "$2", Type: "$4", Key: "$3"},
+}
 
 // // RouteRule is a rule to route file path to target schema/table
 type FileRouter interface {
@@ -262,7 +258,6 @@ func (p regexRouterParser) Parse(r *config.FileRouteRule) (*RegexRouter, error) 
 			}
 			if compression != CompressionNone {
 				return errors.New("Currently we don't support restore compressed source file yet")
-
 			}
 			result.Compression = compression
 			return nil
