@@ -39,7 +39,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 const (

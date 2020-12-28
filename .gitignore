@@ -1,15 +1,16 @@
-br
+/br
 bin/
-_tools/
 .idea/
 backupmeta
 *.log
 *.ngo
-*.coverprofile
-coverage.txt
 docker/data/
 docker/logs/
 *.swp
 .DS_Store
 go.mod
 go.sum
+
+# for the web interface
+pkg/lightning/web/node_modules/
+pkg/lightning/web/dist/

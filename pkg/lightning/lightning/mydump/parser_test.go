@@ -22,9 +22,9 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/types"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
 )
 
 var _ = Suite(&testMydumpParserSuite{})
@@ -89,7 +89,8 @@ func (s *testMydumpParserSuite) TestReadRow(c *C) {
 			types.NewUintDatum(4),
 			types.NewStringDatum("5."),
 			types.NewUintDatum(6),
-		}})
+		},
+	})
 	c.Assert(parser.Columns(), DeepEquals, []string{"columns", "more", "columns"})
 	offset, rowID = parser.Pos()
 	c.Assert(offset, Equals, int64(108))
@@ -120,7 +121,8 @@ func (s *testMydumpParserSuite) TestReadRow(c *C) {
 			types.NewStringDatum("("),
 			types.NewUintDatum(14),
 			types.NewStringDatum(")"),
-		}})
+		},
+	})
 	c.Assert(parser.Columns(), IsNil)
 	offset, rowID = parser.Pos()
 	c.Assert(offset, Equals, int64(222))

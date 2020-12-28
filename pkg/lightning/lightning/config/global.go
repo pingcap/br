@@ -25,8 +25,8 @@ import (
 	"github.com/carlmjohnson/flagext"
 	"github.com/pingcap/errors"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 type GlobalLightning struct {

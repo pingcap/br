@@ -9,14 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb-lightning/lightning/log"
 	"github.com/pingcap/tidb/types"
 	"github.com/xitongsys/parquet-go/parquet"
 	preader "github.com/xitongsys/parquet-go/reader"
 	"github.com/xitongsys/parquet-go/source"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 const (
@@ -67,6 +68,7 @@ func (r *readerWrapper) Open(name string) (source.ParquetFile, error) {
 		path:           name,
 	}, nil
 }
+
 func (r *readerWrapper) Create(name string) (source.ParquetFile, error) {
 	return nil, errors.New("unsupported operation")
 }
@@ -109,7 +111,7 @@ func OpenParquetReader(
 	size int64,
 ) (source.ParquetFile, error) {
 	if size <= smallParquetFileThreshold {
-		fileBytes, err := store.Read(ctx, path)
+		fileBytes, err := store.ReadFile(ctx, path)
 		if err != nil {
 			return nil, err
 		}

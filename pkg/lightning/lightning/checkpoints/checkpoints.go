@@ -31,11 +31,11 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	verify "github.com/pingcap/tidb-lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	verify "github.com/pingcap/br/pkg/lightning/lightning/verification"
 )
 
 type CheckpointStatus uint8
@@ -285,6 +285,7 @@ func (cp *TableCheckpoint) DeepCopy() *TableCheckpoint {
 		TableID:   cp.TableID,
 	}
 }
+
 func (cp *TableCheckpoint) CountChunks() int {
 	result := 0
 	for _, engine := range cp.Engines {
@@ -676,7 +677,6 @@ func (cpdb *MySQLCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckp
 	taskCp := &TaskCheckpoint{}
 	err := s.QueryRow(ctx, "fetch task checkpoint", taskQuery, &taskCp.TaskId, &taskCp.SourceDir, &taskCp.Backend,
 		&taskCp.ImporterAddr, &taskCp.TiDBHost, &taskCp.TiDBPort, &taskCp.PdAddr, &taskCp.SortedKVDir, &taskCp.LightningVer)
-
 	if err != nil {
 		// if task checkpoint is empty, return nil
 		if errors.Cause(err) == sql.ErrNoRows {
@@ -949,7 +949,7 @@ func (cpdb *FileCheckpointsDB) save() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := ioutil.WriteFile(cpdb.path, serialized, 0644); err != nil {
+	if err := ioutil.WriteFile(cpdb.path, serialized, 0o644); err != nil {
 		return errors.Trace(err)
 	}
 	return nil
@@ -1162,24 +1162,31 @@ var cannotManageNullDB = errors.New("cannot perform this function while checkpoi
 func (*NullCheckpointsDB) RemoveCheckpoint(context.Context, string) error {
 	return errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) MoveCheckpoints(context.Context, int64) error {
 	return errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) GetLocalStoringTables(context.Context) (map[string][]int32, error) {
 	return nil, nil
 }
+
 func (*NullCheckpointsDB) IgnoreErrorCheckpoint(context.Context, string) error {
 	return errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) DestroyErrorCheckpoint(context.Context, string) ([]DestroyedTableCheckpoint, error) {
 	return nil, errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) DumpTables(context.Context, io.Writer) error {
 	return errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) DumpEngines(context.Context, io.Writer) error {
 	return errors.Trace(cannotManageNullDB)
 }
+
 func (*NullCheckpointsDB) DumpChunks(context.Context, io.Writer) error {
 	return errors.Trace(cannotManageNullDB)
 }
@@ -1226,8 +1233,10 @@ func (cpdb *MySQLCheckpointsDB) MoveCheckpoints(ctx context.Context, taskID int6
 	if e := s.Exec(ctx, "create backup checkpoints schema", createSchemaQuery); e != nil {
 		return e
 	}
-	for _, tbl := range []string{CheckpointTableNameChunk, CheckpointTableNameEngine,
-		CheckpointTableNameTable, CheckpointTableNameTask} {
+	for _, tbl := range []string{
+		CheckpointTableNameChunk, CheckpointTableNameEngine,
+		CheckpointTableNameTable, CheckpointTableNameTask,
+	} {
 		query := fmt.Sprintf("RENAME TABLE %[1]s.%[3]s TO %[2]s.%[3]s", cpdb.schema, newSchema, tbl)
 		if e := s.Exec(ctx, fmt.Sprintf("move %s checkpoints table", tbl), query); e != nil {
 			return e
@@ -1246,10 +1255,10 @@ func (cpdb *MySQLCheckpointsDB) GetLocalStoringTables(ctx context.Context) (map[
 	// 2. engine status is earlier than CheckpointStatusImported, and
 	// 3. chunk has been read
 	query := fmt.Sprintf(`
-		SELECT DISTINCT t.table_name, c.engine_id 
-		FROM %s.%s t, %s.%s c, %s.%s e 
-		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id 
-			AND %d < t.status AND t.status < %d 
+		SELECT DISTINCT t.table_name, c.engine_id
+		FROM %s.%s t, %s.%s c, %s.%s e
+		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id
+			AND %d < t.status AND t.status < %d
 			AND %d < e.status AND e.status < %d
 			AND c.pos > c.offset;`,
 		cpdb.schema, CheckpointTableNameTable, cpdb.schema, CheckpointTableNameChunk, cpdb.schema, CheckpointTableNameEngine,

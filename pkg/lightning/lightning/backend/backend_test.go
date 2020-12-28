@@ -10,8 +10,8 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/mysql"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	"github.com/pingcap/tidb-lightning/mock"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/mock"
 )
 
 type backendSuite struct {

@@ -28,10 +28,10 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/util/mock"
 
-	"github.com/pingcap/tidb-lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
 
-	"github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
 )
 
 var _ = Suite(&tidbSuite{})
@@ -473,5 +473,4 @@ func (s *tidbSuite) TestObtainNewCollationEnabled(c *C) {
 	}
 	s.mockDB.
 		ExpectClose()
-
 }

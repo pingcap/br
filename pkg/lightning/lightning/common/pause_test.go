@@ -20,7 +20,7 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 // unblocksAfter is a checker which ensures the WaitGroup's Wait() method
@@ -133,7 +133,7 @@ func (s *pauseSuite) TestPause(c *C) {
 	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 520*time.Millisecond)
 }
 
-// Run `go test github.com/pingcap/tidb-lightning/lightning/common -check.b -test.v` to get benchmark result.
+// Run `go test github.com/pingcap/br/pkg/lightning/lightning/common -check.b -test.v` to get benchmark result.
 func (s *pauseSuite) BenchmarkWaitNoOp(c *C) {
 	p := common.NewPauser()
 	ctx := context.Background()

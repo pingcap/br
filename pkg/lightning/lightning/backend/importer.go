@@ -25,13 +25,13 @@ import (
 	"github.com/pingcap/errors"
 	kv "github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb-lightning/lightning/glue"
 	"github.com/pingcap/tidb/table"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 const (

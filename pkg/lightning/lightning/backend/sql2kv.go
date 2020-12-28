@@ -34,10 +34,10 @@ import (
 	// Import tidb/planner/core to initialize expression.RewriteAstExpr
 	_ "github.com/pingcap/tidb/planner/core"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/metric"
-	"github.com/pingcap/tidb-lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/lightning/verification"
 )
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()

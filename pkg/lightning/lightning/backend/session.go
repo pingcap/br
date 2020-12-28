@@ -25,7 +25,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 // invalidIterator is a trimmed down Iterator type which is invalid.

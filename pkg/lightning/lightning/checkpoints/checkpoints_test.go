@@ -6,8 +6,8 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	"github.com/pingcap/tidb-lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/lightning/verification"
 )
 
 func Test(t *testing.T) {

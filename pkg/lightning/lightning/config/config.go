@@ -36,8 +36,8 @@ import (
 	tidbcfg "github.com/pingcap/tidb/config"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 const (
@@ -447,7 +447,6 @@ func (cfg *Config) LoadFromTOML(data []byte) error {
 
 	// Here we load toml into cfg, and rest logic is check unused keys
 	metaData, err := toml.Decode(dataStr, cfg)
-
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -702,7 +701,6 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		// if rows in source files are not sorted by primary key(if primary is number or cluster index enabled),
 		// the key range in each data engine may have overlap, thus a bigger engine size can somewhat alleviate it.
 		cfg.Mydumper.BatchSize = defaultBatchSize
-
 	}
 	if cfg.Mydumper.BatchImportRatio < 0.0 || cfg.Mydumper.BatchImportRatio >= 1.0 {
 		cfg.Mydumper.BatchImportRatio = 0.75

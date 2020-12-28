@@ -26,11 +26,11 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	"github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/restore"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/restore"
 )
 
 func main() {
@@ -277,7 +277,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 	}
 	defer cpdb.Close()
 
-	if err := os.MkdirAll(dumpFolder, 0755); err != nil {
+	if err := os.MkdirAll(dumpFolder, 0o755); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -315,9 +315,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 }
 
 func getLocalStoringTables(ctx context.Context, cfg *config.Config) (err2 error) {
-	var (
-		tables []string
-	)
+	var tables []string
 	defer func() {
 		if err2 == nil {
 			if len(tables) == 0 {

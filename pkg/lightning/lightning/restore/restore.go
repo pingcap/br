@@ -24,15 +24,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap/br/pkg/pdutil"
-	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/glue"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
@@ -41,16 +36,20 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-	kv "github.com/pingcap/tidb-lightning/lightning/backend"
-	. "github.com/pingcap/tidb-lightning/lightning/checkpoints"
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/metric"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	verify "github.com/pingcap/tidb-lightning/lightning/verification"
-	"github.com/pingcap/tidb-lightning/lightning/web"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	kv "github.com/pingcap/br/pkg/lightning/lightning/backend"
+	. "github.com/pingcap/br/pkg/lightning/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	verify "github.com/pingcap/br/pkg/lightning/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/lightning/web"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -452,7 +451,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 }
 
 func (worker *restoreSchemaWorker) doJob() {
-	var session checkpoints.Session
+	var session Session
 	defer func() {
 		if session != nil {
 			session.Close()
@@ -915,12 +914,9 @@ func (rc *RestoreController) runPeriodicActions(ctx context.Context, stop <-chan
 				}
 				remaining = zap.Skip()
 			} else if finished > 0 {
-
 				state = "writing"
-
 			} else {
 				state = "preparing"
-
 			}
 
 			// since we can't accurately estimate the extra time cost by import after all writing are finished,
@@ -959,7 +955,7 @@ func (rc *RestoreController) runPeriodicActions(ctx context.Context, stop <-chan
 			// Note: a speed of 28 MiB/s roughly corresponds to 100 GiB/hour.
 			log.L().Info("progress",
 				zap.String("total", fmt.Sprintf("%.1f%%", totalPercent*100)),
-				//zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
+				// zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
 				zap.String("tables", fmt.Sprintf("%.0f/%.0f%s", completedTables, totalTables, formatPercent(completedTables, totalTables))),
 				zap.String("chunks", fmt.Sprintf("%.0f/%.0f%s", finished, estimated, formatPercent(finished, estimated))),
 				zap.String("engines", fmt.Sprintf("%.f/%.f%s", engineFinished, engineEstimated, formatPercent(engineFinished, engineEstimated))),
@@ -1587,7 +1583,7 @@ func (t *TableRestore) importEngine(
 		go func() {
 			// we ignore level-1 compact failure since it is not fatal.
 			// no need log the error, it is done in (*Importer).Compact already.
-			var _ = rc.doCompact(ctx, Level1Compact)
+			_ = rc.doCompact(ctx, Level1Compact)
 			atomic.StoreInt32(&rc.compactState, compactStateIdle)
 		}()
 	}
@@ -1672,7 +1668,6 @@ func (t *TableRestore) postProcess(
 			} else {
 				finished = false
 			}
-
 		}
 	}
 	if !finished {

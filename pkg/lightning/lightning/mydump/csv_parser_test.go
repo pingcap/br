@@ -13,10 +13,10 @@ import (
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/mydump"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
 )
 
 var _ = Suite(&testMydumpCSVParserSuite{})
@@ -820,7 +820,7 @@ func (s *testMydumpCSVParserSuite) TestTrimLastSep(c *C) {
 	}
 }
 
-// Run `go test github.com/pingcap/tidb-lightning/lightning/mydump -check.b -check.bmem -test.v` to get benchmark result.
+// Run `go test github.com/pingcap/br/pkg/lightning/lightning/mydump -check.b -check.bmem -test.v` to get benchmark result.
 // Please ensure your temporary storage has (c.N / 2) KiB of free space.
 
 type benchCSVParserSuite struct {

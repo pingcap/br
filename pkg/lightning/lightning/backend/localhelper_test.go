@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/restore"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -31,6 +30,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+
+	"github.com/pingcap/br/pkg/restore"
 )
 
 type testClient struct {
@@ -298,7 +299,7 @@ func initTestClient(keys [][]byte, hook clientHook) *testClient {
 }
 
 func checkRegionRanges(c *C, regions []*restore.RegionInfo, keys [][]byte) {
-	//c.Assert(len(regions)+1, Equals, len(keys))
+	// c.Assert(len(regions)+1, Equals, len(keys))
 	for i, r := range regions {
 		_, regionStart, _ := codec.DecodeBytes(r.Region.StartKey, []byte{})
 		_, regionEnd, _ := codec.DecodeBytes(r.Region.EndKey, []byte{})
@@ -319,12 +320,15 @@ type noopHook struct{}
 func (h *noopHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	return regionInfo, keys
 }
+
 func (h *noopHook) AfterSplitRegion(c context.Context, r *restore.RegionInfo, keys [][]byte, res []*restore.RegionInfo, err error) ([]*restore.RegionInfo, error) {
 	return res, err
 }
+
 func (h *noopHook) BeforeScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]byte, []byte, int) {
 	return key, endKey, limit
 }
+
 func (h *noopHook) AfterScanRegions(res []*restore.RegionInfo, err error) ([]*restore.RegionInfo, error) {
 	return res, err
 }
@@ -386,11 +390,13 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, hook clientHook, errPa
 	// check split ranges
 	regions, err = paginateScanRegion(ctx, client, rangeStart, rangeEnd, 5)
 	c.Assert(err, IsNil)
-	result := [][]byte{[]byte("b"), []byte("ba"), []byte("bb"), []byte("bba"), []byte("bbh"), []byte("bc"),
+	result := [][]byte{
+		[]byte("b"), []byte("ba"), []byte("bb"), []byte("bba"), []byte("bbh"), []byte("bc"),
 		[]byte("bd"), []byte("be"), []byte("bf"), []byte("bg"), []byte("bh"), []byte("bi"), []byte("bj"),
 		[]byte("bk"), []byte("bl"), []byte("bm"), []byte("bn"), []byte("bo"), []byte("bp"), []byte("bq"),
 		[]byte("br"), []byte("bs"), []byte("bt"), []byte("bu"), []byte("bv"), []byte("bw"), []byte("bx"),
-		[]byte("by"), []byte("bz"), []byte("cca")}
+		[]byte("by"), []byte("bz"), []byte("cca"),
+	}
 	checkRegionRanges(c, regions, result)
 }
 

@@ -22,7 +22,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 // handleSigUsr1 listens for the SIGUSR1 signal and executes `handler()` every time it is received.

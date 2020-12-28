@@ -31,8 +31,6 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/google/btree"
 	"github.com/google/uuid"
-	split "github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -54,13 +52,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/glue"
-	"github.com/pingcap/tidb-lightning/lightning/log"
-	"github.com/pingcap/tidb-lightning/lightning/manual"
-	"github.com/pingcap/tidb-lightning/lightning/metric"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/manual"
+	"github.com/pingcap/br/pkg/lightning/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
+	split "github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -431,7 +431,7 @@ func NewLocalBackend(
 	}
 
 	if shouldCreate {
-		err = os.Mkdir(localFile, 0700)
+		err = os.Mkdir(localFile, 0o700)
 		if err != nil {
 			return MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
 		}
@@ -1202,7 +1202,6 @@ loopWrite:
 					errCnt++
 					continue
 				}
-
 				var retryTy retryType
 				var newRegion *split.RegionInfo
 				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)

@@ -24,8 +24,8 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/types"
 
-	"github.com/pingcap/tidb-lightning/lightning/config"
-	"github.com/pingcap/tidb-lightning/lightning/worker"
+	"github.com/pingcap/br/pkg/lightning/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/lightning/worker"
 )
 
 var (
@@ -572,6 +572,7 @@ var newLineAsciiSet = makeByteSet([]byte{'\r', '\n'})
 func indexOfNewLine(b []byte) int {
 	return IndexAnyByte(b, &newLineAsciiSet)
 }
+
 func (parser *CSVParser) ReadUntilTokNewLine() (int64, error) {
 	_, _, err := parser.readUntil(indexOfNewLine)
 	if err != nil {

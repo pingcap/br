@@ -19,7 +19,7 @@ import (
 	. "github.com/pingcap/check"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
 )
 
 func TestLog(t *testing.T) {

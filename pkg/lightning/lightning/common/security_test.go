@@ -24,7 +24,7 @@ import (
 
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/tidb-lightning/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/lightning/common"
 )
 
 type securitySuite struct{}
@@ -80,7 +80,7 @@ func (s *securitySuite) TestInvalidTLS(c *C) {
 	_, err := common.NewTLS(caPath, "", "", "localhost")
 	c.Assert(err, ErrorMatches, "could not read ca certificate:.*")
 
-	err = ioutil.WriteFile(caPath, []byte("invalid ca content"), 0644)
+	err = ioutil.WriteFile(caPath, []byte("invalid ca content"), 0o644)
 	c.Assert(err, IsNil)
 	_, err = common.NewTLS(caPath, "", "", "localhost")
 	c.Assert(err, ErrorMatches, "failed to append ca certs")
@@ -90,9 +90,9 @@ func (s *securitySuite) TestInvalidTLS(c *C) {
 	_, err = common.NewTLS(caPath, certPath, keyPath, "localhost")
 	c.Assert(err, ErrorMatches, "could not load client key pair: open.*")
 
-	err = ioutil.WriteFile(certPath, []byte("invalid cert content"), 0644)
+	err = ioutil.WriteFile(certPath, []byte("invalid cert content"), 0o644)
 	c.Assert(err, IsNil)
-	err = ioutil.WriteFile(keyPath, []byte("invalid key content"), 0600)
+	err = ioutil.WriteFile(keyPath, []byte("invalid key content"), 0o600)
 	c.Assert(err, IsNil)
 	_, err = common.NewTLS(caPath, certPath, keyPath, "localhost")
 	c.Assert(err, ErrorMatches, "could not load client key pair: tls.*")

@@ -22,8 +22,6 @@ import (
 	"strings"
 	"time"
 
-	split "github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -31,7 +29,9 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/zap"
 
-	"github.com/pingcap/tidb-lightning/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/lightning/log"
+	split "github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
