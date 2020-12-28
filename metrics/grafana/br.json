@@ -1408,7 +1408,7 @@
           "renderer": "flot",
           "seriesOverrides": [
             {
-              "alias": "/restore-count.*/",
+              "alias": "/import-count.*/",
               "yaxis": 2
             }
           ],
@@ -1421,7 +1421,7 @@
               "format": "time_series",
               "hide": false,
               "intervalFactor": 2,
-              "legendFormat": "restore-{{instance}}",
+              "legendFormat": "import-{{instance}}",
               "metric": "tikv_thread_cpu_seconds_total",
               "refId": "A",
               "step": 4
@@ -1441,7 +1441,7 @@
               "format": "time_series",
               "hide": true,
               "intervalFactor": 2,
-              "legendFormat": "restore-count-{{instance}}",
+              "legendFormat": "import-count-{{instance}}",
               "metric": "tikv_thread_cpu_seconds_total",
               "refId": "D",
               "step": 4
