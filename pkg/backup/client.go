@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -845,7 +846,10 @@ func SendBackup(
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Client.SendBackup", opentracing.ChildOf(span.Context()))
+		span1 := span.Tracer().StartSpan(
+			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
+				storeID, logutil.WrapKey(req.StartKey), logutil.WrapKey(req.EndKey)),
+			opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}

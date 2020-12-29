@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
+	"github.com/pingcap/br/pkg/trace"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -26,8 +27,8 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 	ctx := GetDefaultContext()
 	if cfg.EnableOpenTracing {
 		var store *appdash.MemoryStore
-		ctx, store = utils.TracerStartSpan(ctx)
-		defer utils.TracerFinishSpan(ctx, store)
+		ctx, store = trace.TracerStartSpan(ctx)
+		defer trace.TracerFinishSpan(ctx, store)
 	}
 	if err := task.RunBackup(ctx, tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to backup", zap.Error(err))
@@ -46,8 +47,8 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 	ctx := GetDefaultContext()
 	if cfg.EnableOpenTracing {
 		var store *appdash.MemoryStore
-		ctx, store = utils.TracerStartSpan(ctx)
-		defer utils.TracerFinishSpan(ctx, store)
+		ctx, store = trace.TracerStartSpan(ctx)
+		defer trace.TracerFinishSpan(ctx, store)
 	}
 	if err := task.RunBackupRaw(ctx, gluetikv.Glue{}, cmdName, &cfg); err != nil {
 		log.Error("failed to backup raw kv", zap.Error(err))

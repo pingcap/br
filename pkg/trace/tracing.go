@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package utils
+package trace
 
 import (
 	"context"
@@ -18,6 +18,8 @@ import (
 	"sourcegraph.com/sourcegraph/appdash"
 	traceImpl "sourcegraph.com/sourcegraph/appdash/opentracing"
 )
+
+var getTraceFileName = timestampTraceFileName
 
 func timestampTraceFileName() string {
 	return filepath.Join(os.TempDir(), time.Now().Format("br.trace.2006-01-02T15.04.05Z0700"))
@@ -46,7 +48,7 @@ func TracerFinishSpan(ctx context.Context, store appdash.Queryer) {
 	}
 	trace := traces[0]
 
-	filename := timestampTraceFileName()
+	filename := getTraceFileName()
 	file, err := os.Create(filename)
 	if err != nil {
 		log.Error("fail to open trace file", zap.Error(err))
