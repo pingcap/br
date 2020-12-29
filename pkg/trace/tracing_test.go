@@ -35,7 +35,6 @@ func jobB(ctx context.Context) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("jobB", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 	time.Sleep(time.Second)
 }
