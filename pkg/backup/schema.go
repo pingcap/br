@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -73,7 +74,17 @@ func (ss *Schemas) BackupSchemas(
 	copConcurrency uint,
 	skipChecksum bool,
 	updateCh glue.Progress,
+<<<<<<< HEAD
 ) ([]*backuppb.Schema, error) {
+=======
+) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Schemas.Start", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()

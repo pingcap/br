@@ -727,6 +727,128 @@ func (s *s3Suite) TestOpenSeek(c *C) {
 	c.Assert(slice, DeepEquals, someRandomBytes[990100:990200])
 }
 
+<<<<<<< HEAD
+=======
+type limitedBytesReader struct {
+	*bytes.Reader
+	offset int
+	limit  int
+}
+
+func (r *limitedBytesReader) Read(p []byte) (n int, err error) {
+	n, err = r.Reader.Read(p)
+	if err != nil {
+		return
+	}
+	if r.offset+n > r.limit {
+		return n, errors.New("read exceeded limit")
+	}
+	r.offset += n
+	return
+}
+
+func (s *s3Suite) expectedCalls(ctx context.Context, c *C, data []byte, startOffsets []int, newReader func(data []byte, offset int) io.ReadCloser) {
+	var lastCall *gomock.Call
+	for _, offset := range startOffsets {
+		thisOffset := offset
+		thisCall := s.s3.EXPECT().
+			GetObjectWithContext(ctx, gomock.Any()).
+			DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
+				c.Assert(aws.StringValue(input.Range), Equals, fmt.Sprintf("bytes=%d-", thisOffset))
+				return &s3.GetObjectOutput{
+					Body:         newReader(data, thisOffset),
+					ContentRange: aws.String(fmt.Sprintf("bytes %d-%d/%d", thisOffset, len(data)-1, len(data))),
+				}, nil
+			})
+		if lastCall != nil {
+			thisCall = thisCall.After(lastCall)
+		}
+		lastCall = thisCall
+	}
+}
+
+// TestS3ReaderWithRetryEOF check the Read with retry and end with io.EOF.
+func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	someRandomBytes := make([]byte, 100)
+	rand.Read(someRandomBytes) //nolint:gosec
+	// ^ we just want some random bytes for testing, we don't care about its security.
+
+	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 50, 75}, func(data []byte, offset int) io.ReadCloser {
+		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
+	})
+
+	reader, err := s.storage.Open(ctx, "random")
+	c.Assert(err, IsNil)
+	defer reader.Close()
+
+	var n int
+	slice := make([]byte, 30)
+	readAndCheck := func(cnt, offset int) {
+		n, err = io.ReadFull(reader, slice[:cnt])
+		c.Assert(err, IsNil)
+		c.Assert(n, Equals, cnt)
+		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])
+	}
+
+	// first do some simple read...
+	readAndCheck(20, 0)
+
+	// two more small short read that is ok
+	readAndCheck(15, 20)
+	readAndCheck(15, 35)
+	readAndCheck(25, 50)
+	readAndCheck(20, 75)
+
+	// there only remains 10 bytes
+	n, err = reader.Read(slice)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 5)
+
+	_, err = reader.Read(slice)
+	c.Assert(err, Equals, io.EOF)
+}
+
+// TestS3ReaderWithRetryFailed check the Read with retry failed after maxRetryTimes.
+func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
+	s.setUpTest(c)
+	defer s.tearDownTest()
+	ctx := aws.BackgroundContext()
+
+	someRandomBytes := make([]byte, 100)
+	rand.Read(someRandomBytes) //nolint:gosec
+	// ^ we just want some random bytes for testing, we don't care about its security.
+
+	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 40, 60}, func(data []byte, offset int) io.ReadCloser {
+		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
+	})
+
+	reader, err := s.storage.Open(ctx, "random")
+	c.Assert(err, IsNil)
+	defer reader.Close()
+
+	var n int
+	slice := make([]byte, 20)
+	readAndCheck := func(cnt, offset int) {
+		n, err = io.ReadFull(reader, slice[:cnt])
+		c.Assert(err, IsNil)
+		c.Assert(n, Equals, cnt)
+		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])
+	}
+
+	// we can retry 3 times, so read will succeed for 4 times
+	for i := 0; i < 4; i++ {
+		readAndCheck(20, i*20)
+	}
+
+	_, err = reader.Read(slice)
+	c.Assert(err, ErrorMatches, "read exceeded limit")
+}
+
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 // TestWalkDir checks WalkDir retrieves all directory content under a prefix.
 func (s *s3Suite) TestWalkDir(c *C) {
 	s.setUpTest(c)

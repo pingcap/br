@@ -8,7 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
+<<<<<<< HEAD
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
+=======
+	"github.com/opentracing/opentracing-go"
+	"github.com/pingcap/kvproto/pkg/backup"
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
@@ -313,6 +318,12 @@ func (b *Batcher) drainRanges() DrainResult {
 // Send sends all pending requests in the batcher.
 // returns tables sent FULLY in the current batch.
 func (b *Batcher) Send(ctx context.Context) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Batcher.Send", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges

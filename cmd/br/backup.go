@@ -9,10 +9,12 @@ import (
 	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"sourcegraph.com/sourcegraph/appdash"
 
 	"github.com/pingcap/br/pkg/gluetikv"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
+	"github.com/pingcap/br/pkg/trace"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version/build"
 )
@@ -23,12 +25,23 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return errors.Trace(err)
 	}
+<<<<<<< HEAD:cmd/br/backup.go
 	if cfg.IgnoreStats {
 		// Do not run stat worker in BR.
 		session.DisableStats4Test()
 	}
 
 	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
+=======
+
+	ctx := GetDefaultContext()
+	if cfg.EnableOpenTracing {
+		var store *appdash.MemoryStore
+		ctx, store = trace.TracerStartSpan(ctx)
+		defer trace.TracerFinishSpan(ctx, store)
+	}
+	if err := task.RunBackup(ctx, tidbGlue, cmdName, &cfg); err != nil {
+>>>>>>> 006480b8... *: add opentracer in br (#657):cmd/backup.go
 		log.Error("failed to backup", zap.Error(err))
 		return errors.Trace(err)
 	}
@@ -41,7 +54,14 @@ func runBackupRawCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return errors.Trace(err)
 	}
-	if err := task.RunBackupRaw(GetDefaultContext(), gluetikv.Glue{}, cmdName, &cfg); err != nil {
+
+	ctx := GetDefaultContext()
+	if cfg.EnableOpenTracing {
+		var store *appdash.MemoryStore
+		ctx, store = trace.TracerStartSpan(ctx)
+		defer trace.TracerFinishSpan(ctx, store)
+	}
+	if err := task.RunBackupRaw(ctx, gluetikv.Glue{}, cmdName, &cfg); err != nil {
 		log.Error("failed to backup raw kv", zap.Error(err))
 		return errors.Trace(err)
 	}
