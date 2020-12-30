@@ -36,9 +36,12 @@ import (
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, errors.ErrorStack(err))
-		os.Exit(1)
+		exit(1)
 	}
 }
+
+// main_test.go override exit to pass unit test.
+var exit = os.Exit
 
 func run() error {
 	var (

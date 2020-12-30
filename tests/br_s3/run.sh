@@ -28,7 +28,6 @@ export S3_ENDPOINT=127.0.0.1:24927
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
 bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
-MINIO_PID=$!
 i=0
 while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
     i=$(($i+1))
@@ -38,11 +37,6 @@ while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
     fi
     sleep 2
 done
-
-stop_minio() {
-    kill -2 $MINIO_PID
-}
-trap stop_minio EXIT
 
 # Fill in the database
 for i in $(seq $DB_COUNT); do

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright 2020 PingCAP, Inc.
+# Copyright 2019 PingCAP, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Read the result of the last run_sql execution.
-# Requires the run_sql returning a single row and column and the column name has no spaces.
+set -eux
 
-set -eu
-TEST_DIR=/tmp/lightning_test_result
-
-tail -1 "$TEST_DIR/sql_res.$TEST_NAME.txt" | cut -d' ' -f 2-
+bin/cdc \
+    --ca "$TEST_DIR/certs/ca.pem" \
+    --cert "$TEST_DIR/certs/ticdc.pem" \
+    --key "$TEST_DIR/certs/ticdc.key" \
+    "$@"

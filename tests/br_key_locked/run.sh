@@ -25,7 +25,13 @@ go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.
 row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 
 # put locks with TTL 10s, we assume a normal backup finishs within 10s, so it will meet locks.
-bin/locker -tidb $TIDB_STATUS_ADDR -pd $PD_ADDR -db $DB -table $TABLE -lock-ttl "10s" -run-timeout "3s"
+bin/locker \
+    -tidb $TIDB_STATUS_ADDR \
+    -pd $PD_ADDR \
+    -ca "$TEST_DIR/certs/ca.pem" \
+    -cert "$TEST_DIR/certs/br.pem" \
+    -key "$TEST_DIR/certs/br.key" \
+    -db $DB -table $TABLE -lock-ttl "10s" -run-timeout "3s"
 
 # backup table
 echo "backup start..."

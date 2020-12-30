@@ -20,6 +20,11 @@ import (
 )
 
 func TestRunMain(t *testing.T) {
+	if _, isIntegrationTest := os.LookupEnv("INTEGRATION_TEST"); !isIntegrationTest {
+		// override exit to pass unit test.
+		exit = func(code int) {}
+	}
+
 	var args []string
 	for _, arg := range os.Args {
 		switch {

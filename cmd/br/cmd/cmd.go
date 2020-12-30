@@ -151,6 +151,7 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 
 		// Initialize the pprof server.
+		// TODO: Support TLS.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
 		if e != nil {
 			err = e

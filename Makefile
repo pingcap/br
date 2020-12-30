@@ -83,7 +83,7 @@ build_for_integration_test:
 	@make failpoint-enable
 	($(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
-		-o bin/$(BR_BIN).test \
+		-o $(BR_BIN).test \
 		github.com/pingcap/br/cmd/br && \
 	$(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
@@ -98,9 +98,6 @@ build_for_integration_test:
 	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
-
-t:
-	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go
 
 # TODO add parquet_gen to build_for_integration_test
 # $(GOBUILD) $(RACE_FLAG) -o bin/parquet_gen tests/checkpoint_parquet/*.go
