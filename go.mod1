@@ -18,12 +18,12 @@ require (
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
-	github.com/pingcap/kvproto v0.0.0-20201124110645-494a2fb764b7
+	github.com/pingcap/kvproto v0.0.0-20201215060142-f3dafca4c7fd
 	github.com/pingcap/log v0.0.0-20201112100606-8f1e84a3abc8
-	github.com/pingcap/parser v0.0.0-20201123080035-8f4c6ab94e11
-	github.com/pingcap/tidb v1.1.0-beta.0.20201126054322-f7f48e3586b3
-	github.com/pingcap/tidb-tools v4.0.5-0.20200820092506-34ea90c93237+incompatible
-	github.com/pingcap/tipb v0.0.0-20201026044621-45e60c77588f
+	github.com/pingcap/parser v0.0.0-20201222091346-02c8ff27d0bc
+	github.com/pingcap/tidb v1.1.0-beta.0.20201229090316-0217a00191eb
+	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
+	github.com/pingcap/tipb v0.0.0-20201209065231-aa39b1b86217
 	github.com/prometheus/client_golang v1.5.1
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
