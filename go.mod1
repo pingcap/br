@@ -7,10 +7,15 @@ require (
 	github.com/BurntSushi/toml v0.3.1
 	github.com/DATA-DOG/go-sqlmock v1.5.0
 	github.com/aws/aws-sdk-go v1.35.3
+<<<<<<< HEAD
 	github.com/carlmjohnson/flagext v0.21.0
 	github.com/cheggaaa/pb/v3 v3.0.5
 	github.com/cheynewallace/tabby v1.1.0
 	github.com/cockroachdb/pebble v0.0.0-20201023120638-f1224da22976
+=======
+	github.com/cheggaaa/pb/v3 v3.0.4
+	github.com/cheynewallace/tabby v1.1.0
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	github.com/coreos/go-semver v0.3.0
 	github.com/docker/go-units v0.4.0
 	github.com/fsouza/fake-gcs-server v1.19.0
@@ -19,7 +24,10 @@ require (
 	github.com/golang/mock v1.4.4
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
+<<<<<<< HEAD
 	github.com/joho/sqltocsv v0.0.0-20210208114054-cb2c3a95fb99
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
@@ -51,7 +59,10 @@ require (
 	golang.org/x/text v0.3.5
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
+<<<<<<< HEAD
 	modernc.org/mathutil v1.2.2
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
 

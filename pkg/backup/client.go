@@ -203,7 +203,11 @@ func BuildBackupMeta(
 }
 
 // SaveBackupMeta saves the current backup meta at the given path.
+<<<<<<< HEAD
 func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.BackupMeta) error {
+=======
+func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.BackupMeta) error {
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.SaveBackupMeta", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
@@ -434,7 +438,11 @@ func (bc *Client) BackupRanges(
 	req backuppb.BackupRequest,
 	concurrency uint,
 	updateCh glue.Progress,
+<<<<<<< HEAD
 ) ([]*backuppb.File, error) {
+=======
+) ([]*kvproto.File, error) {
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
@@ -613,6 +621,7 @@ func (bc *Client) fineGrainedBackup(
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
+<<<<<<< HEAD
 	failpoint.Inject("hint-fine-grained-backup", func(v failpoint.Value) {
 		log.Info("failpoint hint-fine-grained-backup injected, "+
 			"process will sleep for 3s and notify the shell.", zap.String("file", v.(string)))
@@ -628,6 +637,8 @@ func (bc *Client) fineGrainedBackup(
 		}
 	})
 
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
@@ -882,7 +893,11 @@ func SendBackup(
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan(
 			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
+<<<<<<< HEAD
 				storeID, redact.Key(req.StartKey), redact.Key(req.EndKey)),
+=======
+				storeID, logutil.WrapKey(req.StartKey), logutil.WrapKey(req.EndKey)),
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 			opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)

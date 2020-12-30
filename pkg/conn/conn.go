@@ -186,11 +186,14 @@ func NewMgr(
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
+<<<<<<< HEAD
 	tikvStorage, ok := storage.(tikv.Storage)
 	if !ok {
 		return nil, berrors.ErrKVNotTiKV
 	}
 
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	controller, err := pdutil.NewPdController(ctx, pdAddrs, tlsConf, securityOption)
 	if err != nil {
 		log.Error("fail to create pd controller", zap.Error(err))

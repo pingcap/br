@@ -74,9 +74,15 @@ func (ss *Schemas) BackupSchemas(
 	copConcurrency uint,
 	skipChecksum bool,
 	updateCh glue.Progress,
+<<<<<<< HEAD
 ) ([]*backuppb.Schema, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Schemas.BackupSchemas", opentracing.ChildOf(span.Context()))
+=======
+) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Schemas.Start", opentracing.ChildOf(span.Context()))
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}

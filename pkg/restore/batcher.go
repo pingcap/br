@@ -9,7 +9,11 @@ import (
 	"time"
 
 	"github.com/opentracing/opentracing-go"
+<<<<<<< HEAD
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
+=======
+	"github.com/pingcap/kvproto/pkg/backup"
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 

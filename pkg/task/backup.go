@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+<<<<<<< HEAD
 	"github.com/docker/go-units"
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"

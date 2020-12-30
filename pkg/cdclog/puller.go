@@ -114,7 +114,11 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.ddlDecoder.HasNext() && e.ddlFileIndex < len(e.ddlFiles) {
 			path := e.ddlFiles[e.ddlFileIndex]
+<<<<<<< HEAD
 			data, err = e.storage.ReadFile(ctx, path)
+=======
+			data, err = e.storage.Read(ctx, path)
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -139,7 +143,11 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.rowChangedDecoder.HasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
 			path := e.rowChangedFiles[e.rowChangedFileIndex]
+<<<<<<< HEAD
 			data, err = e.storage.ReadFile(ctx, path)
+=======
+			data, err = e.storage.Read(ctx, path)
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

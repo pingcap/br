@@ -17,7 +17,10 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+<<<<<<< HEAD
 	"github.com/docker/go-units"
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"

@@ -557,7 +557,13 @@ func (rc *Client) RestoreFiles(
 		}
 	}()
 
+<<<<<<< HEAD
 	log.Debug("start to restore files", zap.Int("files", len(files)))
+=======
+	log.Debug("start to restore files",
+		zap.Int("files", len(files)),
+	)
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.RestoreFiles", opentracing.ChildOf(span.Context()))

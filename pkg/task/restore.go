@@ -162,9 +162,13 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
+<<<<<<< HEAD
 	// Restore needs domain to do DDL.
 	needDomain := true
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
+=======
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+>>>>>>> 006480b8... *: add opentracer in br (#657)
 	if err != nil {
 		return errors.Trace(err)
 	}

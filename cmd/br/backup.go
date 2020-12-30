@@ -32,11 +32,14 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 		ctx, store = trace.TracerStartSpan(ctx)
 		defer trace.TracerFinishSpan(ctx, store)
 	}
+<<<<<<< HEAD:cmd/br/backup.go
 	if cfg.IgnoreStats {
 		// Do not run stat worker in BR.
 		session.DisableStats4Test()
 	}
 
+=======
+>>>>>>> 006480b8... *: add opentracer in br (#657):cmd/backup.go
 	if err := task.RunBackup(ctx, tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to backup", zap.Error(err))
 		return errors.Trace(err)
