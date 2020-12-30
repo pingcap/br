@@ -11,7 +11,7 @@ VERSION := v5.0.0-master
 release_branch_regex := ^release-[0-9]\.[0-9].*$$
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, use tag version.
-	VERSION = $(shell git describe --tags --dirty)
+	VERSION := $(shell git describe --tags --dirty)
 else ifneq ($(shell git status --porcelain),)
 	# Add -dirty if the working tree is dirty for non release branch.
 	VERSION := $(VERSION)-dirty
