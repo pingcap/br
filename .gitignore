@@ -1,15 +1,14 @@
 /br
-bin/
-.idea/
-backupmeta
+/bin
+/.idea
 *.log
 *.ngo
-docker/data/
-docker/logs/
+/docker/data/
+/docker/logs/
 *.swp
 .DS_Store
-go.mod
-go.sum
+/go.mod
+/go.sum
 
 # for the web interface
 pkg/lightning/web/node_modules/

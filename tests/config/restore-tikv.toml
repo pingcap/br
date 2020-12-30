@@ -15,3 +15,8 @@ max-open-files = 4096
 # true (default value) for high reliability, this can prevent data loss when power failure.
 sync-log = false
 capacity = "10GB"
+
+[security]
+ca-path = "/tmp/backup_restore_test/certs/ca.pem"
+cert-path = "/tmp/backup_restore_test/certs/tikv.pem"
+key-path = "/tmp/backup_restore_test/certs/tikv.key"

@@ -63,7 +63,7 @@ run_sql "analyze table $DB.$TABLE;"
 #        }
 #     ]
 # }
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $BACKUP_STAT
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $BACKUP_STAT
 
 # backup full
 echo "backup start with stats..."
@@ -135,7 +135,7 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $RESOTRE_STAT
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $RESOTRE_STAT
 
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then

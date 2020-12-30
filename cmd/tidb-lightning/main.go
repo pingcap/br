@@ -105,6 +105,9 @@ func main() {
 	}
 
 	if err != nil {
-		os.Exit(1)
+		exit(1)
 	}
 }
+
+// main_test.go override exit to pass unit test.
+var exit = os.Exit

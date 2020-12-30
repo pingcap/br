@@ -26,6 +26,8 @@ import (
 	pd "github.com/tikv/pd/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	"github.com/pingcap/br/pkg/httputil"
 )
 
 // TLS
@@ -90,16 +92,14 @@ func NewTLS(caPath, certPath, keyPath, host string) (*TLS, error) {
 	}
 	inner, err := ToTLSConfig(caPath, certPath, keyPath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = inner
 	return &TLS{
 		caPath:   caPath,
 		certPath: certPath,
 		keyPath:  keyPath,
 		inner:    inner,
-		client:   &http.Client{Transport: transport},
+		client:   httputil.NewClient(inner),
 		url:      "https://" + host,
 	}, nil
 }

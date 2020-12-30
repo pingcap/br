@@ -13,13 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
-TEST_DIR=/tmp/lightning_test_result
+set -eux
 
-if grep -Fq "$1" "$TEST_DIR/sql_res.$TEST_NAME.txt"; then
-    echo "TEST FAILED: OUTPUT CONTAINS '$1'"
-    echo "____________________________________"
-    cat "$TEST_DIR/sql_res.$TEST_NAME.txt"
-    echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
-    exit 1
-fi
+# Workaround for https://github.com/tikv/pd/issues/3318
+echo "$@" | pd-ctl \
+    --cacert "$TEST_DIR/certs/ca.pem" \
+    --cert "$TEST_DIR/certs/br.pem" \
+    --key "$TEST_DIR/certs/br.key"
