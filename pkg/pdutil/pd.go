@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
@@ -549,6 +550,12 @@ func (p *PdController) makeUndoFunctionByConfig(config clusterConfig) UndoFunc {
 
 // RemoveSchedulers removes the schedulers that may slow down BR speed.
 func (p *PdController) RemoveSchedulers(ctx context.Context) (undo UndoFunc, err error) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("PdController.RemoveSchedulers", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	undo = Nop
 	stores, err := p.pdClient.GetAllStores(ctx)
 	if err != nil {
