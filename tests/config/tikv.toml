@@ -1,4 +1,6 @@
 # config of tikv
+[storage]
+reserve-space = "1KB"
 
 [coprocessor]
 region-max-keys = 100
