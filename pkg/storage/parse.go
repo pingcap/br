@@ -70,7 +70,10 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
 
 	case "gs", "gcs":
-		prefix := strings.Trim(u.Path[1:], "/")
+		if u.Host == "" {
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for gcs in %s", rawURL)
+		}
+		prefix := strings.Trim(u.Path, "/")
 		gcs := &backup.GCS{Bucket: u.Host, Prefix: prefix}
 		if options == nil {
 			options = &BackendOptions{}
