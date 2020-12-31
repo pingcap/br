@@ -114,5 +114,3 @@ if [ "$checksum_new" != "$checksum_partial" ];then
     echo "checksum failed after restore"
     fail_and_exit
 fi
-
-echo "TEST: [$TEST_NAME] successed!"

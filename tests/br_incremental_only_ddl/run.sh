@@ -65,8 +65,6 @@ run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB/inc" --pd
 if $fail; then
     echo "TEST: [$TEST_NAME] incremental restore fail on database $DB"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

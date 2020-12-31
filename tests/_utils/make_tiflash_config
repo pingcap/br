@@ -17,6 +17,7 @@ status-addr = "$TIFLASH_STATUS"
 
 [storage]
 data-dir = "$TEST_DIR/tiflash/data"
+reserve-space = "1KB"
 EOF
 
 cat > $TEST_DIR/tiflash.toml <<EOF

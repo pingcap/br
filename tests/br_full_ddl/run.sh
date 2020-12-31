@@ -156,8 +156,6 @@ echo "database $DB$ [original] row count: ${row_count_ori}, [after br] row count
 if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

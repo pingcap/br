@@ -3,6 +3,9 @@
 [server]
 labels = { exclusive = "restore" }
 
+[storage]
+reserve-space = "1KB"
+
 [coprocessor]
 region-max-keys = 20
 region-split-keys = 12
