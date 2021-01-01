@@ -7,6 +7,8 @@ import (
 	"io"
 
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // CompressType represents the type of compression.
@@ -19,40 +21,33 @@ const (
 	Gzip
 )
 
-type interceptBuffer interface {
-	io.WriteCloser
-	Len() int
-	Cap() int
-	Bytes() []byte
-	Flush() error
-	Reset()
-}
+// UploaderWriterOptions is the options used to configure an UploaderWriter.
+type UploaderWriterOptions struct {
+	// CompressType is the algorithm used to compress the input before uploading.
+	// If the algorithm is not NoCompression, ensure the CompressLevel is also filled in.
+	CompressType CompressType
 
-func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
-	switch compressType {
-	case NoCompression:
-		return newNoCompressionBuffer(chunkSize)
-	case Gzip:
-		return newGzipBuffer(chunkSize)
-	default:
-		return nil
-	}
-}
+	// CompressLevel is the compression level. Higher number means smaller size but slower speed.
+	// Zero typically means "no compression", so if the CompressType is not NoCompression,
+	// this field should be populated by some numbers (this field is ignored when NoCompression).
+	CompressLevel int
 
-type noCompressionBuffer struct {
-	*bytes.Buffer
-}
+	// FirstPartSize is the maximum output size (after compression) of the first uploaded part.
+	FirstPartSize int
 
-func (b *noCompressionBuffer) Flush() error {
-	return nil
-}
-
-func (b *noCompressionBuffer) Close() error {
-	return nil
-}
-
-func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
-	return &noCompressionBuffer{bytes.NewBuffer(make([]byte, 0, chunkSize))}
+	// PartSizeInflationDivisor is a factor added to the input size for the second and subsequent
+	// parts to be uploaded. Some cloud providers like AWS S3 restricts the number of parts (10,000),
+	// so we design the part size to gradually increase to allow uploading extremely large files.
+	//
+	// 		PartSize[n] ≈ FirstPartSize * (1 + 1/PartSizeInflationDivisor)^n
+	//
+	// Setting PartSizeInflationDivisor to 0 is equivalent to infinity (no inflation).
+	//
+	// For AWS S3, we recommend setting the FirstPartSize to 5 MiB, and the PartSizeInflationDivisor
+	// to 1530 (or less). This makes the last part (10,000) to have size 3.36 GiB and the total size
+	// of all parts to be 5.01 TiB, which happens to just exceed the maximum allowed object size on
+	// AWS S3.
+	PartSizeInflationDivisor int
 }
 
 type simpleCompressWriter interface {
@@ -60,112 +55,179 @@ type simpleCompressWriter interface {
 	Flush() error
 }
 
-type simpleCompressBuffer struct {
-	*bytes.Buffer
-	compressWriter simpleCompressWriter
-	len            int
-	cap            int
+// noopFlushCloser wraps an io.Writer with the Flush() and Close() methods doing nothing
+// successfully.
+type noopFlushCloser struct{ io.Writer }
+
+func (n noopFlushCloser) Flush() error {
+	return nil
 }
 
-func (b *simpleCompressBuffer) Write(p []byte) (int, error) {
+func (n noopFlushCloser) Close() error {
+	return nil
+}
+
+type simpleCompressBuffer struct {
+	// buffer is the currently written data after compression.
+	buffer *bytes.Buffer
+	// compressWriter is an intermediate writer which compresses input into the buffer.
+	compressWriter simpleCompressWriter
+	// len is the estimated output size. This value is used to guide when to flush the
+	// compressWriter into the buffer.
+	//
+	// The general principle is that:
+	//  * after calling compressWriter.Flush(), len == buffer.Len() == actual output size.
+	//    we call this state having an "anchored" buffer.
+	//  * after calling compressWriter.Write(), len > buffer.Len().
+	//    we call this state having a "floating" buffer.
+	// So everytime you want to read the buffer, ensure it has been `flush()`ed first.
+	len int
+}
+
+func newInterceptBuffer(options *UploaderWriterOptions) (*simpleCompressBuffer, error) {
+	bf := bytes.NewBuffer(make([]byte, 0, options.FirstPartSize))
+	var compressWriter simpleCompressWriter
+	switch options.CompressType {
+	case NoCompression:
+		compressWriter = noopFlushCloser{Writer: bf}
+	case Gzip:
+		var err error
+		compressWriter, err = gzip.NewWriterLevel(bf, options.CompressLevel)
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v", err)
+		}
+	default:
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "unsupported compression type %d for uploading data", options.CompressType)
+	}
+	return &simpleCompressBuffer{
+		buffer:         bf,
+		compressWriter: compressWriter,
+		len:            0,
+	}, nil
+}
+
+// write writes some bytes into the buffer.
+func (b *simpleCompressBuffer) write(p []byte) (int, error) {
 	written, err := b.compressWriter.Write(p)
+	// the buffer is "floating", where b.len overestimates the actual size and
+	// b.buffer is not yet up-to-date with the bytes written into b.compressWriter.
 	b.len += written
 	return written, errors.Trace(err)
 }
 
-func (b *simpleCompressBuffer) Len() int {
-	return b.len
-}
-
-func (b *simpleCompressBuffer) Cap() int {
-	return b.cap
-}
-
-func (b *simpleCompressBuffer) Reset() {
-	b.len = 0
-	b.Buffer.Reset()
-}
-
-func (b *simpleCompressBuffer) Flush() error {
-	return b.compressWriter.Flush()
-}
-
-func (b *simpleCompressBuffer) Close() error {
-	return b.compressWriter.Close()
-}
-
-func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
-	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
-	return &simpleCompressBuffer{
-		Buffer:         bf,
-		len:            0,
-		cap:            chunkSize,
-		compressWriter: gzip.NewWriter(bf),
+// flush flushes any pending compressed data into the buffer. This also makes
+// b.len accurately indicate the output size.
+func (b *simpleCompressBuffer) flush() error {
+	if err := b.compressWriter.Flush(); err != nil {
+		return errors.Trace(err)
 	}
+	// the buffer is now "anchored", where b.buffer is now up-to-date with
+	// the data in b.compressWriter, so we also set b.len to the actual buffer size.
+	b.len = b.buffer.Len()
+	return nil
+}
+
+// extract reads up to `cap` bytes from the buffer. Excess bytes remains
+// in-place.
+// This method must be never called after a `write()`. The returned bytes must
+// be immediately consumed or copied before the next `write()`.
+func (b *simpleCompressBuffer) extract(cap int) []byte {
+	res := b.buffer.Next(cap)
+	// we extracted data from the "anchored" buffer.
+	// the buffer is still "anchored" as no Write() happened.
+	// so b.len should still be accurate.
+	b.len = b.buffer.Len()
+	return res
+}
+
+// finish flushes any pending compressed data into the buffer, and writes the
+// footer for compressed format. The buffer should not be used after calling
+// finish. These remaining bytes are returned.
+func (b *simpleCompressBuffer) finish() ([]byte, error) {
+	if err := b.compressWriter.Close(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	// closing the compressWriter always "anchor" the buffer.
+	return b.buffer.Bytes(), nil
 }
 
 type uploaderWriter struct {
-	buf      interceptBuffer
+	buf      *simpleCompressBuffer
 	uploader Uploader
+	cap      int
+	inflator int
 }
 
 func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
-	bytesWritten := 0
-	for u.buf.Len()+len(p) > u.buf.Cap() {
-		// We won't fit p in this chunk
+	w, err := u.buf.write(p)
+	if err != nil {
+		return 0, err
+	}
 
-		// Is this chunk full?
-		chunkToFill := u.buf.Cap() - u.buf.Len()
-		if chunkToFill > 0 {
-			// It's not full so we write enough of p to fill it
-			prewrite := p[0:chunkToFill]
-			w, err := u.buf.Write(prewrite)
-			bytesWritten += w
-			if err != nil {
-				return bytesWritten, errors.Trace(err)
-			}
-			p = p[w:]
+	// if we have written enough many data, flush the compressor to check if we are over capacity.
+	if u.buf.len > u.cap {
+		if err = u.buf.flush(); err != nil {
+			return 0, err
 		}
-		u.buf.Flush()
-		err := u.uploadChunk(ctx)
-		if err != nil {
-			return 0, errors.Trace(err)
+
+		// after flushing, the actual output size may be smaller due to compression,
+		// so we must check again.
+		for u.buf.len > u.cap {
+			// the chunk is now confirmed full, upload it.
+			if err = u.uploadChunk(ctx); err != nil {
+				return 0, err
+			}
+			// one chunk may not be enough, repeat until not full.
 		}
 	}
-	w, err := u.buf.Write(p)
-	bytesWritten += w
-	return bytesWritten, errors.Trace(err)
+
+	return w, nil
 }
 
 func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
-	if u.buf.Len() == 0 {
+	b := u.buf.extract(u.cap)
+	if len(b) == 0 {
 		return nil
 	}
-	b := u.buf.Bytes()
-	u.buf.Reset()
+	if u.inflator != 0 {
+		u.cap += u.cap / u.inflator
+	}
 	return u.uploader.UploadPart(ctx, b)
 }
 
 func (u *uploaderWriter) Close(ctx context.Context) error {
-	u.buf.Close()
-	err := u.uploadChunk(ctx)
+	b, err := u.buf.finish()
 	if err != nil {
 		return errors.Trace(err)
+	}
+	if len(b) != 0 {
+		err = u.uploader.UploadPart(ctx, b)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 	return u.uploader.CompleteUpload(ctx)
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) Writer {
-	return newUploaderWriter(uploader, chunkSize, compressType)
-}
+func NewUploaderWriter(uploader Uploader, options *UploaderWriterOptions) (Writer, error) {
+	if options.FirstPartSize <= 0 {
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "UploaderWriterOptions.FirstPartSize must be positive, not %d", options.FirstPartSize)
+	}
+	if options.PartSizeInflationDivisor < 0 {
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "UploaderWriterOptions.PartSizeInflatorDivisor must be non-negative, not %d", options.PartSizeInflationDivisor)
+	}
 
-// newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
+	buf, err := newInterceptBuffer(options)
+	if err != nil {
+		return nil, err
+	}
 	return &uploaderWriter{
 		uploader: uploader,
-		buf:      newInterceptBuffer(chunkSize, compressType),
-	}
+		buf:      buf,
+		cap:      options.FirstPartSize,
+		inflator: options.PartSizeInflationDivisor,
+	}, nil
 }
 
 // BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
