@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -421,6 +422,13 @@ func (rc *Client) GoCreateTables(
 ) <-chan CreatedTable {
 	// Could we have a smaller size of tables?
 	log.Info("start create tables")
+
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.GoCreateTables", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	outCh := make(chan CreatedTable, len(tables))
 	createOneTable := func(c context.Context, db *DB, t *utils.Table) error {
 		select {
@@ -543,6 +551,13 @@ func (rc *Client) RestoreFiles(
 	log.Debug("start to restore files",
 		zap.Int("files", len(files)),
 	)
+
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.RestoreFiles", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {
@@ -758,6 +773,12 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		return nil
 	}
 
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.execChecksum", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	startTS, err := rc.GetTS(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -815,6 +836,11 @@ const (
 func (rc *Client) LoadRestoreStores(ctx context.Context) error {
 	if !rc.isOnline {
 		return nil
+	}
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.LoadRestoreStores", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
 	stores, err := rc.pdClient.GetAllStores(ctx)

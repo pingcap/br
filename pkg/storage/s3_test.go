@@ -748,9 +748,10 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	c.Assert(err, IsNil)
 	defer reader.Close()
 
+	var n int
 	slice := make([]byte, 30)
 	readAndCheck := func(cnt, offset int) {
-		n, err := io.ReadFull(reader, slice[:cnt])
+		n, err = io.ReadFull(reader, slice[:cnt])
 		c.Assert(err, IsNil)
 		c.Assert(n, Equals, cnt)
 		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])
@@ -766,7 +767,7 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	readAndCheck(20, 75)
 
 	// there only remains 10 bytes
-	n, err := reader.Read(slice)
+	n, err = reader.Read(slice)
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 5)
 
@@ -792,9 +793,10 @@ func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
 	c.Assert(err, IsNil)
 	defer reader.Close()
 
+	var n int
 	slice := make([]byte, 20)
 	readAndCheck := func(cnt, offset int) {
-		n, err := io.ReadFull(reader, slice[:cnt])
+		n, err = io.ReadFull(reader, slice[:cnt])
 		c.Assert(err, IsNil)
 		c.Assert(n, Equals, cnt)
 		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])

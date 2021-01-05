@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -123,6 +124,12 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	defer summary.Summary(cmdName)
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
+
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("task.RunBackupRaw", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
 
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {

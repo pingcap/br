@@ -62,6 +62,8 @@ const (
 	flagGrpcKeepaliveTime = "grpc-keepalive-time"
 	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
+	// flagEnableOpenTracing is whether to enable opentracing
+	flagEnableOpenTracing = "enable-opentracing"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -120,8 +122,10 @@ type Config struct {
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter        filter.Filter `json:"-" toml:"-"`
-	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
+	TableFilter       filter.Filter `json:"-" toml:"-"`
+	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
+	// EnableOpenTracing is whether to enable opentracing
+	EnableOpenTracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -166,6 +170,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"the max time a gRPC connection can keep idle before killed, must keep the same value with TiKV and PD")
 	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
 	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
+
+	flags.Bool(flagEnableOpenTracing, false,
+		"Set whether to enable opentracing during the backup/restore process")
 
 	storage.DefineFlags(flags)
 }
@@ -303,6 +310,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.GRPCKeepaliveTimeout, err = flags.GetDuration(flagGrpcKeepaliveTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.EnableOpenTracing, err = flags.GetBool(flagEnableOpenTracing)
 	if err != nil {
 		return errors.Trace(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -40,6 +41,12 @@ func (push *pushDown) pushBackup(
 	stores []*metapb.Store,
 	updateCh glue.Progress,
 ) (rtree.RangeTree, error) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("pushDown.pushBackup", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	// Push down backup tasks to all tikv instances.
 	res := rtree.NewRangeTree()
 	wg := new(sync.WaitGroup)
