@@ -4,9 +4,7 @@ package storage
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -90,7 +88,7 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	}
 }
 
-func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
+func (r *testStorageSuite) TestCompressReaderWriter(c *C) {
 	dir := c.MkDir()
 
 	type testcase struct {
@@ -117,20 +115,25 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		}
 		err = writer.Close(ctx)
 		c.Assert(err, IsNil)
+
+		// make sure compressed file is written correctly
 		file, err := os.Open(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
-		var r io.Reader
-		switch test.compressType {
-		case Gzip:
-			r, err = gzip.NewReader(file)
-		default:
-			c.Fatal("unknown compressType")
-		}
+		r, err := newCompressReader(test.compressType, file)
 		c.Assert(err, IsNil)
 		var bf bytes.Buffer
 		_, err = bf.ReadFrom(r)
 		c.Assert(err, IsNil)
 		c.Assert(bf.String(), Equals, strings.Join(test.content, ""))
+		c.Assert(r.Close(), IsNil)
+
+		// test withCompression Open
+		r, err = storage.Open(ctx, fileName)
+		c.Assert(err, IsNil)
+		content, err := ioutil.ReadAll(r)
+		c.Assert(err, IsNil)
+		c.Assert(string(content), Equals, strings.Join(test.content, ""))
+
 		// Sanity check we didn't write past the chunk size
 		c.Assert(writer.(*uploaderWriter).buf.Cap(), Equals, hardcodedS3ChunkSize)
 		c.Assert(file.Close(), IsNil)

@@ -79,13 +79,13 @@ type ExternalStorage interface {
 	Create(ctx context.Context, path string) (ExternalFileWriter, error)
 }
 
-// ExternalFileReader represents a kind of file system storage.
+// ExternalFileReader represents the streaming external file reader.
 type ExternalFileReader interface {
 	io.ReadCloser
 	io.Seeker
 }
 
-// ExternalFileWriter represents a kind of file system storage.
+// ExternalFileWriter represents the streaming external file writer.
 type ExternalFileWriter interface {
 	// Write writes to buffer and if chunk is filled will upload it
 	Write(ctx context.Context, p []byte) (int, error)

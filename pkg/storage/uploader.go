@@ -6,9 +6,9 @@ import (
 	"context"
 	"io"
 
-	"github.com/pingcap/errors"
-
 	berrors "github.com/pingcap/br/pkg/errors"
+
+	"github.com/pingcap/errors"
 )
 
 // CompressType represents the type of compression.
@@ -240,8 +240,8 @@ func NewBufferWriter() *BufferWriter {
 	return &BufferWriter{buf: &bytes.Buffer{}}
 }
 
-// CreateUploader create multi upload request.
-func CreateUploader(ctx context.Context, s ExternalStorage, name string) (Uploader, error) {
+// createUploader create multi upload request.
+func createUploader(ctx context.Context, s ExternalStorage, name string) (Uploader, error) {
 	switch storage := s.(type) {
 	case *S3Storage:
 		return storage.CreateUploader(ctx, name)

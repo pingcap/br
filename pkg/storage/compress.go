@@ -15,24 +15,16 @@ type withCompression struct {
 	compressType CompressType
 }
 
-// UnwrapCompression unwraps withCompression to original ExternalStorage
-func UnwrapCompression(storage ExternalStorage) ExternalStorage {
-	if compressExt, ok := storage.(*withCompression); ok {
-		return UnwrapCompression(compressExt.ExternalStorage)
-	}
-	return storage
-}
-
 // WithCompression returns an ExternalStorage with compress option
 func WithCompression(inner ExternalStorage, compressionType CompressType) ExternalStorage {
 	if compressionType == NoCompression {
-		return UnwrapCompression(inner)
+		return inner
 	}
-	return &withCompression{ExternalStorage: UnwrapCompression(inner), compressType: compressionType}
+	return &withCompression{ExternalStorage: inner, compressType: compressionType}
 }
 
 func (w *withCompression) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := CreateUploader(ctx, w.ExternalStorage, name)
+	uploader, err := createUploader(ctx, w.ExternalStorage, name)
 	if err != nil {
 		return nil, err
 	}
