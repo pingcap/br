@@ -74,7 +74,6 @@ func (w *withCompression) ReadFile(ctx context.Context, name string) ([]byte, er
 	return ioutil.ReadAll(compressBf)
 }
 
-
 type compressReader struct {
 	io.ReadCloser
 }
