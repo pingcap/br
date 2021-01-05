@@ -55,26 +55,6 @@ func newCompressReader(compressType CompressType, r io.Reader) (io.ReadCloser, e
 	}
 }
 
-type uncompressReader struct {
-	io.ReadCloser
-	io.Seeker
-}
-
-// nolint:interfacer
-func newInterceptReader(fileReader ExternalFileReader, compressType CompressType) (ExternalFileReader, error) {
-	if compressType == NoCompression {
-		return fileReader, nil
-	}
-	r, err := newCompressReader(compressType, fileReader)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &uncompressReader{
-		ReadCloser: r,
-		Seeker:     fileReader,
-	}, nil
-}
-
 type noCompressionBuffer struct {
 	*bytes.Buffer
 }

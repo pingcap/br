@@ -5,7 +5,10 @@ package storage
 import (
 	"bytes"
 	"context"
+	"io"
 	"io/ioutil"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 
 	"github.com/pingcap/errors"
 )
@@ -69,4 +72,27 @@ func (w *withCompression) ReadFile(ctx context.Context, name string) ([]byte, er
 		return nil, err
 	}
 	return ioutil.ReadAll(compressBf)
+}
+
+
+type compressReader struct {
+	io.ReadCloser
+}
+
+// nolint:interfacer
+func newInterceptReader(fileReader ExternalFileReader, compressType CompressType) (ExternalFileReader, error) {
+	if compressType == NoCompression {
+		return fileReader, nil
+	}
+	r, err := newCompressReader(compressType, fileReader)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &compressReader{
+		ReadCloser: r,
+	}, nil
+}
+
+func (r *compressReader) Seek(_ int64, _ int) (int64, error) {
+	return int64(0), errors.Annotatef(berrors.ErrStorageInvalidConfig, "compressReader doesn't support Seek now")
 }
