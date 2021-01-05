@@ -44,6 +44,9 @@ const (
 
 	// the maximum number of byte to read for seek.
 	maxSkipOffsetByRead = 1 << 16 // 64KB
+
+	// TODO make this configurable, 5 mb is a good minimum size but on low latency/high bandwidth network you can go a lot bigger
+	hardcodedS3ChunkSize = 5 * 1024 * 1024
 )
 
 // S3Storage info for s3 storage.
@@ -294,8 +297,8 @@ func checkS3Bucket(svc *s3.S3, bucket string) error {
 	return errors.Trace(err)
 }
 
-// Write write to s3 storage.
-func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error {
+// WriteFile writes data to a file to storage.
+func (rs *S3Storage) WriteFile(ctx context.Context, file string, data []byte) error {
 	input := &s3.PutObjectInput{
 		Body:   aws.ReadSeekCloser(bytes.NewReader(data)),
 		Bucket: aws.String(rs.options.Bucket),
@@ -326,8 +329,8 @@ func (rs *S3Storage) Write(ctx context.Context, file string, data []byte) error 
 	return errors.Trace(err)
 }
 
-// Read read file from s3.
-func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
+// ReadFile reads the file from the storage and returns the contents.
+func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) {
 	input := &s3.GetObjectInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
@@ -431,7 +434,7 @@ func (rs *S3Storage) URI() string {
 }
 
 // Open a Reader by file path.
-func (rs *S3Storage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+func (rs *S3Storage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	reader, r, err := rs.open(ctx, path, 0, 0)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -652,4 +655,14 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader,
 		createOutput:  resp,
 		completeParts: make([]*s3.CompletedPart, 0, 128),
 	}, nil
+}
+
+// Create creates multi upload request.
+func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	uploader, err := rs.CreateUploader(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	uploaderWriter := newUploaderWriter(uploader, hardcodedS3ChunkSize, NoCompression)
+	return uploaderWriter, nil
 }

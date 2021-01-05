@@ -15,7 +15,7 @@ import (
 	. "github.com/pingcap/check"
 )
 
-func (r *testStorageSuite) TestUploaderWriter(c *C) {
+func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	dir := c.MkDir()
 
 	type testcase struct {
@@ -31,9 +31,8 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		storage, err := Create(ctx, backend, true)
 		c.Assert(err, IsNil)
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt"
-		uploader, err := storage.CreateUploader(ctx, fileName)
+		writer, err := storage.Create(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize, NoCompression)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -46,7 +45,7 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
 		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.buf.Cap(), Equals, test.chunkSize)
+		c.Assert(writer.(*uploaderWriter).buf.Cap(), Equals, hardcodedS3ChunkSize)
 	}
 	tests := []testcase{
 		{
@@ -112,10 +111,10 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		ctx := context.Background()
 		storage, err := Create(ctx, backend, true)
 		c.Assert(err, IsNil)
+		storage = WithCompression(storage, Gzip)
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt.gz"
-		uploader, err := storage.CreateUploader(ctx, fileName)
+		writer, err := storage.Create(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize, test.compressType)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -139,7 +138,7 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(bf.String(), Equals, strings.Join(test.content, ""))
 		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.buf.Cap(), Equals, test.chunkSize)
+		c.Assert(writer.(*uploaderWriter).buf.Cap(), Equals, hardcodedS3ChunkSize)
 		c.Assert(file.Close(), IsNil)
 	}
 	compressTypeArr := []CompressType{Gzip}

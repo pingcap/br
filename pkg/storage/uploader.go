@@ -29,13 +29,48 @@ type interceptBuffer interface {
 }
 
 func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
-	switch compressType {
-	case NoCompression:
+	if compressType == NoCompression {
 		return newNoCompressionBuffer(chunkSize)
+	} else {
+		return newSimpleCompressBuffer(chunkSize, compressType)
+	}
+}
+
+func newCompressWriter(compressType CompressType, w io.Writer) simpleCompressWriter {
+	switch compressType {
 	case Gzip:
-		return newGzipBuffer(chunkSize)
+		return gzip.NewWriter(w)
 	default:
 		return nil
+	}
+}
+
+func newCompressReader(compressType CompressType, r io.Reader) (io.ReadCloser, error) {
+	switch compressType {
+	case Gzip:
+		return gzip.NewReader(r)
+	default:
+		return nil, nil
+	}
+}
+
+type uncompressReader struct {
+	io.ReadCloser
+	io.Seeker
+}
+
+func newInterceptReader(fileReader ExternalFileReader, compressType CompressType) (ExternalFileReader, error) {
+	if compressType == NoCompression {
+		return fileReader, nil
+	} else {
+		r, err := newCompressReader(compressType, fileReader)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return &uncompressReader{
+			ReadCloser: r,
+			Seeker:     fileReader,
+		}, nil
 	}
 }
 
@@ -94,13 +129,13 @@ func (b *simpleCompressBuffer) Close() error {
 	return b.compressWriter.Close()
 }
 
-func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
+func newSimpleCompressBuffer(chunkSize int, compressType CompressType) *simpleCompressBuffer {
 	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
 	return &simpleCompressBuffer{
 		Buffer:         bf,
 		len:            0,
 		cap:            chunkSize,
-		compressWriter: gzip.NewWriter(bf),
+		compressWriter: newCompressWriter(compressType, bf),
 	}
 }
 
@@ -156,7 +191,7 @@ func (u *uploaderWriter) Close(ctx context.Context) error {
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) Writer {
+func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) ExternalFileWriter {
 	return newUploaderWriter(uploader, chunkSize, compressType)
 }
 
@@ -202,4 +237,15 @@ func (u *BufferWriter) Reset() {
 // NewBufferWriter creates a Writer that simply writes to a buffer (useful for testing).
 func NewBufferWriter() *BufferWriter {
 	return &BufferWriter{buf: &bytes.Buffer{}}
+}
+
+func CreateUploader(s ExternalStorage, ctx context.Context, name string) (Uploader, error) {
+	switch storage := s.(type) {
+	case *S3Storage:
+		return storage.CreateUploader(ctx, name)
+	case *LocalStorage:
+		return storage.CreateUploader(ctx, name)
+	default:
+		return nil, errors.Errorf("unsupported externalStorage type %T", s)
+	}
 }

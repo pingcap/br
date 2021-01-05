@@ -392,7 +392,7 @@ func ReadBackupMeta(
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
 	}
-	metaData, err := s.Read(ctx, fileName)
+	metaData, err := s.ReadFile(ctx, fileName)
 	if err != nil {
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}

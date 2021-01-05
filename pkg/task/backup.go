@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -26,6 +24,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (

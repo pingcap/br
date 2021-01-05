@@ -24,13 +24,15 @@ type LocalStorage struct {
 	base string
 }
 
-func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
+// WriteFile writes data to a file to storage.
+func (l *LocalStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	path := filepath.Join(l.base, name)
 	return ioutil.WriteFile(path, data, localFilePerm)
 	// the backup meta file _is_ intended to be world-readable.
 }
 
-func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
+// ReadFile reads the file from the storage and returns the contents.
+func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	path := filepath.Join(l.base, name)
 	return ioutil.ReadFile(path)
 }
@@ -107,8 +109,18 @@ func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploade
 }
 
 // Open a Reader by file path, path is a relative path to base path.
-func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+func (l *LocalStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	return os.Open(filepath.Join(l.base, path))
+}
+
+// Create implements ExternalStorage interface.
+func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	uploader, err := l.CreateUploader(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	uploaderWriter := newUploaderWriter(uploader, hardcodedS3ChunkSize, NoCompression)
+	return uploaderWriter, nil
 }
 
 func pathExists(_path string) (bool, error) {
