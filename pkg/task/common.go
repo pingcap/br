@@ -7,9 +7,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	filepath "path"
 	"strings"
 	"time"
 
+	gcs "cloud.google.com/go/storage"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -405,6 +407,25 @@ func ReadBackupMeta(
 	}
 	metaData, err := s.Read(ctx, fileName)
 	if err != nil {
+		if gcsObjectNotFound(err) {
+			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
+			parsedURL, err := storage.ParseRawURL(cfg.Storage)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			newPrefix, file := filepath.Split(parsedURL.Path)
+			newFileName := file + fileName
+			cfg.Storage = strings.ReplaceAll(cfg.Storage, parsedURL.Path, newPrefix)
+			_, s, err := GetStorage(ctx, cfg)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			log.Info("retry load metadata in gcs", zap.String("newPrefix", newPrefix), zap.String("newFileName", newFileName))
+			metaData, err = s.Read(ctx, newFileName)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+		}
 		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 	}
 	backupMeta := &backup.BackupMeta{}
@@ -476,4 +497,10 @@ func normalizePDURL(pd string, useTLS bool) (string, error) {
 		return strings.TrimPrefix(pd, "https://"), nil
 	}
 	return pd, nil
+}
+
+// check whether it's a bug before #647, to solve case #1
+// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
+func gcsObjectNotFound(err error) bool {
+	return errors.Cause(err) == gcs.ErrObjectNotExist
 }

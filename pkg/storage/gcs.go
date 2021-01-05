@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"path"
 	"strings"
-	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
@@ -91,13 +90,6 @@ type gcsStorage struct {
 }
 
 func (s *gcsStorage) objectName(name string) string {
-	// to make it compatible with old version case 1
-	// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
-	defer cancel()
-	if _, err := s.bucket.Object(s.gcs.Prefix + name).Attrs(ctx); err != storage.ErrObjectNotExist {
-		return s.gcs.Prefix + name
-	}
 	return path.Join(s.gcs.Prefix, name)
 }
 
@@ -246,7 +238,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	if sstInPrefixSlash && !sstInPrefix {
 		// This is a old bug, but we must make it compatible.
 		// so we need find sst in slash directory
-		gcs.Prefix += "/"
+		gcs.Prefix += "//"
 	}
 	if !opts.SkipCheckPath {
 		// check bucket exists
