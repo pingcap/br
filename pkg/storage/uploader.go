@@ -7,6 +7,8 @@ import (
 	"io"
 
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 // CompressType represents the type of compression.
@@ -31,9 +33,8 @@ type interceptBuffer interface {
 func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
 	if compressType == NoCompression {
 		return newNoCompressionBuffer(chunkSize)
-	} else {
-		return newSimpleCompressBuffer(chunkSize, compressType)
 	}
+	return newSimpleCompressBuffer(chunkSize, compressType)
 }
 
 func newCompressWriter(compressType CompressType, w io.Writer) simpleCompressWriter {
@@ -59,19 +60,19 @@ type uncompressReader struct {
 	io.Seeker
 }
 
+// nolint:interfacer
 func newInterceptReader(fileReader ExternalFileReader, compressType CompressType) (ExternalFileReader, error) {
 	if compressType == NoCompression {
 		return fileReader, nil
-	} else {
-		r, err := newCompressReader(compressType, fileReader)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		return &uncompressReader{
-			ReadCloser: r,
-			Seeker:     fileReader,
-		}, nil
 	}
+	r, err := newCompressReader(compressType, fileReader)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return &uncompressReader{
+		ReadCloser: r,
+		Seeker:     fileReader,
+	}, nil
 }
 
 type noCompressionBuffer struct {
@@ -239,13 +240,14 @@ func NewBufferWriter() *BufferWriter {
 	return &BufferWriter{buf: &bytes.Buffer{}}
 }
 
-func CreateUploader(s ExternalStorage, ctx context.Context, name string) (Uploader, error) {
+// CreateUploader create multi upload request.
+func CreateUploader(ctx context.Context, s ExternalStorage, name string) (Uploader, error) {
 	switch storage := s.(type) {
 	case *S3Storage:
 		return storage.CreateUploader(ctx, name)
 	case *LocalStorage:
 		return storage.CreateUploader(ctx, name)
 	default:
-		return nil, errors.Errorf("unsupported externalStorage type %T", s)
+		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "unsupported externalStorage type %T", s)
 	}
 }

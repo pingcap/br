@@ -19,9 +19,8 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	dir := c.MkDir()
 
 	type testcase struct {
-		name      string
-		content   []string
-		chunkSize int
+		name    string
+		content []string
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
@@ -49,9 +48,8 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	}
 	tests := []testcase{
 		{
-			name:      "short and sweet",
-			content:   []string{"hi"},
-			chunkSize: 5,
+			name:    "short and sweet",
+			content: []string{"hi"},
 		},
 		{
 			name: "long text small chunks",
@@ -63,7 +61,6 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 5,
 		},
 		{
 			name: "long text medium chunks",
@@ -75,7 +72,6 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 30,
 		},
 		{
 			name: "long text large chunks",
@@ -87,7 +83,6 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 500,
 		},
 	}
 	for i := range tests {
@@ -101,7 +96,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 	type testcase struct {
 		name         string
 		content      []string
-		chunkSize    int
 		compressType CompressType
 	}
 	testFn := func(test *testcase, c *C) {
@@ -153,7 +147,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 30,
 		},
 		{
 			name: "long text large chunks",
@@ -165,7 +158,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 500,
 		},
 	}
 	for i := range tests {

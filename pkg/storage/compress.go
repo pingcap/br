@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"io/ioutil"
+
+	"github.com/pingcap/errors"
 )
 
 type withCompression struct {
@@ -13,6 +15,7 @@ type withCompression struct {
 	compressType CompressType
 }
 
+// UnwrapCompression unwraps withCompression to original ExternalStorage
 func UnwrapCompression(storage ExternalStorage) ExternalStorage {
 	if compressExt, ok := storage.(*withCompression); ok {
 		return UnwrapCompression(compressExt.ExternalStorage)
@@ -20,6 +23,7 @@ func UnwrapCompression(storage ExternalStorage) ExternalStorage {
 	return storage
 }
 
+// WithCompression returns an ExternalStorage with compress option
 func WithCompression(inner ExternalStorage, compressionType CompressType) ExternalStorage {
 	if compressionType == NoCompression {
 		return UnwrapCompression(inner)
@@ -28,7 +32,7 @@ func WithCompression(inner ExternalStorage, compressionType CompressType) Extern
 }
 
 func (w *withCompression) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := CreateUploader(w.ExternalStorage, ctx, name)
+	uploader, err := CreateUploader(ctx, w.ExternalStorage, name)
 	if err != nil {
 		return nil, err
 	}
@@ -39,11 +43,11 @@ func (w *withCompression) Create(ctx context.Context, name string) (ExternalFile
 func (w *withCompression) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	fileReader, err := w.ExternalStorage.Open(ctx, path)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	uncompressReader, err := newInterceptReader(fileReader, w.compressType)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return uncompressReader, nil
 }
@@ -53,11 +57,11 @@ func (w *withCompression) WriteFile(ctx context.Context, name string, data []byt
 	compressBf := newCompressWriter(w.compressType, bf)
 	_, err := compressBf.Write(data)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	err = compressBf.Close()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	return w.ExternalStorage.WriteFile(ctx, name, bf.Bytes())
 }
@@ -65,7 +69,7 @@ func (w *withCompression) WriteFile(ctx context.Context, name string, data []byt
 func (w *withCompression) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	data, err := w.ExternalStorage.ReadFile(ctx, name)
 	if err != nil {
-		return data, err
+		return data, errors.Trace(err)
 	}
 	bf := bytes.NewBuffer(data)
 	compressBf, err := newCompressReader(w.compressType, bf)
