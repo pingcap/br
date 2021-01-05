@@ -11,5 +11,5 @@
 /go.sum
 
 # for the web interface
-pkg/lightning/web/node_modules/
-pkg/lightning/web/dist/
+web/node_modules/
+web/dist/
