@@ -10,8 +10,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/cmd/br/cmd"
 )
 
 func main() {
@@ -44,12 +42,12 @@ func main() {
 		TraverseChildren: true,
 		SilenceUsage:     true,
 	}
-	cmd.AddFlags(rootCmd)
-	cmd.SetDefaultContext(ctx)
+	AddFlags(rootCmd)
+	SetDefaultContext(ctx)
 	rootCmd.AddCommand(
-		cmd.NewDebugCommand(),
-		cmd.NewBackupCommand(),
-		cmd.NewRestoreCommand(),
+		NewDebugCommand(),
+		NewBackupCommand(),
+		NewRestoreCommand(),
 	)
 	// Ouputs cmd.Print to stdout.
 	rootCmd.SetOut(os.Stdout)

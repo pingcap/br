@@ -74,7 +74,7 @@ build: br lightning lightning-ctl
 
 br:
 	$(PREPARE_MOD)
-	$(GOBUILD) $(RACEFLAG) -o $(BR_BIN) cmd/br/main.go
+	$(GOBUILD) $(RACEFLAG) -o $(BR_BIN) cmd/br/*.go
 
 lightning_for_web:
 	$(PREPARE_MOD)

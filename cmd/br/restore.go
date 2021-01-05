@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package cmd
+package main
 
 import (
 	"github.com/pingcap/errors"
