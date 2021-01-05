@@ -93,10 +93,10 @@ type gcsStorage struct {
 func (s *gcsStorage) objectName(name string) string {
 	// to make it compatible with old version case 1
 	// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
-	ctx, cancel := context.WithTimeout(context.TODO(), 5 * time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
-	if _, err := s.bucket.Object(s.gcs.Prefix+name).Attrs(ctx); err != storage.ErrObjectNotExist {
-		return s.gcs.Prefix+name
+	if _, err := s.bucket.Object(s.gcs.Prefix + name).Attrs(ctx); err != storage.ErrObjectNotExist {
+		return s.gcs.Prefix + name
 	}
 	return path.Join(s.gcs.Prefix, name)
 }
@@ -209,7 +209,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	// see details about case 2 at https://github.com/pingcap/br/issues/675#issuecomment-753780742
 	sstInPrefix := false
 	sstInPrefixSlash := false
-	it := bucket.Objects(ctx, &storage.Query{Prefix:gcs.Prefix})
+	it := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix})
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
@@ -228,7 +228,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 			break
 		}
 	}
-	it2 := bucket.Objects(ctx, &storage.Query{Prefix:gcs.Prefix + "//"})
+	it2 := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix + "//"})
 	for {
 		attrs, err := it2.Next()
 		if err == iterator.Done {
