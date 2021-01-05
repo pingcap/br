@@ -7,12 +7,17 @@ import (
 	"io"
 	"io/ioutil"
 	"path"
+	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -86,6 +91,13 @@ type gcsStorage struct {
 }
 
 func (s *gcsStorage) objectName(name string) string {
+	// to make it compatible with old version case 1
+	// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
+	ctx, cancel := context.WithTimeout(context.TODO(), 5 * time.Second)
+	defer cancel()
+	if _, err := s.bucket.Object(s.gcs.Prefix+name).Attrs(ctx); err != storage.ErrObjectNotExist {
+		return s.gcs.Prefix+name
+	}
 	return path.Join(s.gcs.Prefix, name)
 }
 
@@ -193,6 +205,49 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	}
 
 	bucket := client.Bucket(gcs.Bucket)
+	// we need adjust prefix for gcs storage to make restore compatible with old version backup files.
+	// see details about case 2 at https://github.com/pingcap/br/issues/675#issuecomment-753780742
+	sstInPrefix := false
+	sstInPrefixSlash := false
+	it := bucket.Objects(ctx, &storage.Query{Prefix:gcs.Prefix})
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageUnknown, "Bucket(%q).Objects: %v", bucket, err)
+		}
+		if strings.HasPrefix(attrs.Name, "backup") {
+			log.Info("meta file found in prefix", zap.String("file", attrs.Name))
+			continue
+		}
+		if strings.HasSuffix(attrs.Name, ".sst") {
+			log.Info("sst file found in prefix", zap.String("file", attrs.Name))
+			sstInPrefix = true
+			break
+		}
+	}
+	it2 := bucket.Objects(ctx, &storage.Query{Prefix:gcs.Prefix + "//"})
+	for {
+		attrs, err := it2.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageUnknown, "Bucket(%q).Objects: %v", bucket, err)
+		}
+		if strings.HasSuffix(attrs.Name, ".sst") {
+			log.Info("sst file found in prefix slash", zap.String("file", attrs.Name))
+			sstInPrefixSlash = true
+			break
+		}
+	}
+	if sstInPrefixSlash && !sstInPrefix {
+		// This is a old bug, but we must make it compatible.
+		// so we need find sst in slash directory
+		gcs.Prefix += "/"
+	}
 	if !opts.SkipCheckPath {
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)
