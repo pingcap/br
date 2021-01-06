@@ -152,8 +152,11 @@ func (s *gcsStorage) URI() string {
 
 // Create implements ExternalStorage interface.
 func (s *gcsStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	// TODO, implement this if needed
-	panic("gcs storage not support multi-upload")
+	object := s.objectName(name)
+	wc := s.bucket.Object(object).NewWriter(ctx)
+	wc.StorageClass = s.gcs.StorageClass
+	wc.PredefinedACL = s.gcs.PredefinedAcl
+	return newFlushStorageWriter(wc, &emptyFlusher{}, wc), nil
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {

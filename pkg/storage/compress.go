@@ -27,12 +27,20 @@ func WithCompression(inner ExternalStorage, compressionType CompressType) Extern
 }
 
 func (w *withCompression) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := createUploader(ctx, w.ExternalStorage, name)
-	if err != nil {
-		return nil, err
+	var (
+		writer ExternalFileWriter
+		err    error
+	)
+	if s3Storage, ok := w.ExternalStorage.(*S3Storage); ok {
+		writer, err = s3Storage.CreateUploader(ctx, name)
+	} else {
+		writer, err = w.ExternalStorage.Create(ctx, name)
 	}
-	uploaderWriter := newUploaderWriter(uploader, hardcodedS3ChunkSize, w.compressType)
-	return uploaderWriter, nil
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	compressedWriter := newBufferedWriter(writer, hardcodedS3ChunkSize, w.compressType)
+	return compressedWriter, nil
 }
 
 func (w *withCompression) Open(ctx context.Context, path string) (ExternalFileReader, error) {
@@ -94,4 +102,31 @@ func newInterceptReader(fileReader ExternalFileReader, compressType CompressType
 
 func (r *compressReader) Seek(_ int64, _ int) (int64, error) {
 	return int64(0), errors.Annotatef(berrors.ErrStorageInvalidConfig, "compressReader doesn't support Seek now")
+}
+
+type flushStorageWriter struct {
+	writer  io.Writer
+	flusher flusher
+	closer  io.Closer
+}
+
+func (w *flushStorageWriter) Write(ctx context.Context, data []byte) (int, error) {
+	n, err := w.writer.Write(data)
+	return n, errors.Trace(err)
+}
+
+func (w *flushStorageWriter) Close(ctx context.Context) error {
+	err := w.flusher.Flush()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return w.closer.Close()
+}
+
+func newFlushStorageWriter(writer io.Writer, flusher2 flusher, closer io.Closer) *flushStorageWriter {
+	return &flushStorageWriter{
+		writer:  writer,
+		flusher: flusher2,
+		closer:  closer,
+	}
 }

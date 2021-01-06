@@ -6,8 +6,6 @@ import (
 	"context"
 	"io"
 
-	berrors "github.com/pingcap/br/pkg/errors"
-
 	"github.com/pingcap/errors"
 )
 
@@ -21,12 +19,22 @@ const (
 	Gzip
 )
 
+type flusher interface {
+	Flush() error
+}
+
+type emptyFlusher struct{}
+
+func (e *emptyFlusher) Flush() error {
+	return nil
+}
+
 type interceptBuffer interface {
 	io.WriteCloser
+	flusher
 	Len() int
 	Cap() int
 	Bytes() []byte
-	Flush() error
 	Reset()
 }
 
@@ -73,7 +81,7 @@ func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
 
 type simpleCompressWriter interface {
 	io.WriteCloser
-	Flush() error
+	flusher
 }
 
 type simpleCompressBuffer struct {
@@ -120,12 +128,12 @@ func newSimpleCompressBuffer(chunkSize int, compressType CompressType) *simpleCo
 	}
 }
 
-type uploaderWriter struct {
-	buf      interceptBuffer
-	uploader Uploader
+type bufferedWriter struct {
+	buf    interceptBuffer
+	writer ExternalFileWriter
 }
 
-func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
+func (u *bufferedWriter) Write(ctx context.Context, p []byte) (int, error) {
 	bytesWritten := 0
 	for u.buf.Len()+len(p) > u.buf.Cap() {
 		// We won't fit p in this chunk
@@ -153,81 +161,70 @@ func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return bytesWritten, errors.Trace(err)
 }
 
-func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
+func (u *bufferedWriter) uploadChunk(ctx context.Context) error {
 	if u.buf.Len() == 0 {
 		return nil
 	}
 	b := u.buf.Bytes()
 	u.buf.Reset()
-	return u.uploader.UploadPart(ctx, b)
+	_, err := u.writer.Write(ctx, b)
+	return errors.Trace(err)
 }
 
-func (u *uploaderWriter) Close(ctx context.Context) error {
+func (u *bufferedWriter) Close(ctx context.Context) error {
 	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return u.uploader.CompleteUpload(ctx)
+	return u.writer.Close(ctx)
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) ExternalFileWriter {
-	return newUploaderWriter(uploader, chunkSize, compressType)
+func NewUploaderWriter(writer ExternalFileWriter, chunkSize int, compressType CompressType) ExternalFileWriter {
+	return newBufferedWriter(writer, chunkSize, compressType)
 }
 
-// newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
-	return &uploaderWriter{
-		uploader: uploader,
-		buf:      newInterceptBuffer(chunkSize, compressType),
+// newBufferedWriter is used to build a buffered writer.
+func newBufferedWriter(writer ExternalFileWriter, chunkSize int, compressType CompressType) *bufferedWriter {
+	return &bufferedWriter{
+		writer: writer,
+		buf:    newInterceptBuffer(chunkSize, compressType),
 	}
 }
 
-// BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
-type BufferWriter struct {
+// BytesWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
+type BytesWriter struct {
 	buf *bytes.Buffer
 }
 
 // Write delegates to bytes.Buffer.
-func (u *BufferWriter) Write(ctx context.Context, p []byte) (int, error) {
+func (u *BytesWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return u.buf.Write(p)
 }
 
 // Close delegates to bytes.Buffer.
-func (u *BufferWriter) Close(ctx context.Context) error {
+func (u *BytesWriter) Close(ctx context.Context) error {
 	// noop
 	return nil
 }
 
 // Bytes delegates to bytes.Buffer.
-func (u *BufferWriter) Bytes() []byte {
+func (u *BytesWriter) Bytes() []byte {
 	return u.buf.Bytes()
 }
 
 // String delegates to bytes.Buffer.
-func (u *BufferWriter) String() string {
+func (u *BytesWriter) String() string {
 	return u.buf.String()
 }
 
 // Reset delegates to bytes.Buffer.
-func (u *BufferWriter) Reset() {
+func (u *BytesWriter) Reset() {
 	u.buf.Reset()
 }
 
 // NewBufferWriter creates a Writer that simply writes to a buffer (useful for testing).
-func NewBufferWriter() *BufferWriter {
-	return &BufferWriter{buf: &bytes.Buffer{}}
-}
-
-// createUploader create multi upload request.
-func createUploader(ctx context.Context, s ExternalStorage, name string) (Uploader, error) {
-	switch storage := s.(type) {
-	case *S3Storage:
-		return storage.CreateUploader(ctx, name)
-	case *LocalStorage:
-		return storage.CreateUploader(ctx, name)
-	default:
-		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "unsupported externalStorage type %T", s)
-	}
+func NewBufferWriter() *BytesWriter {
+	return &BytesWriter{buf: &bytes.Buffer{}}
 }

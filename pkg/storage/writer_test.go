@@ -41,8 +41,6 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 		content, err := ioutil.ReadFile(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
-		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.(*uploaderWriter).buf.Cap(), Equals, hardcodedS3ChunkSize)
 	}
 	tests := []testcase{
 		{
@@ -134,8 +132,6 @@ func (r *testStorageSuite) TestCompressReaderWriter(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
 
-		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.(*uploaderWriter).buf.Cap(), Equals, hardcodedS3ChunkSize)
 		c.Assert(file.Close(), IsNil)
 	}
 	compressTypeArr := []CompressType{Gzip}

@@ -3,8 +3,8 @@
 package storage
 
 import (
+	"bufio"
 	"context"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -85,29 +85,6 @@ func (l *LocalStorage) URI() string {
 	return "file:///" + l.base
 }
 
-type localStorageUploader struct {
-	file io.WriteCloser
-}
-
-func (l *localStorageUploader) UploadPart(ctx context.Context, data []byte) error {
-	_, err := l.file.Write(data)
-	return errors.Trace(err)
-}
-
-func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
-	return l.file.Close()
-}
-
-// CreateUploader implements ExternalStorage interface.
-func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	path := filepath.Join(l.base, name)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, localFilePerm)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return &localStorageUploader{file: f}, nil
-}
-
 // Open a Reader by file path, path is a relative path to base path.
 func (l *LocalStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	return os.Open(filepath.Join(l.base, path))
@@ -115,12 +92,12 @@ func (l *LocalStorage) Open(ctx context.Context, path string) (ExternalFileReade
 
 // Create implements ExternalStorage interface.
 func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := l.CreateUploader(ctx, name)
+	file, err := os.Create(filepath.Join(l.base, name))
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
-	uploaderWriter := newUploaderWriter(uploader, hardcodedS3ChunkSize, NoCompression)
-	return uploaderWriter, nil
+	buf := bufio.NewWriter(file)
+	return newFlushStorageWriter(buf, buf, file), nil
 }
 
 func pathExists(_path string) (bool, error) {

@@ -65,7 +65,7 @@ type S3Uploader struct {
 
 // UploadPart update partial data to s3, we should call CreateMultipartUpload to start it,
 // and call CompleteMultipartUpload to finish it.
-func (u *S3Uploader) UploadPart(ctx context.Context, data []byte) error {
+func (u *S3Uploader) Write(ctx context.Context, data []byte) (int, error) {
 	partInput := &s3.UploadPartInput{
 		Body:          bytes.NewReader(data),
 		Bucket:        u.createOutput.Bucket,
@@ -77,17 +77,17 @@ func (u *S3Uploader) UploadPart(ctx context.Context, data []byte) error {
 
 	uploadResult, err := u.svc.UploadPartWithContext(ctx, partInput)
 	if err != nil {
-		return errors.Trace(err)
+		return 0, errors.Trace(err)
 	}
 	u.completeParts = append(u.completeParts, &s3.CompletedPart{
 		ETag:       uploadResult.ETag,
 		PartNumber: partInput.PartNumber,
 	})
-	return nil
+	return len(data), nil
 }
 
-// CompleteUpload complete multi upload request.
-func (u *S3Uploader) CompleteUpload(ctx context.Context) error {
+// Close complete multi upload request.
+func (u *S3Uploader) Close(ctx context.Context) error {
 	completeInput := &s3.CompleteMultipartUploadInput{
 		Bucket:   u.createOutput.Bucket,
 		Key:      u.createOutput.Key,
@@ -628,7 +628,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // CreateUploader create multi upload request.
-func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
+func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (ExternalFileWriter, error) {
 	input := &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + name),
@@ -663,6 +663,6 @@ func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWrite
 	if err != nil {
 		return nil, err
 	}
-	uploaderWriter := newUploaderWriter(uploader, hardcodedS3ChunkSize, NoCompression)
+	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
 	return uploaderWriter, nil
 }
