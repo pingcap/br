@@ -92,6 +92,15 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
 	c.Assert(gcs.CredentialsBlob, Equals, "")
 
+	s, err = ParseBackend("gcs://bucket2", gcsOpt)
+	c.Assert(err, IsNil)
+	gcs = s.GetGcs()
+	c.Assert(gcs, NotNil)
+	c.Assert(gcs.Bucket, Equals, "bucket2")
+	c.Assert(gcs.Prefix, Equals, "")
+	c.Assert(gcs.Endpoint, Equals, "https://gcs.example.com/")
+	c.Assert(gcs.CredentialsBlob, Equals, "")
+
 	var credFeilPerm os.FileMode = 0o600
 	fakeCredentialsFile := filepath.Join(c.MkDir(), "fakeCredentialsFile")
 	err = ioutil.WriteFile(fakeCredentialsFile, []byte("fakeCredentials"), credFeilPerm)
