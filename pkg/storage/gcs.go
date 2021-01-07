@@ -18,8 +18,6 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-
-	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -161,21 +159,26 @@ func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader,
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
-	var clientOps []option.ClientOption
+	var (
+		err error
+		creds *google.Credentials
+		clientOps []option.ClientOption
+	)
 	if gcs.CredentialsBlob == "" {
-		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
+		creds, err = google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
+			log.Warn("you should provide '--gcs.credentials_file'", zap.Error(err))
 		}
 		if opts.SendCredentials {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
-					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
+				log.Warn("You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}
-		clientOps = append(clientOps, option.WithCredentials(creds))
+		if creds != nil {
+			clientOps = append(clientOps, option.WithCredentials(creds))
+		}
 	} else {
 		clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
 	}
@@ -208,7 +211,8 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 			break
 		}
 		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageUnknown, "Bucket(%q).Objects: %v", bucket, err)
+			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
+			break
 		}
 		if strings.HasPrefix(attrs.Name, "backup") {
 			log.Info("meta file found in prefix", zap.String("file", attrs.Name))
@@ -227,7 +231,8 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 			break
 		}
 		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageUnknown, "Bucket(%q).Objects: %v", bucket, err)
+			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
+			break
 		}
 		if strings.HasSuffix(attrs.Name, ".sst") {
 			log.Info("sst file found in prefix slash", zap.String("file", attrs.Name))
