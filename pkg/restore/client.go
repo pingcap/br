@@ -765,11 +765,13 @@ func (rc *Client) GoValidateChecksum(
 }
 
 func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client, concurrency uint) error {
+	logger := log.With(
+		zap.String("db", tbl.OldTable.DB.Name.O),
+		zap.String("table", tbl.OldTable.Info.Name.O),
+	)
+
 	if tbl.OldTable.NoChecksum() {
-		log.Warn("table has no checksum, skipping checksum",
-			zap.Stringer("table", tbl.OldTable.Info.Name),
-			zap.Stringer("database", tbl.OldTable.DB.Name),
-		)
+		logger.Warn("table has no checksum, skipping checksum")
 		return nil
 	}
 
@@ -801,9 +803,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	if checksumResp.Checksum != table.Crc64Xor ||
 		checksumResp.TotalKvs != table.TotalKvs ||
 		checksumResp.TotalBytes != table.TotalBytes {
-		log.Error("failed in validate checksum",
-			zap.String("database", table.DB.Name.L),
-			zap.String("table", table.Info.Name.L),
+		logger.Error("failed in validate checksum",
 			zap.Uint64("origin tidb crc64", table.Crc64Xor),
 			zap.Uint64("calculated crc64", checksumResp.Checksum),
 			zap.Uint64("origin tidb total kvs", table.TotalKvs),
@@ -814,14 +814,12 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
 	if table.Stats != nil {
-		log.Info("start loads analyze after validate checksum",
-			zap.Stringer("db name", tbl.OldTable.DB.Name),
-			zap.Stringer("name", tbl.OldTable.Info.Name),
+		logger.Info("start loads analyze after validate checksum",
 			zap.Int64("old id", tbl.OldTable.Info.ID),
 			zap.Int64("new id", tbl.Table.ID),
 		)
 		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
-			log.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
+			logger.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
 		}
 	}
 	return nil
