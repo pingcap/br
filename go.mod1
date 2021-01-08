@@ -3,7 +3,7 @@ module github.com/pingcap/br
 go 1.13
 
 require (
-	cloud.google.com/go/storage v1.12.0
+	cloud.google.com/go/storage v1.6.0
 	github.com/aws/aws-sdk-go v1.35.3
 	github.com/cheggaaa/pb/v3 v3.0.4
 	github.com/cheynewallace/tabby v1.1.0
@@ -13,7 +13,7 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/mock v1.4.4
 	github.com/google/btree v1.0.0
-	github.com/google/uuid v1.1.2
+	github.com/google/uuid v1.1.1
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
@@ -32,17 +32,14 @@ require (
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/oauth2 v0.0.0-20201208152858-08078c50e5b5
+	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	google.golang.org/api v0.36.0
-	google.golang.org/grpc v1.34.0
+	google.golang.org/api v0.22.0
+	google.golang.org/grpc v1.27.1
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
 
 replace (
-	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.12.1-0.20210107115228-8b7680f50d0c
-	github.com/shirou/gopsutil => github.com/shirou/gopsutil v2.20.6-0.20200630091542-01afd763e6c0+incompatible
-
+	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108104611-43532c1a86ad
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae
-	google.golang.org/grpc v1.34.0 => google.golang.org/grpc v1.29.0
 )
