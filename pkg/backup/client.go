@@ -223,6 +223,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
+<<<<<<< HEAD
 	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
 		log.Info("failpoint s3-outage-during-writing-file injected, " +
 			"process will sleep for 3s and notify the shell to kill s3 service.")
@@ -243,6 +244,9 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 // GetClusterID returns the cluster ID of the tidb cluster to backup.
 func (bc *Client) GetClusterID() uint64 {
 	return bc.clusterID
+=======
+	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
+>>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 }
 
 // BuildTableRanges returns the key ranges encompassing the entire table,
