@@ -93,8 +93,8 @@ func (s *gcsStorage) objectName(name string) string {
 	return path.Join(s.gcs.Prefix, name)
 }
 
-// Write file to storage.
-func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error {
+// WriteFile writes data to a file to storage.
+func (s *gcsStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	object := s.objectName(name)
 	wc := s.bucket.Object(object).NewWriter(ctx)
 	wc.StorageClass = s.gcs.StorageClass
@@ -106,8 +106,8 @@ func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error 
 	return wc.Close()
 }
 
-// Read storage file.
-func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
+// ReadFile reads the file from the storage and returns the contents.
+func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
@@ -141,7 +141,7 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 }
 
 // Open a Reader by file path.
-func (s *gcsStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
 }
@@ -161,10 +161,13 @@ func (s *gcsStorage) URI() string {
 	return "gcs://" + s.gcs.Bucket + "/" + s.gcs.Prefix
 }
 
-// CreateUploader implenments ExternalStorage interface.
-func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	// TODO, implement this if needed
-	panic("gcs storage not support multi-upload")
+// Create implements ExternalStorage interface.
+func (s *gcsStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	object := s.objectName(name)
+	wc := s.bucket.Object(object).NewWriter(ctx)
+	wc.StorageClass = s.gcs.StorageClass
+	wc.PredefinedACL = s.gcs.PredefinedAcl
+	return newFlushStorageWriter(wc, &emptyFlusher{}, wc), nil
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {

@@ -405,7 +405,7 @@ func ReadBackupMeta(
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
 	}
-	metaData, err := s.Read(ctx, fileName)
+	metaData, err := s.ReadFile(ctx, fileName)
 	if err != nil {
 		if gcsObjectNotFound(err) {
 			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta

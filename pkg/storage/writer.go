@@ -19,23 +19,47 @@ const (
 	Gzip
 )
 
+type flusher interface {
+	Flush() error
+}
+
+type emptyFlusher struct{}
+
+func (e *emptyFlusher) Flush() error {
+	return nil
+}
+
 type interceptBuffer interface {
 	io.WriteCloser
+	flusher
 	Len() int
 	Cap() int
 	Bytes() []byte
-	Flush() error
 	Reset()
 }
 
 func newInterceptBuffer(chunkSize int, compressType CompressType) interceptBuffer {
-	switch compressType {
-	case NoCompression:
+	if compressType == NoCompression {
 		return newNoCompressionBuffer(chunkSize)
+	}
+	return newSimpleCompressBuffer(chunkSize, compressType)
+}
+
+func newCompressWriter(compressType CompressType, w io.Writer) simpleCompressWriter {
+	switch compressType {
 	case Gzip:
-		return newGzipBuffer(chunkSize)
+		return gzip.NewWriter(w)
 	default:
 		return nil
+	}
+}
+
+func newCompressReader(compressType CompressType, r io.Reader) (io.ReadCloser, error) {
+	switch compressType {
+	case Gzip:
+		return gzip.NewReader(r)
+	default:
+		return nil, nil
 	}
 }
 
@@ -57,7 +81,7 @@ func newNoCompressionBuffer(chunkSize int) *noCompressionBuffer {
 
 type simpleCompressWriter interface {
 	io.WriteCloser
-	Flush() error
+	flusher
 }
 
 type simpleCompressBuffer struct {
@@ -94,22 +118,22 @@ func (b *simpleCompressBuffer) Close() error {
 	return b.compressWriter.Close()
 }
 
-func newGzipBuffer(chunkSize int) *simpleCompressBuffer {
+func newSimpleCompressBuffer(chunkSize int, compressType CompressType) *simpleCompressBuffer {
 	bf := bytes.NewBuffer(make([]byte, 0, chunkSize))
 	return &simpleCompressBuffer{
 		Buffer:         bf,
 		len:            0,
 		cap:            chunkSize,
-		compressWriter: gzip.NewWriter(bf),
+		compressWriter: newCompressWriter(compressType, bf),
 	}
 }
 
-type uploaderWriter struct {
-	buf      interceptBuffer
-	uploader Uploader
+type bufferedWriter struct {
+	buf    interceptBuffer
+	writer ExternalFileWriter
 }
 
-func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
+func (u *bufferedWriter) Write(ctx context.Context, p []byte) (int, error) {
 	bytesWritten := 0
 	for u.buf.Len()+len(p) > u.buf.Cap() {
 		// We won't fit p in this chunk
@@ -137,69 +161,70 @@ func (u *uploaderWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return bytesWritten, errors.Trace(err)
 }
 
-func (u *uploaderWriter) uploadChunk(ctx context.Context) error {
+func (u *bufferedWriter) uploadChunk(ctx context.Context) error {
 	if u.buf.Len() == 0 {
 		return nil
 	}
 	b := u.buf.Bytes()
 	u.buf.Reset()
-	return u.uploader.UploadPart(ctx, b)
+	_, err := u.writer.Write(ctx, b)
+	return errors.Trace(err)
 }
 
-func (u *uploaderWriter) Close(ctx context.Context) error {
+func (u *bufferedWriter) Close(ctx context.Context) error {
 	u.buf.Close()
 	err := u.uploadChunk(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return u.uploader.CompleteUpload(ctx)
+	return u.writer.Close(ctx)
 }
 
 // NewUploaderWriter wraps the Writer interface over an uploader.
-func NewUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) Writer {
-	return newUploaderWriter(uploader, chunkSize, compressType)
+func NewUploaderWriter(writer ExternalFileWriter, chunkSize int, compressType CompressType) ExternalFileWriter {
+	return newBufferedWriter(writer, chunkSize, compressType)
 }
 
-// newUploaderWriter is used for testing only.
-func newUploaderWriter(uploader Uploader, chunkSize int, compressType CompressType) *uploaderWriter {
-	return &uploaderWriter{
-		uploader: uploader,
-		buf:      newInterceptBuffer(chunkSize, compressType),
+// newBufferedWriter is used to build a buffered writer.
+func newBufferedWriter(writer ExternalFileWriter, chunkSize int, compressType CompressType) *bufferedWriter {
+	return &bufferedWriter{
+		writer: writer,
+		buf:    newInterceptBuffer(chunkSize, compressType),
 	}
 }
 
-// BufferWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
-type BufferWriter struct {
+// BytesWriter is a Writer implementation on top of bytes.Buffer that is useful for testing.
+type BytesWriter struct {
 	buf *bytes.Buffer
 }
 
 // Write delegates to bytes.Buffer.
-func (u *BufferWriter) Write(ctx context.Context, p []byte) (int, error) {
+func (u *BytesWriter) Write(ctx context.Context, p []byte) (int, error) {
 	return u.buf.Write(p)
 }
 
 // Close delegates to bytes.Buffer.
-func (u *BufferWriter) Close(ctx context.Context) error {
+func (u *BytesWriter) Close(ctx context.Context) error {
 	// noop
 	return nil
 }
 
 // Bytes delegates to bytes.Buffer.
-func (u *BufferWriter) Bytes() []byte {
+func (u *BytesWriter) Bytes() []byte {
 	return u.buf.Bytes()
 }
 
 // String delegates to bytes.Buffer.
-func (u *BufferWriter) String() string {
+func (u *BytesWriter) String() string {
 	return u.buf.String()
 }
 
 // Reset delegates to bytes.Buffer.
-func (u *BufferWriter) Reset() {
+func (u *BytesWriter) Reset() {
 	u.buf.Reset()
 }
 
 // NewBufferWriter creates a Writer that simply writes to a buffer (useful for testing).
-func NewBufferWriter() *BufferWriter {
-	return &BufferWriter{buf: &bytes.Buffer{}}
+func NewBufferWriter() *BytesWriter {
+	return &BytesWriter{buf: &bytes.Buffer{}}
 }
