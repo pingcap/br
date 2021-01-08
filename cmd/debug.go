@@ -112,7 +112,7 @@ func newCheckSumCommand() *cobra.Command {
 					)
 
 					var data []byte
-					data, err = s.Read(ctx, file.Name)
+					data, err = s.ReadFile(ctx, file.Name)
 					if err != nil {
 						return errors.Trace(err)
 					}
@@ -271,7 +271,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+				err = s.WriteFile(ctx, utils.MetaJSONFile, backupMetaJSON)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -325,7 +325,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			metaData, err := s.Read(ctx, utils.MetaJSONFile)
+			metaData, err := s.ReadFile(ctx, utils.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -345,7 +345,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				// Do not overwrite origin meta file
 				fileName += "_from_json"
 			}
-			err = s.Write(ctx, fileName, backupMeta)
+			err = s.WriteFile(ctx, fileName, backupMeta)
 			if err != nil {
 				return errors.Trace(err)
 			}
