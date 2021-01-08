@@ -3,8 +3,8 @@
 package storage
 
 import (
+	"bufio"
 	"context"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -24,13 +24,15 @@ type LocalStorage struct {
 	base string
 }
 
-func (l *LocalStorage) Write(ctx context.Context, name string, data []byte) error {
+// WriteFile writes data to a file to storage.
+func (l *LocalStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	path := filepath.Join(l.base, name)
 	return ioutil.WriteFile(path, data, localFilePerm)
 	// the backup meta file _is_ intended to be world-readable.
 }
 
-func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
+// ReadFile reads the file from the storage and returns the contents.
+func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	path := filepath.Join(l.base, name)
 	return ioutil.ReadFile(path)
 }
@@ -83,32 +85,19 @@ func (l *LocalStorage) URI() string {
 	return "file:///" + l.base
 }
 
-type localStorageUploader struct {
-	file io.WriteCloser
+// Open a Reader by file path, path is a relative path to base path.
+func (l *LocalStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
+	return os.Open(filepath.Join(l.base, path))
 }
 
-func (l *localStorageUploader) UploadPart(ctx context.Context, data []byte) error {
-	_, err := l.file.Write(data)
-	return errors.Trace(err)
-}
-
-func (l *localStorageUploader) CompleteUpload(ctx context.Context) error {
-	return l.file.Close()
-}
-
-// CreateUploader implements ExternalStorage interface.
-func (l *LocalStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	path := filepath.Join(l.base, name)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, localFilePerm)
+// Create implements ExternalStorage interface.
+func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	file, err := os.Create(filepath.Join(l.base, name))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return &localStorageUploader{file: f}, nil
-}
-
-// Open a Reader by file path, path is a relative path to base path.
-func (l *LocalStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
-	return os.Open(filepath.Join(l.base, path))
+	buf := bufio.NewWriter(file)
+	return newFlushStorageWriter(buf, buf, file), nil
 }
 
 func pathExists(_path string) (bool, error) {

@@ -56,14 +56,14 @@ type Writer interface {
 
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
-	// Write file to storage
-	Write(ctx context.Context, name string, data []byte) error
-	// Read storage file
-	Read(ctx context.Context, name string) ([]byte, error)
+	// WriteFile writes a complete file to storage, similar to ioutil.WriteFile
+	WriteFile(ctx context.Context, name string, data []byte) error
+	// ReadFile reads a complete file from storage, similar to ioutil.ReadFile
+	ReadFile(ctx context.Context, name string) ([]byte, error)
 	// FileExists return true if file exists
 	FileExists(ctx context.Context, name string) (bool, error)
 	// Open a Reader by file path. path is relative path to storage base path
-	Open(ctx context.Context, path string) (ReadSeekCloser, error)
+	Open(ctx context.Context, path string) (ExternalFileReader, error)
 	// WalkDir traverse all the files in a dir.
 	//
 	// fn is the function called for each regular file visited by WalkDir.
@@ -75,10 +75,22 @@ type ExternalStorage interface {
 	// URI returns the base path as a URI
 	URI() string
 
-	// CreateUploader create a uploader that will upload chunks data to storage.
-	// It's design for s3 multi-part upload currently. e.g. cdc log backup use this to do multi part upload
-	// to avoid generate small fragment files.
-	CreateUploader(ctx context.Context, name string) (Uploader, error)
+	// Create opens a file writer by path. path is relative path to storage base path
+	Create(ctx context.Context, path string) (ExternalFileWriter, error)
+}
+
+// ExternalFileReader represents the streaming external file reader.
+type ExternalFileReader interface {
+	io.ReadCloser
+	io.Seeker
+}
+
+// ExternalFileWriter represents the streaming external file writer.
+type ExternalFileWriter interface {
+	// Write writes to buffer and if chunk is filled will upload it
+	Write(ctx context.Context, p []byte) (int, error)
+	// Close writes final chunk and completes the upload
+	Close(ctx context.Context) error
 }
 
 // ExternalStorageOptions are backend-independent options provided to New.
