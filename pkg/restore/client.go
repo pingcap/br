@@ -1007,6 +1007,7 @@ func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
 }
 
+// PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options
 func (rc *Client) PreCheckTableClusterIndex(
 	tables []*utils.Table,
 	ddlJobs []*model.Job,
