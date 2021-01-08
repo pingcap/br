@@ -211,8 +211,9 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	sstInPrefix := false
 	sstInPrefixSlash := false
 	it := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix})
+	var attrs *storage.ObjectAttrs
 	for {
-		attrs, err := it.Next()
+		attrs, err = it.Next()
 		if err == iterator.Done { // nolint:errorlint
 			break
 		}
@@ -230,9 +231,9 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 			break
 		}
 	}
-	it2 := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix + "//"})
+	it = bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix + "//"})
 	for {
-		attrs, err := it2.Next()
+		attrs, err = it.Next()
 		if err == iterator.Done { // nolint:errorlint
 			break
 		}
