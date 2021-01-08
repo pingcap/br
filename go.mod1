@@ -13,7 +13,7 @@ require (
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/mock v1.4.4
 	github.com/google/btree v1.0.0
-	github.com/google/uuid v1.1.1
+	github.com/google/uuid v1.1.2
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
@@ -32,11 +32,14 @@ require (
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
-	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43
+	golang.org/x/oauth2 v0.0.0-20201208152858-08078c50e5b5
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	google.golang.org/api v0.32.0
-	google.golang.org/grpc v1.32.0
+	google.golang.org/api v0.36.0
+	google.golang.org/grpc v1.34.0
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
 
-replace google.golang.org/grpc v1.32.0 => google.golang.org/grpc v1.29.0
+replace (
+	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage fix_ep_scheme 
+	google.golang.org/grpc v1.34.0 => google.golang.org/grpc v1.29.0
+)
