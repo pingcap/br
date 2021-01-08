@@ -113,8 +113,15 @@ func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	}
 	defer rc.Close()
 
-	b := make([]byte, rc.Attrs.Size)
-	_, err = io.ReadFull(rc, b)
+	size := rc.Attrs.Size
+	var b []byte
+	if size < 0 {
+		// happened when using fake-gcs-server in integration test
+		b, err = ioutil.ReadAll(rc)
+	} else {
+		b = make([]byte, size)
+		_, err = io.ReadFull(rc, b)
+	}
 	return b, errors.Trace(err)
 }
 

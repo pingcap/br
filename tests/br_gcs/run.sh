@@ -22,7 +22,8 @@ GCS_HOST="localhost"
 GCS_PORT=10808
 BUCKET="test"
 
-bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -backend memory &
+# we need set public-host for download file, or it will 404 when using client to read.
+bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -backend memory -public-host $GCS_HOST:$GCS_PORT &
 GCS_ID=$!
 i=0
 while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
