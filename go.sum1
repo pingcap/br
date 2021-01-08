@@ -26,8 +26,8 @@ cloud.google.com/go/pubsub v1.2.0/go.mod h1:jhfEVHT8odbXTkndysNHCcx0awwzvfOlguIA
 cloud.google.com/go/spanner v1.1.0/go.mod h1:TzTaF9l2ZY2CIetNvVpUu6ZQy8YEOtzB6ICa5EwYjL0=
 collectd.org v0.3.0/go.mod h1:A/8DzQBkF6abtvrT2j/AU/4tiBgJWYyh0y/oB/4MlWE=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
-github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108104611-43532c1a86ad h1:80dU5kYeTTSgnzbkKDuWckOEUPAKT1R431WMCh7m730=
-github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108104611-43532c1a86ad/go.mod h1:N7U0C8pVQ/+NIKOBQyamJIeKQKkZ+mxpohlUTyfDhBk=
+github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2 h1:Bnm+q0FAI1AXoPX3cPIi2/a4sg2J2f/D0yPr+7EMPg0=
+github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2/go.mod h1:N7U0C8pVQ/+NIKOBQyamJIeKQKkZ+mxpohlUTyfDhBk=
 github.com/AndreasBriese/bbloom v0.0.0-20180913140656-343706a395b7/go.mod h1:bOvUY6CB00SOBii9/FifXqc0awNKxLFCL/+pkDPuyl8=
 github.com/AstroProfundis/sysinfo v0.0.0-20200423033635-f6f7687215fd/go.mod h1:4m15VhW6ZffaqJNAK/HtN3Qvf97aCe1T39u3UXaA2lA=
 github.com/AstroProfundis/tabby v1.1.0-color/go.mod h1:Wcm+uinH1saEOFGLK2LdY37lAOts8HLevz64Y3y3M3Q=
