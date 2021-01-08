@@ -402,7 +402,8 @@ func (rc *Client) createTable(
 	}
 	if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
 		return CreatedTable{}, errors.Annotatef(berrors.ErrRestoreModeMismatch,
-			"CommonIsHandle: backup table %v, new table %v not match",
+			"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+			transferBoolToValue(table.Info.IsCommonHandle),
 			table.Info.IsCommonHandle,
 			newTableInfo.IsCommonHandle)
 	}
@@ -1019,7 +1020,8 @@ func (rc *Client) PreCheckTableClusterIndex(
 		if err == nil {
 			if table.Info.IsCommonHandle != oldTableInfo.IsCommonHandle {
 				return errors.Annotatef(berrors.ErrRestoreModeMismatch,
-					"CommonIsHandle: backup table %v, existed table %v not match",
+					"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+					transferBoolToValue(table.Info.IsCommonHandle),
 					table.Info.IsCommonHandle,
 					oldTableInfo.IsCommonHandle)
 			}
@@ -1034,7 +1036,8 @@ func (rc *Client) PreCheckTableClusterIndex(
 				if err == nil {
 					if tableInfo.IsCommonHandle != oldTableInfo.IsCommonHandle {
 						return errors.Annotatef(berrors.ErrRestoreModeMismatch,
-							"CommonIsHandle: backup table %v, existed table %v not match",
+							"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+							transferBoolToValue(tableInfo.IsCommonHandle),
 							tableInfo.IsCommonHandle,
 							oldTableInfo.IsCommonHandle)
 					}
@@ -1043,4 +1046,11 @@ func (rc *Client) PreCheckTableClusterIndex(
 		}
 	}
 	return nil
+}
+
+func transferBoolToValue(enable bool) string {
+	if enable {
+		return "ON"
+	}
+	return "OFF"
 }
