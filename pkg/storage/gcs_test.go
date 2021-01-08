@@ -37,7 +37,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	})
 	c.Assert(err, IsNil)
 
-	err = stg.Write(ctx, "key", []byte("data"))
+	err = stg.WriteFile(ctx, "key", []byte("data"))
 	c.Assert(err, IsNil)
 
 	rc, err := server.Client().Bucket(bucketName).Object("a/b/key").NewReader(ctx)
@@ -47,7 +47,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(d, DeepEquals, []byte("data"))
 
-	d, err = stg.Read(ctx, "key")
+	d, err = stg.ReadFile(ctx, "key")
 	c.Assert(err, IsNil)
 	c.Assert(d, DeepEquals, []byte("data"))
 

@@ -133,7 +133,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 // SetLockFile set write lock file.
 func (bc *Client) SetLockFile(ctx context.Context) error {
-	return bc.storage.Write(ctx, utils.LockFile,
+	return bc.storage.WriteFile(ctx, utils.LockFile,
 		[]byte("DO NOT DELETE\n"+
 			"This file exists to remind other backup jobs won't use this path"))
 }
@@ -212,7 +212,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.Backup
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
-	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
+	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
 // BuildTableRanges returns the key ranges encompassing the entire table,
