@@ -400,6 +400,12 @@ func (rc *Client) createTable(
 	if err != nil {
 		return CreatedTable{}, errors.Trace(err)
 	}
+	if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
+		return CreatedTable{}, errors.Annotatef(berrors.ErrRestoreModeMismatch,
+			"CommonIsHandle: backup table %v, new table %v not match",
+			table.Info.IsCommonHandle,
+			newTableInfo.IsCommonHandle)
+	}
 	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 	et := CreatedTable{
 		RewriteRule: rules,
@@ -999,4 +1005,41 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+func (rc *Client) PreCheckTableClusterIndex(
+	tables []*utils.Table,
+	ddlJobs []*model.Job,
+	dom *domain.Domain,
+) error {
+	for _, table := range tables {
+		oldTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
+		// table exists in database
+		if err == nil {
+			if table.Info.IsCommonHandle != oldTableInfo.IsCommonHandle {
+				return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+					"CommonIsHandle: backup table %v, existed table %v not match",
+					table.Info.IsCommonHandle,
+					oldTableInfo.IsCommonHandle)
+			}
+		}
+	}
+	for _, job := range ddlJobs {
+		if job.Type == model.ActionCreateTable {
+			tableInfo := job.BinlogInfo.TableInfo
+			if tableInfo != nil {
+				oldTableInfo, err := rc.GetTableSchema(dom, model.NewCIStr(job.SchemaName), tableInfo.Name)
+				// table exists in database
+				if err == nil {
+					if tableInfo.IsCommonHandle != oldTableInfo.IsCommonHandle {
+						return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+							"CommonIsHandle: backup table %v, existed table %v not match",
+							tableInfo.IsCommonHandle,
+							oldTableInfo.IsCommonHandle)
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
