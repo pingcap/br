@@ -105,13 +105,16 @@ func NewEventPuller(
 // PullOneEvent pulls one event in ts order.
 // The Next event which can be DDL item or Row changed Item depends on next commit ts.
 func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
-	var err error
+	var (
+		err  error
+		data []byte
+	)
 	// ddl exists
 	if e.ddlDecoder != nil {
 		// current file end, read next file if next file exists
 		if !e.ddlDecoder.HasNext() && e.ddlFileIndex < len(e.ddlFiles) {
 			path := e.ddlFiles[e.ddlFileIndex]
-			data, err := e.storage.Read(ctx, path)
+			data, err = e.storage.Read(ctx, path)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -136,7 +139,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.rowChangedDecoder.HasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
 			path := e.rowChangedFiles[e.rowChangedFileIndex]
-			data, err := e.storage.Read(ctx, path)
+			data, err = e.storage.Read(ctx, path)
 			if err != nil {
 				return nil, errors.Trace(err)
 			}

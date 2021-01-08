@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
@@ -197,6 +199,12 @@ func BuildBackupMeta(
 
 // SaveBackupMeta saves the current backup meta at the given path.
 func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.BackupMeta) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.SaveBackupMeta", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	backupMetaData, err := proto.Marshal(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -429,6 +437,12 @@ func (bc *Client) BackupRanges(
 	concurrency uint,
 	updateCh glue.Progress,
 ) ([]*kvproto.File, error) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	errCh := make(chan error)
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
@@ -596,6 +610,12 @@ func (bc *Client) fineGrainedBackup(
 	rangeTree rtree.RangeTree,
 	updateCh glue.Progress,
 ) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.fineGrainedBackup", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
@@ -825,6 +845,15 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan(
+			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
+				storeID, logutil.WrapKey(req.StartKey), logutil.WrapKey(req.EndKey)),
+			opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
