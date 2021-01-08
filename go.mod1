@@ -40,6 +40,6 @@ require (
 )
 
 replace (
-	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108104611-43532c1a86ad
+	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2
 	golang.org/x/sys => golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae
 )
