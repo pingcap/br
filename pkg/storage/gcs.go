@@ -214,45 +214,8 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	// the backupmeta is written correctly to gcs://bucket/prefix/backupmeta,
 	// but the SSTs are written wrongly to gcs://bucket/prefix//*.sst (note the extra slash).
 	// see details about case 2 at https://github.com/pingcap/br/issues/675#issuecomment-753780742
-	sstInPrefix := false
-	sstInPrefixSlash := false
-	it := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix})
-	var attrs *storage.ObjectAttrs
-	for {
-		attrs, err = it.Next()
-		if err == iterator.Done { // nolint:errorlint
-			break
-		}
-		if err != nil {
-			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
-			break
-		}
-		if strings.HasPrefix(attrs.Name, "backup") {
-			log.Info("meta file found in prefix", zap.String("file", attrs.Name))
-			continue
-		}
-		if strings.HasSuffix(attrs.Name, ".sst") {
-			log.Info("sst file found in prefix", zap.String("file", attrs.Name))
-			sstInPrefix = true
-			break
-		}
-	}
-	it = bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix + "//"})
-	for {
-		attrs, err = it.Next()
-		if err == iterator.Done { // nolint:errorlint
-			break
-		}
-		if err != nil {
-			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
-			break
-		}
-		if strings.HasSuffix(attrs.Name, ".sst") {
-			log.Info("sst file found in prefix slash", zap.String("file", attrs.Name))
-			sstInPrefixSlash = true
-			break
-		}
-	}
+	sstInPrefix := hasSSTFiles(ctx, bucket, gcs.Prefix)
+	sstInPrefixSlash := hasSSTFiles(ctx, bucket, gcs.Prefix+"//")
 	if sstInPrefixSlash && !sstInPrefix {
 		// This is a old bug, but we must make it compatible.
 		// so we need find sst in slash directory
@@ -266,4 +229,23 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
+}
+
+func hasSSTFiles(ctx context.Context, bucket *storage.BucketHandle, prefix string) bool {
+	it := bucket.Objects(ctx, &storage.Query{Prefix: prefix})
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done { // nolint:errorlint
+			break
+		}
+		if err != nil {
+			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
+			break
+		}
+		if strings.HasSuffix(attrs.Name, ".sst") {
+			log.Info("sst file found in prefix slash", zap.String("file", attrs.Name))
+			return true
+		}
+	}
+	return false
 }
