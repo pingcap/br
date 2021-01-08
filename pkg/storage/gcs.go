@@ -18,6 +18,8 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -166,21 +168,18 @@ func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader,
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
-	var (
-		err       error
-		creds     *google.Credentials
-		clientOps []option.ClientOption
-	)
+	var clientOps []option.ClientOption
 	if gcs.CredentialsBlob == "" {
-		creds, err = google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
+		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
 		if err != nil {
-			log.Warn("you should provide '--gcs.credentials_file'", zap.Error(err))
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
 		}
 		if opts.SendCredentials {
 			if len(creds.JSON) > 0 {
 				gcs.CredentialsBlob = string(creds.JSON)
 			} else {
-				log.Warn("You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
+				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
+					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}
 		if creds != nil {
@@ -214,7 +213,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	it := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix})
 	for {
 		attrs, err := it.Next()
-		if err == iterator.Done {
+		if err == iterator.Done { // nolint:errorlint
 			break
 		}
 		if err != nil {
@@ -234,7 +233,7 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	it2 := bucket.Objects(ctx, &storage.Query{Prefix: gcs.Prefix + "//"})
 	for {
 		attrs, err := it2.Next()
-		if err == iterator.Done {
+		if err == iterator.Done { // nolint:errorlint
 			break
 		}
 		if err != nil {

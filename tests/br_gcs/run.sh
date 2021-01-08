@@ -82,9 +82,9 @@ done
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "gcs://$BUCKET/$DB?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/"
 
-# old version backup full v4.0.8
+# old version backup full v4.0.8 and disable check-requirements
 echo "v4.0.8 backup start..."
-bin/brv4.0.8 --pd $PD_ADDR backup full -s "gcs://$BUCKET/${DB}_old?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/"
+bin/brv4.0.8 --pd $PD_ADDR backup full -s "gcs://$BUCKET/${DB}_old?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/" --check-requirements=false
 
 # clean up
 for i in $(seq $DB_COUNT); do
@@ -120,7 +120,7 @@ for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
 
-echo "old version restore start..."
+echo "v4.0.8 version restore start..."
 run_br restore full -s "gcs://$BUCKET/${DB}_old" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"
 
 for i in $(seq $DB_COUNT); do
@@ -140,5 +140,5 @@ if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
 else
-    echo "TEST: [$TEST_NAME] new version successd!"
+    echo "TEST: [$TEST_NAME] v4.0.8 version successd!"
 fi
