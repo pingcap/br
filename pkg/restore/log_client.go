@@ -238,7 +238,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	}
 
 	for _, path := range ddls {
-		data, err := l.restoreClient.storage.Read(ctx, path)
+		data, err := l.restoreClient.storage.ReadFile(ctx, path)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -568,7 +568,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if !needRetry {
 				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
 					logutil.Region(region.Region), zap.Any("leader", region.Leader))
-				// met non-retryable error retry whole Write procedure
+				// met non-retryable error retry whole WriteFile procedure
 				return errIngest
 			}
 			// retry with not leader and epoch not match error
@@ -927,7 +927,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	// 3. Encode and ingest data to tikv
 
 	// parse meta file
-	data, err := l.restoreClient.storage.Read(ctx, metaFile)
+	data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

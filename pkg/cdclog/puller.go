@@ -57,7 +57,7 @@ func NewEventPuller(
 	if len(ddlFiles) == 0 {
 		log.Info("There is no ddl file to restore")
 	} else {
-		data, err := storage.Read(ctx, ddlFiles[0])
+		data, err := storage.ReadFile(ctx, ddlFiles[0])
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -73,7 +73,7 @@ func NewEventPuller(
 	if len(rowChangedFiles) == 0 {
 		log.Info("There is no row changed file to restore")
 	} else {
-		data, err := storage.Read(ctx, rowChangedFiles[0])
+		data, err := storage.ReadFile(ctx, rowChangedFiles[0])
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -111,7 +111,11 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.ddlDecoder.HasNext() && e.ddlFileIndex < len(e.ddlFiles) {
 			path := e.ddlFiles[e.ddlFileIndex]
+<<<<<<< HEAD
 			data, err := e.storage.Read(ctx, path)
+=======
+			data, err = e.storage.ReadFile(ctx, path)
+>>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -136,7 +140,11 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.rowChangedDecoder.HasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
 			path := e.rowChangedFiles[e.rowChangedFileIndex]
+<<<<<<< HEAD
 			data, err := e.storage.Read(ctx, path)
+=======
+			data, err = e.storage.ReadFile(ctx, path)
+>>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
