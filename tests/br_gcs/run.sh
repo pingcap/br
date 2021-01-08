@@ -19,7 +19,7 @@ TABLE="usertable"
 DB_COUNT=3
 
 GCS_HOST="localhost"
-GCS_PORT=10808
+GCS_PORT=21808
 BUCKET="test"
 
 # we need set public-host for download file, or it will return 404 when using client to read.

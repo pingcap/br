@@ -501,6 +501,9 @@ func normalizePDURL(pd string, useTLS bool) (string, error) {
 }
 
 // check whether it's a bug before #647, to solve case #1
+// If the storage is set as gcs://bucket/prefix,
+// the SSTs are written correctly to gcs://bucket/prefix/*.sst
+// but the backupmeta is written wrongly to gcs://bucket/prefixbackupmeta.
 // see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
 func gcsObjectNotFound(err error) bool {
 	return errors.Cause(err) == gcs.ErrObjectNotExist // nolint:errorlint

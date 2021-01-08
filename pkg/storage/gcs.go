@@ -206,7 +206,10 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	}
 
 	bucket := client.Bucket(gcs.Bucket)
-	// we need adjust prefix for gcs storage to make restore compatible with old version backup files.
+	// check whether it's a bug before #647, to solve case #2
+	// If the storage is set as gcs://bucket/prefix/,
+	// the backupmeta is written correctly to gcs://bucket/prefix/backupmeta,
+	// but the SSTs are written wrongly to gcs://bucket/prefix//*.sst (note the extra slash).
 	// see details about case 2 at https://github.com/pingcap/br/issues/675#issuecomment-753780742
 	sstInPrefix := false
 	sstInPrefixSlash := false
