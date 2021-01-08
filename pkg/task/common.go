@@ -421,7 +421,7 @@ func ReadBackupMeta(
 				return nil, nil, nil, errors.Trace(err)
 			}
 			log.Info("retry load metadata in gcs", zap.String("newPrefix", newPrefix), zap.String("newFileName", newFileName))
-			metaData, err = s.Read(ctx, newFileName)
+			metaData, err = s.ReadFile(ctx, newFileName)
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
