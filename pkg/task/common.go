@@ -416,7 +416,7 @@ func ReadBackupMeta(
 			newPrefix, file := filepath.Split(parsedURL.Path)
 			newFileName := file + fileName
 			cfg.Storage = strings.ReplaceAll(cfg.Storage, parsedURL.Path, newPrefix)
-			_, s, err := GetStorage(ctx, cfg)
+			_, s, err = GetStorage(ctx, cfg)
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}

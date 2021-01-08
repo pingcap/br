@@ -160,8 +160,8 @@ func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader,
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
 	var (
-		err error
-		creds *google.Credentials
+		err       error
+		creds     *google.Credentials
 		clientOps []option.ClientOption
 	)
 	if gcs.CredentialsBlob == "" {

@@ -40,6 +40,9 @@ require (
 )
 
 replace (
-	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage fix_ep_scheme 
+	cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.12.1-0.20210107115228-8b7680f50d0c
+	github.com/shirou/gopsutil => github.com/shirou/gopsutil v2.20.6-0.20200630091542-01afd763e6c0+incompatible
+
+	golang.org/x/sys => golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae
 	google.golang.org/grpc v1.34.0 => google.golang.org/grpc v1.29.0
 )
