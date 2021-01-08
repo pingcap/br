@@ -22,7 +22,7 @@ GCS_HOST="localhost"
 GCS_PORT=10808
 BUCKET="test"
 
-# we need set public-host for download file, or it will 404 when using client to read.
+# we need set public-host for download file, or it will return 404 when using client to read.
 bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -backend memory -public-host $GCS_HOST:$GCS_PORT &
 GCS_ID=$!
 i=0
@@ -47,6 +47,7 @@ trap stop_gcs EXIT
 
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
+
 # start gcs-server
 # Fill in the database
 for i in $(seq $DB_COUNT); do
@@ -54,7 +55,6 @@ for i in $(seq $DB_COUNT); do
     go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i}
 done
 
-# create gcs credentials
 # we need start a oauth server or gcs client will failed to handle request.
 KEY=$(cat <<- EOF
 {
@@ -65,8 +65,10 @@ KEY=$(cat <<- EOF
 }
 EOF)
 
+# save CREDENTIALS to file
 echo $KEY > "tests/$TEST_NAME/config.json"
-# create test CREDENTIALS for gcs oauth
+
+# export test CREDENTIALS for gcs oauth
 export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
 # create gcs bucket
@@ -76,15 +78,20 @@ for i in $(seq $DB_COUNT); do
   row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
 done
 
-# backup full
+# new version backup full
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "gcs://$BUCKET/$DB?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/"
 
+# old version backup full v4.0.8
+echo "v4.0.8 backup start..."
+bin/brv4.0.8 --pd $PD_ADDR backup full -s "gcs://$BUCKET/${DB}_old?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/"
+
+# clean up
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
 
-# restore full
+# new version restore full
 echo "restore start..."
 run_br restore full -s "gcs://$BUCKET/$DB?" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"
 
@@ -105,5 +112,33 @@ if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
 else
-    echo "TEST: [$TEST_NAME] successed!"
+    echo "TEST: [$TEST_NAME] new version successd!"
+fi
+
+# clean up
+for i in $(seq $DB_COUNT); do
+    run_sql "DROP DATABASE $DB${i};"
+done
+
+echo "old version restore start..."
+run_br restore full -s "gcs://$BUCKET/${DB}_old" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"
+
+for i in $(seq $DB_COUNT); do
+    row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
+done
+
+fail=false
+for i in $(seq $DB_COUNT); do
+    if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
+        fail=true
+        echo "TEST: [$TEST_NAME] fail on database $DB${i}"
+    fi
+    echo "database $DB${i} [original] row count: ${row_count_ori[i]}, [after br] row count: ${row_count_new[i]}"
+done
+
+if $fail; then
+    echo "TEST: [$TEST_NAME] failed!"
+    exit 1
+else
+    echo "TEST: [$TEST_NAME] new version successd!"
 fi
