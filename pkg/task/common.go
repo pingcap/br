@@ -7,9 +7,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
+	gcs "cloud.google.com/go/storage"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -405,7 +407,26 @@ func ReadBackupMeta(
 	}
 	metaData, err := s.ReadFile(ctx, fileName)
 	if err != nil {
-		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
+		if gcsObjectNotFound(err) {
+			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
+			oldPrefix := u.GetGcs().GetPrefix()
+			newPrefix, file := path.Split(oldPrefix)
+			newFileName := file + fileName
+			u.GetGcs().Prefix = newPrefix
+			s, err = storage.Create(ctx, u, cfg.SendCreds)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			log.Info("retry load metadata in gcs", zap.String("newPrefix", newPrefix), zap.String("newFileName", newFileName))
+			metaData, err = s.ReadFile(ctx, newFileName)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			// reset prefix for tikv download sst file correctly.
+			u.GetGcs().Prefix = oldPrefix
+		} else {
+			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
+		}
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
@@ -476,4 +497,13 @@ func normalizePDURL(pd string, useTLS bool) (string, error) {
 		return strings.TrimPrefix(pd, "https://"), nil
 	}
 	return pd, nil
+}
+
+// check whether it's a bug before #647, to solve case #1
+// If the storage is set as gcs://bucket/prefix,
+// the SSTs are written correctly to gcs://bucket/prefix/*.sst
+// but the backupmeta is written wrongly to gcs://bucket/prefixbackupmeta.
+// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
+func gcsObjectNotFound(err error) bool {
+	return errors.Cause(err) == gcs.ErrObjectNotExist // nolint:errorlint
 }

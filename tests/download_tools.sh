@@ -65,6 +65,18 @@ if [ ! -e "$BIN/minio" ]; then
     chmod a+x "$BIN/minio"
 fi
 
+if [ ! -e "$BIN/fake-gcs-server" ]; then
+    echo "Downloading fake-gcs-server..."
+    curl -L -f -o "$BIN/fake-gcs-server" "http://lease.pingcap.org/fake-gcs-server"
+    chmod a+x "$BIN/fake-gcs-server"
+fi
+
+if [ ! -e "$BIN/brv4.0.8" ]; then
+    echo "Downloading brv4.0.8..."
+    curl -L -f -o "$BIN/brv4.0.8" "http://lease.pingcap.org/brv4.0.8"
+    chmod a+x "$BIN/brv4.0.8"
+fi
+
 if [ ! -e "$BIN/cdc" ]; then
     echo "Downloading cdc..."
     curl -L -f -o "$BIN/cdc.tar.gz" "https://download.pingcap.org/ticdc-nightly-linux-amd64.tar.gz"

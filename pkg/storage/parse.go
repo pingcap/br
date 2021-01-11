@@ -22,18 +22,26 @@ type BackendOptions struct {
 	GCS GCSBackendOptions `json:"gcs" toml:"gcs"`
 }
 
+// ParseRawURL parse raw url to url object.
+func ParseRawURL(rawURL string) (*url.URL, error) {
+	// https://github.com/pingcap/br/issues/603
+	// In aws the secret key may contain '/+=' and '+' has a special meaning in URL.
+	// Replace "+" by "%2B" here to avoid this problem.
+	rawURL = strings.ReplaceAll(rawURL, "+", "%2B")
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return u, nil
+}
+
 // ParseBackend constructs a structured backend description from the
 // storage URL.
 func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBackend, error) {
 	if len(rawURL) == 0 {
 		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
-
-	// https://github.com/pingcap/br/issues/603
-	// In aws the secret key may contain '/+=' and '+' has a special meaning in URL.
-	// Replace "+" by "%2B" here to avoid this problem.
-	rawURL = strings.ReplaceAll(rawURL, "+", "%2B")
-	u, err := url.Parse(rawURL)
+	u, err := ParseRawURL(rawURL)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
