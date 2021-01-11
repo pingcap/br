@@ -36,7 +36,8 @@ Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
 2. Check that all 7 required executables and `br` executable exist
-3. Execute `tests/run.sh`
+3. Run `tests/up.sh` to build a testing Docker container
+4. Execute `tests/run.sh` in the testing Docker container
 
 If the first two steps are done before, you could also run `tests/run.sh` directly.
 This script will
