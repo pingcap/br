@@ -59,10 +59,10 @@ func NewCluster() (*Cluster, error) {
 
 	cluster := mocktikv.NewCluster()
 	client, pdClient, err := mocktikv.NewTiKVAndPDClient(cluster, nil, "")
-	mocktikv.BootstrapWithSingleStore(cluster)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	mocktikv.BootstrapWithSingleStore(cluster)
 	storage, err := tikv.NewTestTiKVStore(client, pdClient, nil, nil, 0)
 	if err != nil {
 		return nil, errors.Trace(err)
