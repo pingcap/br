@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
@@ -409,14 +409,10 @@ func ReadBackupMeta(
 	if err != nil {
 		if gcsObjectNotFound(err) {
 			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
-			parsedURL, err := storage.ParseRawURL(cfg.Storage)
-			if err != nil {
-				return nil, nil, nil, errors.Trace(err)
-			}
-			newPrefix, file := filepath.Split(parsedURL.Path)
+			newPrefix, file := path.Split(u.GetGcs().GetPrefix())
 			newFileName := file + fileName
-			cfg.Storage = strings.ReplaceAll(cfg.Storage, parsedURL.Path, newPrefix)
-			_, s, err = GetStorage(ctx, cfg)
+			u.GetGcs().Prefix = newPrefix
+			s, err = storage.Create(ctx, u, cfg.SendCreds)
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
