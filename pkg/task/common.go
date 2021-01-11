@@ -7,7 +7,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
-	filepath "path"
+	"path/filepath"
 	"strings"
 	"time"
 
