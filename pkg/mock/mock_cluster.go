@@ -57,14 +57,8 @@ func NewCluster() (*Cluster, error) {
 		}()
 	})
 
-<<<<<<< HEAD
 	cluster := mocktikv.NewCluster()
 	client, pdClient, err := mocktikv.NewTiKVAndPDClient(cluster, nil, "")
-	mocktikv.BootstrapWithSingleStore(cluster)
-=======
-	mvccStore := mocktikv.MustNewMVCCStore()
-	client, cluster, pdClient, err := mocktikv.NewTiKVAndPDClient("")
->>>>>>> 3de76b2... gcs: compatible with old gcs bug (#677)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
