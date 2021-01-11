@@ -284,6 +284,12 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
+
+			logger := log.With(
+				zap.String("db", dbInfo.Name.O),
+				zap.String("table", tableInfo.Name.O),
+			)
+
 			var globalAutoID int64
 			switch {
 			case tableInfo.IsSequence():
@@ -306,14 +312,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				log.Info("change table AutoRandID",
-					zap.Stringer("db", dbInfo.Name),
-					zap.Stringer("table", tableInfo.Name),
+				logger.Info("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			log.Info("change table AutoIncID",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tableInfo.Name),
+			logger.Info("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -341,11 +343,12 @@ func BuildBackupRangeAndSchema(
 			if !ignoreStats {
 				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
 				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-				stats, err = json.Marshal(jsonTable)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
+					logger.Error("dump table stats failed", logutil.ShortError(err))
+				} else {
+					stats, err = json.Marshal(jsonTable)
+					if err != nil {
+						logger.Error("dump table stats failed (cannot serialize)", logutil.ShortError(err))
+					}
 				}
 			}
 
