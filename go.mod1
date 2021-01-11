@@ -36,3 +36,5 @@ require (
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
 )
+
+replace cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2
