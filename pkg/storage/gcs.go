@@ -232,7 +232,9 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 }
 
 func hasSSTFiles(ctx context.Context, bucket *storage.BucketHandle, prefix string) bool {
-	it := bucket.Objects(ctx, &storage.Query{Prefix: prefix})
+	query := storage.Query{Prefix: prefix}
+	query.SetAttrSelection([]string{"Name"})
+	it := bucket.Objects(ctx, &query)
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done { // nolint:errorlint
