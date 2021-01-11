@@ -171,6 +171,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
+	err = client.PreCheckTableClusterIndex(tables, ddlJobs, mgr.GetDomain())
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	// pre-set TiDB config for restore
 	restoreDBConfig := enableTiDBConfig()
 	defer restoreDBConfig()

@@ -402,6 +402,13 @@ func (rc *Client) createTable(
 	if err != nil {
 		return CreatedTable{}, errors.Trace(err)
 	}
+	if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
+		return CreatedTable{}, errors.Annotatef(berrors.ErrRestoreModeMismatch,
+			"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+			transferBoolToValue(table.Info.IsCommonHandle),
+			table.Info.IsCommonHandle,
+			newTableInfo.IsCommonHandle)
+	}
 	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 	et := CreatedTable{
 		RewriteRule: rules,
@@ -974,4 +981,51 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+// PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。
+func (rc *Client) PreCheckTableClusterIndex(
+	tables []*utils.Table,
+	ddlJobs []*model.Job,
+	dom *domain.Domain,
+) error {
+	for _, table := range tables {
+		oldTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
+		// table exists in database
+		if err == nil {
+			if table.Info.IsCommonHandle != oldTableInfo.IsCommonHandle {
+				return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+					"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+					transferBoolToValue(table.Info.IsCommonHandle),
+					table.Info.IsCommonHandle,
+					oldTableInfo.IsCommonHandle)
+			}
+		}
+	}
+	for _, job := range ddlJobs {
+		if job.Type == model.ActionCreateTable {
+			tableInfo := job.BinlogInfo.TableInfo
+			if tableInfo != nil {
+				oldTableInfo, err := rc.GetTableSchema(dom, model.NewCIStr(job.SchemaName), tableInfo.Name)
+				// table exists in database
+				if err == nil {
+					if tableInfo.IsCommonHandle != oldTableInfo.IsCommonHandle {
+						return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+							"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+							transferBoolToValue(tableInfo.IsCommonHandle),
+							tableInfo.IsCommonHandle,
+							oldTableInfo.IsCommonHandle)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func transferBoolToValue(enable bool) string {
+	if enable {
+		return "ON"
+	}
+	return "OFF"
 }
