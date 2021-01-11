@@ -409,7 +409,8 @@ func ReadBackupMeta(
 	if err != nil {
 		if gcsObjectNotFound(err) {
 			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
-			newPrefix, file := path.Split(u.GetGcs().GetPrefix())
+			oldPrefix := u.GetGcs().GetPrefix()
+			newPrefix, file := path.Split(oldPrefix)
 			newFileName := file + fileName
 			u.GetGcs().Prefix = newPrefix
 			s, err = storage.Create(ctx, u, cfg.SendCreds)
@@ -421,6 +422,8 @@ func ReadBackupMeta(
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
+			// reset prefix for tikv download sst file correctly.
+			u.GetGcs().Prefix = oldPrefix
 		} else {
 			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 		}
