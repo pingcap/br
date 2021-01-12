@@ -5,19 +5,7 @@ PACKAGES := go list ./...
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
-BR_PKG := github.com/pingcap/br
-
-VERSION := v5.0.0-master
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
-ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, use tag version.
-	VERSION := $(shell git describe --tags --dirty)
-else ifneq ($(shell git status --porcelain),)
-	# Add -dirty if the working tree is dirty for non release branch.
-	VERSION := $(VERSION)-dirty
-endif
-
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(shell git describe --tags --dirty)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
