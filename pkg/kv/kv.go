@@ -109,16 +109,10 @@ func newSimpleKVIter(pairs Pairs) Iter {
 
 // Seek implements Iter.Seek.
 func (s *SimpleKVIter) Seek(key []byte) bool {
-	index := sort.Search(len(s.pairs), func(i int) bool {
+	s.index := sort.Search(len(s.pairs), func(i int) bool {
 		return bytes.Compare(key, s.pairs[i].Key) < 1
 	})
-	if index < len(s.pairs) {
-		s.index = index
-		return true
-	}
-	// key not found in pairs.
-	s.index = len(s.pairs) - 1
-	return false
+	return s.index < len(s.pairs)
 }
 
 // Error implements Iter.Error.
