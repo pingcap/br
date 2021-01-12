@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
@@ -131,7 +133,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 // SetLockFile set write lock file.
 func (bc *Client) SetLockFile(ctx context.Context) error {
-	return bc.storage.Write(ctx, utils.LockFile,
+	return bc.storage.WriteFile(ctx, utils.LockFile,
 		[]byte("DO NOT DELETE\n"+
 			"This file exists to remind other backup jobs won't use this path"))
 }
@@ -197,6 +199,12 @@ func BuildBackupMeta(
 
 // SaveBackupMeta saves the current backup meta at the given path.
 func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.BackupMeta) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.SaveBackupMeta", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	backupMetaData, err := proto.Marshal(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -204,7 +212,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.Backup
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
-	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
+	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
 // BuildTableRanges returns the key ranges encompassing the entire table,
@@ -244,7 +252,9 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 	return kvRanges, nil
 }
 
-// BuildBackupRangeAndSchema gets the range and schema of tables.
+// BuildBackupRangeAndSchema gets KV range and schema of tables.
+// KV ranges are separated by Table IDs.
+// Also, KV ranges are separated by Index IDs in the same table.
 func BuildBackupRangeAndSchema(
 	dom *domain.Domain,
 	storage kv.Storage,
@@ -282,6 +292,12 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
+
+			logger := log.With(
+				zap.String("db", dbInfo.Name.O),
+				zap.String("table", tableInfo.Name.O),
+			)
+
 			var globalAutoID int64
 			switch {
 			case tableInfo.IsSequence():
@@ -304,14 +320,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				log.Info("change table AutoRandID",
-					zap.Stringer("db", dbInfo.Name),
-					zap.Stringer("table", tableInfo.Name),
+				logger.Info("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			log.Info("change table AutoIncID",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tableInfo.Name),
+			logger.Info("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -339,11 +351,12 @@ func BuildBackupRangeAndSchema(
 			if !ignoreStats {
 				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
 				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-				stats, err = json.Marshal(jsonTable)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
+					logger.Error("dump table stats failed", logutil.ShortError(err))
+				} else {
+					stats, err = json.Marshal(jsonTable)
+					if err != nil {
+						logger.Error("dump table stats failed (cannot serialize)", logutil.ShortError(err))
+					}
 				}
 			}
 
@@ -427,6 +440,12 @@ func (bc *Client) BackupRanges(
 	concurrency uint,
 	updateCh glue.Progress,
 ) ([]*kvproto.File, error) {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	errCh := make(chan error)
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
@@ -594,6 +613,12 @@ func (bc *Client) fineGrainedBackup(
 	rangeTree rtree.RangeTree,
 	updateCh glue.Progress,
 ) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("Client.fineGrainedBackup", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
@@ -823,6 +848,15 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan(
+			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
+				storeID, logutil.WrapKey(req.StartKey), logutil.WrapKey(req.EndKey)),
+			opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {

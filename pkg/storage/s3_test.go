@@ -431,7 +431,7 @@ func (s *s3Suite) TestS3Range(c *C) {
 	c.Assert(err, ErrorMatches, "invalid content range: 'bytes '.*")
 }
 
-// TestWriteNoError ensures the Write API issues a PutObject request and wait
+// TestWriteNoError ensures the WriteFile API issues a PutObject request and wait
 // until the object is available in the S3 bucket.
 func (s *s3Suite) TestWriteNoError(c *C) {
 	s.setUpTest(c)
@@ -460,11 +460,11 @@ func (s *s3Suite) TestWriteNoError(c *C) {
 		}).
 		After(putCall)
 
-	err := s.storage.Write(ctx, "file", []byte("test"))
+	err := s.storage.WriteFile(ctx, "file", []byte("test"))
 	c.Assert(err, IsNil)
 }
 
-// TestReadNoError ensures the Read API issues a GetObject request and correctly
+// TestReadNoError ensures the ReadFile API issues a GetObject request and correctly
 // read the entire body.
 func (s *s3Suite) TestReadNoError(c *C) {
 	s.setUpTest(c)
@@ -481,7 +481,7 @@ func (s *s3Suite) TestReadNoError(c *C) {
 			}, nil
 		})
 
-	content, err := s.storage.Read(ctx, "file")
+	content, err := s.storage.ReadFile(ctx, "file")
 	c.Assert(err, IsNil)
 	c.Assert(content, DeepEquals, []byte("test"))
 }
@@ -534,7 +534,7 @@ func (s *s3Suite) TestWriteError(c *C) {
 		PutObjectWithContext(ctx, gomock.Any()).
 		Return(nil, expectedErr)
 
-	err := s.storage.Write(ctx, "file2", []byte("test"))
+	err := s.storage.WriteFile(ctx, "file2", []byte("test"))
 	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
 }
 
@@ -550,7 +550,7 @@ func (s *s3Suite) TestReadError(c *C) {
 		GetObjectWithContext(ctx, gomock.Any()).
 		Return(nil, expectedErr)
 
-	_, err := s.storage.Read(ctx, "file-missing")
+	_, err := s.storage.ReadFile(ctx, "file-missing")
 	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
 }
 
@@ -748,9 +748,10 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	c.Assert(err, IsNil)
 	defer reader.Close()
 
+	var n int
 	slice := make([]byte, 30)
 	readAndCheck := func(cnt, offset int) {
-		n, err := io.ReadFull(reader, slice[:cnt])
+		n, err = io.ReadFull(reader, slice[:cnt])
 		c.Assert(err, IsNil)
 		c.Assert(n, Equals, cnt)
 		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])
@@ -766,7 +767,7 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	readAndCheck(20, 75)
 
 	// there only remains 10 bytes
-	n, err := reader.Read(slice)
+	n, err = reader.Read(slice)
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 5)
 
@@ -792,9 +793,10 @@ func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
 	c.Assert(err, IsNil)
 	defer reader.Close()
 
+	var n int
 	slice := make([]byte, 20)
 	readAndCheck := func(cnt, offset int) {
-		n, err := io.ReadFull(reader, slice[:cnt])
+		n, err = io.ReadFull(reader, slice[:cnt])
 		c.Assert(err, IsNil)
 		c.Assert(n, Equals, cnt)
 		c.Assert(slice[:cnt], DeepEquals, someRandomBytes[offset:offset+cnt])

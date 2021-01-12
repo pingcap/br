@@ -26,6 +26,15 @@ func (rg *Range) String() string {
 	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
+// BytesAndKeys returns total bytes and keys in a range.
+func (rg *Range) BytesAndKeys() (bytes, keys uint64) {
+	for _, f := range rg.Files {
+		bytes += f.TotalBytes
+		keys += f.TotalKvs
+	}
+	return
+}
+
 // Intersect returns intersect range in the tree.
 func (rg *Range) Intersect(
 	start, end []byte,

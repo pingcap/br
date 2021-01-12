@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -73,6 +74,13 @@ func (rs *RegionSplitter) Split(
 	if len(ranges) == 0 {
 		return nil
 	}
+
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("RegionSplitter.Split", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
 	startTime := time.Now()
 	// Sort the range for getting the min and max key of the ranges
 	sortedRanges, errSplit := SortRanges(ranges, rewriteRules)

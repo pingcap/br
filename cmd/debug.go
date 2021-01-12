@@ -112,7 +112,7 @@ func newCheckSumCommand() *cobra.Command {
 					)
 
 					var data []byte
-					data, err = s.Read(ctx, file.Name)
+					data, err = s.ReadFile(ctx, file.Name)
 					if err != nil {
 						return errors.Trace(err)
 					}
@@ -143,9 +143,18 @@ origin sha256 is %s`,
 
 func newBackupMetaCommand() *cobra.Command {
 	command := &cobra.Command{
-		Use:   "backupmeta",
-		Short: "check the backup meta",
-		Args:  cobra.NoArgs,
+		Use:          "backupmeta",
+		Short:        "utilities of backupmeta",
+		SilenceUsage: false,
+	}
+	command.AddCommand(newBackupMetaValidateCommand())
+	return command
+}
+
+func newBackupMetaValidateCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "validate",
+		Short: "validate key range and rewrite rules of backupmeta",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithCancel(GetDefaultContext())
 			defer cancel()
@@ -234,7 +243,6 @@ func newBackupMetaCommand() *cobra.Command {
 		},
 	}
 	command.Flags().Uint64("offset", 0, "the offset of table id alloctor")
-	command.Hidden = true
 	return command
 }
 
@@ -263,7 +271,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+				err = s.WriteFile(ctx, utils.MetaJSONFile, backupMetaJSON)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -317,7 +325,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			metaData, err := s.Read(ctx, utils.MetaJSONFile)
+			metaData, err := s.ReadFile(ctx, utils.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -337,7 +345,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				// Do not overwrite origin meta file
 				fileName += "_from_json"
 			}
-			err = s.Write(ctx, fileName, backupMeta)
+			err = s.WriteFile(ctx, fileName, backupMeta)
 			if err != nil {
 				return errors.Trace(err)
 			}

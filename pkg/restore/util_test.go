@@ -95,7 +95,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 	c.Assert(result[2], DeepEquals, filesOfTable2)
 }
 
-func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
+func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	rules := &restore.RewriteRules{
 		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
@@ -104,34 +104,34 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 	}
 
 	// Empty start/end key is not allowed.
-	_, err := restore.ValidateFileRanges(
-		[]*backup.File{&backup.File{
+	err := restore.ValidateFileRewriteRule(
+		&backup.File{
 			Name:     "file_write.sst",
 			StartKey: []byte(""),
 			EndKey:   []byte(""),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// Range is not overlap, no rule found.
-	_, err = restore.ValidateFileRanges(
-		[]*backup.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backup.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(0),
 			EndKey:   tablecodec.EncodeTablePrefix(1),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// No rule for end key.
-	_, err = restore.ValidateFileRanges(
-		[]*backup.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backup.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
@@ -141,12 +141,12 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
-	_, err = restore.ValidateFileRanges(
-		[]*backup.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backup.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*restore table ID mismatch")
@@ -156,12 +156,12 @@ func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
-	_, err = restore.ValidateFileRanges(
-		[]*backup.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backup.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*unexpected rewrite rules.*")

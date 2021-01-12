@@ -7,9 +7,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
+	gcs "cloud.google.com/go/storage"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
@@ -62,6 +64,8 @@ const (
 	flagGrpcKeepaliveTime = "grpc-keepalive-time"
 	// flagGrpcKeepaliveTimeout is the max time a grpc conn can keep idel before killed.
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
+	// flagEnableOpenTracing is whether to enable opentracing
+	flagEnableOpenTracing = "enable-opentracing"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -120,8 +124,10 @@ type Config struct {
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter        filter.Filter `json:"-" toml:"-"`
-	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
+	TableFilter       filter.Filter `json:"-" toml:"-"`
+	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
+	// EnableOpenTracing is whether to enable opentracing
+	EnableOpenTracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -166,6 +172,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"the max time a gRPC connection can keep idle before killed, must keep the same value with TiKV and PD")
 	_ = flags.MarkHidden(flagGrpcKeepaliveTime)
 	_ = flags.MarkHidden(flagGrpcKeepaliveTimeout)
+
+	flags.Bool(flagEnableOpenTracing, false,
+		"Set whether to enable opentracing during the backup/restore process")
 
 	storage.DefineFlags(flags)
 }
@@ -306,6 +315,10 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	cfg.EnableOpenTracing, err = flags.GetBool(flagEnableOpenTracing)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if cfg.SwitchModeInterval <= 0 {
 		return errors.Annotatef(berrors.ErrInvalidArgument, "--switch-mode-interval must be positive, %s is not allowed", cfg.SwitchModeInterval)
@@ -392,9 +405,28 @@ func ReadBackupMeta(
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
 	}
-	metaData, err := s.Read(ctx, fileName)
+	metaData, err := s.ReadFile(ctx, fileName)
 	if err != nil {
-		return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
+		if gcsObjectNotFound(err) {
+			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
+			oldPrefix := u.GetGcs().GetPrefix()
+			newPrefix, file := path.Split(oldPrefix)
+			newFileName := file + fileName
+			u.GetGcs().Prefix = newPrefix
+			s, err = storage.Create(ctx, u, cfg.SendCreds)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			log.Info("retry load metadata in gcs", zap.String("newPrefix", newPrefix), zap.String("newFileName", newFileName))
+			metaData, err = s.ReadFile(ctx, newFileName)
+			if err != nil {
+				return nil, nil, nil, errors.Trace(err)
+			}
+			// reset prefix for tikv download sst file correctly.
+			u.GetGcs().Prefix = oldPrefix
+		} else {
+			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
+		}
 	}
 	backupMeta := &backup.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
@@ -465,4 +497,13 @@ func normalizePDURL(pd string, useTLS bool) (string, error) {
 		return strings.TrimPrefix(pd, "https://"), nil
 	}
 	return pd, nil
+}
+
+// check whether it's a bug before #647, to solve case #1
+// If the storage is set as gcs://bucket/prefix,
+// the SSTs are written correctly to gcs://bucket/prefix/*.sst
+// but the backupmeta is written wrongly to gcs://bucket/prefixbackupmeta.
+// see details https://github.com/pingcap/br/issues/675#issuecomment-753780742
+func gcsObjectNotFound(err error) bool {
+	return errors.Cause(err) == gcs.ErrObjectNotExist // nolint:errorlint
 }

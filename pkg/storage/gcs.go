@@ -7,12 +7,16 @@ import (
 	"io"
 	"io/ioutil"
 	"path"
+	"strings"
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 	"golang.org/x/oauth2/google"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -89,8 +93,8 @@ func (s *gcsStorage) objectName(name string) string {
 	return path.Join(s.gcs.Prefix, name)
 }
 
-// Write file to storage.
-func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error {
+// WriteFile writes data to a file to storage.
+func (s *gcsStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	object := s.objectName(name)
 	wc := s.bucket.Object(object).NewWriter(ctx)
 	wc.StorageClass = s.gcs.StorageClass
@@ -102,8 +106,8 @@ func (s *gcsStorage) Write(ctx context.Context, name string, data []byte) error 
 	return wc.Close()
 }
 
-// Read storage file.
-func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
+// ReadFile reads the file from the storage and returns the contents.
+func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
@@ -111,8 +115,15 @@ func (s *gcsStorage) Read(ctx context.Context, name string) ([]byte, error) {
 	}
 	defer rc.Close()
 
-	b := make([]byte, rc.Attrs.Size)
-	_, err = io.ReadFull(rc, b)
+	size := rc.Attrs.Size
+	var b []byte
+	if size < 0 {
+		// happened when using fake-gcs-server in integration test
+		b, err = ioutil.ReadAll(rc)
+	} else {
+		b = make([]byte, size)
+		_, err = io.ReadFull(rc, b)
+	}
 	return b, errors.Trace(err)
 }
 
@@ -130,7 +141,7 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 }
 
 // Open a Reader by file path.
-func (s *gcsStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
 }
@@ -150,10 +161,13 @@ func (s *gcsStorage) URI() string {
 	return "gcs://" + s.gcs.Bucket + "/" + s.gcs.Prefix
 }
 
-// CreateUploader implenments ExternalStorage interface.
-func (s *gcsStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	// TODO, implement this if needed
-	panic("gcs storage not support multi-upload")
+// Create implements ExternalStorage interface.
+func (s *gcsStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	object := s.objectName(name)
+	wc := s.bucket.Object(object).NewWriter(ctx)
+	wc.StorageClass = s.gcs.StorageClass
+	wc.PredefinedACL = s.gcs.PredefinedAcl
+	return newFlushStorageWriter(wc, &emptyFlusher{}, wc), nil
 }
 
 func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
@@ -171,7 +185,9 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
 			}
 		}
-		clientOps = append(clientOps, option.WithCredentials(creds))
+		if creds != nil {
+			clientOps = append(clientOps, option.WithCredentials(creds))
+		}
 	} else {
 		clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
 	}
@@ -193,6 +209,18 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 	}
 
 	bucket := client.Bucket(gcs.Bucket)
+	// check whether it's a bug before #647, to solve case #2
+	// If the storage is set as gcs://bucket/prefix/,
+	// the backupmeta is written correctly to gcs://bucket/prefix/backupmeta,
+	// but the SSTs are written wrongly to gcs://bucket/prefix//*.sst (note the extra slash).
+	// see details about case 2 at https://github.com/pingcap/br/issues/675#issuecomment-753780742
+	sstInPrefix := hasSSTFiles(ctx, bucket, gcs.Prefix)
+	sstInPrefixSlash := hasSSTFiles(ctx, bucket, gcs.Prefix+"//")
+	if sstInPrefixSlash && !sstInPrefix {
+		// This is a old bug, but we must make it compatible.
+		// so we need find sst in slash directory
+		gcs.Prefix += "//"
+	}
 	if !opts.SkipCheckPath {
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)
@@ -201,4 +229,25 @@ func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOp
 		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
+}
+
+func hasSSTFiles(ctx context.Context, bucket *storage.BucketHandle, prefix string) bool {
+	query := storage.Query{Prefix: prefix}
+	_ = query.SetAttrSelection([]string{"Name"})
+	it := bucket.Objects(ctx, &query)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done { // nolint:errorlint
+			break
+		}
+		if err != nil {
+			log.Warn("failed to list objects on gcs, will use default value for `prefix`", zap.Error(err))
+			break
+		}
+		if strings.HasSuffix(attrs.Name, ".sst") {
+			log.Info("sst file found in prefix slash", zap.String("file", attrs.Name))
+			return true
+		}
+	}
+	return false
 }
