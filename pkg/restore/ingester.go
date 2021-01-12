@@ -157,8 +157,10 @@ func (i *Ingester) writeAndIngestByRange(
 	default:
 	}
 	iter := iterProducer.Produce(start, end)
-	pairStart := append([]byte{}, iter.First()...)
-	pairEnd := append([]byte{}, iter.Last()...)
+	iter.First()
+	pairStart := append([]byte{}, iter.Key()...)
+	iter.Last()
+	pairEnd := append([]byte{}, iter.Key()...)
 	if bytes.Compare(pairStart, pairEnd) > 0 {
 		log.Debug("There is no pairs in iterator", zap.Binary("start", start),
 			zap.Binary("end", end), zap.Binary("pairStart", pairStart), zap.Binary("pairEnd", pairEnd))
@@ -315,9 +317,10 @@ func (i *Ingester) writeToTiKV(
 	if iter.Seek(regionRange.End) {
 		lastKey = codec.EncodeBytes(iter.Key())
 	} else {
+		iter.Last()
 		log.Info("region range's end key not in iter, shouldn't happen",
-			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Last()))
-		lastKey = codec.EncodeBytes(kv.NextKey(iter.Last()))
+			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Key()))
+		lastKey = codec.EncodeBytes(kv.NextKey(iter.Key()))
 	}
 
 	if bytes.Compare(firstKey, lastKey) > 0 {

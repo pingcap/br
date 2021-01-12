@@ -43,9 +43,9 @@ type Iter interface {
 	// Error return current error on this iter.
 	Error() error
 	// First return the first key in this iter.
-	First() []byte
+	First() bool
 	// Last return the last key in this iter.
-	Last() []byte
+	Last() bool
 	// Valid check this iter reach the end.
 	Valid() bool
 	// Next moves this iter forward.
@@ -85,7 +85,7 @@ func (p *SimpleKVIterProducer) Produce(start []byte, end []byte) Iter {
 		return bytes.Compare(end, p.pairs[i].Key) < 1
 	})
 	if startIndex >= endIndex {
-		log.WARN("produce failed due to start key is large than end key",
+		log.Warn("produce failed due to start key is large than end key",
 			zap.Binary("start", start), zap.Binary("end", end))
 		return nil
 	}
@@ -121,21 +121,21 @@ func (s *SimpleKVIter) Error() error {
 }
 
 // First implements Iter.First.
-func (s *SimpleKVIter) First() []byte {
+func (s *SimpleKVIter) First() bool {
 	if len(s.pairs) == 0 {
-		return nil
+		return false
 	}
 	s.index = 0
-	return s.pairs[s.index].Key
+	return true
 }
 
 // Last implements Iter.Last.
-func (s *SimpleKVIter) Last() []byte {
+func (s *SimpleKVIter) Last() bool {
 	if len(s.pairs) == 0 {
-		return nil
+		return false
 	}
 	s.index = len(s.pairs) - 1
-	return s.pairs[s.index].Key
+	return true
 }
 
 // Valid implements Iter.Valid.

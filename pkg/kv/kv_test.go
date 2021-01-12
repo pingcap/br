@@ -50,8 +50,8 @@ func (s *kvSuite) TestSimplePairIter(c *C) {
 		{Key: []byte("5"), Val: []byte("d")},
 	}
 	iter := newSimpleKVIter(pairs)
-	c.Assert(bytes.Equal(iter.First(), []byte("1")), IsTrue)
-	c.Assert(bytes.Equal(iter.Last(), []byte("5")), IsTrue)
+	c.Assert(iter.First(), IsTrue)
+	c.Assert(iter.Last(), IsTrue)
 
 	c.Assert(iter.Seek([]byte("1")), IsTrue)
 	c.Assert(bytes.Equal(iter.Key(), []byte("1")), IsTrue)
