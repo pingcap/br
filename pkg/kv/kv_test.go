@@ -74,9 +74,7 @@ func (s *kvSuite) TestSimplePairIter(c *C) {
 	c.Assert(bytes.Equal(iter.Value(), []byte("d")), IsTrue)
 	c.Assert(iter.Valid(), IsTrue)
 
-	// 6 not exists, so seek position will move to 5.
+	// 6 not exists, so seek position will not valid.
 	c.Assert(iter.Seek([]byte("6")), IsFalse)
-	c.Assert(bytes.Equal(iter.Key(), []byte("5")), IsTrue)
-	c.Assert(bytes.Equal(iter.Value(), []byte("d")), IsTrue)
-	c.Assert(iter.Valid(), IsTrue)
+	c.Assert(iter.Valid(), IsFalse)
 }
