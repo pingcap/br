@@ -44,7 +44,7 @@ const (
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
 	// FlagRedactLog is whether to redact sensitive information in log.
-	FlagRedactLog = "redact-log"
+	FlagRedactLog = "redact-info-log"
 
 	flagVersion      = "version"
 	flagVersionShort = "V"
