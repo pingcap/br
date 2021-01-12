@@ -85,7 +85,7 @@ func (p *SimpleKVIterProducer) Produce(start []byte, end []byte) Iter {
 		return bytes.Compare(end, p.pairs[i].Key) < 1
 	})
 	if startIndex >= endIndex {
-		log.Error("produce failed due to start key is large than end key",
+		log.WARN("produce failed due to start key is large than end key",
 			zap.Binary("start", start), zap.Binary("end", end))
 		return nil
 	}
