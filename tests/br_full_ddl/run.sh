@@ -94,10 +94,10 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
 
 # stats should not be equal because we disable stats by default.
-if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
+if diff -q backup_stats restore_stats > /dev/null
 then
   echo "TEST: [$TEST_NAME] fail due to stats are equal"
   exit 1
