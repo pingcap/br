@@ -22,23 +22,12 @@ func runBackupCommand(command *cobra.Command, cmdName string) error {
 		command.SilenceUsage = false
 		return errors.Trace(err)
 	}
-<<<<<<< HEAD
-	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
-=======
-
-	ctx := GetDefaultContext()
-	if cfg.EnableOpenTracing {
-		var store *appdash.MemoryStore
-		ctx, store = trace.TracerStartSpan(ctx)
-		defer trace.TracerFinishSpan(ctx, store)
-	}
 	if cfg.IgnoreStats {
 		// Do not run stat worker in BR.
 		session.DisableStats4Test()
 	}
 
-	if err := task.RunBackup(ctx, tidbGlue, cmdName, &cfg); err != nil {
->>>>>>> 87eb3ed... stats: disable stats by default (#693)
+	if err := task.RunBackup(GetDefaultContext(), tidbGlue, cmdName, &cfg); err != nil {
 		log.Error("failed to backup", zap.Error(err))
 		return errors.Trace(err)
 	}
