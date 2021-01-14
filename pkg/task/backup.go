@@ -83,7 +83,11 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	// This flag can impact the online cluster, so hide it in case of abuse.
 	_ = flags.MarkHidden(flagRemoveSchedulers)
 
-	flags.Bool(flagIgnoreStats, false,
+	// Disable stats by default. because of
+	// 1. DumpStatsToJson is not stable
+	// 2. It increases memory usage may cause BR OOM
+	// TODO: we need a better way to backup/restore stats.
+	flags.Bool(flagIgnoreStats, true,
 		"ignore backup stats, used for test")
 	// This flag is used for test. we should backup stats all the time.
 	_ = flags.MarkHidden(flagIgnoreStats)

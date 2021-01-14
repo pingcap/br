@@ -66,12 +66,12 @@ run_sql "analyze table $DB.$TABLE;"
 curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $BACKUP_STAT
 
 # backup full
-echo "backup start..."
+echo "backup start with stats..."
 # Do not log to terminal
 unset BR_LOG_TO_TERM
 cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
 
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG || cat $LOG
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG --ignore-stats=false || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
 if [ "${checksum_count}" != "1" ];then
@@ -79,6 +79,9 @@ if [ "${checksum_count}" != "1" ];then
     echo $(cat $LOG | grep checksum)
     exit 1
 fi
+
+echo "backup start without stats..."
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/${DB}_disable_stats" --concurrency 4
 
 run_sql "DROP DATABASE $DB;"
 
@@ -90,6 +93,20 @@ if [[ "${cluster_index_before_backup}" != "${cluster_index_before_restore}" ]]; 
   echo "cluster index before restore is $cluster_index_before_restore"
   exit 1
 fi
+
+echo "restore full without stats..."
+run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
+
+# stats should not be equal because we disable stats by default.
+if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
+then
+  echo "TEST: [$TEST_NAME] fail due to stats are equal"
+  exit 1
+fi
+
+# clear restore environment
+run_sql "DROP DATABASE $DB;"
 
 # restore full
 echo "restore start..."
