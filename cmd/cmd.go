@@ -42,6 +42,13 @@ const (
 	FlagStatusAddr = "status-addr"
 	// FlagSlowLogFile is the name of slow-log-file flag.
 	FlagSlowLogFile = "slow-log-file"
+<<<<<<< HEAD
+=======
+	// FlagRedactLog is whether to redact sensitive information in log, already deprecated by FlagRedactInfoLog
+	FlagRedactLog = "redact-log"
+	// FlagRedactInfoLog is whether to redact sensitive information in log.
+	FlagRedactInfoLog = "redact-info-log"
+>>>>>>> 06fea0e... cmd/: change redact log parameter name (#692)
 
 	flagVersion      = "version"
 	flagVersionShort = "V"
@@ -63,6 +70,13 @@ func AddFlags(cmd *cobra.Command) {
 		"Set the log file path. If not set, logs will output to temp file")
 	cmd.PersistentFlags().String(FlagLogFormat, "text",
 		"Set the log format")
+<<<<<<< HEAD
+=======
+	cmd.PersistentFlags().Bool(FlagRedactLog, false,
+		"Set whether to redact sensitive info in log, already deprecated by --redact-info-log")
+	cmd.PersistentFlags().Bool(FlagRedactInfoLog, false,
+		"Set whether to redact sensitive info in log")
+>>>>>>> 06fea0e... cmd/: change redact log parameter name (#692)
 	cmd.PersistentFlags().String(FlagStatusAddr, "",
 		"Set the HTTP listening address for the status report service. Set to empty string to disable")
 	task.DefineCommonFlags(cmd.PersistentFlags())
@@ -70,6 +84,7 @@ func AddFlags(cmd *cobra.Command) {
 	cmd.PersistentFlags().StringP(FlagSlowLogFile, "", "",
 		"Set the slow log file path. If not set, discard slow logs")
 	_ = cmd.PersistentFlags().MarkHidden(FlagSlowLogFile)
+	_ = cmd.PersistentFlags().MarkHidden(FlagRedactLog)
 }
 
 // Init initializes BR cli.
@@ -107,6 +122,21 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 		log.ReplaceGlobals(lg, p)
 
+<<<<<<< HEAD
+=======
+		redactLog, e := cmd.Flags().GetBool(FlagRedactLog)
+		if e != nil {
+			err = e
+			return
+		}
+		redactInfoLog, e := cmd.Flags().GetBool(FlagRedactInfoLog)
+		if e != nil {
+			err = e
+			return
+		}
+		brlogutil.InitRedact(redactLog || redactInfoLog)
+
+>>>>>>> 06fea0e... cmd/: change redact log parameter name (#692)
 		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
 		if e != nil {
 			err = e
