@@ -19,7 +19,7 @@ import (
 
 func main() {
 	http.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"access_token": "ok", "token_type":"service_account", "expires_in":3600}`))
+		_, _ = w.Write([]byte(`{"access_token": "ok", "token_type":"service_account", "expires_in":3600}`))
 	})
-	http.ListenAndServe(":5000", nil)
+	_ = http.ListenAndServe(":5000", nil)
 }
