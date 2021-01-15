@@ -5,6 +5,7 @@ package cmd
 import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	"github.com/pingcap/tidb/session"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"sourcegraph.com/sourcegraph/appdash"
@@ -90,6 +91,7 @@ func NewRestoreCommand() *cobra.Command {
 			}
 			utils.LogBRInfo()
 			task.LogArguments(c)
+			session.DisableStats4Test()
 
 			summary.SetUnit(summary.RestoreUnit)
 			return nil
