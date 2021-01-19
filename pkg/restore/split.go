@@ -138,16 +138,19 @@ SplitRegions:
 					interval = SplitMaxRetryInterval
 				}
 				time.Sleep(interval)
-				if i > 3 {
-					log.Warn("splitting regions failed, retry it",
-						zap.Error(errSplit),
-						logutil.Region(region.Region),
-						zap.Any("leader", region.Leader),
-						logutil.Keys(keys))
-				}
+				log.Warn("splitting regions failed, retry it",
+					zap.Error(errSplit),
+					logutil.Region(region.Region),
+					zap.Any("leader", region.Leader),
+					logutil.Keys(keys))
 				continue SplitRegions
 			}
 			log.Info("split regions", logutil.Region(region.Region), logutil.Keys(keys))
+			if len(newRegions) != len(keys) {
+				log.Warn("split key count and new region count mismatch",
+					zap.Int("new region count", len(newRegions)),
+					zap.Int("split key count", len(keys)))
+			}
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
