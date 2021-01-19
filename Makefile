@@ -52,6 +52,7 @@ build_for_integration_test:
 	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_compatible_gcs/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
@@ -73,6 +74,9 @@ testcover: tools
 
 integration_test: bins build build_for_integration_test
 	tests/run.sh
+
+compatible_test: bins build build_for_integration_test
+	tests/run_compatible.sh
 
 bins:
 	@which bin/tidb-server
