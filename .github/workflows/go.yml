@@ -19,7 +19,10 @@ jobs:
         go-version: 1.15
 
     - name: Build
-      run: go build -v ./...
+      run: make build
 
-    - name: Test
-      run: go test -v ./...
+    - name: downloads tools
+      run: tests/download_tools.sh
+
+    - name: Integration test
+      run: TEST_NAME=br_gcs make integration_test
