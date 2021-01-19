@@ -34,9 +34,7 @@ BUCKET="test"
 DATA_PATH="$TEST_DIR/storage"
 EXPECTED_KVS=8000000
 
-rm -rf "$TEST_DIR/"
-mkdir -p "$TEST_DIR/"
-
+mkdir -p "$DATA_PATH"
 # download gcs backup data from file server and extract to storage path.
 curl http://fileserver.pingcap.net/download/builds/pingcap/br/gcs_backup_data.tar.gz -o $TEST_DIR/gcs_data.tar.gz
 tar -zxvf $TEST_DIR/gcs_data.tar.gz -C $DATA_PATH
@@ -89,9 +87,9 @@ for i in `seq 5 10`
 do
     echo "restore v4.0.$i data starts..."
     LOG_PATH=$TEST_DIR/restore.log.v4.0.$i
-    run_br restore db --db tr -s "gcs://$BUCKET/brv4.0.$i" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH
-    kvs=$(cat $LOG_PATH | grep summary |  awk -F 'total kv:' '{print $2}' | awk -F '"' '{print $1}' | xargs)
-    if [ $ret -ne $EXPECTED_KVS ]; then
+    run_br restore db --db tr -s "gcs://$BUCKET/bkv4.0.$i" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH
+    kvs=$(cat $LOG_PATH | grep summary |  awk -F 'total kv:' '{print $2}' | awk -F '"' '{print $1}' | awk -F ',' '{print $1}' | xargs)
+    if [ $kvs -ne $EXPECTED_KVS ]; then
         echo "restore v4.0.$i data failed due to restore data not as expected"
         cat $LOG_PATH
         exit 1

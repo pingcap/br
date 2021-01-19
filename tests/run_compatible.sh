@@ -33,7 +33,7 @@ if [ "${1-}" = '--debug' ]; then
     read line
 fi
 
-for script in $(find tests/ -name "br_compatible_*/run.sh"); do
+for script in tests/br_compatible_*/run.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
