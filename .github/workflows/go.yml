@@ -1,10 +1,10 @@
-name: Go
+name: compatible-test
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, release-4.0 ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, release-4.0 ]
 
 jobs:
 
@@ -18,8 +18,14 @@ jobs:
       with:
         go-version: 1.15
 
-    - name: Build
-      run: go build -v ./...
+    - name: Pull images
+      run: docker-compose -f docker-compose.yaml pull --ignore-pull-failures
 
-    - name: Test
-      run: go test -v ./...
+    - name: Build
+      run: make compatible
+
+    - name: Start server
+      run: docker-compose up -d
+
+    - name: Compatible test
+      run: TEST_NAME=br_gcs make compatible
