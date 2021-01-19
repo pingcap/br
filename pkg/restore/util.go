@@ -124,14 +124,14 @@ func GetSSTMetaFromFile(
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Panic("range start exceed range end",
 			logutil.File(file),
-			zap.Stringer("rangeStart", logutil.WrapKey(rangeStart)),
-			zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd)))
+			logutil.Key("startKey", rangeStart),
+			logutil.Key("endKey", rangeEnd))
 	}
 
 	log.Debug("get sstMeta",
 		logutil.File(file),
-		zap.Stringer("rangeStart", logutil.WrapKey(rangeStart)),
-		zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd)))
+		logutil.Key("startKey", rangeStart),
+		logutil.Key("endKey", rangeEnd))
 
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
@@ -180,14 +180,14 @@ func MapTableToFiles(files []*kvproto.File) map[int64][]*kvproto.File {
 		if tableID != tableEndID {
 			log.Panic("key range spread between many files.",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Key("startKey", file.StartKey),
+				logutil.Key("endKey", file.EndKey))
 		}
 		if tableID == 0 {
 			log.Panic("invalid table key of file",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Key("startKey", file.StartKey),
+				logutil.Key("endKey", file.EndKey))
 		}
 		result[tableID] = append(result[tableID], file)
 	}
@@ -402,7 +402,7 @@ func rewriteFileKeys(file *kvproto.File, rewriteRules *RewriteRules) (startKey, 
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+				logutil.Key("startKey", file.GetStartKey()),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
@@ -417,8 +417,8 @@ func rewriteFileKeys(file *kvproto.File, rewriteRules *RewriteRules) (startKey, 
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)))
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey))
 		err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "invalid table id")
 	}
 	return
@@ -439,8 +439,8 @@ func PaginateScanRegion(
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
 		log.Error("restore range startKey >= endKey",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)))
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey))
 		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey")
 	}
 

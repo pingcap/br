@@ -575,7 +575,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				region = newRegion
 			} else {
 				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
-					zap.Any("leader", region.Leader), logutil.ZapRedactReflect("new region", newRegion),
+					zap.Any("leader", region.Leader), logutil.Region(newRegion.Region),
 					zap.Error(errIngest))
 				return errIngest
 			}

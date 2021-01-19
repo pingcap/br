@@ -127,9 +127,9 @@ SplitRegions:
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
 						log.Error("no valid key",
-							zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
-							zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)),
-							zap.Stringer("key", logutil.WrapKey(codec.EncodeBytes([]byte{}, key))))
+							logutil.Key("startKey", region.Region.StartKey),
+							logutil.Key("endKey", region.Region.EndKey),
+							logutil.Key("key", codec.EncodeBytes([]byte{}, key)))
 					}
 					return errors.Trace(errSplit)
 				}
@@ -143,11 +143,11 @@ SplitRegions:
 						zap.Error(errSplit),
 						logutil.Region(region.Region),
 						zap.Any("leader", region.Leader),
-						zap.Array("keys", logutil.WrapKeys(keys)))
+						logutil.Keys(keys))
 				}
 				continue SplitRegions
 			}
-			log.Debug("split regions", logutil.Region(region.Region), zap.Array("keys", logutil.WrapKeys(keys)))
+			log.Info("split regions", logutil.Region(region.Region), logutil.Keys(keys))
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
@@ -293,9 +293,9 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
 			log.Debug("get key for split region",
-				zap.Stringer("key", logutil.WrapKey(key)),
-				zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
-				zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)))
+				logutil.Key("key", key),
+				logutil.Key("startKey", region.Region.StartKey),
+				logutil.Key("endKey", region.Region.EndKey))
 		}
 	}
 	return splitKeyMap
