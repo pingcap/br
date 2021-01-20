@@ -13,6 +13,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/pingcap/br/pkg/redact"
 )
 
 type zapFileMarshaler struct{ *backup.File }
@@ -21,8 +23,8 @@ func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	enc.AddString("name", file.GetName())
 	enc.AddString("CF", file.GetCf())
 	enc.AddString("sha256", hex.EncodeToString(file.GetSha256()))
-	enc.AddString("startKey", RedactKey(file.GetStartKey()))
-	enc.AddString("endKey", RedactKey(file.GetEndKey()))
+	enc.AddString("startKey", redact.RedactKey(file.GetStartKey()))
+	enc.AddString("endKey", redact.RedactKey(file.GetEndKey()))
 	enc.AddUint64("startVersion", file.GetStartVersion())
 	enc.AddUint64("endVersion", file.GetEndVersion())
 	enc.AddUint64("totalKvs", file.GetTotalKvs())
@@ -48,8 +50,8 @@ func (region zapMarshalRegionMarshaler) MarshalLogObject(enc zapcore.ObjectEncod
 		peers = append(peers, peer.String())
 	}
 	enc.AddUint64("ID", region.Id)
-	enc.AddString("startKey", RedactKey(region.GetStartKey()))
-	enc.AddString("endKey", RedactKey(region.GetEndKey()))
+	enc.AddString("startKey", redact.RedactKey(region.GetStartKey()))
+	enc.AddString("endKey", redact.RedactKey(region.GetEndKey()))
 	enc.AddString("epoch", region.GetRegionEpoch().String())
 	enc.AddString("peers", strings.Join(peers, ","))
 	return nil
@@ -64,8 +66,8 @@ func (sstMeta zapSSTMetaMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) e
 	enc.AddUint64("length", sstMeta.Length)
 	enc.AddUint64("regionID", sstMeta.RegionId)
 	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
-	enc.AddString("startKey", RedactKey(sstMeta.GetRange().GetStart()))
-	enc.AddString("endKey", RedactKey(sstMeta.GetRange().GetEnd()))
+	enc.AddString("startKey", redact.RedactKey(sstMeta.GetRange().GetStart()))
+	enc.AddString("endKey", redact.RedactKey(sstMeta.GetRange().GetEnd()))
 
 	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
 	if err != nil {
@@ -80,7 +82,7 @@ type zapKeysMarshaler [][]byte
 
 func (keys zapKeysMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, key := range keys {
-		encoder.AppendString(RedactKey(key))
+		encoder.AppendString(redact.RedactKey(key))
 	}
 	return nil
 }
@@ -92,7 +94,7 @@ func (keys zapKeysMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) err
 		encoder.AddArray("keys", keys)
 	} else {
 		encoder.AddString("keys", fmt.Sprintf("%s ...(skip %d)... %s",
-			RedactKey(keys[0]), total-2, RedactKey(keys[total-1])))
+			redact.RedactKey(keys[0]), total-2, redact.RedactKey(keys[total-1])))
 	}
 	return nil
 }
@@ -101,7 +103,7 @@ type zapFilesMarshaler []*backup.File
 
 func (fs zapFilesMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, file := range fs {
-		encoder.AppendString(file.Name)
+		encoder.AppendString(file.GetName())
 	}
 	return nil
 }
@@ -113,7 +115,7 @@ func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) erro
 		encoder.AddArray("files", fs)
 	} else {
 		encoder.AddString("files", fmt.Sprintf("%s ...(skip %d)... %s",
-			fs[0], total-2, fs[total-1]))
+			fs[0].GetName(), total-2, fs[total-1].GetName()))
 	}
 
 	totalKVs := uint64(0)
@@ -130,7 +132,7 @@ func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) erro
 
 // Key constructs a field that carries upper hex format key.
 func Key(fieldKey string, key []byte) zap.Field {
-	return zap.String(fieldKey, RedactKey(key))
+	return zap.String(fieldKey, redact.RedactKey(key))
 }
 
 // Keys constructs a field that carries upper hex format keys.

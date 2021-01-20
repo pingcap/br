@@ -69,6 +69,7 @@ func (rs *RegionSplitter) Split(
 	onSplit OnSplitFunc,
 ) error {
 	if len(ranges) == 0 {
+		log.Info("skip split regions, no range")
 		return nil
 	}
 
@@ -111,7 +112,7 @@ SplitRegions:
 			return errors.Trace(errScan)
 		}
 		if len(regions) == 0 {
-			log.Warn("cannot scan any region")
+			log.Warn("split regions cannot scan any region")
 			return nil
 		}
 		splitKeyMap := getSplitKeys(rewriteRules, sortedRanges, regions)
@@ -122,11 +123,14 @@ SplitRegions:
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
 			region := regionMap[regionID]
+			log.Info("split regions", logutil.Region(region.Region), logutil.Keys(keys))
 			newRegions, errSplit = rs.splitAndScatterRegions(ctx, region, keys)
 			if errSplit != nil {
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
-						log.Error("no valid key",
+						// Region start/end keys are encoded. split_region RPC
+						// requires raw keys (without encoding).
+						log.Error("split regions no valid key",
 							logutil.Key("startKey", region.Region.StartKey),
 							logutil.Key("endKey", region.Region.EndKey),
 							logutil.Key("key", codec.EncodeBytes([]byte{}, key)))
@@ -138,14 +142,13 @@ SplitRegions:
 					interval = SplitMaxRetryInterval
 				}
 				time.Sleep(interval)
-				log.Warn("splitting regions failed, retry it",
+				log.Warn("split regions failed, retry",
 					zap.Error(errSplit),
 					logutil.Region(region.Region),
 					zap.Any("leader", region.Leader),
 					logutil.Keys(keys))
 				continue SplitRegions
 			}
-			log.Info("split regions", logutil.Region(region.Region), logutil.Keys(keys))
 			if len(newRegions) != len(keys) {
 				log.Warn("split key count and new region count mismatch",
 					zap.Int("new region count", len(newRegions)),
@@ -204,7 +207,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {
-		log.Warn("get operator", zap.Uint64("regionID", regionID), zap.Stringer("resp", resp))
+		log.Info("get operator", zap.Uint64("regionID", regionID), zap.Stringer("resp", resp))
 	}
 	// If the current operator of the region is not 'scatter-region', we could assume
 	// that 'scatter-operator' has finished or timeout

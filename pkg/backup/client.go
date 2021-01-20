@@ -41,6 +41,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -851,7 +852,7 @@ func SendBackup(
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan(
 			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
-				storeID, logutil.RedactKey(req.StartKey), logutil.RedactKey(req.EndKey)),
+				storeID, redact.RedactKey(req.StartKey), redact.RedactKey(req.EndKey)),
 			opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
