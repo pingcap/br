@@ -469,7 +469,7 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("ingest SST", logutil.SSTMeta(sstMeta), zap.Reflect("leader", leader))
+	log.Debug("ingest SST", logutil.SSTMeta(sstMeta), logutil.Leader(leader))
 	resp, err := importer.importClient.IngestSST(ctx, leader.GetStoreId(), req)
 	if err != nil {
 		return nil, errors.Trace(err)

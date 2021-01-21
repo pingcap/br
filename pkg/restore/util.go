@@ -470,12 +470,6 @@ func ZapTables(tables []CreatedTable) zapcore.Field {
 	return zap.Array("tables", tableSliceArrayMixIn(tables))
 }
 
-// ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
-// TODO make it a lazy zap object.
-func ZapRanges(ranges []rtree.Range) zapcore.Field {
-	return zap.Object("rangeInfo", rangesSliceObjectMixin(ranges))
-}
-
 type tableSliceArrayMixIn []CreatedTable
 
 func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
@@ -484,24 +478,6 @@ func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) err
 			utils.EncloseName(s.OldTable.DB.Name.String()),
 			utils.EncloseName(s.OldTable.Info.Name.String())))
 	}
-	return nil
-}
-
-type rangesSliceObjectMixin []rtree.Range
-
-func (rs rangesSliceObjectMixin) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
-	totalKV := uint64(0)
-	totalSize := uint64(0)
-	for _, r := range rs {
-		for _, f := range r.Files {
-			totalKV += f.GetTotalKvs()
-			totalSize += f.GetTotalBytes()
-		}
-	}
-
-	encoder.AddInt("ranges", len(rs))
-	encoder.AddUint64("total kv", totalKV)
-	encoder.AddUint64("total size", totalSize)
 	return nil
 }
 

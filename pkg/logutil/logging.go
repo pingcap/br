@@ -145,6 +145,11 @@ func RewriteRule(rewriteRule *import_sstpb.RewriteRule) zapcore.Field {
 	return zap.Object("rewriteRule", zapRewriteRuleMarshaler{rewriteRule})
 }
 
+// Leader make the zap fields for a peer.
+func Leader(peer *metapb.Peer) zapcore.Field {
+	return zap.String("leader", peer.String())
+}
+
 // Region make the zap fields for a region.
 func Region(region *metapb.Region) zapcore.Field {
 	return zap.Object("region", zapMarshalRegionMarshaler{region})

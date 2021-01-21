@@ -555,8 +555,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.Warn("ingest failed", zap.Error(err), logutil.SSTMeta(meta),
-					logutil.Region(region.Region), zap.Any("leader", region.Leader))
+				log.Warn("ingest failed, retry", zap.Error(err), logutil.SSTMeta(meta),
+					logutil.Region(region.Region), logutil.Leader(region.Leader))
 				continue
 			}
 			needRetry, newRegion, errIngest := isIngestRetryable(resp, region, meta)
@@ -565,17 +565,17 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
-					logutil.Region(region.Region), zap.Any("leader", region.Leader))
-				// met non-retryable error retry whole WriteFile procedure
+				log.Warn("ingest failed", zap.Error(errIngest), logutil.SSTMeta(meta),
+					logutil.Region(region.Region), logutil.Leader(region.Leader))
+				// met non-retryable error retry whole Write procedure
 				return errIngest
 			}
 			// retry with not leader and epoch not match error
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
-					zap.Any("leader", region.Leader), logutil.Region(newRegion.Region),
+				log.Warn("ingest failed", logutil.SSTMeta(meta), logutil.Region(region.Region),
+					logutil.Leader(region.Leader), logutil.Region(newRegion.Region),
 					zap.Error(errIngest))
 				return errIngest
 			}

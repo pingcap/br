@@ -4,14 +4,12 @@ package rtree
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/google/btree"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 
 	"github.com/pingcap/br/pkg/logutil"
-	"github.com/pingcap/br/pkg/redact"
 )
 
 // Range represents a backup response.
@@ -19,11 +17,6 @@ type Range struct {
 	StartKey []byte
 	EndKey   []byte
 	Files    []*backup.File
-}
-
-// String formats a range to a string.
-func (rg *Range) String() string {
-	return fmt.Sprintf("[%x %x)", redact.RedactKey(rg.StartKey), redact.RedactKey(rg.EndKey))
 }
 
 // BytesAndKeys returns total bytes and keys in a range.

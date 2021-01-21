@@ -123,7 +123,8 @@ SplitRegions:
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
 			region := regionMap[regionID]
-			log.Info("split regions", logutil.Region(region.Region), logutil.Keys(keys))
+			log.Info("split regions",
+				logutil.Region(region.Region), logutil.Keys(keys), rtree.ZapRanges(ranges))
 			newRegions, errSplit = rs.splitAndScatterRegions(ctx, region, keys)
 			if errSplit != nil {
 				if strings.Contains(errSplit.Error(), "no valid key") {
@@ -133,7 +134,8 @@ SplitRegions:
 						log.Error("split regions no valid key",
 							logutil.Key("startKey", region.Region.StartKey),
 							logutil.Key("endKey", region.Region.EndKey),
-							logutil.Key("key", codec.EncodeBytes([]byte{}, key)))
+							logutil.Key("key", codec.EncodeBytes([]byte{}, key)),
+							rtree.ZapRanges(ranges))
 					}
 					return errors.Trace(errSplit)
 				}
@@ -145,8 +147,8 @@ SplitRegions:
 				log.Warn("split regions failed, retry",
 					zap.Error(errSplit),
 					logutil.Region(region.Region),
-					zap.Any("leader", region.Leader),
-					logutil.Keys(keys))
+					logutil.Leader(region.Leader),
+					logutil.Keys(keys), rtree.ZapRanges(ranges))
 				continue SplitRegions
 			}
 			if len(newRegions) != len(keys) {
