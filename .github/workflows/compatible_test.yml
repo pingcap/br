@@ -26,7 +26,7 @@ jobs:
       run: |
         docker-compose -f docker-compose.yaml rm -s -v
         docker-compose -f docker-compose.yaml build
-        docker-compose -f docker-compose.yaml up --remove-orphans
+        docker-compose -f docker-compose.yaml up --remove-orphans -d
 
     - name: Compatible test
       run: docker exec -it br_control_1 make compatible_test
