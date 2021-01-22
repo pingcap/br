@@ -75,7 +75,7 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
-compatible_test: bins build build_for_integration_test
+compatible_test: build build_for_integration_test
 	tests/run_compatible.sh
 
 bins:
