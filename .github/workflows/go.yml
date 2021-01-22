@@ -21,11 +21,8 @@ jobs:
     - name: Pull images
       run: docker-compose -f docker-compose.yaml pull --ignore-pull-failures
 
-    - name: Build
-      run: make compatible
-
     - name: Start server
       run: docker-compose up -d
 
     - name: Compatible test
-      run: TEST_NAME=br_gcs make compatible
+      run: make compatible_test

@@ -29,28 +29,16 @@
 set -eux
 
 GCS_HOST="localhost"
-GCS_PORT=20828
+GCS_PORT=20818
 BUCKET="test"
 DATA_PATH="$TEST_DIR/storage"
 EXPECTED_KVS=8000000
 
 mkdir -p "$DATA_PATH"
-# download gcs backup data from file server and extract to storage path.
-curl http://fileserver.pingcap.net/download/builds/pingcap/br/gcs_backup_data.tar.gz -o $TEST_DIR/gcs_data.tar.gz
-tar -zxvf $TEST_DIR/gcs_data.tar.gz -C $DATA_PATH
 
-# we need set public-host for download file, or it will return 404 when using client to read.
-bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -filesystem-root $DATA_PATH -public-host $GCS_HOST:$GCS_PORT &
-GCS_ID=$!
-i=0
-while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
-    i=$(($i+1))
-    if [ $i -gt 7 ]; then
-        echo 'Failed to start gcs-server'
-        exit 1
-    fi
-    sleep 2
-done
+# download gcs backup data from file server and extract to storage path.
+curl http://lease.pingcap.org/gcs_bk.tar.gz -o $TEST_DIR/gcs_data.tar.gz
+tar -zxvf $TEST_DIR/gcs_data.tar.gz -C $DATA_PATH
 
 # start oauth server
 bin/oauth &
