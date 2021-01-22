@@ -45,7 +45,6 @@ bin/oauth &
 OAUTH_ID=$!
 
 stop_gcs() {
-    kill -2 $GCS_ID
     kill -2 $OAUTH_ID
 }
 trap stop_gcs EXIT
@@ -75,7 +74,7 @@ for i in `seq 5 10`
 do
     echo "restore v4.0.$i data starts..."
     LOG_PATH=$TEST_DIR/restore.log.v4.0.$i
-    run_br restore db --db tr -s "gcs://$BUCKET/bkv4.0.$i" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH
+    run_br restore db --db sbtest -s "gcs://$BUCKET/bkv4.0.$i" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH
     kvs=$(cat $LOG_PATH | grep summary |  awk -F 'total kv:' '{print $2}' | awk -F '"' '{print $1}' | awk -F ',' '{print $1}' | xargs)
     if [ $kvs -ne $EXPECTED_KVS ]; then
         echo "restore v4.0.$i data failed due to restore data not as expected"
