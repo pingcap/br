@@ -19,15 +19,19 @@
 
 set -eu
 
-PD_ADDR="127.0.0.1:2379"
+PD_ADDR="pd0:2379"
+GCS_HOST="gcs"
+GCS_PORT="20818"
 TEST_DIR=/tmp/backup_restore_compatible_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 
-for script in tests/br_compatible_*/run.sh; do
+for script in tests/docker_compatible_*/run.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
+    GCS_HOST="$GCS_HOST" \
+    GCS_PORT="$GCS_PORT" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
     BR_LOG_TO_TERM=1 \

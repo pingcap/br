@@ -15,24 +15,12 @@
 
 # This test is used to test compatible for BR restore.
 # It downloads backup data that generated from v4.0.5 to v4.0.10 from fileserver.
-# All the data have the same schema (DB: tr) as below.
-# mysql> show tables;
-# +--------------+
-# | Tables_in_tr |
-# +--------------+
-# | AMDI         |
-# | AMED         |
-# | AMOA         |
-# +--------------+
-# 3 rows in set (0.00 sec)
-# The total kvs is 8000000 and size is 203117504. so we only need to check the kvs/size after restore.
+# The total kvs is 300000 and size is 203117504. so we only need to check the kvs/size after restore.
 set -eux
 
-GCS_HOST="localhost"
-GCS_PORT=20818
 BUCKET="test"
 DATA_PATH="$TEST_DIR/storage"
-EXPECTED_KVS=8000000
+EXPECTED_KVS=300000
 
 mkdir -p "$DATA_PATH"
 
