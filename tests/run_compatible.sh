@@ -22,6 +22,7 @@ set -eu
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
+DATA_PATH="/data/gcs"
 TEST_DIR=/tmp/backup_restore_compatible_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
@@ -32,6 +33,7 @@ for script in tests/docker_compatible_*/run.sh; do
     PD_ADDR="$PD_ADDR" \
     GCS_HOST="$GCS_HOST" \
     GCS_PORT="$GCS_PORT" \
+    DATA_PATH="$DATA_PATH" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
     BR_LOG_TO_TERM=1 \

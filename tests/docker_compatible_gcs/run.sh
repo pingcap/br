@@ -19,7 +19,6 @@
 set -eux
 
 BUCKET="test"
-DATA_PATH="$TEST_DIR/storage"
 EXPECTED_KVS=300000
 
 mkdir -p "$DATA_PATH"
