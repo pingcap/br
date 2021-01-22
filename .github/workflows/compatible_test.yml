@@ -29,4 +29,4 @@ jobs:
         docker-compose -f docker-compose.yaml up --remove-orphans -d
 
     - name: Compatible test
-      run: docker exec -it br_control_1 make compatible_test
+      run: docker-compose -f docker-compose.yaml exec br_control_1 make compatible_test
