@@ -38,3 +38,9 @@ jobs:
 
     - name: Compatible test
       run: docker-compose -f docker-compose.yaml exec -T control make compatible_test
+
+    - uses: actions/upload-artifact@v2
+      if: ${{ always() }}
+      with:
+        name: logs
+        path: ${{ github.workspace }}/docker/logs/*
