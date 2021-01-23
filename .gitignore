@@ -1,10 +1,7 @@
 br
 bin/
-_tools/
 .idea/
 backupmeta
-*.log
-*.ngo
 *.coverprofile
 coverage.txt
 docker/data/

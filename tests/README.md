@@ -15,9 +15,10 @@ programs.
     * `bin/tiflash`
     * `bin/cdc`
 
-    The versions must be ≥2.1.0 as usual.
+    The versions must be ≥2.1.0.
 
-    What's more, there must be dynamic link library for TiFlash, see make target `bin` to learn more. You can install most of dependencies by running `download_tools.sh`.
+    What's more, there must be dynamic link library for TiFlash, see make target `bin` to learn more.
+    You can install most of dependencies by running `download_tools.sh`.
 
 2. The following programs must be installed:
 
@@ -28,16 +29,16 @@ programs.
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
 
-## Running
+If you have docker installed, you can skip step 1 and step 2 by running
+`tests/up.sh --pull-images` to build and run a testing Docker container.
 
-Make sure the path is `br/`
+## Running
 
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
 2. Check that all 7 required executables and `br` executable exist
-3. Run `tests/up.sh` to build a testing Docker container
-4. Execute `tests/run.sh` in the testing Docker container
+3. Execute `tests/run.sh`
 
 If the first two steps are done before, you could also run `tests/run.sh` directly.
 This script will
