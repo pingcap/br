@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -exo pipefail
+set -eo pipefail
 
 IMAGE_TAG="nightly"
 while [[ $# -gt 0 ]]
@@ -143,6 +143,7 @@ EOF
 exist_container=$(docker container ps --all -q --filter="ancestor=$docker_repo:$IMAGE_TAG" --filter="status=exited" | head -n 1)
 if [ "$exist_container" ]; then
     docker start $exist_container
+    echo "Attach exsiting container: $exist_container"
     exec docker attach $exist_container
 else
     volume_args=
@@ -155,6 +156,7 @@ else
         fi
         volume_args="$volume_args -v `pwd`/$f:/br/$f"
     done
+    echo "Run a new container"
     exec docker run -it \
         -v $host_tmp:/tmp/br/tests \
         -v $host_bash_history:/root/.bash_history \
