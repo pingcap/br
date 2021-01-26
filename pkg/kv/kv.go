@@ -129,7 +129,7 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 		}
 		_ = encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
-			enc.AddString("val", redact.RedactString(str))
+			enc.AddString("val", redact.String(str))
 			return nil
 		}))
 	}

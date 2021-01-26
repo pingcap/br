@@ -19,16 +19,16 @@ func NeedRedact() bool {
 	return errors.RedactLogEnabled.Load()
 }
 
-// RedactString receives string argument and return omitted information if redact log enabled
-func RedactString(arg string) string {
+// String receives string argument and return omitted information if redact log enabled
+func String(arg string) string {
 	if NeedRedact() {
 		return "?"
 	}
 	return arg
 }
 
-// RedactKey receives a key return omitted information if redact log enabled
-func RedactKey(key []byte) string {
+// Key receives a key return omitted information if redact log enabled
+func Key(key []byte) string {
 	if NeedRedact() {
 		return "?"
 	}

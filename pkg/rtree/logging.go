@@ -13,7 +13,7 @@ import (
 
 // String formats a range to a string.
 func (rg *Range) String() string {
-	return fmt.Sprintf("[%s %s)", redact.RedactKey(rg.StartKey), redact.RedactKey(rg.EndKey))
+	return fmt.Sprintf("[%s %s)", redact.Key(rg.StartKey), redact.Key(rg.EndKey))
 }
 
 // ZapRanges make zap fields for logging Range slice.
@@ -34,7 +34,7 @@ func (rs rangesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error 
 	total := len(rs)
 	encoder.AddInt("total", total)
 	if total <= 4 {
-		encoder.AddArray("ranges", rs)
+		_ = encoder.AddArray("ranges", rs)
 	} else {
 		encoder.AddString("ranges", fmt.Sprintf("%s ...(skip %d)... %s",
 			&rs[0], total-2, &rs[total-1]))

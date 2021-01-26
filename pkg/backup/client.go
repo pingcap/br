@@ -852,7 +852,7 @@ func SendBackup(
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan(
 			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
-				storeID, redact.RedactKey(req.StartKey), redact.RedactKey(req.EndKey)),
+				storeID, redact.Key(req.StartKey), redact.Key(req.EndKey)),
 			opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
