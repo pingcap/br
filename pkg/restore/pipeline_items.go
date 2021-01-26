@@ -233,7 +233,7 @@ func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult,
 			}
 			if err := SplitRanges(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
 				log.Error("failed on split range",
-					zap.Any("ranges", ranges),
+					ZapRanges(result.Ranges),
 					zap.Error(err),
 				)
 				b.sink.EmitError(err)
