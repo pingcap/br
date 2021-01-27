@@ -467,18 +467,16 @@ func PaginateScanRegion(
 
 // ZapTables make zap field of table for debuging, including table names.
 func ZapTables(tables []CreatedTable) zapcore.Field {
-	return zap.Array("tables", tableSliceArrayMixIn(tables))
-}
-
-type tableSliceArrayMixIn []CreatedTable
-
-func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, s := range ss {
-		encoder.AppendString(fmt.Sprintf("%s.%s",
-			utils.EncloseName(s.OldTable.DB.Name.String()),
-			utils.EncloseName(s.OldTable.Info.Name.String())))
-	}
-	return nil
+	return logutil.AbbreviatedArray("tables", tables, func(input interface{}) []string {
+		tables := input.([]CreatedTable)
+		names := make([]string, 0, len(tables))
+		for _, t := range tables {
+			names = append(names, fmt.Sprintf("%s.%s",
+				utils.EncloseName(t.OldTable.DB.Name.String()),
+				utils.EncloseName(t.OldTable.Info.Name.String())))
+		}
+		return names
+	})
 }
 
 // ParseQuoteName parse the quote `db`.`table` name, and split it.

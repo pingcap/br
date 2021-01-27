@@ -14,6 +14,7 @@
 package kv
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -38,8 +39,8 @@ func (s *rowSuite) TestMarshal(c *C) {
 	dats[3] = types.MinNotNullDatum()
 
 	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{})
-	out, err := encoder.EncodeEntry(zapcore.Entry{}, []zap.Field{zap.Array("row", rowArrayMarshaler(dats))})
+	out, err := encoder.EncodeEntry(zapcore.Entry{}, []zap.Field{zapRow("row", dats)})
 	c.Assert(err, IsNil)
-	c.Assert(out.String(), Equals,
-		"{\"row\": [{\"kind\": \"int64\", \"val\": \"1\"}, {\"kind\": \"null\", \"val\": \"NULL\"}, {\"kind\": \"max\", \"val\": \"+inf\"}, {\"kind\": \"min\", \"val\": \"-inf\"}]}\n")
+	c.Assert(strings.TrimRight(out.String(), "\n"), Equals,
+		`{"row": ["kind: int64, val: 1", "kind: null, val: NULL", "kind: max, val: +inf", "kind: min, val: -inf"]}`)
 }

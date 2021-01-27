@@ -17,6 +17,31 @@ import (
 	"github.com/pingcap/br/pkg/redact"
 )
 
+// AbbreviatedArrayMarshaler abbreviates an array of elements.
+type AbbreviatedArrayMarshaler []string
+
+// MarshalLogArray implements zapcore.ArrayMarshaler.
+func (abb AbbreviatedArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	if len(abb) <= 4 {
+		for _, e := range abb {
+			encoder.AppendString(e)
+		}
+	} else {
+		total := len(abb)
+		encoder.AppendString(abb[0])
+		encoder.AppendString(fmt.Sprintf("(skip %d)", total-2))
+		encoder.AppendString(abb[total-1])
+	}
+	return nil
+}
+
+// AbbreviatedArray constructs a field that abbreviates an array of elements.
+func AbbreviatedArray(
+	key string, elements interface{}, marshalFunc func(interface{}) []string,
+) zap.Field {
+	return zap.Array(key, AbbreviatedArrayMarshaler(marshalFunc(elements)))
+}
+
 type zapFileMarshaler struct{ *backup.File }
 
 func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
@@ -35,42 +60,36 @@ func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 
 type zapFilesMarshaler []*backup.File
 
-func (fs zapFilesMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, file := range fs {
-		encoder.AppendString(file.GetName())
-	}
-	return nil
-}
-
 func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	total := len(fs)
 	encoder.AddInt("total", total)
-	if total <= 4 {
-		_ = encoder.AddArray("files", fs)
-	} else {
-		encoder.AddString("files", fmt.Sprintf("%s ...(skip %d)... %s",
-			fs[0].GetName(), total-2, fs[total-1].GetName()))
+	elements := make([]string, 0, total)
+	for _, f := range fs {
+		elements = append(elements, f.GetName())
 	}
+	_ = encoder.AddArray("files", AbbreviatedArrayMarshaler(elements))
 
 	totalKVs := uint64(0)
+	totalBytes := uint64(0)
 	totalSize := uint64(0)
 	for _, file := range fs {
 		totalKVs += file.GetTotalKvs()
-		totalSize += file.GetTotalBytes()
+		totalBytes += file.GetTotalBytes()
+		totalSize += file.GetSize_()
 	}
 	encoder.AddUint64("totalKVs", totalKVs)
-	encoder.AddUint64("totalBytes", totalSize)
-	encoder.AddInt("totalFileCount", len(fs))
+	encoder.AddUint64("totalBytes", totalBytes)
+	encoder.AddUint64("totalSize", totalSize)
 	return nil
 }
 
 // File make the zap fields for a file.
-func File(file *backup.File) zapcore.Field {
+func File(file *backup.File) zap.Field {
 	return zap.Object("file", zapFileMarshaler{file})
 }
 
 // Files make the zap field for a set of file.
-func Files(fs []*backup.File) zapcore.Field {
+func Files(fs []*backup.File) zap.Field {
 	return zap.Object("files", zapFilesMarshaler(fs))
 }
 
@@ -84,7 +103,7 @@ func (rewriteRule zapRewriteRuleMarshaler) MarshalLogObject(enc zapcore.ObjectEn
 }
 
 // RewriteRule make the zap fields for a rewrite rule.
-func RewriteRule(rewriteRule *import_sstpb.RewriteRule) zapcore.Field {
+func RewriteRule(rewriteRule *import_sstpb.RewriteRule) zap.Field {
 	return zap.Object("rewriteRule", zapRewriteRuleMarshaler{rewriteRule})
 }
 
@@ -104,13 +123,13 @@ func (region zapMarshalRegionMarshaler) MarshalLogObject(enc zapcore.ObjectEncod
 }
 
 // Region make the zap fields for a region.
-func Region(region *metapb.Region) zapcore.Field {
+func Region(region *metapb.Region) zap.Field {
 	return zap.Object("region", zapMarshalRegionMarshaler{region})
 }
 
 // Leader make the zap fields for a peer.
 // nolint:interfacer
-func Leader(peer *metapb.Peer) zapcore.Field {
+func Leader(peer *metapb.Peer) zap.Field {
 	return zap.String("leader", peer.String())
 }
 
@@ -136,28 +155,20 @@ func (sstMeta zapSSTMetaMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) e
 }
 
 // SSTMeta make the zap fields for a SST meta.
-func SSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
+func SSTMeta(sstMeta *import_sstpb.SSTMeta) zap.Field {
 	return zap.Object("sstMeta", zapSSTMetaMarshaler{sstMeta})
 }
 
 type zapKeysMarshaler [][]byte
 
-func (keys zapKeysMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, key := range keys {
-		encoder.AppendString(redact.Key(key))
-	}
-	return nil
-}
-
 func (keys zapKeysMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	total := len(keys)
 	encoder.AddInt("total", total)
-	if total <= 4 {
-		_ = encoder.AddArray("keys", keys)
-	} else {
-		encoder.AddString("keys", fmt.Sprintf("%s ...(skip %d)... %s",
-			redact.Key(keys[0]), total-2, redact.Key(keys[total-1])))
+	elements := make([]string, 0, total)
+	for _, k := range keys {
+		elements = append(elements, redact.Key(k))
 	}
+	_ = encoder.AddArray("keys", AbbreviatedArrayMarshaler(elements))
 	return nil
 }
 
@@ -167,11 +178,11 @@ func Key(fieldKey string, key []byte) zap.Field {
 }
 
 // Keys constructs a field that carries upper hex format keys.
-func Keys(keys [][]byte) zapcore.Field {
+func Keys(keys [][]byte) zap.Field {
 	return zap.Object("keys", zapKeysMarshaler(keys))
 }
 
 // ShortError make the zap field to display error without verbose representation (e.g. the stack trace).
-func ShortError(err error) zapcore.Field {
+func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
 }

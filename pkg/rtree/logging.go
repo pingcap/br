@@ -8,12 +8,13 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 )
 
 // String formats a range to a string.
-func (rg *Range) String() string {
-	return fmt.Sprintf("[%s %s)", redact.Key(rg.StartKey), redact.Key(rg.EndKey))
+func (rg Range) String() string {
+	return fmt.Sprintf("[%s, %s)", redact.Key(rg.StartKey), redact.Key(rg.EndKey))
 }
 
 // ZapRanges make zap fields for logging Range slice.
@@ -33,12 +34,11 @@ func (rs rangesMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 func (rs rangesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	total := len(rs)
 	encoder.AddInt("total", total)
-	if total <= 4 {
-		_ = encoder.AddArray("ranges", rs)
-	} else {
-		encoder.AddString("ranges", fmt.Sprintf("%s ...(skip %d)... %s",
-			&rs[0], total-2, &rs[total-1]))
+	elements := make([]string, 0, total)
+	for _, r := range rs {
+		elements = append(elements, r.String())
 	}
+	_ = encoder.AddArray("ranges", logutil.AbbreviatedArrayMarshaler(elements))
 
 	totalKV := uint64(0)
 	totalBytes := uint64(0)
