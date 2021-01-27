@@ -41,6 +41,10 @@ run_br -s "local://$TEST_DIR/$DB" debug decode --field "EndVersion"
 # Ensure compatibility
 run_br -s "local://$TEST_DIR/$DB" validate decode --field "end-version"
 
+# Test redact-log and redact-info-log compalibility
+run_br -s "local://$TEST_DIR/$DB" debug decode --field "Schemas" --redact-log=true
+run_br -s "local://$TEST_DIR/$DB" debug decode --field "Schemas" --redact-info-log=true
+
 # Test validate backupmeta
 run_br validate backupmeta -s "local://$TEST_DIR/$DB"
 run_br validate backupmeta -s "local://$TEST_DIR/$DB" --offset 100
