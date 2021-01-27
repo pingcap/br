@@ -119,12 +119,13 @@ func (c *testClient) SplitRegion(
 	return newRegion, nil
 }
 
-func (c *testClient) BatchSplitRegions(
+func (c *testClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
-) ([]*restore.RegionInfo, error) {
+) (*restore.RegionInfo, []*restore.RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	newRegions := make([]*restore.RegionInfo, 0)
+	var region *restore.RegionInfo
 	for _, key := range keys {
 		var target *restore.RegionInfo
 		splitKey := codec.EncodeBytes([]byte{}, key)
@@ -148,9 +149,17 @@ func (c *testClient) BatchSplitRegions(
 		c.nextRegionID++
 		target.Region.StartKey = splitKey
 		c.regions[target.Region.Id] = target
+		region = target
 		newRegions = append(newRegions, newRegion)
 	}
-	return newRegions, nil
+	return region, newRegions, nil
+}
+
+func (c *testClient) BatchSplitRegions(
+	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
+) ([]*restore.RegionInfo, error) {
+	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
+	return newRegions, err
 }
 
 func (c *testClient) ScatterRegion(ctx context.Context, regionInfo *restore.RegionInfo) error {
