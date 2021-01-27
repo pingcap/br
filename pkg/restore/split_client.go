@@ -324,11 +324,7 @@ func (c *pdClient) BatchSplitRegionsWithOrigin(
 ) (*RegionInfo, []*RegionInfo, error) {
 	resp, err := c.sendSplitRegionRequest(ctx, regionInfo, keys)
 	if err != nil {
-<<<<<<< HEAD
-		return nil, errors.Trace(err)
-=======
-		return nil, nil, err
->>>>>>> 602ed18... restore: add a new interface for SplitClient to return the original region in BatchSplitRegions (#612)
+		return nil, nil, errors.Trace(err)
 	}
 
 	regions := resp.GetRegions()
