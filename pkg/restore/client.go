@@ -584,8 +584,8 @@ func (rc *Client) RestoreRaw(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Raw",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)),
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
@@ -608,16 +608,16 @@ func (rc *Client) RestoreRaw(
 	if err := eg.Wait(); err != nil {
 		log.Error(
 			"restore raw range failed",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			zap.Stringer("startKey", logutil.WrapKey(startKey)),
+			zap.Stringer("endKey", logutil.WrapKey(endKey)),
 			zap.Error(err),
 		)
 		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
-		zap.String("startKey", hex.EncodeToString(startKey)),
-		zap.String("endKey", hex.EncodeToString(endKey)),
+		zap.Stringer("startKey", logutil.WrapKey(startKey)),
+		zap.Stringer("endKey", logutil.WrapKey(endKey)),
 	)
 	return nil
 }

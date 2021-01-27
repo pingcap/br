@@ -54,7 +54,10 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			}
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
-			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped: %s, %s", out, rg)
+			log.Error("insert ranges overlapped",
+				logutil.ZapRedactReflect("out", out),
+				logutil.ZapRedactReflect("range", rg))
+			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped")
 		}
 	}
 	sortedRanges := rangeTree.GetSortedRanges()
