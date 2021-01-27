@@ -33,72 +33,6 @@ func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return nil
 }
 
-type zapRewriteRuleMarshaler struct{ *import_sstpb.RewriteRule }
-
-func (rewriteRule zapRewriteRuleMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	enc.AddString("oldKeyPrefix", hex.EncodeToString(rewriteRule.GetOldKeyPrefix()))
-	enc.AddString("newKeyPrefix", hex.EncodeToString(rewriteRule.GetNewKeyPrefix()))
-	enc.AddUint64("newTimestamp", rewriteRule.GetNewTimestamp())
-	return nil
-}
-
-type zapMarshalRegionMarshaler struct{ *metapb.Region }
-
-func (region zapMarshalRegionMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	peers := make([]string, 0, len(region.GetPeers()))
-	for _, peer := range region.GetPeers() {
-		peers = append(peers, peer.String())
-	}
-	enc.AddUint64("ID", region.Id)
-	enc.AddString("startKey", redact.Key(region.GetStartKey()))
-	enc.AddString("endKey", redact.Key(region.GetEndKey()))
-	enc.AddString("epoch", region.GetRegionEpoch().String())
-	enc.AddString("peers", strings.Join(peers, ","))
-	return nil
-}
-
-type zapSSTMetaMarshaler struct{ *import_sstpb.SSTMeta }
-
-func (sstMeta zapSSTMetaMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	enc.AddString("CF", sstMeta.GetCfName())
-	enc.AddBool("endKeyExclusive", sstMeta.EndKeyExclusive)
-	enc.AddUint32("CRC32", sstMeta.Crc32)
-	enc.AddUint64("length", sstMeta.Length)
-	enc.AddUint64("regionID", sstMeta.RegionId)
-	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
-	enc.AddString("startKey", redact.Key(sstMeta.GetRange().GetStart()))
-	enc.AddString("endKey", redact.Key(sstMeta.GetRange().GetEnd()))
-
-	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
-	if err != nil {
-		enc.AddString("UUID", fmt.Sprintf("invalid UUID %s", hex.EncodeToString(sstMeta.GetUuid())))
-	} else {
-		enc.AddString("UUID", sstUUID.String())
-	}
-	return nil
-}
-
-type zapKeysMarshaler [][]byte
-
-func (keys zapKeysMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, key := range keys {
-		encoder.AppendString(redact.Key(key))
-	}
-	return nil
-}
-
-func (keys zapKeysMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
-	total := len(keys)
-	encoder.AddInt("total", total)
-	if total <= 4 {
-		_ = encoder.AddArray("keys", keys)
-	} else {
-		encoder.AddString("keys", fmt.Sprintf("%s ...(skip %d)... %s",
-			redact.Key(keys[0]), total-2, redact.Key(keys[total-1])))
-	}
-	return nil
-}
-
 type zapFilesMarshaler []*backup.File
 
 func (fs zapFilesMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
@@ -130,19 +64,48 @@ func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) erro
 	return nil
 }
 
-// Key constructs a field that carries upper hex format key.
-func Key(fieldKey string, key []byte) zap.Field {
-	return zap.String(fieldKey, redact.Key(key))
+// File make the zap fields for a file.
+func File(file *backup.File) zapcore.Field {
+	return zap.Object("file", zapFileMarshaler{file})
 }
 
-// Keys constructs a field that carries upper hex format keys.
-func Keys(keys [][]byte) zapcore.Field {
-	return zap.Object("keys", zapKeysMarshaler(keys))
+// Files make the zap field for a set of file.
+func Files(fs []*backup.File) zapcore.Field {
+	return zap.Object("files", zapFilesMarshaler(fs))
+}
+
+type zapRewriteRuleMarshaler struct{ *import_sstpb.RewriteRule }
+
+func (rewriteRule zapRewriteRuleMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	enc.AddString("oldKeyPrefix", hex.EncodeToString(rewriteRule.GetOldKeyPrefix()))
+	enc.AddString("newKeyPrefix", hex.EncodeToString(rewriteRule.GetNewKeyPrefix()))
+	enc.AddUint64("newTimestamp", rewriteRule.GetNewTimestamp())
+	return nil
 }
 
 // RewriteRule make the zap fields for a rewrite rule.
 func RewriteRule(rewriteRule *import_sstpb.RewriteRule) zapcore.Field {
 	return zap.Object("rewriteRule", zapRewriteRuleMarshaler{rewriteRule})
+}
+
+type zapMarshalRegionMarshaler struct{ *metapb.Region }
+
+func (region zapMarshalRegionMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	peers := make([]string, 0, len(region.GetPeers()))
+	for _, peer := range region.GetPeers() {
+		peers = append(peers, peer.String())
+	}
+	enc.AddUint64("ID", region.Id)
+	enc.AddString("startKey", redact.Key(region.GetStartKey()))
+	enc.AddString("endKey", redact.Key(region.GetEndKey()))
+	enc.AddString("epoch", region.GetRegionEpoch().String())
+	enc.AddString("peers", strings.Join(peers, ","))
+	return nil
+}
+
+// Region make the zap fields for a region.
+func Region(region *metapb.Region) zapcore.Field {
+	return zap.Object("region", zapMarshalRegionMarshaler{region})
 }
 
 // Leader make the zap fields for a peer.
@@ -151,14 +114,25 @@ func Leader(peer *metapb.Peer) zapcore.Field {
 	return zap.String("leader", peer.String())
 }
 
-// Region make the zap fields for a region.
-func Region(region *metapb.Region) zapcore.Field {
-	return zap.Object("region", zapMarshalRegionMarshaler{region})
-}
+type zapSSTMetaMarshaler struct{ *import_sstpb.SSTMeta }
 
-// File make the zap fields for a file.
-func File(file *backup.File) zapcore.Field {
-	return zap.Object("file", zapFileMarshaler{file})
+func (sstMeta zapSSTMetaMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	enc.AddString("CF", sstMeta.GetCfName())
+	enc.AddBool("endKeyExclusive", sstMeta.EndKeyExclusive)
+	enc.AddUint32("CRC32", sstMeta.Crc32)
+	enc.AddUint64("length", sstMeta.Length)
+	enc.AddUint64("regionID", sstMeta.RegionId)
+	enc.AddString("regionEpoch", sstMeta.RegionEpoch.String())
+	enc.AddString("startKey", redact.Key(sstMeta.GetRange().GetStart()))
+	enc.AddString("endKey", redact.Key(sstMeta.GetRange().GetEnd()))
+
+	sstUUID, err := uuid.FromBytes(sstMeta.GetUuid())
+	if err != nil {
+		enc.AddString("UUID", fmt.Sprintf("invalid UUID %s", hex.EncodeToString(sstMeta.GetUuid())))
+	} else {
+		enc.AddString("UUID", sstUUID.String())
+	}
+	return nil
 }
 
 // SSTMeta make the zap fields for a SST meta.
@@ -166,9 +140,35 @@ func SSTMeta(sstMeta *import_sstpb.SSTMeta) zapcore.Field {
 	return zap.Object("sstMeta", zapSSTMetaMarshaler{sstMeta})
 }
 
-// Files make the zap field for a set of file.
-func Files(fs []*backup.File) zapcore.Field {
-	return zap.Object("files", zapFilesMarshaler(fs))
+type zapKeysMarshaler [][]byte
+
+func (keys zapKeysMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	for _, key := range keys {
+		encoder.AppendString(redact.Key(key))
+	}
+	return nil
+}
+
+func (keys zapKeysMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	total := len(keys)
+	encoder.AddInt("total", total)
+	if total <= 4 {
+		_ = encoder.AddArray("keys", keys)
+	} else {
+		encoder.AddString("keys", fmt.Sprintf("%s ...(skip %d)... %s",
+			redact.Key(keys[0]), total-2, redact.Key(keys[total-1])))
+	}
+	return nil
+}
+
+// Key constructs a field that carries upper hex format key.
+func Key(fieldKey string, key []byte) zap.Field {
+	return zap.String(fieldKey, redact.Key(key))
+}
+
+// Keys constructs a field that carries upper hex format keys.
+func Keys(keys [][]byte) zapcore.Field {
+	return zap.Object("keys", zapKeysMarshaler(keys))
 }
 
 // ShortError make the zap field to display error without verbose representation (e.g. the stack trace).

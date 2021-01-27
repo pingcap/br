@@ -17,9 +17,9 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type rowSuite struct{}
@@ -37,6 +37,9 @@ func (s *rowSuite) TestMarshal(c *C) {
 	dats[2] = types.MaxValueDatum()
 	dats[3] = types.MinNotNullDatum()
 
-	// save coverage for MarshalLogArray
-	log.Info("row marshal", zap.Array("row", rowArrayMarshaler(dats)))
+	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{})
+	out, err := encoder.EncodeEntry(zapcore.Entry{}, []zap.Field{zap.Array("row", rowArrayMarshaler(dats))})
+	c.Assert(err, IsNil)
+	c.Assert(out.String(), Equals,
+		"{\"row\": [{\"kind\": \"int64\", \"val\": \"1\"}, {\"kind\": \"null\", \"val\": \"NULL\"}, {\"kind\": \"max\", \"val\": \"+inf\"}, {\"kind\": \"min\", \"val\": \"-inf\"}]}\n")
 }

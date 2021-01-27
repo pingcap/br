@@ -41,18 +41,21 @@ func (rs rangesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error 
 	}
 
 	totalKV := uint64(0)
+	totalBytes := uint64(0)
 	totalSize := uint64(0)
 	totalFile := 0
 	for _, r := range rs {
 		for _, f := range r.Files {
 			totalKV += f.GetTotalKvs()
-			totalSize += f.GetTotalBytes()
+			totalBytes += f.GetTotalBytes()
+			totalSize += f.GetSize_()
 		}
 		totalFile += len(r.Files)
 	}
 
-	encoder.AddInt("total file", totalFile)
-	encoder.AddUint64("total kv", totalKV)
-	encoder.AddUint64("total size", totalSize)
+	encoder.AddInt("totalFiles", totalFile)
+	encoder.AddUint64("totalKVs", totalKV)
+	encoder.AddUint64("totalBytes", totalBytes)
+	encoder.AddUint64("totalSize", totalBytes)
 	return nil
 }
