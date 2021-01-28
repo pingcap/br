@@ -308,8 +308,8 @@ func AttachFilesToRanges(
 		})
 		if rg == nil {
 			log.Panic("range not found",
-				zap.Stringer("startKey", logutil.WrapKey(f.GetStartKey())),
-				zap.Stringer("endKey", logutil.WrapKey(f.GetEndKey())))
+				logutil.Key("startKey", f.GetStartKey()),
+				logutil.Key("endKey", f.GetEndKey()))
 		}
 		file := *f
 		rg.Files = append(rg.Files, &file)

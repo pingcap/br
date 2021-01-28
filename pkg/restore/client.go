@@ -541,20 +541,8 @@ func (rc *Client) RestoreFiles(
 		}
 	}()
 
-<<<<<<< HEAD
-	log.Debug("start to restore files",
-		zap.Int("files", len(files)),
-	)
-=======
 	log.Debug("start to restore files", zap.Int("files", len(files)))
 
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Client.RestoreFiles", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
->>>>>>> c206add... *: refine logs (#723)
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {

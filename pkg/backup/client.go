@@ -39,7 +39,6 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
-	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -827,18 +826,6 @@ func SendBackup(
 	respFn func(*kvproto.BackupResponse) error,
 	resetFn func() (kvproto.BackupClient, error),
 ) error {
-<<<<<<< HEAD
-=======
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan(
-			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
-				storeID, redact.Key(req.StartKey), redact.Key(req.EndKey)),
-			opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
->>>>>>> c206add... *: refine logs (#723)
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {

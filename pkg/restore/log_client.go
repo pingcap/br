@@ -565,13 +565,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-<<<<<<< HEAD
 				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
 					logutil.Region(region.Region), zap.Any("leader", region.Leader))
-=======
-				log.Warn("ingest failed", zap.Error(errIngest), logutil.SSTMeta(meta),
-					logutil.Region(region.Region), logutil.Leader(region.Leader))
->>>>>>> c206add... *: refine logs (#723)
 				// met non-retryable error retry whole Write procedure
 				return errIngest
 			}
