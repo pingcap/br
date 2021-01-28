@@ -126,14 +126,14 @@ func GetSSTMetaFromFile(
 	if bytes.Compare(rangeStart, rangeEnd) > 0 {
 		log.Panic("range start exceed range end",
 			logutil.File(file),
-			zap.Stringer("rangeStart", logutil.WrapKey(rangeStart)),
-			zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd)))
+			logutil.Key("startKey", rangeStart),
+			logutil.Key("endKey", rangeEnd))
 	}
 
 	log.Debug("get sstMeta",
 		logutil.File(file),
-		zap.Stringer("rangeStart", logutil.WrapKey(rangeStart)),
-		zap.Stringer("rangeEnd", logutil.WrapKey(rangeEnd)))
+		logutil.Key("startKey", rangeStart),
+		logutil.Key("endKey", rangeEnd))
 
 	return import_sstpb.SSTMeta{
 		Uuid:   id,
@@ -204,14 +204,14 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 		if tableID != tableEndID {
 			log.Panic("key range spread between many files.",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Key("startKey", file.StartKey),
+				logutil.Key("endKey", file.EndKey))
 		}
 		if tableID == 0 {
 			log.Panic("invalid table key of file",
 				zap.String("file name", file.Name),
-				zap.Stringer("start key", logutil.WrapKey(file.GetStartKey())),
-				zap.Stringer("end key", logutil.WrapKey(file.GetEndKey())))
+				logutil.Key("startKey", file.StartKey),
+				logutil.Key("endKey", file.EndKey))
 		}
 		result[tableID] = append(result[tableID], file)
 	}
@@ -444,7 +444,7 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		startKey, rule = rewriteRawKey(file.GetStartKey(), rewriteRules)
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
-				zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
+				logutil.Key("startKey", file.GetStartKey()),
 				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
@@ -459,8 +459,8 @@ func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, e
 		log.Error("table ids dont matched",
 			zap.Int64("startID", startID),
 			zap.Int64("endID", endID),
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)))
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey))
 		err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "invalid table id")
 	}
 	return
@@ -481,8 +481,8 @@ func PaginateScanRegion(
 ) ([]*RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
 		log.Error("restore range startKey >= endKey",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)))
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey))
 		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey")
 	}
 
@@ -509,42 +509,16 @@ func PaginateScanRegion(
 
 // ZapTables make zap field of table for debuging, including table names.
 func ZapTables(tables []CreatedTable) zapcore.Field {
-	return zap.Array("tables", tableSliceArrayMixIn(tables))
-}
-
-// ZapRanges make zap fields for debuging, which contains kv, size and count of ranges.
-// TODO make it a lazy zap object.
-func ZapRanges(ranges []rtree.Range) zapcore.Field {
-	return zap.Object("rangeInfo", rangesSliceObjectMixin(ranges))
-}
-
-type tableSliceArrayMixIn []CreatedTable
-
-func (ss tableSliceArrayMixIn) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, s := range ss {
-		encoder.AppendString(fmt.Sprintf("%s.%s",
-			utils.EncloseName(s.OldTable.DB.Name.String()),
-			utils.EncloseName(s.OldTable.Info.Name.String())))
-	}
-	return nil
-}
-
-type rangesSliceObjectMixin []rtree.Range
-
-func (rs rangesSliceObjectMixin) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
-	totalKV := uint64(0)
-	totalSize := uint64(0)
-	for _, r := range rs {
-		for _, f := range r.Files {
-			totalKV += f.GetTotalKvs()
-			totalSize += f.GetTotalBytes()
+	return logutil.AbbreviatedArray("tables", tables, func(input interface{}) []string {
+		tables := input.([]CreatedTable)
+		names := make([]string, 0, len(tables))
+		for _, t := range tables {
+			names = append(names, fmt.Sprintf("%s.%s",
+				utils.EncloseName(t.OldTable.DB.Name.String()),
+				utils.EncloseName(t.OldTable.Info.Name.String())))
 		}
-	}
-
-	encoder.AddInt("ranges", len(rs))
-	encoder.AddUint64("total kv", totalKV)
-	encoder.AddUint64("total size", totalSize)
-	return nil
+		return names
+	})
 }
 
 // ParseQuoteName parse the quote `db`.`table` name, and split it.

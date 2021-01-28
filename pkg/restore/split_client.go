@@ -168,7 +168,7 @@ func (c *pdClient) SplitRegion(ctx context.Context, regionInfo *RegionInfo, key 
 	if resp.RegionError != nil {
 		log.Error("fail to split region",
 			logutil.Region(regionInfo.Region),
-			zap.Stringer("key", logutil.WrapKey(key)),
+			logutil.Key("key", key),
 			zap.Stringer("regionErr", resp.RegionError))
 		return nil, errors.Annotatef(berrors.ErrRestoreSplitFailed, "err=%v", resp.RegionError)
 	}
