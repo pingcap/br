@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc64"
 	"math/rand"
+	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -18,12 +19,14 @@ import (
 
 var (
 	pdAddr      = flag.String("pd", "127.0.0.1:2379", "Address of PD")
-	runMode     = flag.String("mode", "", "Mode. One of 'rand-gen', 'checksum', 'scan' and 'diff'")
+	runMode     = flag.String("mode", "", "Mode. One of 'rand-gen', 'checksum', 'scan', 'diff', 'delete' and 'put'")
 	startKeyStr = flag.String("start-key", "", "Start key in hex")
 	endKeyStr   = flag.String("end-key", "", "End key in hex")
 	keyMaxLen   = flag.Int("key-max-len", 32, "Max length of keys for rand-gen mode")
 	concurrency = flag.Int("concurrency", 32, "Concurrency to run rand-gen")
 	duration    = flag.Int("duration", 10, "duration(second) of rand-gen")
+	putDataStr  = flag.String("put-data", "", "Kv pairs to put to the cluster in hex. "+
+		"kv pairs are separated by commas, key and value in a pair are separated by a colon")
 )
 
 func createClient(addr string) (*tikv.RawKVClient, error) {
@@ -42,8 +45,8 @@ func main() {
 	if err != nil {
 		log.Panic("Invalid endKey: %v, err: %+v", zap.String("endkey", *endKeyStr), zap.Error(err))
 	}
-
-	if len(endKey) == 0 {
+	// For "put" mode, the key range is not used. So no need to throw error here.
+	if len(endKey) == 0 && *runMode != "put" {
 		log.Panic("Empty endKey is not supported yet")
 	}
 
@@ -66,6 +69,8 @@ func main() {
 		err = scan(client, startKey, endKey)
 	case "delete":
 		err = deleteRange(client, startKey, endKey)
+	case "put":
+		err = put(client, *putDataStr)
 	}
 
 	if err != nil {
@@ -233,6 +238,7 @@ func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
 	}
 
 	log.Info("Checksum result", zap.Uint64("checksum", res))
+	fmt.Printf("Checksum result: %016x\n", res)
 	return nil
 }
 
@@ -266,6 +272,35 @@ func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
 
 	log.Info("Finished Scanning.")
 	return nil
+}
+
+func put(client *tikv.RawKVClient, dataStr string) error {
+	keys := make([][]byte, 0)
+	values := make([][]byte, 0)
+
+	for _, pairStr := range strings.Split(dataStr, ",") {
+		pair := strings.Split(pairStr, ":")
+		if len(pair) != 2 {
+			return errors.Errorf("invalid kv pair string %q", pairStr)
+		}
+
+		key, err := hex.DecodeString(strings.Trim(pair[0], " "))
+		if err != nil {
+			return errors.Annotatef(err, "invalid kv pair string %q", pairStr)
+		}
+		value, err := hex.DecodeString(strings.Trim(pair[1], " "))
+		if err != nil {
+			return errors.Annotatef(err, "invalid kv pair string %q", pairStr)
+		}
+
+		keys = append(keys, key)
+		values = append(values, value)
+	}
+
+	log.Info("Put rawkv data", zap.ByteStrings("keys", keys), zap.ByteStrings("values", values))
+
+	err := client.BatchPut(keys, values)
+	return errors.Trace(err)
 }
 
 const defaultScanBatchSize = 128

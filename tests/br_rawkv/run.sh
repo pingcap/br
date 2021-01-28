@@ -35,6 +35,9 @@ checksum_empty=$(checksum 31 3130303030303030)
 # generate raw kv randomly in range[start-key, end-key) in 10s
 bin/rawkv --pd $PD_ADDR --mode rand-gen --start-key 31 --end-key 3130303030303030 --duration 10
 
+# put some keys around 311122 to check the correctness of endKey of restoring
+bin/rawkv --pd $PD_ADDR --mode put --put-data "311121:31, 31112100:32, 311122:33, 31112200:34, 3111220000:35, 311123:36"
+
 checksum_ori=$(checksum 31 3130303030303030)
 checksum_partial=$(checksum 311111 311122)
 
@@ -75,15 +78,15 @@ if [ "$checksum_new" != "$checksum_empty" ];then
     fail_and_exit
 fi
 
-# FIXME restore rawkv partially after change endkey to inclusive
-# echo "restore start..."
-# run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 311111 --end 311122 --format hex --concurrency 4
-#
-# checksum_new=$(checksum 31 3130303030303030)
-#
-# if [ "$checksum_new" != "$checksum_partial" ];then
-#     echo "checksum failed after restore"
-#     fail_and_exit
-# fi
+echo "partial restore start..."
+run_br --pd $PD_ADDR restore raw -s "local://$TEST_DIR/$BACKUP_DIR" --start 311111 --end 311122 --format hex --concurrency 4
+bin/rawkv --pd $PD_ADDR --mode scan --start-key 311121 --end-key 33
+
+checksum_new=$(checksum 31 3130303030303030)
+
+if [ "$checksum_new" != "$checksum_partial" ];then
+    echo "checksum failed after restore"
+    fail_and_exit
+fi
 
 echo "TEST: [$TEST_NAME] successed!"
