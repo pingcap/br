@@ -41,7 +41,7 @@ func (sender *drySender) PutSink(sink restore.TableSink) {
 func (sender *drySender) RestoreBatch(ranges restore.DrainResult) {
 	sender.mu.Lock()
 	defer sender.mu.Unlock()
-	log.Info("fake restore range", restore.ZapRanges(ranges.Ranges))
+	log.Info("fake restore range", rtree.ZapRanges(ranges.Ranges))
 	sender.nBatch++
 	sender.rewriteRules.Append(*ranges.RewriteRules)
 	sender.ranges = append(sender.ranges, ranges.Ranges...)
