@@ -36,8 +36,8 @@ while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
 done
 
 # start oauth server
-killall flask || true
-FLASK_APP=tests/$TEST_NAME/oauth.py flask run &
+bin/oauth &
+OAUTH_ID=$!
 
 stop_gcs() {
     kill -2 $GCS_ID

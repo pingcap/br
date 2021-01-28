@@ -292,8 +292,8 @@ func BuildBackupRangeAndSchema(
 			switch {
 			case tableInfo.IsSequence():
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
-			case tableInfo.IsView():
-				// no auto ID for views.
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
 			default:
 				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
 			}
@@ -581,7 +581,8 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
+	log.Error("can not find leader", zap.Stringer("key", logutil.WrapKey(key)))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
 func (bc *Client) fineGrainedBackup(

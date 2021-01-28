@@ -33,6 +33,7 @@ import (
 	"github.com/pingcap/br/pkg/cdclog"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -554,8 +555,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
-					zap.Reflect("region", region))
+				log.Warn("ingest failed", zap.Error(err), logutil.SSTMeta(meta),
+					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				continue
 			}
 			needRetry, newRegion, errIngest := isIngestRetryable(resp, region, meta)
@@ -564,8 +565,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 				break
 			}
 			if !needRetry {
-				log.Warn("ingest failed noretry", zap.Error(errIngest), zap.Reflect("meta", meta),
-					zap.Reflect("region", region))
+				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
+					logutil.Region(region.Region), zap.Any("leader", region.Leader))
 				// met non-retryable error retry whole Write procedure
 				return errIngest
 			}
@@ -573,9 +574,9 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.Warn("retry ingest due to",
-					zap.Reflect("meta", meta), zap.Reflect("region", region),
-					zap.Reflect("new region", newRegion), zap.Error(errIngest))
+				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
+					zap.Any("leader", region.Leader), logutil.ZapRedactReflect("new region", newRegion),
+					zap.Error(errIngest))
 				return errIngest
 			}
 		}
@@ -869,7 +870,8 @@ func (l *LogClient) restoreTableFromPuller(
 			// if table dropped, we will pull next event to see if this table will create again.
 			// with next create table ddl, we can do reloadTableMeta.
 			if l.isDropTable(ddl) {
-				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl", zap.String("ddl", ddl.Query))
+				log.Info("[restoreFromPuller] skip reload because this is a drop table ddl",
+					zap.String("ddl", ddl.Query))
 				l.tableBuffers[tableID].ResetTableInfo()
 				continue
 			}

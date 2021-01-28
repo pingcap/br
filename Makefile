@@ -38,6 +38,7 @@ build_for_integration_test:
 		-o bin/br.test && \
 	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
+	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
@@ -135,7 +136,7 @@ static: prepare tools
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" cmd pkg | \
-		grep -vE "Normalize|Annotate|Trace|Cause" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
 
 lint: prepare tools
 	@echo "linting"
