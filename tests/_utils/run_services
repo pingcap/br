@@ -37,7 +37,7 @@ cleanup_data() {
 }
 
 stop_services() {
-    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
+    for svc in "br" "tidb" "tiflash" "tikv" "pd" "TiFlashMain"; do
         # tiflash and br do not have "-server"
         killall -9 $svc-server &> /dev/null || true
         killall -9 $svc &> /dev/null || true

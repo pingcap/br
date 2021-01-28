@@ -284,12 +284,18 @@ func BuildBackupRangeAndSchema(
 				// Skip tables other than the given table.
 				continue
 			}
+
+			logger := log.With(
+				zap.String("db", dbInfo.Name.O),
+				zap.String("table", tableInfo.Name.O),
+			)
+
 			var globalAutoID int64
 			switch {
 			case tableInfo.IsSequence():
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
-			case tableInfo.IsView():
-				// no auto ID for views.
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
 			default:
 				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
 			}
@@ -306,14 +312,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				log.Info("change table AutoRandID",
-					zap.Stringer("db", dbInfo.Name),
-					zap.Stringer("table", tableInfo.Name),
+				logger.Info("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			log.Info("change table AutoIncID",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tableInfo.Name),
+			logger.Info("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -341,11 +343,12 @@ func BuildBackupRangeAndSchema(
 			if !ignoreStats {
 				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
 				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-				stats, err = json.Marshal(jsonTable)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
+					logger.Error("dump table stats failed", logutil.ShortError(err))
+				} else {
+					stats, err = json.Marshal(jsonTable)
+					if err != nil {
+						logger.Error("dump table stats failed (cannot serialize)", logutil.ShortError(err))
+					}
 				}
 			}
 
@@ -580,7 +583,8 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
+	log.Error("can not find leader", zap.Stringer("key", logutil.WrapKey(key)))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
 func (bc *Client) fineGrainedBackup(

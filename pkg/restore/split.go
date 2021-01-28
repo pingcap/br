@@ -132,7 +132,11 @@ SplitRegions:
 				}
 				time.Sleep(interval)
 				if i > 3 {
-					log.Warn("splitting regions failed, retry it", zap.Error(errSplit), zap.Any("region", region), zap.Array("keys", logutil.WrapKeys(keys)))
+					log.Warn("splitting regions failed, retry it",
+						zap.Error(errSplit),
+						logutil.Region(region.Region),
+						zap.Any("leader", region.Leader),
+						zap.Array("keys", logutil.WrapKeys(keys)))
 				}
 				continue SplitRegions
 			}
@@ -251,7 +255,7 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 		return nil, errors.Trace(err)
 	}
 	for _, region := range newRegions {
-		// Wait for a while until the regions successfully splits.
+		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
 		if err = rs.client.ScatterRegion(ctx, region); err != nil {
 			log.Warn("scatter region failed", logutil.Region(region.Region), zap.Error(err))
