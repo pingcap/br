@@ -107,12 +107,12 @@ func newCheckSumCommand() *cobra.Command {
 						zap.Uint64("totalBytes", file.GetTotalBytes()),
 						zap.Uint64("startVersion", file.GetStartVersion()),
 						zap.Uint64("endVersion", file.GetEndVersion()),
-						zap.Stringer("startKey", logutil.WrapKey(file.GetStartKey())),
-						zap.Stringer("endKey", logutil.WrapKey(file.GetEndKey())),
+						logutil.Key("startKey", file.GetStartKey()),
+						logutil.Key("endKey", file.GetEndKey()),
 					)
 
 					var data []byte
-					data, err = s.Read(ctx, file.Name)
+					data, err = s.ReadFile(ctx, file.Name)
 					if err != nil {
 						return errors.Trace(err)
 					}
@@ -271,7 +271,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				err = s.Write(ctx, utils.MetaJSONFile, backupMetaJSON)
+				err = s.WriteFile(ctx, utils.MetaJSONFile, backupMetaJSON)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -325,7 +325,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			metaData, err := s.Read(ctx, utils.MetaJSONFile)
+			metaData, err := s.ReadFile(ctx, utils.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -345,7 +345,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				// Do not overwrite origin meta file
 				fileName += "_from_json"
 			}
-			err = s.Write(ctx, fileName, backupMeta)
+			err = s.WriteFile(ctx, fileName, backupMeta)
 			if err != nil {
 				return errors.Trace(err)
 			}

@@ -400,6 +400,13 @@ func (rc *Client) createTable(
 	if err != nil {
 		return CreatedTable{}, errors.Trace(err)
 	}
+	if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
+		return CreatedTable{}, errors.Annotatef(berrors.ErrRestoreModeMismatch,
+			"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+			transferBoolToValue(table.Info.IsCommonHandle),
+			table.Info.IsCommonHandle,
+			newTableInfo.IsCommonHandle)
+	}
 	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
 	et := CreatedTable{
 		RewriteRule: rules,
@@ -541,16 +548,12 @@ func (rc *Client) RestoreFiles(
 	defer func() {
 		elapsed := time.Since(start)
 		if err == nil {
-			log.Info("Restore files",
-				zap.Duration("take", elapsed),
-				logutil.Files(files))
+			log.Info("Restore files", zap.Duration("take", elapsed), logutil.Files(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
 
-	log.Debug("start to restore files",
-		zap.Int("files", len(files)),
-	)
+	log.Debug("start to restore files", zap.Int("files", len(files)))
 
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.RestoreFiles", opentracing.ChildOf(span.Context()))
@@ -596,8 +599,8 @@ func (rc *Client) RestoreRaw(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Raw",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
@@ -620,16 +623,16 @@ func (rc *Client) RestoreRaw(
 	if err := eg.Wait(); err != nil {
 		log.Error(
 			"restore raw range failed",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.Error(err),
 		)
 		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
-		zap.Stringer("startKey", logutil.WrapKey(startKey)),
-		zap.Stringer("endKey", logutil.WrapKey(endKey)),
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey),
 	)
 	return nil
 }
@@ -765,11 +768,13 @@ func (rc *Client) GoValidateChecksum(
 }
 
 func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient kv.Client, concurrency uint) error {
+	logger := log.With(
+		zap.String("db", tbl.OldTable.DB.Name.O),
+		zap.String("table", tbl.OldTable.Info.Name.O),
+	)
+
 	if tbl.OldTable.NoChecksum() {
-		log.Warn("table has no checksum, skipping checksum",
-			zap.Stringer("table", tbl.OldTable.Info.Name),
-			zap.Stringer("database", tbl.OldTable.DB.Name),
-		)
+		logger.Warn("table has no checksum, skipping checksum")
 		return nil
 	}
 
@@ -801,9 +806,7 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 	if checksumResp.Checksum != table.Crc64Xor ||
 		checksumResp.TotalKvs != table.TotalKvs ||
 		checksumResp.TotalBytes != table.TotalBytes {
-		log.Error("failed in validate checksum",
-			zap.String("database", table.DB.Name.L),
-			zap.String("table", table.Info.Name.L),
+		logger.Error("failed in validate checksum",
 			zap.Uint64("origin tidb crc64", table.Crc64Xor),
 			zap.Uint64("calculated crc64", checksumResp.Checksum),
 			zap.Uint64("origin tidb total kvs", table.TotalKvs),
@@ -814,14 +817,12 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}
 	if table.Stats != nil {
-		log.Info("start loads analyze after validate checksum",
-			zap.Stringer("db name", tbl.OldTable.DB.Name),
-			zap.Stringer("name", tbl.OldTable.Info.Name),
+		logger.Info("start loads analyze after validate checksum",
 			zap.Int64("old id", tbl.OldTable.Info.ID),
 			zap.Int64("new id", tbl.Table.ID),
 		)
 		if err := rc.statsHandler.LoadStatsFromJSON(rc.dom.InfoSchema(), table.Stats); err != nil {
-			log.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
+			logger.Error("analyze table failed", zap.Any("table", table.Stats), zap.Error(err))
 		}
 	}
 	return nil
@@ -999,4 +1000,51 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+// PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。
+func (rc *Client) PreCheckTableClusterIndex(
+	tables []*utils.Table,
+	ddlJobs []*model.Job,
+	dom *domain.Domain,
+) error {
+	for _, table := range tables {
+		oldTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
+		// table exists in database
+		if err == nil {
+			if table.Info.IsCommonHandle != oldTableInfo.IsCommonHandle {
+				return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+					"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+					transferBoolToValue(table.Info.IsCommonHandle),
+					table.Info.IsCommonHandle,
+					oldTableInfo.IsCommonHandle)
+			}
+		}
+	}
+	for _, job := range ddlJobs {
+		if job.Type == model.ActionCreateTable {
+			tableInfo := job.BinlogInfo.TableInfo
+			if tableInfo != nil {
+				oldTableInfo, err := rc.GetTableSchema(dom, model.NewCIStr(job.SchemaName), tableInfo.Name)
+				// table exists in database
+				if err == nil {
+					if tableInfo.IsCommonHandle != oldTableInfo.IsCommonHandle {
+						return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+							"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+							transferBoolToValue(tableInfo.IsCommonHandle),
+							tableInfo.IsCommonHandle,
+							oldTableInfo.IsCommonHandle)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func transferBoolToValue(enable bool) string {
+	if enable {
+		return "ON"
+	}
+	return "OFF"
 }

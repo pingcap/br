@@ -110,3 +110,65 @@ func (s *testRestoreClientSuite) TestIsOnline(c *C) {
 	client.EnableOnline()
 	c.Assert(client.IsOnline(), IsTrue)
 }
+
+func (s *testRestoreClientSuite) TestPreCheckTableClusterIndex(c *C) {
+	c.Assert(s.mock.Start(), IsNil)
+	defer s.mock.Stop()
+
+	client, err := restore.NewRestoreClient(gluetidb.New(), s.mock.PDClient, s.mock.Storage, nil, defaultKeepaliveCfg)
+	c.Assert(err, IsNil)
+
+	info, err := s.mock.Domain.GetSnapshotInfoSchema(math.MaxUint64)
+	c.Assert(err, IsNil)
+	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
+	c.Assert(isExist, IsTrue)
+
+	tables := make([]*utils.Table, 4)
+	intField := types.NewFieldType(mysql.TypeLong)
+	intField.Charset = "binary"
+	for i := len(tables) - 1; i >= 0; i-- {
+		tables[i] = &utils.Table{
+			DB: dbSchema,
+			Info: &model.TableInfo{
+				ID:   int64(i),
+				Name: model.NewCIStr("test" + strconv.Itoa(i)),
+				Columns: []*model.ColumnInfo{{
+					ID:        1,
+					Name:      model.NewCIStr("id"),
+					FieldType: *intField,
+					State:     model.StatePublic,
+				}},
+				Charset: "utf8mb4",
+				Collate: "utf8mb4_bin",
+			},
+		}
+	}
+	_, _, err = client.CreateTables(s.mock.Domain, tables, 0)
+	c.Assert(err, IsNil)
+
+	// exist different tables
+	tables[1].Info.IsCommonHandle = true
+	c.Assert(client.PreCheckTableClusterIndex(tables, nil, s.mock.Domain),
+		ErrorMatches, `.*@@tidb_enable_clustered_index should be ON \(backup table = true, created table = false\).*`)
+
+	// exist different DDLs
+	jobs := []*model.Job{{
+		ID:         5,
+		Type:       model.ActionCreateTable,
+		SchemaName: "test",
+		Query:      "",
+		BinlogInfo: &model.HistoryInfo{
+			TableInfo: &model.TableInfo{
+				Name:           model.NewCIStr("test1"),
+				IsCommonHandle: true,
+			},
+		},
+	}}
+	c.Assert(client.PreCheckTableClusterIndex(nil, jobs, s.mock.Domain),
+		ErrorMatches, `.*@@tidb_enable_clustered_index should be ON \(backup table = true, created table = false\).*`)
+
+	// should pass pre-check cluster index
+	tables[1].Info.IsCommonHandle = false
+	jobs[0].BinlogInfo.TableInfo.IsCommonHandle = false
+	c.Assert(client.PreCheckTableClusterIndex(tables, jobs, s.mock.Domain), IsNil)
+}
