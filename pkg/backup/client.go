@@ -41,6 +41,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -518,10 +519,10 @@ func (bc *Client) BackupRange(
 		}
 	}()
 	log.Info("backup started",
-		zap.Stringer("StartKey", logutil.WrapKey(startKey)),
-		zap.Stringer("EndKey", logutil.WrapKey(endKey)),
-		zap.Uint64("RateLimit", req.RateLimit),
-		zap.Uint32("Concurrency", req.Concurrency))
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey),
+		zap.Uint64("rateLimit", req.RateLimit),
+		zap.Uint32("concurrency", req.Concurrency))
 
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
@@ -554,8 +555,8 @@ func (bc *Client) BackupRange(
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -590,14 +591,14 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		}
 		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", logutil.WrapKey(key)))
+				zap.Reflect("Leader", region.Leader), logutil.Key("key", key))
 			return region.Leader, nil
 		}
-		log.Warn("no region found", zap.Stringer("Key", logutil.WrapKey(key)))
+		log.Warn("no region found", logutil.Key("key", key))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	log.Error("can not find leader", zap.Stringer("key", logutil.WrapKey(key)))
+	log.Error("can not find leader", logutil.Key("key", key))
 	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
@@ -687,8 +688,8 @@ func (bc *Client) fineGrainedBackup(
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
-					zap.Stringer("StartKey", logutil.WrapKey(resp.StartKey)),
-					zap.Stringer("EndKey", logutil.WrapKey(resp.EndKey)),
+					logutil.Key("startKey", resp.StartKey),
+					logutil.Key("endKey", resp.EndKey),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -851,7 +852,7 @@ func SendBackup(
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan(
 			fmt.Sprintf("Client.SendBackup, storeID = %d, StartKey = %s, EndKey = %s",
-				storeID, logutil.WrapKey(req.StartKey), logutil.WrapKey(req.EndKey)),
+				storeID, redact.Key(req.StartKey), redact.Key(req.EndKey)),
 			opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
@@ -861,8 +862,8 @@ func SendBackup(
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
 		log.Info("try backup",
-			zap.Stringer("StartKey", logutil.WrapKey(req.StartKey)),
-			zap.Stringer("EndKey", logutil.WrapKey(req.EndKey)),
+			logutil.Key("startKey", req.StartKey),
+			logutil.Key("endKey", req.EndKey),
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
@@ -911,8 +912,8 @@ backupLoop:
 			}
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
-				zap.Stringer("StartKey", logutil.WrapKey(resp.GetStartKey())),
-				zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey())))
+				logutil.Key("startKey", resp.GetStartKey()),
+				logutil.Key("endKey", resp.GetEndKey()))
 			err = respFn(resp)
 			if err != nil {
 				return errors.Trace(err)
