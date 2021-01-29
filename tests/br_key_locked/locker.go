@@ -306,7 +306,7 @@ func randStr() string {
 	length := rand.Intn(128)
 	res := ""
 	for i := 0; i < length; i++ {
-		res += string('a' + rand.Intn(26))
+		res += fmt.Sprint(rand.Intn(10))
 	}
 	return res
 }
