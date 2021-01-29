@@ -480,10 +480,7 @@ func (c *pdClient) getPDAPIAddr() string {
 }
 
 func checkRegionEpoch(new, old *RegionInfo) bool {
-	if new.Region.GetId() == old.Region.GetId() &&
+	return new.Region.GetId() == old.Region.GetId() &&
 		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
-		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
-		return true
-	}
-	return false
+		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer()
 }

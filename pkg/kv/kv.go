@@ -43,9 +43,9 @@ type Iter interface {
 	Seek(key []byte) bool
 	// Error return current error on this iter.
 	Error() error
-	// First return the first key in this iter.
+	// First moves this iter to the first key.
 	First() bool
-	// Last return the last key in this iter.
+	// Last moves this iter to the last key.
 	Last() bool
 	// Valid check this iter reach the end.
 	Valid() bool
