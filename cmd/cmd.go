@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/gluetidb"
-	brlogutil "github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
@@ -127,7 +127,7 @@ func Init(cmd *cobra.Command) (err error) {
 			err = e
 			return
 		}
-		brlogutil.InitRedact(redactLog || redactInfoLog)
+		redact.InitRedact(redactLog || redactInfoLog)
 
 		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
 		if e != nil {
