@@ -32,8 +32,10 @@ type s3Suite struct {
 
 type s3SuiteCustom struct{}
 
-var _ = Suite(&s3Suite{})
-var _ = Suite(&s3SuiteCustom{})
+var (
+	_ = Suite(&s3Suite{})
+	_ = Suite(&s3SuiteCustom{})
+)
 
 // FIXME: Cannot use the real SetUpTest/TearDownTest to set up the mock
 // otherwise the mock error will be ignored.
