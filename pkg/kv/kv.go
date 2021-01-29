@@ -147,7 +147,7 @@ func (s *SimpleKVIter) Valid() bool {
 // Next implements Iter.Next.
 func (s *SimpleKVIter) Next() bool {
 	s.index++
-	return s.index <= len(s.pairs)
+	return s.index < len(s.pairs)
 }
 
 // Key implements Iter.Key.

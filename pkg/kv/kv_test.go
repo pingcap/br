@@ -53,7 +53,14 @@ func (s *kvSuite) TestSimplePairIter(c *C) {
 		{Key: []byte("3"), Val: []byte("c")},
 		{Key: []byte("5"), Val: []byte("d")},
 	}
+	expectCount := 4
 	iter := newSimpleKVIter(pairs)
+	count := 0
+	for iter.Next() {
+		count ++
+	}
+	c.Assert(count, Equals, expectCount)
+
 	c.Assert(iter.First(), IsTrue)
 	c.Assert(iter.Last(), IsTrue)
 
