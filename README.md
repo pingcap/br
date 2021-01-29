@@ -87,6 +87,10 @@ bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
     --s3.endpoint="$S3_ENDPOINT"
 ```
 
+## Compatible test
+
+See [COMPATBILE_TEST](./COMPATIBLE_TEST.md)
+
 ## Contributing
 
 Contributions are welcomed and greatly appreciated. See [CONTRIBUTING](./CONTRIBUTING.md)
