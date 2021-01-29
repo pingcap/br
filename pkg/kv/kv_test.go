@@ -57,7 +57,7 @@ func (s *kvSuite) TestSimplePairIter(c *C) {
 	iter := newSimpleKVIter(pairs)
 	count := 0
 	for iter.Next() {
-		count ++
+		count++
 	}
 	c.Assert(count, Equals, expectCount)
 
