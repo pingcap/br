@@ -37,6 +37,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -162,8 +163,8 @@ func (i *Ingester) writeAndIngestByRange(
 	iter.Last()
 	pairEnd := append([]byte{}, iter.Key()...)
 	if bytes.Compare(pairStart, pairEnd) > 0 {
-		log.Debug("There is no pairs in iterator", zap.Binary("start", start),
-			zap.Binary("end", end), zap.Binary("pairStart", pairStart), zap.Binary("pairEnd", pairEnd))
+		log.Debug("There is no pairs in iterator", logutil.Key("start", start),
+			logutil.Key("end", end), logutil.Key("pairStart", pairStart), logutil.Key("pairEnd", pairEnd))
 		return nil
 	}
 	var regions []*RegionInfo
@@ -185,16 +186,14 @@ WriteAndIngest:
 		regions, err = PaginateScanRegion(ctx, i.splitCli, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
 			log.Warn("scan region failed", zap.Error(err), zap.Int("region_len", len(regions)),
-				zap.Binary("startKey", startKey), zap.Binary("endKey", endKey), zap.Int("retry", retry))
+				logutil.Key("startKey", startKey), logutil.Key("endKey", endKey), zap.Int("retry", retry))
 			retry++
 			continue
 		}
 
 		for _, region := range regions {
-			log.Debug("get region", zap.Int("retry", retry), zap.Binary("startKey", startKey),
-				zap.Binary("endKey", endKey), zap.Uint64("id", region.Region.GetId()),
-				zap.Stringer("epoch", region.Region.GetRegionEpoch()), zap.Binary("start", region.Region.GetStartKey()),
-				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
+			log.Debug("get region", zap.Int("retry", retry), logutil.Key("startKey", startKey),
+				logutil.Key("endKey", endKey), logutil.Region(region.Region))
 			w := i.WorkerPool.ApplyWorker()
 			var rg *Range
 			rg, err = i.writeAndIngestPairs(ctx, iter, region, pairStart, pairEnd)
@@ -207,8 +206,8 @@ WriteAndIngest:
 				} else {
 					retry++
 				}
-				log.Info("retry write and ingest kv pairs", zap.Binary("startKey", pairStart),
-					zap.Binary("endKey", pairEnd), zap.Error(err), zap.Int("retry", retry))
+				log.Info("retry write and ingest kv pairs", logutil.Key("startKey", pairStart),
+					logutil.Key("endKey", pairEnd), zap.Error(err), zap.Int("retry", retry))
 				continue WriteAndIngest
 			}
 			if rg != nil {
@@ -249,7 +248,7 @@ loopWrite:
 				var resp *sst.IngestResponse
 				resp, err = i.ingest(ctx, meta, region)
 				if err != nil {
-					log.Warn("ingest failed", zap.Error(err), zap.Reflect("meta", meta),
+					log.Warn("ingest failed", zap.Error(err), logutil.SSTMeta(meta),
 						zap.Reflect("region", region))
 					errCnt++
 					continue
@@ -275,7 +274,7 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-					log.Warn("ingest failed and do not retry", zap.Error(err), zap.Reflect("meta", meta),
+					log.Warn("ingest failed and do not retry", zap.Error(err),logutil.SSTMeta(meta),
 						zap.Reflect("region", region))
 					// met non-retryable error retry whole Write procedure
 					return remainRange, err
@@ -291,7 +290,7 @@ loopWrite:
 
 		if err != nil {
 			log.Warn("write and ingest region, will retry import full range", zap.Error(err),
-				zap.Stringer("region", region.Region), zap.Binary("start", start), zap.Binary("end", end))
+				logutil.Region(region.Region), logutil.Key("start", start), logutil.Key("end", end))
 		}
 		return remainRange, errors.Trace(err)
 	}
@@ -319,14 +318,14 @@ func (i *Ingester) writeToTiKV(
 	} else {
 		iter.Last()
 		log.Info("region range's end key not in iter, shouldn't happen",
-			zap.Any("region range", regionRange), zap.Binary("iter last", iter.Key()))
+			zap.Any("region range", regionRange), logutil.Key("iter last", iter.Key()))
 		lastKey = codec.EncodeBytes(kv.NextKey(iter.Key()))
 	}
 
 	if bytes.Compare(firstKey, lastKey) > 0 {
-		log.Info("keys within region is empty, skip ingest", zap.Binary("start", start),
-			zap.Binary("regionStart", region.Region.StartKey), zap.Binary("end", end),
-			zap.Binary("regionEnd", region.Region.EndKey))
+		log.Info("keys within region is empty, skip ingest", logutil.Key("start", start),
+			logutil.Key("regionStart", region.Region.StartKey), logutil.Key("end", end),
+			logutil.Key("regionEnd", region.Region.EndKey))
 		return nil, nil, nil
 	}
 
