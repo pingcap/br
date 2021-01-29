@@ -274,7 +274,7 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-					log.Warn("ingest failed and do not retry", zap.Error(err),logutil.SSTMeta(meta),
+					log.Warn("ingest failed and do not retry", zap.Error(err), logutil.SSTMeta(meta),
 						zap.Reflect("region", region))
 					// met non-retryable error retry whole Write procedure
 					return remainRange, err

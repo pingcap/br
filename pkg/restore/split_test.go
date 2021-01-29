@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore
+package restore_test
 
 import (
 	"bytes"
@@ -16,20 +16,21 @@ import (
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
 
+	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 )
 
 type TestClient struct {
 	mu           sync.RWMutex
 	stores       map[uint64]*metapb.Store
-	regions      map[uint64]*RegionInfo
+	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
 }
 
 func NewTestClient(
 	stores map[uint64]*metapb.Store,
-	regions map[uint64]*RegionInfo,
+	regions map[uint64]*restore.RegionInfo,
 	nextRegionID uint64,
 ) *TestClient {
 	regionsInfo := core.NewRegionsInfo()
@@ -44,7 +45,7 @@ func NewTestClient(
 	}
 }
 
-func (c *TestClient) GetAllRegions() map[uint64]*RegionInfo {
+func (c *TestClient) GetAllRegions() map[uint64]*restore.RegionInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.regions
@@ -60,7 +61,7 @@ func (c *TestClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Stor
 	return store, nil
 }
 
-func (c *TestClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, error) {
+func (c *TestClient) GetRegion(ctx context.Context, key []byte) (*restore.RegionInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, region := range c.regions {
@@ -72,7 +73,7 @@ func (c *TestClient) GetRegion(ctx context.Context, key []byte) (*RegionInfo, er
 	return nil, errors.Errorf("region not found: key=%s", string(key))
 }
 
-func (c *TestClient) GetRegionByID(ctx context.Context, regionID uint64) (*RegionInfo, error) {
+func (c *TestClient) GetRegionByID(ctx context.Context, regionID uint64) (*restore.RegionInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	region, ok := c.regions[regionID]
@@ -84,12 +85,12 @@ func (c *TestClient) GetRegionByID(ctx context.Context, regionID uint64) (*Regio
 
 func (c *TestClient) SplitRegion(
 	ctx context.Context,
-	regionInfo *RegionInfo,
+	regionInfo *restore.RegionInfo,
 	key []byte,
-) (*RegionInfo, error) {
+) (*restore.RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var target *RegionInfo
+	var target *restore.RegionInfo
 	splitKey := codec.EncodeBytes([]byte{}, key)
 	for _, region := range c.regions {
 		if bytes.Compare(splitKey, region.Region.StartKey) >= 0 &&
@@ -100,7 +101,7 @@ func (c *TestClient) SplitRegion(
 	if target == nil {
 		return nil, errors.Errorf("region not found: key=%s", string(key))
 	}
-	newRegion := &RegionInfo{
+	newRegion := &restore.RegionInfo{
 		Region: &metapb.Region{
 			Peers:    target.Region.Peers,
 			Id:       c.nextRegionID,
@@ -116,14 +117,14 @@ func (c *TestClient) SplitRegion(
 }
 
 func (c *TestClient) BatchSplitRegionsWithOrigin(
-	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
-) (*RegionInfo, []*RegionInfo, error) {
+	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
+) (*restore.RegionInfo, []*restore.RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	newRegions := make([]*RegionInfo, 0)
-	var region *RegionInfo
+	newRegions := make([]*restore.RegionInfo, 0)
+	var region *restore.RegionInfo
 	for _, key := range keys {
-		var target *RegionInfo
+		var target *restore.RegionInfo
 		splitKey := codec.EncodeBytes([]byte{}, key)
 		for _, region := range c.regions {
 			if region.ContainsInterior(splitKey) {
@@ -133,7 +134,7 @@ func (c *TestClient) BatchSplitRegionsWithOrigin(
 		if target == nil {
 			continue
 		}
-		newRegion := &RegionInfo{
+		newRegion := &restore.RegionInfo{
 			Region: &metapb.Region{
 				Peers:    target.Region.Peers,
 				Id:       c.nextRegionID,
@@ -152,13 +153,13 @@ func (c *TestClient) BatchSplitRegionsWithOrigin(
 }
 
 func (c *TestClient) BatchSplitRegions(
-	ctx context.Context, regionInfo *RegionInfo, keys [][]byte,
-) ([]*RegionInfo, error) {
+	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
+) ([]*restore.RegionInfo, error) {
 	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
 	return newRegions, err
 }
 
-func (c *TestClient) ScatterRegion(ctx context.Context, regionInfo *RegionInfo) error {
+func (c *TestClient) ScatterRegion(ctx context.Context, regionInfo *restore.RegionInfo) error {
 	return nil
 }
 
@@ -168,11 +169,11 @@ func (c *TestClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.Ge
 	}, nil
 }
 
-func (c *TestClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*RegionInfo, error) {
+func (c *TestClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*restore.RegionInfo, error) {
 	infos := c.regionsInfo.ScanRange(key, endKey, limit)
-	regions := make([]*RegionInfo, 0, len(infos))
+	regions := make([]*restore.RegionInfo, 0, len(infos))
 	for _, info := range infos {
-		regions = append(regions, &RegionInfo{
+		regions = append(regions, &restore.RegionInfo{
 			Region: info.GetMeta(),
 			Leader: info.GetLeader(),
 		})
@@ -206,7 +207,7 @@ func (s *testRangeSuite) TestSplit(c *C) {
 	client := initTestClient()
 	ranges := initRanges()
 	rewriteRules := initRewriteRules()
-	regionSplitter := NewRegionSplitter(client)
+	regionSplitter := restore.NewRegionSplitter(client)
 
 	ctx := context.Background()
 	err := regionSplitter.Split(ctx, ranges, rewriteRules, func(key [][]byte) {})
@@ -231,7 +232,7 @@ func initTestClient() *TestClient {
 		StoreId: 1,
 	}
 	keys := [6]string{"", "aay", "bba", "bbh", "cca", ""}
-	regions := make(map[uint64]*RegionInfo)
+	regions := make(map[uint64]*restore.RegionInfo)
 	for i := uint64(1); i < 6; i++ {
 		startKey := []byte(keys[i-1])
 		if len(startKey) != 0 {
@@ -241,7 +242,7 @@ func initTestClient() *TestClient {
 		if len(endKey) != 0 {
 			endKey = codec.EncodeBytes([]byte{}, endKey)
 		}
-		regions[i] = &RegionInfo{
+		regions[i] = &restore.RegionInfo{
 			Region: &metapb.Region{
 				Id:       i,
 				Peers:    peers,
@@ -279,7 +280,7 @@ func initRanges() []rtree.Range {
 	return ranges[:]
 }
 
-func initRewriteRules() *RewriteRules {
+func initRewriteRules() *restore.RewriteRules {
 	var rules [2]*import_sstpb.RewriteRule
 	rules[0] = &import_sstpb.RewriteRule{
 		OldKeyPrefix: []byte("aa"),
@@ -289,7 +290,7 @@ func initRewriteRules() *RewriteRules {
 		OldKeyPrefix: []byte("cc"),
 		NewKeyPrefix: []byte("bb"),
 	}
-	return &RewriteRules{
+	return &restore.RewriteRules{
 		Table: rules[:],
 		Data:  rules[:],
 	}
@@ -298,7 +299,7 @@ func initRewriteRules() *RewriteRules {
 // expected regions after split:
 //   [, aay), [aay, bb), [bb, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
 //   [bbj, cca), [cca, xx), [xx, xxe), [xxe, xxz), [xxz, )
-func validateRegions(regions map[uint64]*RegionInfo) bool {
+func validateRegions(regions map[uint64]*restore.RegionInfo) bool {
 	keys := [12]string{"", "aay", "bb", "bba", "bbf", "bbh", "bbj", "cca", "xx", "xxe", "xxz", ""}
 	if len(regions) != 11 {
 		return false
@@ -325,7 +326,7 @@ FindRegion:
 }
 
 func (s *testRangeSuite) TestNeedSplit(c *C) {
-	regions := []*RegionInfo{
+	regions := []*restore.RegionInfo{
 		{
 			Region: &metapb.Region{
 				StartKey: codec.EncodeBytes([]byte{}, []byte("b")),
@@ -334,15 +335,15 @@ func (s *testRangeSuite) TestNeedSplit(c *C) {
 		},
 	}
 	// Out of region
-	c.Assert(NeedSplit([]byte("a"), regions), IsNil)
+	c.Assert(restore.NeedSplit([]byte("a"), regions), IsNil)
 	// Region start key
-	c.Assert(NeedSplit([]byte("b"), regions), IsNil)
+	c.Assert(restore.NeedSplit([]byte("b"), regions), IsNil)
 	// In region
-	region := NeedSplit([]byte("c"), regions)
+	region := restore.NeedSplit([]byte("c"), regions)
 	c.Assert(bytes.Compare(region.Region.GetStartKey(), codec.EncodeBytes([]byte{}, []byte("b"))), Equals, 0)
 	c.Assert(bytes.Compare(region.Region.GetEndKey(), codec.EncodeBytes([]byte{}, []byte("d"))), Equals, 0)
 	// Region end key
-	c.Assert(NeedSplit([]byte("d"), regions), IsNil)
+	c.Assert(restore.NeedSplit([]byte("d"), regions), IsNil)
 	// Out of region
-	c.Assert(NeedSplit([]byte("e"), regions), IsNil)
+	c.Assert(restore.NeedSplit([]byte("e"), regions), IsNil)
 }
