@@ -12,7 +12,7 @@ FAILPOINT_CTL_BIN := tools/bin/failpoint-ctl
 REVIVE_BIN        := tools/bin/revive
 GOLANGCI_LINT_BIN := tools/bin/golangci-lint
 VFSGENDEV_BIN     := tools/bin/vfsgendev
-TEST_DIR := /tmp/lightning_test_result
+TEST_DIR := /tmp/backup_restore_test
 # this is hard-coded unless we want to generate *.toml on fly.
 
 path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(GOPATH)))

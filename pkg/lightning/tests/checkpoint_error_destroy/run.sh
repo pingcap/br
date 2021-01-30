@@ -42,9 +42,9 @@ for i in $(seq 8); do
     set +e
     run_lightning $ARGS
     set -e
-    ls -la /tmp/lightning_test_result/importer/.temp/
+    ls -la /tmp/backup_restore_test/importer/.temp/
     run_lightning_ctl $ARGS -checkpoint-error-destroy=all
-    ls -la /tmp/lightning_test_result/importer/.temp/
+    ls -la /tmp/backup_restore_test/importer/.temp/
 done
 
 run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/file.toml" -d "tests/$TEST_NAME/good-data"
