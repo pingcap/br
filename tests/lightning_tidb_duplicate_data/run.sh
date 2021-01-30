@@ -17,7 +17,7 @@ set -eu
 
 # reset substitution if last time failed half way
 # on BSD/macOS sed -i must have a following string as backup filename extension
-sed -i.bak 's/new/old/g' "tests/tidb_duplicate_data/data/dup.dup.sql" && rm tests/tidb_duplicate_data/data/dup.dup.sql.bak
+sed -i.bak 's/new/old/g' "tests/lightning_tidb_duplicate_data/data/dup.dup.sql" && rm tests/lightning_tidb_duplicate_data/data/dup.dup.sql.bak
 
 for type in replace ignore error; do
     run_sql 'DROP DATABASE IF EXISTS dup;'
@@ -30,7 +30,7 @@ for type in replace ignore error; do
     [ "$ERRORCODE" -ne 0 ]
 
     # backup original sql to dup.dup.sql.bak
-    sed -i.bak 's/old/new/g' "tests/tidb_duplicate_data/data/dup.dup.sql"
+    sed -i.bak 's/old/new/g' "tests/lightning_tidb_duplicate_data/data/dup.dup.sql"
 
     unset GO_FAILPOINTS
 
@@ -60,5 +60,5 @@ for type in replace ignore error; do
         check_contains 'd: new'
     fi
 
-    mv tests/tidb_duplicate_data/data/dup.dup.sql.bak tests/tidb_duplicate_data/data/dup.dup.sql
+    mv tests/lightning_tidb_duplicate_data/data/dup.dup.sql.bak tests/lightning_tidb_duplicate_data/data/dup.dup.sql
 done

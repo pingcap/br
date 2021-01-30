@@ -20,11 +20,8 @@ set -euE
 cur=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 . $cur/../_utils/run_services
 
-COLLATION_ENABLED=$NEW_COLLATION
 # restart cluster with new collation enabled
-if [ -z "$NEW_COLLATION" ]; then
-    NEW_COLLATION=1 start_services
-fi
+start_services --tidb-cfg $cur/tidb-new-collation.toml
 
 # Populate the mydumper source
 DBPATH="$TEST_DIR/nc.mydump"
@@ -58,8 +55,5 @@ for BACKEND in local importer tidb; do
 
 done
 
-# restart with original config if needed
-if [ -z "$COLLATION_ENABLED" ]; then
-    NEW_COLLATION= start_services
-fi
-
+# restart with original config
+start_services

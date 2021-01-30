@@ -15,11 +15,13 @@
 
 set -eu
 
+EXAMPLES_PATH=pkg/lightning/lightning/mydump/examples
+
 # Because of issue JENKINS-45544 we can't use the Unicode filename in the
 # examples. We are going to rename it in-place.
 do_rename() {
-    mv "lightning/mydump/examples/mocker_test.$1-schema.sql" "lightning/mydump/examples/mocker_test.$2-schema.sql"
-    mv "lightning/mydump/examples/mocker_test.$1.sql" "lightning/mydump/examples/mocker_test.$2.sql"
+    mv "$EXAMPLES_PATH/mocker_test.$1-schema.sql" "$EXAMPLES_PATH/mocker_test.$2-schema.sql"
+    mv "$EXAMPLES_PATH/mocker_test.$1.sql" "$EXAMPLES_PATH/mocker_test.$2.sql"
 }
 do_rename i ı
 undo_rename() {
@@ -28,7 +30,7 @@ undo_rename() {
 trap undo_rename EXIT
 
 do_run_lightning() {
-    run_lightning -d lightning/mydump/examples --config "tests/$TEST_NAME/$1.toml"
+    run_lightning -d $EXAMPLES_PATH --config "tests/$TEST_NAME/$1.toml"
 }
 
 # Perform the import

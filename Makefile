@@ -2,7 +2,7 @@ PROTOC ?= $(shell which protoc)
 PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD    := $(shell pwd)
 TOOLS  := $(CWD)/tools/bin
-PACKAGES := go list ./...
+PACKAGES := go list ./... | grep -vE 'vendor|test|proto|diff|bin|fuzz'
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
 PACKAGE_FILES := $$(find . -name '*.go' -type f | grep -vE 'vendor|\.pb\.go|lightning/mock|res_vfsdata')
 CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
@@ -34,7 +34,7 @@ LIGHTNING_BIN     := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl
 BR_BIN            := bin/br
 VFSGENDEV_BIN     := tools/bin/vfsgendev
-TEST_DIR          := /tmp/br_test_result
+TEST_DIR          := /tmp/backup_restore_test
 
 path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(GOPATH)))
 export PATH := $(path_to_add):$(PATH)
@@ -106,16 +106,15 @@ build_for_integration_test:
 	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go) || (make failpoint-disable && exit 1)
+	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go && \
+	$(GOBUILD) $(RACE_FLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \
+	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
-
-# TODO add parquet_gen to build_for_integration_test
-# $(GOBUILD) $(RACE_FLAG) -o bin/parquet_gen tests/checkpoint_parquet/*.go
 
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags leak ./... || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
@@ -124,12 +123,6 @@ testcover: tools
 	@make failpoint-enable
 	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
-	# GO111MODULE=on tools/bin/overalls \
-	# 	-project=$(BR_PKG) \
-	# 	-covermode=count \
-	# 	-ignore='.git,vendor,tests,_tools,docker,web' \
-	# 	-debug \
-	# 	-- -coverpkg=./... || ( make failpoint-disable && exit 1 )
 
 integration_test: bins build build_for_integration_test
 	tests/run.sh
