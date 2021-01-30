@@ -10,7 +10,7 @@ run_lightning \
     --tidb-user root \
     --tidb-status 10080 \
     --pd-urls 127.0.0.1:2379 \
-    -d tests/cmdline_override/data \
+    -d "tests/$TEST_NAME/data" \
     --importer 127.0.0.1:8808
 
 run_sql 'SELECT * FROM cmdline_override.t'

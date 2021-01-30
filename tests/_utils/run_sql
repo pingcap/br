@@ -13,12 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -euxo pipefail
+set -euo pipefail
 
-echo "[$(date)] Executing SQL: ${*: -1:1}" >> "$TEST_DIR/sql_res.$TEST_NAME.txt"
+SQL="$1"
+shift
+
+echo "[$(date)] Executing SQL: $SQL" > "$TEST_DIR/sql_res.$TEST_NAME.txt"
 mysql -uroot -h127.0.0.1 -P4000 \
     --ssl-ca="$TEST_DIR/certs/ca.pem" \
     --ssl-cert="$TEST_DIR/certs/curl.pem" \
     --ssl-key="$TEST_DIR/certs/curl.key" \
-    ${@:1:$#-1} \
-    --default-character-set utf8 -E -e "${*: -1:1}" | tee -a "$TEST_DIR/sql_res.$TEST_NAME.txt"
+    $@ \
+    --default-character-set utf8 -E -e "$SQL" | tee -a "$TEST_DIR/sql_res.$TEST_NAME.txt"
