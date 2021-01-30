@@ -25,6 +25,10 @@ do
             CLEANUP_DATA=1
             shift
             ;;
+        --cleanup-all)
+            CLEANUP_ALL=1
+            shift
+            ;;
         --bind-bin)
             BIND_BIN=1
             shift
@@ -46,8 +50,9 @@ if [ "$HELP" ]; then
     echo "  --help                 Display this message"
     echo "  --pull-images          Update docker images used in br tests"
     echo "  --tag (TAG)            Specify images tag used in br tests"
-    echo "  --cleanup-docker       Clean up br tests Docker images and containers"
+    echo "  --cleanup-docker       Clean up br tests Docker containers"
     echo "  --cleanup-data         Clean up persistent data"
+    echo "  --cleanup-all          Clean up all data inlcuding Docker images, containers and persistent data"
     echo "  --bind-bin             Bind br/bin directory"
     exit 0
 fi
@@ -58,25 +63,41 @@ host_bash_history=$host_tmp/bash_history
 # Persist tests data and bash history
 mkdir -p $host_tmp
 touch $host_bash_history || true
-if [ "$CLEANUP_DATA" ]; then
+function cleanup_data() {
     rm -rf $host_tmp || { echo try "sudo rm -rf $host_tmp"? ; exit 1; }
+}
+if [ "$CLEANUP_DATA" ]; then
+    cleanup_data
     exit 0
 fi
 
 # Clean up docker images and containers.
 docker_repo=br_tests
-if [ "$CLEANUP_DOCKER" ]; then
+function cleanup_docker_containers() {
     containers=$(docker container ps --all --filter="ancestor=$docker_repo:$IMAGE_TAG" -q)
     if [ "$containers" ]; then
         docker stop $containers
         docker rm $containers
     fi
+}
+function cleanup_docker_images() {
     images=$(docker images --filter="reference=$docker_repo:$IMAGE_TAG" -q)
     if [ "$images" ]; then
         docker rmi $images
     fi
+}
+if [ "$CLEANUP_DOCKER" ]; then
+    cleanup_docker_containers
     exit 0
 fi
+
+if [ "$CLEANUP_ALL" ]; then
+    cleanup_data
+    cleanup_docker_containers
+    cleanup_docker_images
+    exit 0
+fi
+
 if [ "$PULL_DOCKER_IMAGES" ]; then
     for image in "pingcap/tidb" "pingcap/tikv" "pingcap/pd" "pingcap/ticdc" "pingcap/tiflash" "pingcap/tidb-lightning"; do
         docker pull $image:$IMAGE_TAG
