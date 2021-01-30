@@ -17,7 +17,7 @@
 export TIFLASH="$TIFLASH"
 export NEW_COLLATION="$NEW_COLLATION"
 set -eu
-export TEST_DIR=/tmp/lightning_test_result
+export TEST_DIR=/tmp/backup_restore_test
 SELECTED_TEST_NAME="${TEST_NAME-$(find tests -mindepth 2 -maxdepth 2 -name run.sh | cut -d/ -f2 | sort)}"
 export PATH="tests/_utils:$PATH"
 . tests/_utils/run_services

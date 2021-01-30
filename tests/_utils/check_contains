@@ -14,18 +14,11 @@
 # limitations under the License.
 
 set -eu
-TEST_DIR=/tmp/lightning_test_result
 
-bin/tidb-lightning-ctl.test -test.coverprofile="$TEST_DIR/cov.ctl.$TEST_NAME.$$.out" DEVEL \
-    --ca "$TEST_DIR/tls/ca.pem" \
-    --cert "$TEST_DIR/tls/lightning.pem" \
-    --key "$TEST_DIR/tls/lightning.key" \
-    --log-file "$TEST_DIR/lightning.log" \
-    --tidb-port 4000 \
-    --pd-urls '127.0.0.1:2379' \
-    -d "tests/$TEST_NAME/data" \
-    --importer '127.0.0.1:8808' \
-    --sorted-kv-dir "$TEST_DIR/sorted" \
-    --enable-checkpoint=0 \
-    --check-requirements=0 \
-    "$@"
+if ! grep -Fq "$1" "$TEST_DIR/sql_res.$TEST_NAME.txt"; then
+    echo "TEST FAILED: OUTPUT DOES NOT CONTAIN '$1'"
+    echo "____________________________________"
+    cat "$TEST_DIR/sql_res.$TEST_NAME.txt"
+    echo "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^"
+    exit 1
+fi

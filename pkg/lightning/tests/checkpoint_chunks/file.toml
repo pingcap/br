@@ -5,5 +5,5 @@ region-concurrency = 1
 enable = true
 schema = "tidb_lightning_checkpoint_test_cpch"
 driver = "file"
-dsn = "/tmp/lightning_test_result/cpch.pb"
+dsn = "/tmp/backup_restore_test/cpch.pb"
 keep-after-success = true

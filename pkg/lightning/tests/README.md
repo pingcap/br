@@ -23,7 +23,7 @@ programs.
     * `openssl`
 
 3. The user executing the tests must have permission to create the folder
-    `/tmp/lightning_test_result`. All test artifacts will be written into this folder.
+    `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
 
 ## Running
 
@@ -45,7 +45,7 @@ This script will
 Run `tests/run.sh --debug` to pause immediately after all servers are started.
 
 After executing the tests, run `make coverage` to get a coverage report at
-`/tmp/lightning_test_result/all_cov.html`.
+`/tmp/backup_restore_test/all_cov.html`.
 
 ## Writing new tests
 
