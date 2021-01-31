@@ -30,9 +30,8 @@ import (
 )
 
 const (
-	importScanRegionTime      = 10 * time.Second
-	scanRegionPaginationLimit = int(128)
-	gRPCBackOffMaxDelay       = 3 * time.Second
+	importScanRegionTime = 10 * time.Second
+	gRPCBackOffMaxDelay  = 3 * time.Second
 )
 
 // ImporterClient is used to import a file to TiKV.
@@ -224,7 +223,7 @@ func (importer *FileImporter) Import(
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, errScanRegion := PaginateScanRegion(
-			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+			tctx, importer.metaClient, startKey, endKey, ScanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
@@ -475,13 +474,4 @@ func (importer *FileImporter) ingestSST(
 		return nil, errors.Trace(err)
 	}
 	return resp, nil
-}
-
-func checkRegionEpoch(new, old *RegionInfo) bool {
-	if new.Region.GetId() == old.Region.GetId() &&
-		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
-		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
-		return true
-	}
-	return false
 }
