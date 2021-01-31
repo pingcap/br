@@ -35,6 +35,64 @@ const (
 	resetRetryTimes = 3
 )
 
+// Pool is a lazy pool of gRPC channels.
+// When `Get` called, it lazily allocates new connection if connection not full.
+// If it's full, then it will return allocated channels round-robin.
+type Pool struct {
+	mu sync.Mutex
+
+	conns   []*grpc.ClientConn
+	next    int
+	cap     int
+	newConn func(ctx context.Context) (*grpc.ClientConn, error)
+}
+
+func (p *Pool) takeConns() (conns []*grpc.ClientConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.conns, conns = nil, p.conns
+	p.next = 0
+	return conns
+}
+
+// Close closes the conn pool.
+func (p *Pool) Close() {
+	for _, c := range p.takeConns() {
+		if err := c.Close(); err != nil {
+			log.Warn("failed to close clientConn", zap.String("target", c.Target()), zap.Error(err))
+		}
+	}
+}
+
+// Get tries to get an existing connection from the pool, or make a new one if the pool not full.
+func (p *Pool) Get(ctx context.Context) (*grpc.ClientConn, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.conns) < p.cap {
+		c, err := p.newConn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		p.conns = append(p.conns, c)
+		return c, nil
+	}
+
+	conn := p.conns[p.next]
+	p.next = (p.next + 1) % p.cap
+	return conn, nil
+}
+
+// NewConnPool creates a new Pool by the specified conn factory function and capacity.
+func NewConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, error)) *Pool {
+	return &Pool{
+		cap:     cap,
+		conns:   make([]*grpc.ClientConn, 0, cap),
+		newConn: newConn,
+
+		mu: sync.Mutex{},
+	}
+}
+
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
 	*pdutil.PdController
