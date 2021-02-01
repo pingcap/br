@@ -431,40 +431,6 @@ func encodeKeyPrefix(key []byte) []byte {
 	return append(encodedPrefix[:len(encodedPrefix)-9], key[len(key)-ungroupedLen:]...)
 }
 
-// PaginateScanRegion scan regions with a limit pagination and
-// return all regions at once.
-// It reduces max gRPC message size.
-func PaginateScanRegion(
-	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
-) ([]*RegionInfo, error) {
-	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		log.Error("restore range startKey >= endKey",
-			logutil.Key("startKey", startKey),
-			logutil.Key("endKey", endKey))
-		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey")
-	}
-
-	regions := []*RegionInfo{}
-	for {
-		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		regions = append(regions, batch...)
-		if len(batch) < limit {
-			// No more region
-			break
-		}
-		startKey = batch[len(batch)-1].Region.GetEndKey()
-		if len(startKey) == 0 ||
-			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
-			// All key space have scanned
-			break
-		}
-	}
-	return regions, nil
-}
-
 // ZapTables make zap field of table for debuging, including table names.
 func ZapTables(tables []CreatedTable) zapcore.Field {
 	return logutil.AbbreviatedArray("tables", tables, func(input interface{}) []string {
