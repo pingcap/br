@@ -123,7 +123,7 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
-	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --timeout 10m \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
