@@ -454,9 +454,10 @@ func NextKey(key []byte) []byte {
 
 	// in tikv <= 4.x, tikv will truncate the row key, so we should fetch the next valid row key
 	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
-	if tablecodec.IsRecordKey(key) {
-		tableID, handle, _ := tablecodec.DecodeRecordKey(key)
-		return tablecodec.EncodeRowKeyWithHandle(tableID, handle.Next())
+	tableID, _, isRecord, _ := tablecodec.DecodeKeyHead(key)
+	if isRecord {
+		_, handle, _ := tablecodec.DecodeRecordKey(key)
+		return tablecodec.EncodeRowKeyWithHandle(tableID, handle+1)
 	}
 
 	// if key is an index, directly append a 0x00 to the key.

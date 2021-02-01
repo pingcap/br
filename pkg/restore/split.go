@@ -14,12 +14,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
-<<<<<<< HEAD
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/codec"
-=======
 	"github.com/tikv/pd/pkg/codec"
->>>>>>> d87292c... log_restore: refactor write and ingest logic. (#645)
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -279,9 +275,6 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	return newRegions, nil
 }
 
-<<<<<<< HEAD
-// GetSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
-=======
 // PaginateScanRegion scan regions with a limit pagination and
 // return all regions at once.
 // It reduces max gRPC message size.
@@ -314,8 +307,7 @@ func PaginateScanRegion(
 	return regions, nil
 }
 
-// getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
->>>>>>> d87292c... log_restore: refactor write and ingest logic. (#645)
+// GetSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // the ranges, groups the split keys by region id.
 func GetSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
@@ -365,7 +357,6 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	return nil
 }
 
-<<<<<<< HEAD
 var (
 	tablePrefix  = []byte{'t'}
 	idLen        = 8
@@ -381,10 +372,7 @@ func truncateRowKey(key []byte) []byte {
 	return key
 }
 
-func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
-=======
 func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *sst.RewriteRule) {
->>>>>>> d87292c... log_restore: refactor write and ingest logic. (#645)
 	// We should search the dataRules firstly.
 	for _, rule := range rewriteRules.Data {
 		if bytes.HasPrefix(s, rule.GetOldKeyPrefix()) {

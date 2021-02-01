@@ -328,7 +328,6 @@ FindRegion:
 	return true
 }
 
-<<<<<<< HEAD
 func (s *testRestoreUtilSuite) TestGetSplitKeys(c *C) {
 	rewriteRules := &restore.RewriteRules{}
 	regions := []*restore.RegionInfo{
@@ -360,9 +359,6 @@ func (s *testRestoreUtilSuite) TestGetSplitKeys(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {
-=======
-func (s *testRangeSuite) TestNeedSplit(c *C) {
->>>>>>> d87292c... log_restore: refactor write and ingest logic. (#645)
 	regions := []*restore.RegionInfo{
 		{
 			Region: &metapb.Region{
