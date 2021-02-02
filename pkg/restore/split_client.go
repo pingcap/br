@@ -478,3 +478,9 @@ func (c *pdClient) getPDAPIAddr() string {
 	}
 	return strings.TrimRight(addr, "/")
 }
+
+func checkRegionEpoch(new, old *RegionInfo) bool {
+	return new.Region.GetId() == old.Region.GetId() &&
+		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
+		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer()
+}

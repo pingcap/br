@@ -14,7 +14,9 @@
 package kv
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -33,6 +35,141 @@ import (
 )
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
+
+// Iter abstract iterator method for Ingester.
+type Iter interface {
+	// Seek seek to specify position.
+	// if key not found, seeks next key position in iter.
+	Seek(key []byte) bool
+	// Error return current error on this iter.
+	Error() error
+	// First moves this iter to the first key.
+	First() bool
+	// Last moves this iter to the last key.
+	Last() bool
+	// Valid check this iter reach the end.
+	Valid() bool
+	// Next moves this iter forward.
+	Next() bool
+	// Key represents current position pair's key.
+	Key() []byte
+	// Value represents current position pair's Value.
+	Value() []byte
+	// Close close this iter.
+	Close() error
+}
+
+// IterProducer produces iterator with given range.
+type IterProducer interface {
+	// Produce produces iterator with given range [start, end).
+	Produce(start []byte, end []byte) Iter
+}
+
+// SimpleKVIterProducer represents kv iter producer.
+type SimpleKVIterProducer struct {
+	pairs Pairs
+}
+
+// NewSimpleKVIterProducer creates SimpleKVIterProducer.
+func NewSimpleKVIterProducer(pairs Pairs) IterProducer {
+	return &SimpleKVIterProducer{
+		pairs: pairs,
+	}
+}
+
+// Produce implements Iter.Producer.Produce.
+func (p *SimpleKVIterProducer) Produce(start []byte, end []byte) Iter {
+	startIndex := sort.Search(len(p.pairs), func(i int) bool {
+		return bytes.Compare(start, p.pairs[i].Key) < 1
+	})
+	endIndex := sort.Search(len(p.pairs), func(i int) bool {
+		return bytes.Compare(end, p.pairs[i].Key) < 1
+	})
+	if startIndex >= endIndex {
+		log.Warn("produce failed due to start key is large than end key",
+			zap.Binary("start", start), zap.Binary("end", end))
+		return nil
+	}
+	return newSimpleKVIter(p.pairs[startIndex:endIndex])
+}
+
+// SimpleKVIter represents simple pair iterator.
+// which is used for log restore.
+type SimpleKVIter struct {
+	index int
+	pairs Pairs
+}
+
+// newSimpleKVIter creates SimpleKVIter.
+func newSimpleKVIter(pairs Pairs) Iter {
+	return &SimpleKVIter{
+		index: -1,
+		pairs: pairs,
+	}
+}
+
+// Seek implements Iter.Seek.
+func (s *SimpleKVIter) Seek(key []byte) bool {
+	s.index = sort.Search(len(s.pairs), func(i int) bool {
+		return bytes.Compare(key, s.pairs[i].Key) < 1
+	})
+	return s.index < len(s.pairs)
+}
+
+// Error implements Iter.Error.
+func (s *SimpleKVIter) Error() error {
+	return nil
+}
+
+// First implements Iter.First.
+func (s *SimpleKVIter) First() bool {
+	if len(s.pairs) == 0 {
+		return false
+	}
+	s.index = 0
+	return true
+}
+
+// Last implements Iter.Last.
+func (s *SimpleKVIter) Last() bool {
+	if len(s.pairs) == 0 {
+		return false
+	}
+	s.index = len(s.pairs) - 1
+	return true
+}
+
+// Valid implements Iter.Valid.
+func (s *SimpleKVIter) Valid() bool {
+	return s.index >= 0 && s.index < len(s.pairs)
+}
+
+// Next implements Iter.Next.
+func (s *SimpleKVIter) Next() bool {
+	s.index++
+	return s.index < len(s.pairs)
+}
+
+// Key implements Iter.Key.
+func (s *SimpleKVIter) Key() []byte {
+	if s.index >= 0 && s.index < len(s.pairs) {
+		return s.pairs[s.index].Key
+	}
+	return nil
+}
+
+// Value implements Iter.Value.
+func (s *SimpleKVIter) Value() []byte {
+	if s.index >= 0 && s.index < len(s.pairs) {
+		return s.pairs[s.index].Val
+	}
+	return nil
+}
+
+// Close implements Iter.Close.
+func (s *SimpleKVIter) Close() error {
+	return nil
+}
 
 // Encoder encodes a row of SQL values into some opaque type which can be
 // consumed by OpenEngine.WriteEncoded.
@@ -312,4 +449,25 @@ func (kvs Pairs) ClassifyAndAppend(
 // Clear resets the Pairs.
 func (kvs Pairs) Clear() Pairs {
 	return kvs[:0]
+}
+
+// NextKey return the smallest []byte that is bigger than current bytes.
+// special case when key is empty, empty bytes means infinity in our context, so directly return itself.
+func NextKey(key []byte) []byte {
+	if len(key) == 0 {
+		return []byte{}
+	}
+
+	// in tikv <= 4.x, tikv will truncate the row key, so we should fetch the next valid row key
+	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
+	if tablecodec.IsRecordKey(key) {
+		tableID, handle, _ := tablecodec.DecodeRecordKey(key)
+		return tablecodec.EncodeRowKeyWithHandle(tableID, handle.Next())
+	}
+
+	// if key is an index, directly append a 0x00 to the key.
+	res := make([]byte, 0, len(key)+1)
+	res = append(res, key...)
+	res = append(res, 0)
+	return res
 }
