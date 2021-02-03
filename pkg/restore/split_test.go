@@ -20,7 +20,7 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
-type testClient struct {
+type TestClient struct {
 	mu           sync.RWMutex
 	stores       map[uint64]*metapb.Store
 	regions      map[uint64]*restore.RegionInfo
@@ -28,16 +28,16 @@ type testClient struct {
 	nextRegionID uint64
 }
 
-func newTestClient(
+func NewTestClient(
 	stores map[uint64]*metapb.Store,
 	regions map[uint64]*restore.RegionInfo,
 	nextRegionID uint64,
-) *testClient {
+) *TestClient {
 	regionsInfo := core.NewRegionsInfo()
 	for _, regionInfo := range regions {
 		regionsInfo.AddRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
 	}
-	return &testClient{
+	return &TestClient{
 		stores:       stores,
 		regions:      regions,
 		regionsInfo:  regionsInfo,
@@ -45,13 +45,13 @@ func newTestClient(
 	}
 }
 
-func (c *testClient) GetAllRegions() map[uint64]*restore.RegionInfo {
+func (c *TestClient) GetAllRegions() map[uint64]*restore.RegionInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.regions
 }
 
-func (c *testClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
+func (c *TestClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Store, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	store, ok := c.stores[storeID]
@@ -61,7 +61,7 @@ func (c *testClient) GetStore(ctx context.Context, storeID uint64) (*metapb.Stor
 	return store, nil
 }
 
-func (c *testClient) GetRegion(ctx context.Context, key []byte) (*restore.RegionInfo, error) {
+func (c *TestClient) GetRegion(ctx context.Context, key []byte) (*restore.RegionInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	for _, region := range c.regions {
@@ -73,7 +73,7 @@ func (c *testClient) GetRegion(ctx context.Context, key []byte) (*restore.Region
 	return nil, errors.Errorf("region not found: key=%s", string(key))
 }
 
-func (c *testClient) GetRegionByID(ctx context.Context, regionID uint64) (*restore.RegionInfo, error) {
+func (c *TestClient) GetRegionByID(ctx context.Context, regionID uint64) (*restore.RegionInfo, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	region, ok := c.regions[regionID]
@@ -83,7 +83,7 @@ func (c *testClient) GetRegionByID(ctx context.Context, regionID uint64) (*resto
 	return region, nil
 }
 
-func (c *testClient) SplitRegion(
+func (c *TestClient) SplitRegion(
 	ctx context.Context,
 	regionInfo *restore.RegionInfo,
 	key []byte,
@@ -116,7 +116,7 @@ func (c *testClient) SplitRegion(
 	return newRegion, nil
 }
 
-func (c *testClient) BatchSplitRegionsWithOrigin(
+func (c *TestClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
 	c.mu.Lock()
@@ -152,24 +152,24 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	return region, newRegions, nil
 }
 
-func (c *testClient) BatchSplitRegions(
+func (c *TestClient) BatchSplitRegions(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) ([]*restore.RegionInfo, error) {
 	_, newRegions, err := c.BatchSplitRegionsWithOrigin(ctx, regionInfo, keys)
 	return newRegions, err
 }
 
-func (c *testClient) ScatterRegion(ctx context.Context, regionInfo *restore.RegionInfo) error {
+func (c *TestClient) ScatterRegion(ctx context.Context, regionInfo *restore.RegionInfo) error {
 	return nil
 }
 
-func (c *testClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOperatorResponse, error) {
+func (c *TestClient) GetOperator(ctx context.Context, regionID uint64) (*pdpb.GetOperatorResponse, error) {
 	return &pdpb.GetOperatorResponse{
 		Header: new(pdpb.ResponseHeader),
 	}, nil
 }
 
-func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*restore.RegionInfo, error) {
+func (c *TestClient) ScanRegions(ctx context.Context, key, endKey []byte, limit int) ([]*restore.RegionInfo, error) {
 	infos := c.regionsInfo.ScanRange(key, endKey, limit)
 	regions := make([]*restore.RegionInfo, 0, len(infos))
 	for _, info := range infos {
@@ -181,19 +181,19 @@ func (c *testClient) ScanRegions(ctx context.Context, key, endKey []byte, limit 
 	return regions, nil
 }
 
-func (c *testClient) GetPlacementRule(ctx context.Context, groupID, ruleID string) (r placement.Rule, err error) {
+func (c *TestClient) GetPlacementRule(ctx context.Context, groupID, ruleID string) (r placement.Rule, err error) {
 	return
 }
 
-func (c *testClient) SetPlacementRule(ctx context.Context, rule placement.Rule) error {
+func (c *TestClient) SetPlacementRule(ctx context.Context, rule placement.Rule) error {
 	return nil
 }
 
-func (c *testClient) DeletePlacementRule(ctx context.Context, groupID, ruleID string) error {
+func (c *TestClient) DeletePlacementRule(ctx context.Context, groupID, ruleID string) error {
 	return nil
 }
 
-func (c *testClient) SetStoresLabel(ctx context.Context, stores []uint64, labelKey, labelValue string) error {
+func (c *TestClient) SetStoresLabel(ctx context.Context, stores []uint64, labelKey, labelValue string) error {
 	return nil
 }
 
@@ -203,7 +203,7 @@ func (c *testClient) SetStoresLabel(ctx context.Context, stores []uint64, labelK
 // expected regions after split:
 //   [, aay), [aay, bb), [bb, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
 //   [bbj, cca), [cca, xx), [xx, xxe), [xxe, xxz), [xxz, )
-func (s *testRestoreUtilSuite) TestSplit(c *C) {
+func (s *testRangeSuite) TestSplit(c *C) {
 	client := initTestClient()
 	ranges := initRanges()
 	rewriteRules := initRewriteRules()
@@ -225,7 +225,7 @@ func (s *testRestoreUtilSuite) TestSplit(c *C) {
 }
 
 // region: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )
-func initTestClient() *testClient {
+func initTestClient() *TestClient {
 	peers := make([]*metapb.Peer, 1)
 	peers[0] = &metapb.Peer{
 		Id:      1,
@@ -255,7 +255,7 @@ func initTestClient() *testClient {
 	stores[1] = &metapb.Store{
 		Id: 1,
 	}
-	return newTestClient(stores, regions, 6)
+	return NewTestClient(stores, regions, 6)
 }
 
 // range: [aaa, aae), [aae, aaz), [ccd, ccf), [ccf, ccj)
@@ -325,7 +325,7 @@ FindRegion:
 	return true
 }
 
-func (s *testRestoreUtilSuite) TestNeedSplit(c *C) {
+func (s *testRangeSuite) TestNeedSplit(c *C) {
 	regions := []*restore.RegionInfo{
 		{
 			Region: &metapb.Region{

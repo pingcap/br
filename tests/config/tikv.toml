@@ -13,3 +13,6 @@ max-open-files = 4096
 # true (default value) for high reliability, this can prevent data loss when power failure.
 sync-log = false
 capacity = "10GB"
+
+[cdc]
+hibernate-regions-compatible=false
