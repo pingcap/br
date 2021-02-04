@@ -184,12 +184,17 @@ func BuildBackupMeta(
 	files []*kvproto.File,
 	rawRanges []*kvproto.RawRange,
 	ddlJobs []*model.Job,
+	clusterVersion string,
+	brVersion string,
 ) (backupMeta kvproto.BackupMeta, err error) {
 	backupMeta.StartVersion = req.StartVersion
 	backupMeta.EndVersion = req.EndVersion
 	backupMeta.IsRawKv = req.IsRawKv
 	backupMeta.RawRanges = rawRanges
 	backupMeta.Files = files
+	backupMeta.ClusterId = req.ClusterId
+	backupMeta.ClusterVersion = clusterVersion
+	backupMeta.BrVersion = brVersion
 	backupMeta.Ddls, err = json.Marshal(ddlJobs)
 	if err != nil {
 		err = errors.Trace(err)

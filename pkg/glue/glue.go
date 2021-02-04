@@ -25,6 +25,9 @@ type Glue interface {
 
 	// Record records some information useful for log-less summary.
 	Record(name string, value uint64)
+
+	// GetVersion gets the code version to run backup/restore job
+	GetVersion() string
 }
 
 // Session is an abstraction of the session.Session interface.

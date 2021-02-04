@@ -263,6 +263,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
 	}
+	brVersion := g.GetVersion()
+	clusterVersion, err := mgr.GetClusterVersion(ctx)
+	if err != nil {
+		return err
+	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
 		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
@@ -271,7 +276,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	// nothing to backup
 	if ranges == nil {
-		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
+		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
 		if err2 != nil {
 			return errors.Trace(err2)
 		}
@@ -323,7 +328,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
+	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
 	if err != nil {
 		return errors.Trace(err)
 	}
