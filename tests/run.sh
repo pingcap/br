@@ -20,7 +20,7 @@ export TEST_DIR=/tmp/backup_restore_test
 # Reset TEST_DIR
 rm -rf $TEST_DIR && mkdir -p $TEST_DIR
 
-# Generate TSL certs
+# Generate TLS certs
 tests/_utils/generate_certs &> /dev/null
 
 SELECTED_TEST_NAME="${TEST_NAME-$(find tests -mindepth 2 -maxdepth 2 -name run.sh | cut -d/ -f2 | sort)}"

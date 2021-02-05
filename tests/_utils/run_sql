@@ -23,5 +23,5 @@ mysql -uroot -h127.0.0.1 -P4000 \
     --ssl-ca="$TEST_DIR/certs/ca.pem" \
     --ssl-cert="$TEST_DIR/certs/curl.pem" \
     --ssl-key="$TEST_DIR/certs/curl.key" \
-    $@ \
+    "$@" \
     --default-character-set utf8 -E -e "$SQL" | tee -a "$TEST_DIR/sql_res.$TEST_NAME.txt"
