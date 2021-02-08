@@ -338,6 +338,7 @@ func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) 
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
+		log.Error("In read s3 file", zap.Any("file info", input))
 		return nil, errors.Trace(err)
 	}
 	defer result.Body.Close()
