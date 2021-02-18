@@ -340,7 +340,7 @@ func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) 
 	if err != nil {
 		er := errors.Trace(err)
 		return nil, errors.Annotatef(er,
-			"failed to read s3 file, file info: input.bucket='%s', input.key='%s', input.key ='%s'",
+			"failed to read s3 file, file info: input.bucket='%s', input.key='%s'",
 			input.Bucket, input.Key)
 	}
 	defer result.Body.Close()
