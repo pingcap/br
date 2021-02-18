@@ -63,7 +63,7 @@ run_sql "analyze table $DB.$TABLE;"
 #        }
 #     ]
 # }
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $BACKUP_STAT
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' | jq 'del(.correlation)'  > $BACKUP_STAT
 
 # backup full
 echo "backup start with stats..."
@@ -96,12 +96,13 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' | jq 'del(.correlation)' > $RESOTRE_STAT
 
 # stats should not be equal because we disable stats by default.
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "TEST: [$TEST_NAME] fail due to stats are equal"
+  cat $LOG | grep ERROR
   exit 1
 fi
 
@@ -134,13 +135,14 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' | jq 'del(.correlation)'  > $RESOTRE_STAT
 
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "stats are equal"
 else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
+  cat $LOG | grep ERROR
   cat $BACKUP_STAT | head 1000
   cat $RESOTRE_STAT | head 1000
   exit 1
