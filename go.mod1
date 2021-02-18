@@ -54,7 +54,4 @@ require (
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
 
-// The fork updates BR dependency in order to fix `make build`. It can be removed once we updates BR dependency in TiDB.
-replace github.com/pingcap/tidb-lightning => github.com/overvenus/tidb-lightning v5.0.0-rc.0.20210129142610-fe7a7a431b0c+incompatible
-
 replace cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2
