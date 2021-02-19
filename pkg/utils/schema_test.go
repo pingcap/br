@@ -153,9 +153,17 @@ func (r *testSchemaSuite) TestLoadBackupMetaPartionTable(c *C) {
 	tbl := dbs[dbName.String()].GetTable(tblName.String())
 	c.Assert(err, IsNil)
 	c.Assert(tbl.Files, HasLen, 3)
-	c.Assert(tbl.Files[0].Name, Equals, "1.sst")
-	c.Assert(tbl.Files[1].Name, Equals, "2.sst")
-	c.Assert(tbl.Files[2].Name, Equals, "3.sst")
+	contains := func(name string) bool {
+		for i := range tbl.Files {
+			if tbl.Files[i].Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	c.Assert(contains("1.sst"), IsTrue)
+	c.Assert(contains("2.sst"), IsTrue)
+	c.Assert(contains("3.sst"), IsTrue)
 }
 
 func buildTableAndFiles(name string, tableID, fileCount int) (*model.TableInfo, []*backup.File) {
@@ -206,6 +214,7 @@ func buildBenchmarkBackupmeta(c *C, dbName string, tableCount, fileCountPerTable
 // Run `go test github.com/pingcap/br/pkg/utils -check.b -test.v` to get benchmark result.
 func (r *testSchemaSuite) BenchmarkLoadBackupMeta64(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 64, 64)
+	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
 		dbs, err := LoadBackupTables(meta)
 		c.Assert(err, IsNil)
@@ -217,6 +226,7 @@ func (r *testSchemaSuite) BenchmarkLoadBackupMeta64(c *C) {
 
 func (r *testSchemaSuite) BenchmarkLoadBackupMeta1024(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 1024, 64)
+	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
 		dbs, err := LoadBackupTables(meta)
 		c.Assert(err, IsNil)
@@ -228,6 +238,7 @@ func (r *testSchemaSuite) BenchmarkLoadBackupMeta1024(c *C) {
 
 func (r *testSchemaSuite) BenchmarkLoadBackupMeta10240(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 10240, 64)
+	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
 		dbs, err := LoadBackupTables(meta)
 		c.Assert(err, IsNil)
