@@ -30,9 +30,8 @@ import (
 )
 
 const (
-	importScanRegionTime      = 10 * time.Second
-	scanRegionPaginationLimit = int(128)
-	gRPCBackOffMaxDelay       = 3 * time.Second
+	importScanRegionTime = 10 * time.Second
+	gRPCBackOffMaxDelay  = 3 * time.Second
 )
 
 // ImporterClient is used to import a file to TiKV.
@@ -216,15 +215,15 @@ func (importer *FileImporter) Import(
 	}
 	log.Debug("rewrite file keys",
 		logutil.File(file),
-		zap.Stringer("startKey", logutil.WrapKey(startKey)),
-		zap.Stringer("endKey", logutil.WrapKey(endKey)))
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey))
 
 	err = utils.WithRetry(ctx, func() error {
 		tctx, cancel := context.WithTimeout(ctx, importScanRegionTime)
 		defer cancel()
 		// Scan regions covered by the file range
 		regionInfos, errScanRegion := PaginateScanRegion(
-			tctx, importer.metaClient, startKey, endKey, scanRegionPaginationLimit)
+			tctx, importer.metaClient, startKey, endKey, ScanRegionPaginationLimit)
 		if errScanRegion != nil {
 			return errors.Trace(errScanRegion)
 		}
@@ -253,8 +252,8 @@ func (importer *FileImporter) Import(
 						log.Warn("download file skipped",
 							logutil.File(file),
 							logutil.Region(info.Region),
-							zap.Stringer("startKey", logutil.WrapKey(startKey)),
-							zap.Stringer("endKey", logutil.WrapKey(endKey)),
+							logutil.Key("startKey", startKey),
+							logutil.Key("endKey", endKey),
 							logutil.ShortError(e))
 						continue regionLoop
 					}
@@ -262,8 +261,8 @@ func (importer *FileImporter) Import(
 				log.Error("download file failed",
 					logutil.File(file),
 					logutil.Region(info.Region),
-					zap.Stringer("startKey", logutil.WrapKey(startKey)),
-					zap.Stringer("endKey", logutil.WrapKey(endKey)),
+					logutil.Key("startKey", startKey),
+					logutil.Key("endKey", endKey),
 					logutil.ShortError(errDownload))
 				return errors.Trace(errDownload)
 			}
@@ -327,7 +326,7 @@ func (importer *FileImporter) Import(
 			if errIngest != nil {
 				log.Error("ingest file failed",
 					logutil.File(file),
-					logutil.ZapRedactStringer("range", downloadMeta.GetRange()),
+					logutil.SSTMeta(downloadMeta),
 					logutil.Region(info.Region),
 					zap.Error(errIngest))
 				return errors.Trace(errIngest)
@@ -469,19 +468,10 @@ func (importer *FileImporter) ingestSST(
 		Context: reqCtx,
 		Sst:     sstMeta,
 	}
-	log.Debug("ingest SST", logutil.SSTMeta(sstMeta), zap.Reflect("leader", leader))
+	log.Debug("ingest SST", logutil.SSTMeta(sstMeta), logutil.Leader(leader))
 	resp, err := importer.importClient.IngestSST(ctx, leader.GetStoreId(), req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 	return resp, nil
-}
-
-func checkRegionEpoch(new, old *RegionInfo) bool {
-	if new.Region.GetId() == old.Region.GetId() &&
-		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
-		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer() {
-		return true
-	}
-	return false
 }

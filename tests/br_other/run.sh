@@ -17,8 +17,6 @@ set -eu
 DB="$TEST_NAME"
 
 run_sql "CREATE DATABASE $DB;"
-trap "run_sql \"DROP DATABASE $DB;\"" EXIT
-
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
   YCSB_KEY varchar(64) NOT NULL, \
@@ -70,8 +68,11 @@ fi
 echo "backup start to test lock file"
 PPROF_PORT=6080
 GO_FAILPOINTS="github.com/pingcap/br/pkg/utils/determined-pprof-port=return($PPROF_PORT)" \
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" --remove-schedulers --ratelimit 1 --ratelimit-unit 1 --concurrency 4 2>&1 > $TEST_DIR/br-other-stdout.log &
-trap "cat $TEST_DIR/br-other-stdout.log" EXIT
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/lock" \
+    --remove-schedulers \
+    --ratelimit 1 \
+    --ratelimit-unit 1 \
+    --concurrency 4 &> $TEST_DIR/br-other-stdout.log & # It will be killed after test finish.
 
 # record last backup pid
 _pid=$!
@@ -83,14 +84,15 @@ echo "starting pprof..."
 
 # give the former backup some time to write down lock file (and start pprof server).
 sleep 1
-curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" 2>&1 > /dev/null
+# TODO Support TLS.
+run_curl "http://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" &>/dev/null
 echo "pprof started..."
 
-curl http://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": false'
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-pending-peer-count"' | grep "2147483647"
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep -E "^0$"
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep -E "^0$"
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | grep '"disable": false'
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "false"
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-pending-peer-count"' | grep "2147483647"
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep -E "^0$"
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep -E "^0$"
 
 backup_fail=0
 echo "another backup start expect to fail due to last backup add a lockfile"
@@ -101,7 +103,7 @@ if [ "$backup_fail" -ne "1" ];then
 fi
 
 # check is there still exists scheduler not in pause.
-pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
+pause_schedulers=$(run_curl https://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
 if [ "$pause_schedulers" -lt "3" ];then
   echo "TEST: [$TEST_NAME] failed because paused scheduler are not enough"
   exit 1
@@ -122,7 +124,7 @@ fi
 # make sure we won't stuck in non-scheduler state, even we send a SIGTERM to it.
 # give enough time to BR so it can gracefully stop.
 sleep 30
-if curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": true'
+if run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '[."schedulers-v2"][0][0]' | grep -q '"disable": true'
 then
   echo "TEST: [$TEST_NAME] failed because scheduler has been removed"
   exit 1
@@ -139,8 +141,8 @@ default_pd_values='{
 }'
 
 for key in $(echo $default_pd_values | jq 'keys[]'); do
-  if ! curl -s http://$PD_ADDR/pd/api/v1/config/schedule | jq ".[$key]" | grep -q $(echo $default_pd_values | jq ".[$key]"); then
-    curl -s http://$PD_ADDR/pd/api/v1/config/schedule
+  if ! run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq ".[$key]" | grep -q $(echo $default_pd_values | jq ".[$key]"); then
+    run_curl https://$PD_ADDR/pd/api/v1/config/schedule
     echo "[$TEST_NAME] failed due to PD config isn't reset after restore"
     exit 1
   fi
@@ -148,7 +150,7 @@ done
 
 
 # check is there still exists scheduler in pause.
-pause_schedulers=$(curl http://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
+pause_schedulers=$(curl https://$PD_ADDR/pd/api/v1/schedulers?status="paused" | grep "scheduler" | wc -l)
  # There shouldn't be any paused schedulers since BR gracfully shutdown.
  if [ "$pause_schedulers" -ne "0" ];then
   echo "TEST: [$TEST_NAME] failed because paused scheduler has changed"
@@ -158,23 +160,23 @@ fi
 pd_settings=6
 
 # balance-region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-region")}' | grep '"disable": false' || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-region")}' | grep '"disable": false' || ((pd_settings--))
 # balance-leader scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="balance-leader")}' | grep '"disable": false' || ((pd_settings--))
 # hot region scheduler enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."schedulers-v2"[] | {disable: .disable, type: ."type" | select (.=="hot-region")}' | grep '"disable": false' || ((pd_settings--))
 # location replacement enabled
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "true" || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."enable-location-replacement"' | grep "true" || ((pd_settings--))
 
 # we need reset pd config to default
 # until pd has the solution to temporary set these scheduler/configs.
 run_br validate reset-pd-config-as-default --pd $PD_ADDR
 
 # max-merge-region-size set to default 20
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep "20" || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-size"' | grep "20" || ((pd_settings--))
 
 # max-merge-region-keys set to default 200000
-curl http://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep "200000" || ((pd_settings--))
+run_curl https://$PD_ADDR/pd/api/v1/config/schedule | jq '."max-merge-region-keys"' | grep "200000" || ((pd_settings--))
 
 if [ "$pd_settings" -ne "6" ];then
     echo "TEST: [$TEST_NAME] test validate reset pd config failed!"
@@ -185,3 +187,5 @@ fi
 # Test version
 run_br --version
 run_br -V
+
+run_sql "DROP DATABASE $DB;"
