@@ -24,7 +24,6 @@ BUCKET="test"
 
 # we need set public-host for download file, or it will return 404 when using client to read.
 bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -backend memory -public-host $GCS_HOST:$GCS_PORT &
-GCS_ID=$!
 i=0
 while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
     i=$(($i+1))
@@ -36,12 +35,16 @@ while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
 done
 
 # start oauth server
+<<<<<<< HEAD
 FLASK_APP=tests/$TEST_NAME/oauth.py flask run &
 OAUTH_ID=$!
+=======
+bin/oauth &
+>>>>>>> 8b9b626... Merge branch 'merging'
 
 stop_gcs() {
-    kill -2 $GCS_ID
-    kill -2 $OAUTH_ID
+    killall -2 fake-gcs-server || true
+    killall -2 oauth || true
 }
 trap stop_gcs EXIT
 
@@ -63,7 +66,8 @@ KEY=$(cat <<- EOF
   "client_email": "test@email.com",
   "token_uri": "http://localhost:5000/oauth/token"
 }
-EOF)
+EOF
+)
 
 # save CREDENTIALS to file
 echo $KEY > "tests/$TEST_NAME/config.json"
@@ -84,7 +88,12 @@ run_br --pd $PD_ADDR backup full -s "gcs://$BUCKET/$DB?endpoint=http://$GCS_HOST
 
 # old version backup full v4.0.8 and disable check-requirements
 echo "v4.0.8 backup start..."
-bin/brv4.0.8 --pd $PD_ADDR backup full -s "gcs://$BUCKET/${DB}_old?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/" --check-requirements=false
+bin/brv4.0.8 backup full \
+    -L "debug" \
+    --ca "$TEST_DIR/certs/ca.pem" \
+    --cert "$TEST_DIR/certs/br.pem" \
+    --key "$TEST_DIR/certs/br.key" \
+    --pd $PD_ADDR -s "gcs://$BUCKET/${DB}_old?endpoint=http://$GCS_HOST:$GCS_PORT/storage/v1/" --check-requirements=false
 
 # clean up
 for i in $(seq $DB_COUNT); do
@@ -139,6 +148,4 @@ done
 if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] v4.0.8 version successd!"
 fi

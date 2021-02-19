@@ -27,6 +27,9 @@ import (
 )
 
 var (
+	ca       = flag.String("ca", "", "CA certificate path for TLS connection")
+	cert     = flag.String("cert", "", "certificate path for TLS connection")
+	key      = flag.String("key", "", "private key path for TLS connection")
 	pdAddr   = flag.String("pd", "", "PD address")
 	gcOffset = flag.Duration("gc-offset", time.Second*10,
 		"Set GC safe point to current time - gc-offset, default: 10s")
@@ -45,7 +48,11 @@ func main() {
 	timeout := time.Second * 10
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	pdclient, err := pd.NewClientWithContext(ctx, []string{*pdAddr}, pd.SecurityOption{})
+	pdclient, err := pd.NewClientWithContext(ctx, []string{*pdAddr}, pd.SecurityOption{
+		CAPath:   *ca,
+		CertPath: *cert,
+		KeyPath:  *key,
+	})
 	if err != nil {
 		log.Panic("create pd client failed", zap.Error(err))
 	}

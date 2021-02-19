@@ -14,31 +14,53 @@
 # limitations under the License.
 
 set -eu
-cur=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
-source $cur/_utils/run_services
+export PATH="tests/_utils:bin:$PATH"
+export TEST_DIR=/tmp/backup_restore_test
 
-mkdir -p "$TEST_DIR"
-rm -f "$TEST_DIR"/*.log &> /dev/null
+# Reset TEST_DIR
+rm -rf $TEST_DIR && mkdir -p $TEST_DIR
+
+# Generate TLS certs
+tests/_utils/generate_certs &> /dev/null
+
+SELECTED_TEST_NAME="${TEST_NAME-$(find tests -mindepth 2 -maxdepth 2 -name run.sh | cut -d/ -f2 | sort)}"
+source tests/_utils/run_services
 
 trap stop_services EXIT
 start_services
+
+# Intermediate file needed because read can be used as a pipe target.
+# https://stackoverflow.com/q/2746553/
+run_curl "https://$PD_ADDR/pd/api/v1/version" | grep -o 'v[0-9.]\+' > "$TEST_DIR/cluster_version.txt"
+IFS='.' read CLUSTER_VERSION_MAJOR CLUSTER_VERSION_MINOR CLUSTER_VERSION_REVISION < "$TEST_DIR/cluster_version.txt"
 
 if [ "${1-}" = '--debug' ]; then
     echo 'You may now debug from the other terminal. Press [ENTER] to continue.'
     read line
 fi
 
-for script in tests/${TEST_NAME-*}/run.sh; do
+echo "selected test cases: $SELECTED_TEST_NAME"
+
+# disable cluster index by default
+run_sql 'set @@global.tidb_enable_clustered_index = 0' || echo "tidb does not support cluster index yet, skipped!"
+# wait for global variable cache invalid
+sleep 2
+
+for casename in $SELECTED_TEST_NAME; do
+    script=tests/$casename/run.sh
     echo "*===== Running test $script... =====*"
+    INTEGRATION_TEST=1 \
     TEST_DIR="$TEST_DIR" \
+    TEST_NAME="$casename" \
+    CLUSTER_VERSION_MAJOR="${CLUSTER_VERSION_MAJOR#v}" \
+    CLUSTER_VERSION_MINOR="$CLUSTER_VERSION_MINOR" \
+    CLUSTER_VERSION_REVISION="$CLUSTER_VERSION_REVISION" \
     PD_ADDR="$PD_ADDR" \
     TIDB_IP="$TIDB_IP" \
     TIDB_PORT="$TIDB_PORT" \
     TIDB_ADDR="$TIDB_ADDR" \
     TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
-    PATH="tests/_utils:bin:$PATH" \
-    TEST_NAME="$(basename "$(dirname "$script")")" \
     BR_LOG_TO_TERM=1 \
-    bash "$script"
+    bash "$script" && echo "TEST: [$TEST_NAME] success!"
 done

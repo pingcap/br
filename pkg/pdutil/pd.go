@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/httputil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -175,12 +176,7 @@ func NewPdController(
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
 ) (*PdController, error) {
-	cli := &http.Client{Timeout: 30 * time.Second}
-	if tlsConf != nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = tlsConf
-		cli.Transport = transport
-	}
+	cli := httputil.NewClient(tlsConf)
 
 	addrs := strings.Split(pdAddrs, ",")
 	processedAddrs := make([]string, 0, len(addrs))
