@@ -1,0 +1,17 @@
+.DS_Store
+bin/
+test_*/
+*.log
+*.tar.gz
+.idea
+*.local
+*.pyc
+*.ezdraw
+vendor/
+tools/bin/
+go.mod
+go.sum
+
+# for the web interface
+web/node_modules/
+web/dist/
