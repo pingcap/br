@@ -6,13 +6,14 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/errors"
 	kvproto "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
+
+	"github.com/pingcap/br/pkg/logutil"
 )
 
 const (
