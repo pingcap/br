@@ -111,10 +111,7 @@ func (s *testLogRestoreSuite) TestCollectRowChangeFiles(c *C) {
 
 	c.Assert(err, IsNil)
 
-	l := len(ids) == 3
-
-	c.Assert(l, IsTrue)
-
+	c.Assert(ids, HasLen, 3)
 	c.Assert(contains(ids, 1), IsTrue)
 	c.Assert(contains(ids, 2), IsTrue)
 	c.Assert(contains(ids, 3), IsTrue)
