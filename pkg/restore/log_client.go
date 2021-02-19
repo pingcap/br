@@ -305,7 +305,7 @@ func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	return false, nil
 }
 
-func (l *LogClient) GetNameIdMap() map[string][]int64 {
+func (l *LogClient) GetNameIDMap() map[string][]int64 {
 	nameIdsMap := make(map[string][]int64)
 
 	for tableID, name := range l.meta.Names {
@@ -334,7 +334,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 	rowChangeFiles := make(map[int64][]string)
 
 	// as tid of table will change when doing drop and create operation, we need to do it
-	nameIdsMap := l.GetNameIdMap()
+	nameIdsMap := l.GetNameIDMap()
 
 	log.Debug("nameIdsMap", zap.Any("name and ids:", nameIdsMap))
 	for _, ids := range nameIdsMap {
