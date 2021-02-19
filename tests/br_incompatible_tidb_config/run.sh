@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
+set -eux
 
 cur=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 source $cur/../_utils/run_services
@@ -22,7 +22,7 @@ DB="$TEST_NAME"
 
 # prepare database
 echo "Restart cluster with alter-primary-key = true, max-index-length=12288"
-start_services "$cur"
+start_services --tidb-cfg $cur/config/tidb-alter-primary-key.toml
 
 run_sql "drop schema if exists $DB;"
 run_sql "create schema $DB;"
@@ -77,13 +77,8 @@ run_sql "drop schema $DB;"
 # invalid config allow-auto-random is unavailable when alter-primary-key is enabled
 
 # enable column attribute `auto_random` to be defined on the primary key column.
-cat > $cur/config/tidb.toml << EOF
-[experimental]
-allow-auto-random = true
-EOF
-
 echo "Restart cluster with allow-auto-random=true"
-start_services "$cur"
+start_services --tidb-cfg $cur/config/tidb-allow-auto-random.toml
 
 # test auto random issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
