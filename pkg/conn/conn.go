@@ -101,8 +101,8 @@ type Mgr struct {
 	*pdutil.PdController
 	tlsConf   *tls.Config
 	dom       *domain.Domain
-	storage   kv.Storage
-	tikvStore tikv.Storage
+	storage   kv.Storage   // Used to access SQL related interfaces.
+	tikvStore tikv.Storage // Used to access TiKV specific interfaces.
 	grpcClis  struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
