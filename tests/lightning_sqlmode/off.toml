@@ -1,0 +1,2 @@
+[tidb]
+sql-mode = 'ALLOW_INVALID_DATES'

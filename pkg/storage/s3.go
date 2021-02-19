@@ -380,10 +380,16 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
-	prefix := rs.options.Prefix + opt.SubDir
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
+
+	// NOTE: leave prefix empty if subDir is not set. Else, s3 will return empty result!
+	prefix := ""
+	if len(opt.SubDir) > 0 {
+		prefix = rs.options.Prefix + opt.SubDir
+		if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
 	}
+
 	maxKeys := int64(1000)
 	if opt.ListCount > 0 {
 		maxKeys = opt.ListCount
@@ -391,8 +397,10 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 
 	req := &s3.ListObjectsInput{
 		Bucket:  aws.String(rs.options.Bucket),
-		Prefix:  aws.String(prefix),
 		MaxKeys: aws.Int64(maxKeys),
+	}
+	if len(prefix) > 0 {
+		req.Prefix = aws.String(prefix)
 	}
 	for {
 		// FIXME: We can't use ListObjectsV2, it is not universally supported.
