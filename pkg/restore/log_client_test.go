@@ -96,3 +96,34 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 		c.Assert(collected, IsFalse)
 	}
 }
+
+func (s *testLogRestoreSuite) TestCollectRowChangeFiles(c *C) {
+	meta := s.client.GetMeta()
+
+	// t1 with three table id
+	meta.Names[1] = "`db1`.`t1`"
+	meta.Names[2] = "`db1`.`t1`"
+	meta.Names[23] = "`db1`.`t1`"
+
+	maps := s.client.GetNameIdMap()
+	ids, err = maps["`db1`.`t1`"]
+
+	c.Assert(err, IsNil)
+
+	l := len(ids)
+
+	c.Assert(l, 3)
+
+	c.Assert(contains(ids, 1), true)
+	c.Assert(contains(ids, 2), true)
+	c.Assert(contains(ids, 3), true)
+}
+
+func contains(s []int64, e int64) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
+}

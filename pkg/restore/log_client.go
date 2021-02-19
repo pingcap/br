@@ -91,6 +91,11 @@ type LogClient struct {
 	dropTSMap sync.Map
 }
 
+// GetMeta is for test
+func (l *LogClient) GetMeta() *LogMeta {
+	return l.meta
+}
+
 // NewLogRestoreClient returns a new LogRestoreClient.
 func NewLogRestoreClient(
 	ctx context.Context,
@@ -300,59 +305,61 @@ func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	return false, nil
 }
 
-func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]string, error) {
-	// we should collect all related tables row change files
-	// by log meta info and by given table filter
-	rowChangeFiles := make(map[int64][]string)
+func (l *LogClient) GetNameIdMap() map[string][]int64 {
+	nameIdsMap := make(map[string][]int64)
 
-	// need collect restore tableIDs
-	tableIDs := make([]int64, 0, len(l.meta.Names))
-
-	// we need remove duplicate table name in collection.
-	// when a table create and drop and create again.
-	// then we will have two different table id with same tables.
-	// we should keep the latest table id(larger table id), and filter the old one.
-	nameIDMap := make(map[string]int64)
 	for tableID, name := range l.meta.Names {
-		if tid, ok := nameIDMap[name]; ok {
-			if tid < tableID {
-				nameIDMap[name] = tableID
-			}
-		} else {
-			nameIDMap[name] = tableID
-		}
-	}
-	for name, tableID := range nameIDMap {
 		schema, table := ParseQuoteName(name)
+
 		if !l.tableFilter.MatchTable(schema, table) {
 			log.Info("filter tables", zap.String("schema", schema),
 				zap.String("table", table), zap.Int64("tableID", tableID))
 			continue
 		}
-		tableIDs = append(tableIDs, tableID)
+
+		ids, ok := nameIdsMap[name]
+		if !ok {
+			ids = make([]int64, 0, len(l.meta.Names))
+		}
+		ids = append(ids, tableID)
+		nameIdsMap[name] = ids
 	}
 
-	for _, tID := range tableIDs {
-		tableID := tID
-		// FIXME update log meta logic here
-		dir := fmt.Sprintf("%s%d", tableLogPrefix, tableID)
-		opt := &storage.WalkOption{
-			SubDir:    dir,
-			ListCount: -1,
-		}
-		err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
-			fileName := filepath.Base(path)
-			shouldRestore, err := l.NeedRestoreRowChange(fileName)
+	return nameIdsMap
+}
+
+func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]string, error) {
+	// we should collect all related tables row change files
+	// by log meta info and by given table filter
+	rowChangeFiles := make(map[int64][]string)
+
+	// as tid of table will change when doing drop and create operation, we need to do it
+	nameIdsMap := l.GetNameIdMap()
+
+	log.Debug("nameIdsMap", zap.Any("name and ids:", nameIdsMap))
+	for _, ids := range nameIdsMap {
+		for _, tID := range ids {
+			tableID := tID
+			// FIXME update log meta logic here
+			dir := fmt.Sprintf("%s%d", tableLogPrefix, tableID)
+			opt := &storage.WalkOption{
+				SubDir:    dir,
+				ListCount: -1,
+			}
+			err := l.restoreClient.storage.WalkDir(ctx, opt, func(path string, size int64) error {
+				fileName := filepath.Base(path)
+				shouldRestore, err := l.NeedRestoreRowChange(fileName)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				if shouldRestore {
+					rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
+				}
+				return nil
+			})
 			if err != nil {
-				return errors.Trace(err)
+				return nil, errors.Trace(err)
 			}
-			if shouldRestore {
-				rowChangeFiles[tableID] = append(rowChangeFiles[tableID], path)
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, errors.Trace(err)
 		}
 	}
 
@@ -368,6 +375,7 @@ func (l *LogClient) collectRowChangeFiles(ctx context.Context) (map[int64][]stri
 		rowChangeFiles[tID] = sortFiles
 	}
 
+	log.Debug("tableIDs", zap.Any("rowChangeFiles", rowChangeFiles))
 	return rowChangeFiles, nil
 }
 
