@@ -18,7 +18,6 @@ import (
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
-	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	pd "github.com/tikv/pd/client"
@@ -374,7 +373,7 @@ func NewMgr(ctx context.Context,
 
 	// Is it necessary to remove `StoreBehavior`?
 	return conn.NewMgr(ctx, g,
-		pdAddress, store.(tikv.Storage),
+		pdAddress, store,
 		tlsConf, securityOption, keepalive,
 		conn.SkipTiFlash, checkRequirements)
 }
