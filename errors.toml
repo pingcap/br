@@ -96,6 +96,11 @@ error = '''
 unknown tikv error
 '''
 
+["BR:KV:ErrNotTiKVStorage"]
+error = '''
+storage is not tikv
+'''
+
 ["BR:PD:ErrPDInvalidResponse"]
 error = '''
 PD invalid response

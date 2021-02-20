@@ -47,6 +47,8 @@ var (
 	ErrKVClusterIDMismatch = errors.Normalize("tikv cluster ID mismatch", errors.RFCCodeText("BR:KV:ErrKVClusterIDMismatch"))
 	ErrKVNotHealth         = errors.Normalize("tikv cluster not health", errors.RFCCodeText("BR:KV:ErrKVNotHealth"))
 	ErrKVNotLeader         = errors.Normalize("not leader", errors.RFCCodeText("BR:KV:ErrKVNotLeader"))
+	ErrKVNotTiKV           = errors.Normalize("storage is not tikv", errors.RFCCodeText("BR:KV:ErrNotTiKVStorage"))
+
 	// ErrKVEpochNotMatch is the error raised when ingestion failed with "epoch
 	// not match". This error is retryable.
 	ErrKVEpochNotMatch = errors.Normalize("epoch not match", errors.RFCCodeText("BR:KV:ErrKVEpochNotMatch"))
