@@ -1,0 +1,6 @@
+[lightning]
+table-concurrency = 1
+level = "warning"
+
+[mydumper]
+read-block-size = 1
