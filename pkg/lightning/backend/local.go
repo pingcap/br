@@ -1560,6 +1560,12 @@ func (local *local) isIngestRetryable(
 	return retryNone, nil, errors.Errorf("non-retryable error: %s", resp.GetError().GetMessage())
 }
 
+// IsRecordKey is used to check whether the key is an record key.
+// Copied from https://github.com/pingcap/tidb/blob/v5.0.0-rc/tablecodec/tablecodec.go#L864
+func isRecordKey(k []byte) bool {
+	return len(k) > 11 && k[0] == 't' && k[10] == 'r'
+}
+
 // return the smallest []byte that is bigger than current bytes.
 // special case when key is empty, empty bytes means infinity in our context, so directly return itself.
 func nextKey(key []byte) []byte {
@@ -1569,9 +1575,9 @@ func nextKey(key []byte) []byte {
 
 	// in tikv <= 4.x, tikv will truncate the row key, so we should fetch the next valid row key
 	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
-	if tablecodec.IsRecordKey(key) {
+	if isRecordKey(key) {
 		tableId, handle, _ := tablecodec.DecodeRecordKey(key)
-		return tablecodec.EncodeRowKeyWithHandle(tableId, handle.Next())
+		return tablecodec.EncodeRowKeyWithHandle(tableId, handle+1)
 	}
 
 	// if key is an index, directly append a 0x00 to the key.

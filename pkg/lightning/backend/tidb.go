@@ -323,7 +323,6 @@ func (be *tidbBackend) NewEncoder(tbl table.Table, options *SessionOptions) (Enc
 	se := newSession(options)
 	if options.SQLMode.HasStrictMode() {
 		se.vars.SkipUTF8Check = false
-		se.vars.SkipASCIICheck = false
 	}
 
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil

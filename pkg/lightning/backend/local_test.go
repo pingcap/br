@@ -28,11 +28,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
 
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -67,31 +63,8 @@ func (s *localSuite) TestNextKey(c *C) {
 	// test recode key
 	// key with int handle
 	for _, handleId := range []int64{1, 255, math.MaxInt32} {
-		key := tablecodec.EncodeRowKeyWithHandle(1, kv.IntHandle(handleId))
-		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, kv.IntHandle(handleId+1))))
-	}
-
-	testDatums := [][]types.Datum{
-		{types.NewIntDatum(1), types.NewIntDatum(2)},
-		{types.NewIntDatum(255), types.NewIntDatum(256)},
-		{types.NewIntDatum(math.MaxInt32), types.NewIntDatum(math.MaxInt32 + 1)},
-		{types.NewStringDatum("test"), types.NewStringDatum("test\000")},
-		{types.NewStringDatum("test\255"), types.NewStringDatum("test\255\000")},
-	}
-
-	stmtCtx := new(stmtctx.StatementContext)
-	for _, datums := range testDatums {
-		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[0])
-		c.Assert(err, IsNil)
-		h, err := kv.NewCommonHandle(keyBytes)
-		c.Assert(err, IsNil)
-		key := tablecodec.EncodeRowKeyWithHandle(1, h)
-		nextKeyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[1])
-		c.Assert(err, IsNil)
-		nextHdl, err := kv.NewCommonHandle(nextKeyBytes)
-		c.Assert(err, IsNil)
-		expectNextKey := []byte(tablecodec.EncodeRowKeyWithHandle(1, nextHdl))
-		c.Assert(nextKey(key), DeepEquals, expectNextKey)
+		key := tablecodec.EncodeRowKeyWithHandle(1, handleId)
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, handleId+1)))
 	}
 
 	// dIAAAAAAAAD/PV9pgAAAAAD/AAABA4AAAAD/AAAAAQOAAAD/AAAAAAEAAAD8

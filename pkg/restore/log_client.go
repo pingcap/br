@@ -135,10 +135,6 @@ func NewLogRestoreClient(
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
 		tableBuffers:   make(map[int64]*cdclog.TableBuffer),
 		tableFilter:    tableFilter,
-<<<<<<< HEAD
-=======
-		ingester:       NewIngester(splitClient, cfg, commitTS, tlsConf),
->>>>>>> ff44e7e5... *: update go mod and add TLS support for log restore
 	}
 	return lc, nil
 }

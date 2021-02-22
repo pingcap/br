@@ -353,7 +353,7 @@ type KvPair struct {
 
 // TableHasAutoRowID return whether table has auto generated row id
 func TableHasAutoRowID(info *model.TableInfo) bool {
-	return !info.PKIsHandle && !info.IsCommonHandle
+	return !info.PKIsHandle
 }
 
 // StringSliceEqual checks if two string slices are equal.

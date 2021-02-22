@@ -24,7 +24,6 @@ import (
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
@@ -61,9 +60,6 @@ func NewTableKVEncoder(tbl table.Table, options *SessionOptions) (Encoder, error
 	meta := tbl.Meta()
 	cols := tbl.Cols()
 	se := newSession(options)
-	// Set CommonAddRecordCtx to session to reuse the slices and BufStore in AddRecord
-	recordCtx := tables.NewCommonAddRecordCtx(len(cols))
-	tables.SetAddRecordCtx(se, recordCtx)
 
 	var autoRandomBits int64
 	if meta.PKIsHandle && meta.ContainsAutoRandomBits() {
@@ -305,7 +301,7 @@ func (kvcodec *tableKVEncoder) Encode(
 		if j >= 0 && j < len(row) {
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
-				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
+				value, err = col.HandleBadNull(value, kvcodec.se.vars.StmtCtx)
 			}
 		} else if isAutoIncCol {
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx"
@@ -48,6 +47,8 @@ type kvMemBuf struct {
 	size    int
 }
 
+var _ kv.MemBuffer = &kvMemBuf{}
+
 func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
 	mb.kvPairs = append(mb.kvPairs, common.KvPair{
 		Key: k.Clone(),
@@ -57,29 +58,22 @@ func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
 	return nil
 }
 
-func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
-	return mb.Set(k, v)
-}
-
 func (mb *kvMemBuf) Delete(k kv.Key) error {
 	return errors.New("unsupported operation")
 }
 
-// Release publish all modifications in the latest staging buffer to upper level.
-func (mb *kvMemBuf) Release(h kv.StagingHandle) {
-}
-
-func (mb *kvMemBuf) Staging() kv.StagingHandle {
-	return 0
-}
-
-// Cleanup cleanup the resources referenced by the StagingHandle.
-// If the changes are not published by `Release`, they will be discarded.
-func (mb *kvMemBuf) Cleanup(h kv.StagingHandle) {}
-
 // Size returns sum of keys and values length.
 func (mb *kvMemBuf) Size() int {
 	return mb.size
+}
+
+func (mb *kvMemBuf) Discard() {
+	// do nothing
+}
+
+func (mb *kvMemBuf) Flush() (int, error) {
+	// do nothing
+	return 0, nil
 }
 
 // Len returns the number of entries in the DB.
@@ -87,49 +81,29 @@ func (t *transaction) Len() int {
 	return t.GetMemBuffer().Len()
 }
 
-type kvUnionStore struct {
-	kvMemBuf
-	kv.UnionStore
-}
-
-func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
-	return &s.kvMemBuf
-}
-
-func (s *kvUnionStore) GetIndexName(tableID, indexID int64) string {
-	panic("Unsupported Operation")
-}
-
-func (s *kvUnionStore) CacheIndexName(tableID, indexID int64, name string) {
-}
-
-func (s *kvUnionStore) CacheTableInfo(id int64, info *model.TableInfo) {
-}
-
 // transaction is a trimmed down Transaction type which only supports adding a
 // new KV pair.
 type transaction struct {
 	kv.Transaction
-	kvUnionStore
+	kvMemBuf
 }
 
-func NewTransaction() *transaction {
-	return &transaction{
-		kvUnionStore: kvUnionStore{},
-	}
+var _ kv.Transaction = &transaction{}
+
+func (t *transaction) NewStagingBuffer() kv.MemBuffer {
+	return &t.kvMemBuf
 }
 
 func (t *transaction) GetMemBuffer() kv.MemBuffer {
-	return &t.kvUnionStore.kvMemBuf
+	return &t.kvMemBuf
 }
 
 func (t *transaction) Discard() {
-	// do nothing
+	t.kvMemBuf.Discard()
 }
 
 func (t *transaction) Flush() (int, error) {
-	// do nothing
-	return 0, nil
+	return t.kvMemBuf.Flush()
 }
 
 // Reset implements the kv.MemBuffer interface
@@ -150,6 +124,14 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
 }
 
+func (t *transaction) Delete(k kv.Key) error {
+	return t.kvMemBuf.Delete(k)
+}
+
+func (t *transaction) Size() int {
+	return t.kvMemBuf.Size()
+}
+
 // SetOption implements the kv.Transaction interface
 func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
 
@@ -158,10 +140,6 @@ func (t *transaction) DelOption(kv.Option) {}
 
 // SetAssertion implements the kv.Transaction interface
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
-
-func (t *transaction) GetUnionStore() kv.UnionStore {
-	return &t.kvUnionStore
-}
 
 // session is a trimmed down Session type which only wraps our own trimmed-down
 // transaction type and provides the session variables to the TiDB library
@@ -239,4 +217,4 @@ func (se *session) Value(key fmt.Stringer) interface{} {
 }
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface
-func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handle) {}
+func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle int64) {}
