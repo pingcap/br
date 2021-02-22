@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
@@ -100,7 +101,7 @@ func main() {
 		tidbCfg.Security.ClusterSSLKey = *key
 		config.StoreGlobalConfig(tidbCfg)
 	}
-	driver := tikv.Driver{}
+	driver := store.TiKVDriver{}
 	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr))
 	if err != nil {
 		log.Panic("create tikv client failed", zap.Error(err))
