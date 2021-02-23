@@ -53,7 +53,6 @@ type ClientMgr interface {
 	GetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
 	ResetBackupClient(ctx context.Context, storeID uint64) (kvproto.BackupClient, error)
 	GetPDClient() pd.Client
-	GetTiKV() tikv.Storage
 	GetLockResolver() *tikv.LockResolver
 	Close()
 }

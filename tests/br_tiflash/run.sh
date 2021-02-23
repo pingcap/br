@@ -18,7 +18,7 @@ DB="${TEST_NAME}_DATABASE"
 RECORD_COUNT=1000
 
 
-run_sql "CREATE DATABASE $DB" 
+run_sql "CREATE DATABASE $DB"
 
 run_sql "CREATE TABLE $DB.kv(k varchar(256) primary key, v int)"
 
@@ -62,5 +62,3 @@ if [ "$AFTER_BR_COUNT" -ne "$RECORD_COUNT" ]; then
 fi
 
 run_sql "DROP DATABASE $DB"
-
-echo "TEST $TEST_NAME passed!"
