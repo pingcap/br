@@ -29,7 +29,7 @@ function check_version() {
     br_version=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "BrVersion"`
     [[ $br_version =~ $expected_br_version ]]
     cluster_version=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "ClusterVersion"`
-    [ $cluster_version = $expected_cluster_version ]
+    [ "$cluster_version" = "$expected_cluster_version" ]
     cluster_id=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "ClusterId"`
     [[ $expected_cluster_id =~ $cluster_id ]]
 }
