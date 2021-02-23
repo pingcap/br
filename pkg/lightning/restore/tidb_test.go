@@ -101,7 +101,7 @@ func (s *tidbSuite) TestCreateTableIfNotExistsStmt(c *C) {
 	c.Assert(
 		createTableIfNotExistsStmt("CREATE TABLE `foo`(`bar` INT(1) COMMENT 'CREATE TABLE');", "foo"),
 		DeepEquals,
-		[]string{"CREATE TABLE IF NOT EXISTS `testdb`.`foo` (`bar` INT(1) COMMENT _UTF8MB4'CREATE TABLE');"},
+		[]string{"CREATE TABLE IF NOT EXISTS `testdb`.`foo` (`bar` INT(1) COMMENT 'CREATE TABLE');"},
 	)
 
 	// upper case becomes shorter
@@ -141,7 +141,7 @@ func (s *tidbSuite) TestCreateTableIfNotExistsStmt(c *C) {
 		`, "m"),
 		DeepEquals,
 		[]string{
-			"SET NAMES _UTF8MB4'binary';",
+			"SET NAMES 'binary';",
 			"SET @@SESSION.`FOREIGN_KEY_CHECKS`=0;",
 			"CREATE TABLE IF NOT EXISTS `testdb`.`m` (`z` DOUBLE) ENGINE = InnoDB AUTO_INCREMENT = 8343230 DEFAULT CHARACTER SET = UTF8;",
 		},
@@ -166,7 +166,7 @@ func (s *tidbSuite) TestCreateTableIfNotExistsStmt(c *C) {
 		`, "m"),
 		DeepEquals,
 		[]string{
-			"SET NAMES _UTF8MB4'binary';",
+			"SET NAMES 'binary';",
 			"DROP TABLE IF EXISTS `testdb`.`m`;",
 			"DROP VIEW IF EXISTS `testdb`.`m`;",
 			"SET @`PREV_CHARACTER_SET_CLIENT`=@@`character_set_client`;",

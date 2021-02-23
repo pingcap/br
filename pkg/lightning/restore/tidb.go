@@ -196,7 +196,7 @@ func createTableIfNotExistsStmt(p *parser.Parser, createTable, dbName, tblName s
 	}
 
 	var res strings.Builder
-	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &res)
+	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags|format.RestoreStringWithoutDefaultCharset, &res)
 
 	retStmts := make([]string, 0, len(stmts))
 	for _, stmt := range stmts {

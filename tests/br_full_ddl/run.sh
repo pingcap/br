@@ -18,6 +18,8 @@ DB="$TEST_NAME"
 TABLE="usertable"
 DDL_COUNT=10
 LOG=/$TEST_DIR/backup.log
+BACKUP_STAT=/$TEST_DIR/backup_stat
+RESOTRE_STAT=/$TEST_DIR/restore_stat
 
 run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
@@ -94,10 +96,10 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
 
 # stats should not be equal because we disable stats by default.
-if diff -q backup_stats restore_stats > /dev/null
+if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "TEST: [$TEST_NAME] fail due to stats are equal"
   exit 1
@@ -134,13 +136,13 @@ fi
 
 run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version)' > $RESOTRE_STAT
 
-if diff -q backup_stats restore_stats > /dev/null
+if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "stats are equal"
 else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
-  cat $backup_stats | head 1000
-  cat $restore_stats | head 1000
+  cat $BACKUP_STAT | head -n 1000
+  cat $RESOTRE_STAT | head -n 1000
   exit 1
 fi
 
