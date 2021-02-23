@@ -170,7 +170,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	brVersion := g.GetVersion()
 	clusterVersion, err := mgr.GetClusterVersion(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// The number of regions need to backup

@@ -266,7 +266,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	brVersion := g.GetVersion()
 	clusterVersion, err := mgr.GetClusterVersion(ctx)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
