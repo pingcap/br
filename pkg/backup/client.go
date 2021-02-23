@@ -220,6 +220,11 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.Backup
 	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
+// GetClusterID returns the cluster ID of the tidb cluster to backup.
+func (bc *Client) GetClusterID() uint64 {
+	return bc.clusterID
+}
+
 // BuildTableRanges returns the key ranges encompassing the entire table,
 // and its partitions if exists.
 func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
@@ -534,7 +539,6 @@ func (bc *Client) BackupRange(
 		return nil, errors.Trace(err)
 	}
 
-	req.ClusterId = bc.clusterID
 	req.StartKey = startKey
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
