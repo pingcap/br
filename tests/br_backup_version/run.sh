@@ -22,6 +22,7 @@ expected_cluster_id=`run_curl "https://$PD_ADDR/pd/api/v1/members" | grep "clust
 # example
 #"4.0.10"
 expected_cluster_version=`run_curl "https://$PD_ADDR/pd/api/v1/config/cluster-version"`
+unset BR_LOG_TO_TERM
 
 function check_version() {
     folder=$1
@@ -29,8 +30,8 @@ function check_version() {
     br_version=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "BrVersion"`
     [[ $br_version =~ $expected_br_version ]]
     cluster_version=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "ClusterVersion"`
-    [[ $cluster_version == "$expected_cluster_version" ]]
-    cluster_id=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "ClusterId"`
+    [[ $cluster_version =~ $expected_cluster_version ]]
+    cluster_id=`run_br -s "local://$TEST_DIR/$folder" debug decode --field "ClusterId" | sed -n -e '1p'`
     [[ $expected_cluster_id =~ $cluster_id ]]
 }
 
