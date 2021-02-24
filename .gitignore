@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 br
 bin/
 _tools/
@@ -9,6 +10,13 @@ backupmeta
 coverage.txt
 docker/data/
 docker/logs/
+=======
+/br
+/bin
+/.idea
+/docker/data/
+/docker/logs/
+>>>>>>> aae4619... tests: add testing Dockerfile (#690)
 *.swp
 .DS_Store
 go.mod

@@ -61,7 +61,11 @@ run_sql "analyze table $DB.$TABLE;"
 #        }
 #     ]
 # }
+<<<<<<< HEAD
 curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > backup_stats
+=======
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $BACKUP_STAT
+>>>>>>> aae4619... tests: add testing Dockerfile (#690)
 
 # backup full
 echo "backup start with stats..."
@@ -94,7 +98,11 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
+<<<<<<< HEAD
 curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+=======
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $RESOTRE_STAT
+>>>>>>> aae4619... tests: add testing Dockerfile (#690)
 
 # stats should not be equal because we disable stats by default.
 if diff -q backup_stats restore_stats > /dev/null
@@ -132,7 +140,11 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
+<<<<<<< HEAD
 curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+=======
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $RESOTRE_STAT
+>>>>>>> aae4619... tests: add testing Dockerfile (#690)
 
 if diff -q backup_stats restore_stats > /dev/null
 then
