@@ -881,7 +881,7 @@ func (s *s3Suite) TestWalkDir(c *C) {
 			}, nil
 		}).
 		After(secondCall)
-	forthCall := s.s3.EXPECT().
+	fourthCall := s.s3.EXPECT().
 		ListObjectsWithContext(ctx, gomock.Any()).
 		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
@@ -905,7 +905,7 @@ func (s *s3Suite) TestWalkDir(c *C) {
 				Contents:    contents[4:],
 			}, nil
 		}).
-		After(forthCall)
+		After(fourthCall)
 
 	// Ensure we receive the items in order.
 	i := 0
