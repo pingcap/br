@@ -307,16 +307,29 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	}
 	db, err := pebble.Open(filepath.Join(dir, "test"), opt)
 	c.Assert(err, IsNil)
-	tmpPath := filepath.Join(dir, "tmp")
-	err = os.Mkdir(tmpPath, 0o755)
+	defer db.Close()
+	tmpPath := filepath.Join(dir, "test.sst")
+	err = os.Mkdir(tmpPath, 0755)
 	c.Assert(err, IsNil)
-	meta := localFileMeta{}
 	_, engineUUID := MakeUUID("ww", 0)
-	f := LocalFile{localFileMeta: meta, db: db, Uuid: engineUUID}
-	w := openLocalWriter(&f, tmpPath, 1024*1024)
+	engineCtx, cancel := context.WithCancel(context.Background())
+	f := LocalFile{
+		db:           db,
+		Uuid:         engineUUID,
+		sstDir:       tmpPath,
+		ctx:          engineCtx,
+		cancel:       cancel,
+		sstMetasChan: make(chan *sstMeta, 64),
+		flushChan:    make(chan chan struct{}, 1),
+	}
+	f.wg.Add(1)
+	go f.ingestSSTLoop()
+	sorted := needSort && !partitialSort
+	w, err := openLocalWriter(context.Background(), &LocalWriterConfig{IsKVSorted: sorted, MaxCacheSize: 1 << 20}, &f)
+	c.Assert(err, IsNil)
 
 	ctx := context.Background()
-	// kvs := make(kvPairs, 1000)
+	//kvs := make(kvPairs, 1000)
 	var kvs kvPairs
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {
@@ -361,10 +374,9 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	err = w.AppendRows(ctx, "", []string{}, 1, rows3)
 	c.Assert(err, IsNil)
-	err = w.Close()
+	err = w.Close(context.Background())
 	c.Assert(err, IsNil)
-	err = db.Flush()
-	c.Assert(err, IsNil)
+	c.Assert(f.flushEngineWithoutLock(ctx), IsNil)
 	o := &pebble.IterOptions{}
 	it := db.NewIter(o)
 
@@ -379,6 +391,8 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		c.Assert(it.Key(), DeepEquals, k)
 		it.Next()
 	}
+	close(f.sstMetasChan)
+	f.wg.Wait()
 }
 
 func (s *localSuite) TestLocalWriterWithSort(c *C) {

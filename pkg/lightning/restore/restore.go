@@ -70,6 +70,11 @@ const (
 	compactStateDoing
 )
 
+const (
+	compactionLowerThreshold = 512 << 20 // 512M
+	compactionUpperThreshold = 32 << 30  // 32GB
+)
+
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
 var DeliverPauser = common.NewPauser()
 
@@ -1243,6 +1248,43 @@ func (t *TableRestore) restoreTable(
 	return t.postProcess(ctx, rc, cp, false /* force-analyze */)
 }
 
+// estimate SST files compression threshold by total row file size
+// with a higher compression threshold, the compression time increases, but the iteration time decreases.
+// Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
+// we set the upper bound to 32GB to avoid too long compression time.
+// factor is the kv count per row.
+func estimateCompactionThreshold(cp *TableCheckpoint, factor int64) int64 {
+	totalRawFileSize := int64(0)
+	var lastFile string
+	for _, engineCp := range cp.Engines {
+		for _, chunk := range engineCp.Chunks {
+			if chunk.FileMeta.Path == lastFile {
+				continue
+			}
+			size := chunk.FileMeta.FileSize
+			if chunk.FileMeta.Type == mydump.SourceTypeParquet {
+				// parquet file is compressed, thus estimates with a factor of 2
+				size *= 2
+			}
+			totalRawFileSize += size
+			lastFile = chunk.FileMeta.Path
+		}
+	}
+	totalRawFileSize *= factor
+
+	// try restrict the total file number within 512
+	threshold := totalRawFileSize / 512
+	threshold = utils.NextPowerOfTwo(threshold)
+	if threshold < compactionLowerThreshold {
+		// disable compaction if threshold is smaller than lower bound
+		threshold = 0
+	} else if threshold > compactionUpperThreshold {
+		threshold = compactionUpperThreshold
+	}
+
+	return threshold
+}
+
 func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController, cp *TableCheckpoint) error {
 	indexEngineCp := cp.Engines[indexEngineID]
 	if indexEngineCp == nil {
@@ -1261,7 +1303,20 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID)
+		engineCfg := &kv.EngineConfig{}
+		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
+			idxCnt := len(t.tableInfo.Core.Indices)
+			if t.tableInfo.Core.PKIsHandle {
+				idxCnt--
+			}
+			threshold := estimateCompactionThreshold(cp, int64(idxCnt))
+			engineCfg.Local = &kv.LocalEngineConfig{
+				Compact:            threshold > 0,
+				CompactConcurrency: 4,
+				CompactThreshold:   threshold,
+			}
+		}
+		indexEngine, err := rc.backend.OpenEngine(ctx, engineCfg, t.tableName, indexEngineID)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1392,7 +1447,7 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
+	// In local backend, the local writer will produce an SST file for batch
 	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
 	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
 	// Thus, the disk size occupied by these writers are up to
@@ -1404,14 +1459,22 @@ func (t *TableRestore) restoreEngine(
 		localWriterMaxCacheSize = config.LocalMemoryTableSize
 	}
 
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
-	if err != nil {
-		return nil, errors.Trace(err)
+	// if the key are ordered, LocalWrite can optimize the writing.
+	// table has auto_incremented _tidb_rowid must satisfy following restriction
+	// - clustered index disable and primary key is not number
+	// - no auto random bits (auto random or shard rowid)
+	// - no partition table
+	hasAutoIncrementAutoID := common.TableHasAutoRowID(t.tableInfo.Core) &&
+		t.tableInfo.Core.AutoRandomBits == 0 && t.tableInfo.Core.ShardRowIDBits == 0 &&
+		t.tableInfo.Core.Partition == nil
+	dataWriterCfg := &kv.LocalWriterConfig{
+		IsKVSorted:   hasAutoIncrementAutoID,
+		MaxCacheSize: localWriterMaxCacheSize,
 	}
 
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
-	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID)
+	dataEngine, err := rc.backend.OpenEngine(ctx, &kv.EngineConfig{}, t.tableName, engineID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1452,10 +1515,17 @@ func (t *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+
+		dataWriter, err := dataEngine.LocalWriter(ctx, dataWriterCfg)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+
+		indexWriter, err := indexEngine.LocalWriter(ctx, &kv.LocalWriterConfig{MaxCacheSize: localWriterMaxCacheSize})
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
 		go func(w *worker.Worker, cr *chunkRestore) {
 			// Restore a chunk.
 			defer func() {
@@ -1466,9 +1536,11 @@ func (t *TableRestore) restoreEngine(
 			metric.ChunkCounter.WithLabelValues(metric.ChunkStateRunning).Add(remainChunkCnt)
 			err := cr.restore(ctx, t, engineID, dataWriter, indexWriter, rc)
 			if err == nil {
-				err = dataWriter.Close()
+				err = dataWriter.Close(ctx)
 			}
 			if err == nil {
+				err = indexWriter.Close(ctx)
+				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Inc()
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
@@ -1479,9 +1551,6 @@ func (t *TableRestore) restoreEngine(
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
@@ -1497,8 +1566,8 @@ func (t *TableRestore) restoreEngine(
 		zap.Uint64("written", totalKVSize),
 	)
 
-	flushAndSaveAllChunks := func() error {
-		if err = indexEngine.Flush(ctx); err != nil {
+	flushAndSaveAllChunks := func(flushCtx context.Context) error {
+		if err = indexEngine.Flush(flushCtx); err != nil {
 			return errors.Trace(err)
 		}
 		// Currently we write all the checkpoints after data&index engine are flushed.
@@ -1522,7 +1591,7 @@ func (t *TableRestore) restoreEngine(
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 				return nil, errors.Trace(err)
 			}
-			if err2 := flushAndSaveAllChunks(); err2 != nil {
+			if err2 := flushAndSaveAllChunks(context.Background()); err2 != nil {
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 			}
 		}
@@ -1533,7 +1602,7 @@ func (t *TableRestore) restoreEngine(
 	// For local backend, if checkpoint is enabled, we must flush index engine to avoid data loss.
 	// this flush action impact up to 10% of the performance, so we only do it if necessary.
 	if err == nil && rc.cfg.Checkpoint.Enable && rc.isLocalBackend() {
-		if err = flushAndSaveAllChunks(); err != nil {
+		if err = flushAndSaveAllChunks(ctx); err != nil {
 			return nil, errors.Trace(err)
 		}
 
@@ -1639,18 +1708,18 @@ func (t *TableRestore) postProcess(
 
 	finished := true
 	if cp.Status < CheckpointStatusChecksummed {
+		// 4. do table checksum
+		var localChecksum verify.KVChecksum
+		for _, engine := range cp.Engines {
+			for _, chunk := range engine.Chunks {
+				localChecksum.Add(&chunk.Checksum)
+			}
+		}
 		if rc.cfg.PostRestore.Checksum == config.OpLevelOff {
 			t.logger.Info("skip checksum")
 			rc.saveStatusCheckpoint(t.tableName, WholeTableEngineID, nil, CheckpointStatusChecksumSkipped)
 		} else {
 			if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
-				// 4. do table checksum
-				var localChecksum verify.KVChecksum
-				for _, engine := range cp.Engines {
-					for _, chunk := range engine.Chunks {
-						localChecksum.Add(&chunk.Checksum)
-					}
-				}
 				t.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
 				err := t.compareChecksum(ctx, localChecksum)
 				// with post restore level 'optional', we will skip checksum error
@@ -2217,7 +2286,7 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 ////////////////////////////////////////////////////////////////
 
 var (
-	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
+	maxKVQueueSize         = 16    // Cache at most this number of rows before blocking the encode loop
 	minDeliverBytes uint64 = 65536 // 64 KB. batch at least this amount of bytes to reduce number of messages
 )
 
@@ -2249,6 +2318,9 @@ func (cr *chunkRestore) deliverLoop(
 		zap.Stringer("path", &cr.chunk.Key),
 		zap.String("task", "deliver"),
 	)
+	// Fetch enough KV pairs from the source.
+	dataKVs := rc.backend.MakeEmptyRows()
+	indexKVs := rc.backend.MakeEmptyRows()
 
 	for !channelClosed {
 		var dataChecksum, indexChecksum verify.KVChecksum
@@ -2258,9 +2330,6 @@ func (cr *chunkRestore) deliverLoop(
 		// chunk checkpoint should stay the same
 		offset := cr.chunk.Chunk.Offset
 		rowID := cr.chunk.Chunk.PrevRowIDMax
-		// Fetch enough KV pairs from the source.
-		dataKVs := rc.backend.MakeEmptyRows()
-		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
 		for dataChecksum.SumSize() < minDeliverBytes {
@@ -2312,6 +2381,9 @@ func (cr *chunkRestore) deliverLoop(
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindData).Observe(float64(dataChecksum.SumKVS()))
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindIndex).Observe(float64(indexChecksum.SumKVS()))
 		}()
+
+		dataKVs = dataKVs.Clear()
+		indexKVs = indexKVs.Clear()
 
 		// Update the table, and save a checkpoint.
 		// (the write to the importer is effective immediately, thus update these here)

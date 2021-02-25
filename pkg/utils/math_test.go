@@ -38,3 +38,10 @@ func (*testMathSuite) TestMinInt64(c *C) {
 	c.Assert(MinInt(4, 2, 1, 3), Equals, 1)
 	c.Assert(MinInt(1, 1), Equals, 1)
 }
+
+func (*testMathSuite) TestNextPowerOfTwo(c *C) {
+	c.Assert(NextPowerOfTwo(1), Equals, int64(1))
+	c.Assert(NextPowerOfTwo(3), Equals, int64(4))
+	c.Assert(NextPowerOfTwo(255), Equals, int64(256))
+	c.Assert(NextPowerOfTwo(0xabcd1234), Equals, int64(0x100000000))
+}

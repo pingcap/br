@@ -48,3 +48,16 @@ func MinInt64(x int64, xs ...int64) int64 {
 	}
 	return min
 }
+
+// NextPowerOfTwo returns the smallest power of two greater than or equal to `i`
+// Caller should guarantee that i > 0 and the return value is not overflow.
+func NextPowerOfTwo(i int64) int64 {
+	if i&(i-1) == 0 {
+		return 0
+	}
+	i = i * 2
+	for i&(i-1) != 0 {
+		i &= i - 1
+	}
+	return i
+}
