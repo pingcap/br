@@ -1112,6 +1112,9 @@ WriteAndIngest:
 			rg, err = local.writeAndIngestPairs(ctx, engineFile, region, pairStart, end)
 			local.ingestConcurrency.Recycle(w)
 			if err != nil {
+				if common.IsContextCanceledError(err) {
+					return err
+				}
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey, []byte{})
 				// if we have at least succeeded one region, retry without increasing the retry count
 				if bytes.Compare(regionStart, pairStart) > 0 {
@@ -1156,7 +1159,9 @@ loopWrite:
 		var metas []*sst.SSTMeta
 		metas, remainRange, rangeStats, err = local.WriteToTiKV(ctx, engineFile, region, start, end)
 		if err != nil {
-			log.L().Warn("write to tikv failed", log.ShortError(err))
+			if !common.IsContextCanceledError(err) {
+				log.L().Warn("write to tikv failed", log.ShortError(err))
+			}
 			return nil, err
 		}
 
@@ -1194,7 +1199,7 @@ loopWrite:
 					resp, err = local.Ingest(ctx, meta, region)
 				}
 				if err != nil {
-					if errors.Cause(err) == context.Canceled {
+					if common.IsContextCanceledError(err) {
 						return nil, err
 					}
 					log.L().Warn("ingest failed", log.ShortError(err), log.ZapRedactReflect("meta", meta),
@@ -1205,6 +1210,9 @@ loopWrite:
 				var retryTy retryType
 				var newRegion *split.RegionInfo
 				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+				if common.IsContextCanceledError(err) {
+					return nil, err
+				}
 				if err == nil {
 					// ingest next meta
 					break
