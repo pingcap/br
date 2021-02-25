@@ -554,8 +554,15 @@ func (s *s3Suite) TestReadError(c *C) {
 		GetObjectWithContext(ctx, gomock.Any()).
 		Return(nil, expectedErr)
 
+<<<<<<< HEAD
 	_, err := s.storage.Read(ctx, "file-missing")
 	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
+=======
+	_, err := s.storage.ReadFile(ctx, "file-missing")
+
+	c.Assert(err, ErrorMatches, "failed to read s3 file, file info: "+
+		"input.bucket='bucket', input.key='prefix/file-missing': "+expectedErr.Error())
+>>>>>>> 01131a3... Add log to make error more clear when restore error using s3 sink (#737)
 }
 
 // TestFileExistsError checks that a HeadObject error is propagated.

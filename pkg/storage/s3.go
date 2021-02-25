@@ -332,7 +332,9 @@ func (rs *S3Storage) Read(ctx context.Context, file string) ([]byte, error) {
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotatef(err,
+			"failed to read s3 file, file info: input.bucket='%s', input.key='%s'",
+			*input.Bucket, *input.Key)
 	}
 	defer result.Body.Close()
 	data, err := ioutil.ReadAll(result.Body)
