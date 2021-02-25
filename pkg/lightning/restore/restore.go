@@ -2314,10 +2314,6 @@ func (cr *chunkRestore) deliverLoop(
 				deliverLogger.Error("write to index engine failed", log.ShortError(err))
 				return
 			}
-			failpoint.Inject("SlowDownWriteRows", func(v failpoint.Value) {
-				dur := v.(int)
-				time.Sleep(time.Duration(dur) * time.Millisecond)
-			})
 
 			deliverDur := time.Since(start)
 			deliverTotalDur += deliverDur
