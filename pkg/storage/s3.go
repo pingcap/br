@@ -280,7 +280,7 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 		}
 	}
-	if len(qs.Prefix) > 0 {
+	if len(qs.Prefix) > 0 && !strings.HasSuffix(qs.Prefix, "/") {
 		qs.Prefix += "/"
 	}
 
