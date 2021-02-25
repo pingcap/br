@@ -2299,7 +2299,7 @@ func (cr *chunkRestore) deliverLoop(
 			saveCheckpoint(rc, t, engineID, cr.chunk)
 		}
 
-		func() {
+		err = func() error {
 			rc.diskQuotaLock.RLock()
 			defer rc.diskQuotaLock.RUnlock()
 
@@ -2308,11 +2308,11 @@ func (cr *chunkRestore) deliverLoop(
 
 			if err = dataEngine.WriteRows(ctx, columns, dataKVs); err != nil {
 				deliverLogger.Error("write to data engine failed", log.ShortError(err))
-				return
+				return errors.Trace(err)
 			}
 			if err = indexEngine.WriteRows(ctx, columns, indexKVs); err != nil {
 				deliverLogger.Error("write to index engine failed", log.ShortError(err))
-				return
+				return errors.Trace(err)
 			}
 
 			deliverDur := time.Since(start)
@@ -2322,7 +2322,11 @@ func (cr *chunkRestore) deliverLoop(
 			metric.BlockDeliverBytesHistogram.WithLabelValues(metric.BlockDeliverKindIndex).Observe(float64(indexChecksum.SumSize()))
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindData).Observe(float64(dataChecksum.SumKVS()))
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindIndex).Observe(float64(indexChecksum.SumKVS()))
+			return nil
 		}()
+		if err != nil {
+			return
+		}
 
 		// Update the table, and save a checkpoint.
 		// (the write to the importer is effective immediately, thus update these here)
