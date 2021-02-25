@@ -17,9 +17,10 @@ programs.
     * `bin/cdc`
     * `bin/tikv-importer`
 
-    The versions must be ≥2.1.0 as usual.
+    The versions must be ≥2.1.0.
 
-    What's more, there must be dynamic link library for TiFlash, see make target `bin` to learn more. You can install most of dependencies by running `download_tools.sh`.
+    What's more, there must be dynamic link library for TiFlash, see make target `bin` to learn more.
+    You can install most of dependencies by running `download_tools.sh`.
 
 2. The following programs must be installed:
 
@@ -33,10 +34,12 @@ programs.
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
 
+If you have docker installed, you can skip step 1 and step 2 by running
+`tests/up.sh --pull-images` to build and run a testing Docker container.
+
 ## Running
 
 Run `make test` to execute the unit tests.
-
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
