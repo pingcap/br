@@ -309,7 +309,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	defer db.Close()
 	tmpPath := filepath.Join(dir, "test.sst")
-	err = os.Mkdir(tmpPath, 0755)
+	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	_, engineUUID := MakeUUID("ww", 0)
 	engineCtx, cancel := context.WithCancel(context.Background())
@@ -329,7 +329,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 
 	ctx := context.Background()
-	//kvs := make(kvPairs, 1000)
+	// kvs := make(kvPairs, 1000)
 	var kvs kvPairs
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {

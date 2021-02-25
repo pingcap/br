@@ -317,6 +317,7 @@ func (h *intHeap) Swap(i, j int) {
 func (h *intHeap) Push(x interface{}) {
 	h.arr = append(h.arr, x.(int32))
 }
+
 func (h *intHeap) Pop() interface{} {
 	item := h.arr[len(h.arr)-1]
 	h.arr = h.arr[:len(h.arr)-1]
@@ -419,7 +420,6 @@ func (e *LocalFile) ingestSSTLoop() {
 							seqLock.Unlock()
 						}
 					}
-
 				}
 			}()
 		}
@@ -601,7 +601,6 @@ func (e *LocalFile) flushLocalWriters(parentCtx context.Context) error {
 		eg.Go(func() error {
 			w := k.(*LocalWriter)
 			return w.flush(ctx)
-
 		})
 		return true
 	})
@@ -803,7 +802,7 @@ func NewLocalBackend(
 	}
 
 	if shouldCreate {
-		err = os.Mkdir(localFile, 0700)
+		err = os.Mkdir(localFile, 0o700)
 		if err != nil {
 			return MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
 		}
@@ -1042,7 +1041,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *EngineConfig, engineUUI
 
 	sstDir := engineSSTDir(local.localStoreDir, engineUUID)
 	if !common.IsDirExists(sstDir) {
-		if err := os.Mkdir(sstDir, 0755); err != nil {
+		if err := os.Mkdir(sstDir, 0o755); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -1840,7 +1839,7 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 		localEngine.db = db
 		localEngine.localFileMeta = localFileMeta{}
 		if !common.IsDirExists(localEngine.sstDir) {
-			if err := os.Mkdir(localEngine.sstDir, 0755); err != nil {
+			if err := os.Mkdir(localEngine.sstDir, 0o755); err != nil {
 				return errors.Trace(err)
 			}
 		}
@@ -2467,6 +2466,7 @@ func (h *sstIterHeap) Swap(i, j int) {
 func (h *sstIterHeap) Push(x interface{}) {
 	h.iters = append(h.iters, x.(*sstIter))
 }
+
 func (h *sstIterHeap) Pop() interface{} {
 	item := h.iters[len(h.iters)-1]
 	h.iters = h.iters[:len(h.iters)-1]
