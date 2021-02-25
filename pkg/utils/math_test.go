@@ -43,5 +43,6 @@ func (*testMathSuite) TestNextPowerOfTwo(c *C) {
 	c.Assert(NextPowerOfTwo(1), Equals, int64(1))
 	c.Assert(NextPowerOfTwo(3), Equals, int64(4))
 	c.Assert(NextPowerOfTwo(255), Equals, int64(256))
+	c.Assert(NextPowerOfTwo(1024), Equals, int64(1024))
 	c.Assert(NextPowerOfTwo(0xabcd1234), Equals, int64(0x100000000))
 }
