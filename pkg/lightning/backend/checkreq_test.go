@@ -126,9 +126,6 @@ func (s *checkReqSuite) TestCheckTiKVVersion(c *C) {
 
 	tls := common.NewTLSFromMockServer(mockServer)
 
-	versions = []string{"9999.0.0", "9999.0.0"}
-	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
-
 	versions = []string{"4.1.0", "v4.1.0-alpha-9-ga27a7dd"}
 	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), IsNil)
 
