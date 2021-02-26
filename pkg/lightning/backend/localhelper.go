@@ -227,6 +227,11 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		if splitError != nil {
 			return splitError
 		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 
 		if len(retryKeys) == 0 {
 			break

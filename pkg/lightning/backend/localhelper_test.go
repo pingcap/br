@@ -531,7 +531,7 @@ func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
 		}
 	}()
 
-	s.doTestBatchSplitRegionByRanges(c, ctx, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*context canceled.*")
+	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
 	close(ch)
 }
 
