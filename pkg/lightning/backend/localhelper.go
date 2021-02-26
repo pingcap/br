@@ -18,8 +18,10 @@ import (
 	"context"
 	"encoding/hex"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -27,8 +29,10 @@ import (
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/tidb/util/codec"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
@@ -123,54 +127,107 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		} else {
 			splitKeyMap = getSplitKeysByRanges(ranges, regions)
 		}
-		for regionID, keys := range splitKeyMap {
-			var newRegions []*split.RegionInfo
-			region := regionMap[regionID]
-			sort.Slice(keys, func(i, j int) bool {
-				return bytes.Compare(keys[i], keys[j]) < 0
-			})
-			splitRegion := region
-			for j := 0; j < (len(keys)+maxBatchSplitKeys-1)/maxBatchSplitKeys; j++ {
-				start := j * maxBatchSplitKeys
-				end := utils.MinInt((j+1)*maxBatchSplitKeys, len(keys))
-				splitRegionStart := codec.EncodeBytes([]byte{}, keys[start])
-				splitRegionEnd := codec.EncodeBytes([]byte{}, keys[end-1])
-				if bytes.Compare(splitRegionStart, splitRegion.Region.StartKey) < 0 || !beforeEnd(splitRegionEnd, splitRegion.Region.EndKey) {
-					log.L().Fatal("no valid key in region",
-						log.ZapRedactBinary("startKey", splitRegionStart), log.ZapRedactBinary("endKey", splitRegionEnd),
-						log.ZapRedactBinary("regionStart", splitRegion.Region.StartKey), log.ZapRedactBinary("regionEnd", splitRegion.Region.EndKey),
-						log.ZapRedactReflect("region", splitRegion))
-				}
-				splitRegion, newRegions, err = local.BatchSplitRegions(ctx, splitRegion, keys[start:end])
-				if err != nil {
-					if strings.Contains(err.Error(), "no valid key") {
-						for _, key := range keys {
-							log.L().Warn("no valid key",
-								log.ZapRedactBinary("startKey", region.Region.StartKey),
-								log.ZapRedactBinary("endKey", region.Region.EndKey),
-								log.ZapRedactBinary("key", codec.EncodeBytes([]byte{}, key)))
-						}
-						return errors.Trace(err)
-					}
-					log.L().Warn("split regions", log.ShortError(err), zap.Int("retry time", j+1),
-						zap.Uint64("region_id", regionID))
-					retryKeys = append(retryKeys, keys[start:]...)
-					break
-				} else {
-					log.L().Info("batch split region", zap.Uint64("region_id", splitRegion.Region.Id),
-						zap.Int("keys", end-start), zap.Binary("firstKey", keys[start]),
-						zap.Binary("end", keys[end-1]))
-					sort.Slice(newRegions, func(i, j int) bool {
-						return bytes.Compare(newRegions[i].Region.StartKey, newRegions[j].Region.StartKey) < 0
+
+		type splitInfo struct {
+			region *split.RegionInfo
+			keys   [][]byte
+		}
+
+		var wg sync.WaitGroup
+		var syncLock sync.Mutex
+		var splitError error
+		size := utils.MinInt(len(splitKeyMap), runtime.NumCPU())
+		splitCtx, cancel := context.WithCancel(ctx)
+		ch := make(chan *splitInfo, size)
+		wg.Add(size)
+		for i := 0; i < size; i++ {
+			go func() {
+				defer wg.Done()
+				for sp := range ch {
+					var newRegions []*split.RegionInfo
+					var err1 error
+					region := sp.region
+					keys := sp.keys
+					sort.Slice(keys, func(i, j int) bool {
+						return bytes.Compare(keys[i], keys[j]) < 0
 					})
-					scatterRegions = append(scatterRegions, newRegions...)
-					// the region with the max start key is the region need to be further split.
-					if bytes.Compare(splitRegion.Region.StartKey, newRegions[len(newRegions)-1].Region.StartKey) < 0 {
-						splitRegion = newRegions[len(newRegions)-1]
+					splitRegion := region
+					for j := 0; j < (len(keys)+maxBatchSplitKeys-1)/maxBatchSplitKeys; j++ {
+						start := j * maxBatchSplitKeys
+						end := utils.MinInt((j+1)*maxBatchSplitKeys, len(keys))
+						splitRegionStart := codec.EncodeBytes([]byte{}, keys[start])
+						splitRegionEnd := codec.EncodeBytes([]byte{}, keys[end-1])
+						if bytes.Compare(splitRegionStart, splitRegion.Region.StartKey) < 0 || !beforeEnd(splitRegionEnd, splitRegion.Region.EndKey) {
+							log.L().Fatal("no valid key in region",
+								log.ZapRedactBinary("startKey", splitRegionStart), log.ZapRedactBinary("endKey", splitRegionEnd),
+								log.ZapRedactBinary("regionStart", splitRegion.Region.StartKey), log.ZapRedactBinary("regionEnd", splitRegion.Region.EndKey),
+								log.ZapRedactReflect("region", splitRegion))
+						}
+						splitRegion, newRegions, err1 = local.BatchSplitRegions(splitCtx, splitRegion, keys[start:end])
+						if err1 != nil {
+							if strings.Contains(err1.Error(), "no valid key") {
+								for _, key := range keys {
+									log.L().Warn("no valid key",
+										log.ZapRedactBinary("startKey", region.Region.StartKey),
+										log.ZapRedactBinary("endKey", region.Region.EndKey),
+										log.ZapRedactBinary("key", codec.EncodeBytes([]byte{}, key)))
+								}
+								syncLock.Lock()
+								splitError = multierr.Append(splitError, err1)
+								syncLock.Unlock()
+								cancel()
+								return
+							} else if common.IsContextCanceledError(err1) {
+								// do not retry on conext.Canceled error
+								return
+							}
+							log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", j+1),
+								zap.Uint64("region_id", region.Region.Id))
+
+							syncLock.Lock()
+							retryKeys = append(retryKeys, keys[start:]...)
+							if !common.IsContextCanceledError(err1) {
+								err = multierr.Append(err, err1)
+							}
+							syncLock.Unlock()
+							break
+						} else {
+							log.L().Info("batch split region", zap.Uint64("region_id", splitRegion.Region.Id),
+								zap.Int("keys", end-start), zap.Binary("firstKey", keys[start]),
+								zap.Binary("end", keys[end-1]))
+							sort.Slice(newRegions, func(i, j int) bool {
+								return bytes.Compare(newRegions[i].Region.StartKey, newRegions[j].Region.StartKey) < 0
+							})
+							syncLock.Lock()
+							scatterRegions = append(scatterRegions, newRegions...)
+							syncLock.Unlock()
+							// the region with the max start key is the region need to be further split.
+							if bytes.Compare(splitRegion.Region.StartKey, newRegions[len(newRegions)-1].Region.StartKey) < 0 {
+								splitRegion = newRegions[len(newRegions)-1]
+							}
+						}
 					}
 				}
+			}()
+		}
+		for regionID, keys := range splitKeyMap {
+			select {
+			case ch <- &splitInfo{region: regionMap[regionID], keys: keys}:
+			case <-ctx.Done():
+				// outer context is canceled, can directly return
+				close(ch)
+				return ctx.Err()
+			case <-splitCtx.Done():
+				// met critical error, stop process
+				close(ch)
 			}
 		}
+		close(ch)
+		wg.Wait()
+		if splitError != nil {
+			return splitError
+		}
+
 		if len(retryKeys) == 0 {
 			break
 		} else {
