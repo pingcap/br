@@ -19,7 +19,7 @@ TABLE="usertable"
 TABLE_COUNT=16
 PATH="tests/$TEST_NAME:bin:$PATH"
 
-run_sql "set @@global.tidb_enable_table_partition ='nightly'" || true
+run_sql "set @@global.tidb_enable_list_partition = ON;"
 sleep 3
 
 echo "load data..."
