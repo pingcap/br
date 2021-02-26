@@ -22,6 +22,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/pdutil"
 )
 
@@ -180,4 +181,19 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 			c.Assert(err, IsNil)
 		}
 	}
+}
+
+func (r *testBackup) TestBuildBackupMeta(c *C) {
+	req := kvproto.BackupRequest{
+		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
+		StartVersion: 0,
+		EndVersion:   0,
+	}
+	clusterVersion := "v4.0.10"
+	brVersion := gluetidb.New().GetVersion()
+	backupMeta, err := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
+	c.Assert(err, IsNil)
+	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
+	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
+	c.Assert(backupMeta.BrVersion, Equals, brVersion)
 }
