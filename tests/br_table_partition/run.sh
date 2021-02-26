@@ -19,11 +19,14 @@ TABLE="usertable"
 TABLE_COUNT=16
 PATH="tests/$TEST_NAME:bin:$PATH"
 
-run_sql "set @@global.tidb_enable_table_partition ='nightly'" || true
+# `tidb_enable_list_partition` currently only support session level variable, so we must put it in the create table sql
+SESSION_VARIABLE=
+run_sql "set @@global.tidb_enable_table_partition ='nightly'" || SESSION_VARIABLE="set @@session.tidb_enable_list_partition = 'ON'; "
+
 sleep 3
 
 echo "load data..."
-DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT prepare.sh
+DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT SESSION_VARIABLE=$SESSION_VARIABLE prepare.sh
 
 declare -A row_count_ori
 declare -A row_count_new
