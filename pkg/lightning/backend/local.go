@@ -2211,6 +2211,7 @@ type sstMeta struct {
 }
 
 type LocalWriter struct {
+	sync.Mutex
 	local              *LocalFile
 	sstDir             string
 	memtableSizeLimit  int64
@@ -2284,6 +2285,9 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 		return nil
 	}
 
+	w.Lock()
+	defer w.Unlock()
+
 	// if chunk has _tidb_rowid field, we can't ensure that the rows are sorted.
 	if w.isWriteBatchSorted && w.writer == nil {
 		for _, c := range columnNames {
@@ -2301,6 +2305,8 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 }
 
 func (w *LocalWriter) flush(ctx context.Context) error {
+	w.Lock()
+	defer w.Unlock()
 	if w.batchCount == 0 {
 		return nil
 	}
