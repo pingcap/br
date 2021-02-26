@@ -39,7 +39,7 @@ TEST_DIR          := /tmp/backup_restore_test
 path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(GOPATH)))
 export PATH := $(path_to_add):$(PATH)
 
-GOBUILD := CGO_ENABLED=0 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
+GOBUILD := CGO_ENABLED=1 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
 GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(LDFLAGS)'
 PREPARE_MOD := cp go.mod1 go.mod && cp go.sum1 go.sum
 FINISH_MOD := cp go.mod go.mod1 && cp go.sum go.sum1
