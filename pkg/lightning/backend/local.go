@@ -394,20 +394,14 @@ func (e *LocalFile) ingestSSTLoop() {
 								}
 							}
 							var flushChans []chan struct{}
-							for i, seq := range flushQueue {
+							for _, seq := range flushQueue {
 								if seq.seq <= finSeq {
 									flushChans = append(flushChans, seq.ch)
 								} else {
-									flushQueue = flushQueue[i:]
 									break
 								}
 							}
-							if len(flushChans) > 0 {
-								// all flush finished
-								if len(flushChans) == len(flushQueue) {
-									flushQueue = flushQueue[:0]
-								}
-							}
+							flushQueue = flushQueue[len(flushChans):]
 							finishedSeq.Store(finSeq)
 							seqLock.Unlock()
 							if len(flushChans) > 0 {
