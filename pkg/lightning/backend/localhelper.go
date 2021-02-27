@@ -296,6 +296,9 @@ func paginateScanRegion(
 			break
 		}
 	}
+	sort.Slice(regions, func(i, j int) bool {
+		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
+	})
 	return regions, nil
 }
 
@@ -446,20 +449,19 @@ func needSplit(key []byte, regions []*split.RegionInfo) *split.RegionInfo {
 	}
 	splitKey := codec.EncodeBytes([]byte{}, key)
 
-	for _, region := range regions {
-		// If splitKey is the boundary of the region
-		if bytes.Equal(splitKey, region.Region.GetStartKey()) {
-			return nil
-		}
+	idx := sort.Search(len(regions), func(i int) bool {
+		return bytes.Compare(splitKey, regions[i].Region.EndKey) <= 0
+	})
+	if idx < len(regions) {
 		// If splitKey is in a region
-		if bytes.Compare(splitKey, region.Region.GetStartKey()) > 0 && beforeEnd(splitKey, region.Region.GetEndKey()) {
+		if bytes.Compare(splitKey, regions[idx].Region.GetStartKey()) > 0 && beforeEnd(splitKey, regions[idx].Region.GetEndKey()) {
 			log.L().Debug("need split",
 				zap.Binary("splitKey", key),
 				zap.Binary("encodedKey", splitKey),
-				zap.Binary("region start", region.Region.GetStartKey()),
-				zap.Binary("region end", region.Region.GetEndKey()),
+				zap.Binary("region start", regions[idx].Region.GetStartKey()),
+				zap.Binary("region end", regions[idx].Region.GetEndKey()),
 			)
-			return region
+			return regions[idx]
 		}
 	}
 	return nil
