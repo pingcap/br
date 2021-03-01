@@ -144,6 +144,7 @@ type LocalFile struct {
 	flushChan    chan chan struct{}
 	ingestErr    common.OnceError
 	wg           sync.WaitGroup
+	sstIngester  sstIngester
 
 	config LocalEngineConfig
 
@@ -335,7 +336,7 @@ func (e *LocalFile) ingestSSTLoop() {
 	seq := atomic.NewInt32(0)
 	finishedSeq := atomic.NewInt32(0)
 	var seqLock sync.Mutex
-	// a flush is finished iff all the compaction&ingset tasks with a lower seq number are finished.
+	// a flush is finished iff all the compaction&ingest tasks with a lower seq number are finished.
 	flushQueue := make([]flushSeq, 0)
 	// compact seq heap finished with a higher number than running compaction task
 	inSyncSeqs := &intHeap{arr: make([]int32, 0)}
@@ -370,7 +371,7 @@ func (e *LocalFile) ingestSSTLoop() {
 							return
 						}
 						metas := m
-						newMeta, err := e.mergeSSTs(metas.metas, e.sstDir)
+						newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
 						if err != nil {
 							e.setError(err)
 							return
@@ -573,16 +574,14 @@ func (e *LocalFile) ingestSSTs(metas []*sstMeta) error {
 		zap.String("file", metas[0].path),
 		log.ZapRedactBinary("firstKey", metas[0].minKey),
 		log.ZapRedactBinary("lastKey", metas[len(metas)-1].maxKey))
-	paths := make([]string, 0, len(metas))
+	if err := e.sstIngester.ingest(metas); err != nil {
+		return errors.Trace(err)
+	}
 	count := int64(0)
 	size := int64(0)
 	for _, m := range metas {
-		paths = append(paths, m.path)
 		count += m.totalCount
 		size += m.totalSize
-	}
-	if err := e.db.Ingest(paths); err != nil {
-		return errors.Trace(err)
 	}
 	e.Length.Add(count)
 	e.TotalSize.Add(size)
@@ -1051,6 +1050,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *EngineConfig, engineUUI
 	})
 	engine := e.(*LocalFile)
 	engine.db = db
+	engine.sstIngester = dbSSTIngester{e: engine}
 	engine.loadEngineMeta()
 	engine.wg.Add(1)
 	go engine.ingestSSTLoop()
@@ -1079,6 +1079,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			db:           db,
 			sstMetasChan: make(chan *sstMeta),
 		}
+		engineFile.sstIngester = dbSSTIngester{e: engineFile}
 		engineFile.loadEngineMeta()
 		local.engines.Store(engineUUID, engineFile)
 		return nil
@@ -2501,7 +2502,18 @@ func (h *sstIterHeap) Next() ([]byte, []byte, error) {
 	}
 }
 
-func (e *LocalFile) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
+// sstIngester is a interface used to merge and ingest SST files.
+// it's a interface mainly used for test convenient
+type sstIngester interface {
+	mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
+	ingest([]*sstMeta) error
+}
+
+type dbSSTIngester struct {
+	e *LocalFile
+}
+
+func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
 	if len(metas) == 0 {
 		return nil, errors.New("sst metas is empty")
 	} else if len(metas) == 1 {
@@ -2599,8 +2611,19 @@ func (e *LocalFile) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
 				}
 			}
 			// decrease the pending size after clean up
-			e.pendingFileSize.Sub(totalSize)
+			i.e.pendingFileSize.Sub(totalSize)
 		}()
 	}
 	return newMeta, err
+}
+
+func (i dbSSTIngester) ingest(metas []*sstMeta) error {
+	if len(metas) == 0 {
+		return nil
+	}
+	paths := make([]string, 0, len(metas))
+	for _, m := range metas {
+		paths = append(paths, m.path)
+	}
+	return i.e.db.Ingest(paths)
 }
