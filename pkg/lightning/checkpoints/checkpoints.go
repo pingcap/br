@@ -524,6 +524,9 @@ func IsCheckpointsDBExists(ctx context.Context, cfg *config.Config) (bool, error
 		if err != nil {
 			return false, errors.Trace(err)
 		}
+		if err := rows.Err(); err != nil {
+			return false, err
+		}
 		defer rows.Close()
 		return rows.Next(), nil
 
@@ -1418,6 +1421,9 @@ func (cpdb *MySQLCheckpointsDB) DumpTables(ctx context.Context, writer io.Writer
 	if err != nil {
 		return errors.Trace(err)
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	defer rows.Close()
 
 	return errors.Trace(sqltocsv.Write(writer, rows))
@@ -1435,6 +1441,9 @@ func (cpdb *MySQLCheckpointsDB) DumpEngines(ctx context.Context, writer io.Write
 	`, cpdb.schema, CheckpointTableNameEngine))
 	if err != nil {
 		return errors.Trace(err)
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	defer rows.Close()
 
@@ -1465,6 +1474,9 @@ func (cpdb *MySQLCheckpointsDB) DumpChunks(ctx context.Context, writer io.Writer
 	`, cpdb.schema, CheckpointTableNameChunk))
 	if err != nil {
 		return errors.Trace(err)
+	}
+	if err := rows.Err(); err != nil {
+		return err
 	}
 	defer rows.Close()
 
