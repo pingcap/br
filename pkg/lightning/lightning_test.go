@@ -11,6 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Contexts for HTTP requests communicating with a real HTTP server are essential,
+// however, when the subject is a mocked server, it would probably be redundant.
+//nolint:noctx
 package lightning
 
 import (
