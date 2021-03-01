@@ -157,7 +157,7 @@ func (enc *tidbEncoder) appendSQLBytes(sb *strings.Builder, value []byte) {
 
 // appendSQL appends the SQL representation of the Datum into the string builder.
 // Note that we cannot use Datum.ToString since it doesn't perform SQL escaping.
-func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, col *table.Column) error {
+func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, _ *table.Column) error {
 	switch datum.Kind() {
 	case types.KindNull:
 		sb.WriteString("NULL")
