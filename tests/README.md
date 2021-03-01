@@ -34,12 +34,7 @@ If you have docker installed, you can skip step 1 and step 2 by running
 
 ## Running
 
-<<<<<<< HEAD
-Make sure the path is `br/`
-
-=======
 Run `make test` to execute the unit tests.
->>>>>>> aae4619... tests: add testing Dockerfile (#690)
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
