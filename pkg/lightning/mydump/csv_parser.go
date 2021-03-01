@@ -38,25 +38,25 @@ var (
 type CSVParser struct {
 	blockParser
 	cfg       *config.CSVConfig
-	escFlavor backslashEscapeFlavor
-
+	
 	comma            []byte
 	quote            []byte
 	quoteIndexFunc   func([]byte) int
 	unquoteIndexFunc func([]byte) int
-
+	
 	// recordBuffer holds the unescaped fields, one after another.
 	// The fields can be accessed by using the indexes in fieldIndexes.
 	// E.g., For the row `a,"b","c""d",e`, recordBuffer will contain `abc"de`
 	// and fieldIndexes will contain the indexes [1, 2, 5, 6].
 	recordBuffer []byte
-
+	
 	// fieldIndexes is an index of fields inside recordBuffer.
 	// The i'th field ends at offset fieldIndexes[i] in recordBuffer.
 	fieldIndexes []int
-
+	
 	lastRecord []string
-
+	
+	escFlavor backslashEscapeFlavor
 	// if set to true, csv parser will treat the first non-empty line as header line
 	shouldParseHeader bool
 }

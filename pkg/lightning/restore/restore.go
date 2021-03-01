@@ -147,22 +147,22 @@ type RestoreController struct {
 	tidbGlue        glue.Glue
 	postProcessLock sync.Mutex // a simple way to ensure post-processing is not concurrent without using complicated goroutines
 	alterTableLock  sync.Mutex
-	compactState    int32
 	sysVars         map[string]string
 	tls             *common.TLS
-
+	
 	errorSummaries errorSummaries
-
+	
 	checkpointsDB CheckpointsDB
 	saveCpCh      chan saveCp
 	checkpointsWg sync.WaitGroup
-
+	
 	closedEngineLimit *worker.Pool
 	store             storage.ExternalStorage
 	checksumManager   ChecksumManager
-
+	
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
+	compactState    int32
 }
 
 func NewRestoreController(

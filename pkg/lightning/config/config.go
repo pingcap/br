@@ -233,20 +233,20 @@ func (t PostOpLevel) String() string {
 
 // PostRestore has some options which will be executed after kv restored.
 type PostRestore struct {
-	Level1Compact     bool        `toml:"level-1-compact" json:"level-1-compact"`
-	Compact           bool        `toml:"compact" json:"compact"`
 	Checksum          PostOpLevel `toml:"checksum" json:"checksum"`
 	Analyze           PostOpLevel `toml:"analyze" json:"analyze"`
+	Level1Compact     bool        `toml:"level-1-compact" json:"level-1-compact"`
 	PostProcessAtLast bool        `toml:"post-process-at-last" json:"post-process-at-last"`
+	Compact           bool        `toml:"compact" json:"compact"`
 }
 
 type CSVConfig struct {
 	Separator       string `toml:"separator" json:"separator"`
 	Delimiter       string `toml:"delimiter" json:"delimiter"`
+	Null            string `toml:"null" json:"null"`
 	Header          bool   `toml:"header" json:"header"`
 	TrimLastSep     bool   `toml:"trim-last-separator" json:"trim-last-separator"`
 	NotNull         bool   `toml:"not-null" json:"not-null"`
-	Null            string `toml:"null" json:"null"`
 	BackslashEscape bool   `toml:"backslash-escape" json:"backslash-escape"`
 }
 
@@ -255,14 +255,14 @@ type MydumperRuntime struct {
 	BatchSize        ByteSize         `toml:"batch-size" json:"batch-size"`
 	BatchImportRatio float64          `toml:"batch-import-ratio" json:"batch-import-ratio"`
 	SourceDir        string           `toml:"data-source-dir" json:"data-source-dir"`
-	NoSchema         bool             `toml:"no-schema" json:"no-schema"`
 	CharacterSet     string           `toml:"character-set" json:"character-set"`
 	CSV              CSVConfig        `toml:"csv" json:"csv"`
-	CaseSensitive    bool             `toml:"case-sensitive" json:"case-sensitive"`
-	StrictFormat     bool             `toml:"strict-format" json:"strict-format"`
 	MaxRegionSize    ByteSize         `toml:"max-region-size" json:"max-region-size"`
 	Filter           []string         `toml:"filter" json:"filter"`
 	FileRouters      []*FileRouteRule `toml:"files" json:"files"`
+	NoSchema         bool             `toml:"no-schema" json:"no-schema"`
+	CaseSensitive    bool             `toml:"case-sensitive" json:"case-sensitive"`
+	StrictFormat     bool             `toml:"strict-format" json:"strict-format"`
 	DefaultFileRules bool             `toml:"default-file-rules" json:"default-file-rules"`
 }
 
@@ -289,10 +289,10 @@ type TikvImporter struct {
 }
 
 type Checkpoint struct {
-	Enable           bool   `toml:"enable" json:"enable"`
 	Schema           string `toml:"schema" json:"schema"`
 	DSN              string `toml:"dsn" json:"-"` // DSN may contain password, don't expose this to JSON.
 	Driver           string `toml:"driver" json:"driver"`
+	Enable           bool   `toml:"enable" json:"enable"`
 	KeepAfterSuccess bool   `toml:"keep-after-success" json:"keep-after-success"`
 }
 
