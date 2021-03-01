@@ -390,9 +390,8 @@ func (parser *CSVParser) readQuotedField() error {
 					if !bytes.Equal(b, parser.quote) {
 						if parser.quote[0] == parser.comma[0] {
 							return processComma()
-						} else {
-							return processDefault()
 						}
+						return processDefault()
 					}
 				}
 				parser.skipBytes(len(parser.quote))

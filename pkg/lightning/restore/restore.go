@@ -133,7 +133,7 @@ const (
 	diskQuotaStateImporting
 )
 
-type RestoreController struct {
+type Controller struct {
 	cfg             *config.Config
 	dbMetas         []*mydump.MDDatabaseMeta
 	dbInfos         map[string]*checkpoints.TidbDBInfo
@@ -152,7 +152,7 @@ type RestoreController struct {
 
 	errorSummaries errorSummaries
 
-	checkpointsDB checkpoints.CheckpointsDB
+	checkpointsDB checkpoints.DB
 	saveCpCh      chan saveCp
 	checkpointsWg sync.WaitGroup
 
@@ -171,7 +171,7 @@ func NewRestoreController(
 	cfg *config.Config,
 	s storage.ExternalStorage,
 	g glue.Glue,
-) (*RestoreController, error) {
+) (*Controller, error) {
 	return NewRestoreControllerWithPauser(ctx, dbMetas, cfg, s, DeliverPauser, g)
 }
 
@@ -182,7 +182,7 @@ func NewRestoreControllerWithPauser(
 	s storage.ExternalStorage,
 	pauser *common.Pauser,
 	g glue.Glue,
-) (*RestoreController, error) {
+) (*Controller, error) {
 	tls, err := cfg.ToTLS()
 	if err != nil {
 		return nil, err
@@ -241,7 +241,7 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
 	}
 
-	rc := &RestoreController{
+	rc := &Controller{
 		cfg:           cfg,
 		dbMetas:       dbMetas,
 		tableWorkers:  worker.NewPool(ctx, cfg.App.TableConcurrency, "table"),
@@ -266,12 +266,12 @@ func NewRestoreControllerWithPauser(
 	return rc, nil
 }
 
-func (rc *RestoreController) Close() {
+func (rc *Controller) Close() {
 	rc.backend.Close()
 	rc.tidbGlue.GetSQLExecutor().Close()
 }
 
-func (rc *RestoreController) Run(ctx context.Context) error {
+func (rc *Controller) Run(ctx context.Context) error {
 	opts := []func(context.Context) error{
 		rc.checkRequirements,
 		rc.setGlobalVariables,
@@ -549,7 +549,7 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
-func (rc *RestoreController) restoreSchema(ctx context.Context) error {
+func (rc *Controller) restoreSchema(ctx context.Context) error {
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
 		concurrency := utils.MinInt(rc.cfg.App.RegionConcurrency, 8)
@@ -657,7 +657,7 @@ func verifyCheckpoint(cfg *config.Config, taskCp *checkpoints.TaskCheckpoint) er
 }
 
 // for local backend, we should check if local SST exists in disk, otherwise we'll lost data
-func verifyLocalFile(ctx context.Context, cpdb checkpoints.CheckpointsDB, dir string) error {
+func verifyLocalFile(ctx context.Context, cpdb checkpoints.DB, dir string) error {
 	targetTables, err := cpdb.GetLocalStoringTables(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -678,7 +678,7 @@ func verifyLocalFile(ctx context.Context, cpdb checkpoints.CheckpointsDB, dir st
 	return nil
 }
 
-func (rc *RestoreController) estimateChunkCountIntoMetrics(ctx context.Context) error {
+func (rc *Controller) estimateChunkCountIntoMetrics(ctx context.Context) error {
 	estimatedChunkCount := 0.0
 	estimatedEngineCnt := int64(0)
 	batchSize := int64(rc.cfg.Mydumper.BatchSize)
@@ -720,10 +720,10 @@ func (rc *RestoreController) estimateChunkCountIntoMetrics(ctx context.Context) 
 					if fileMeta.FileMeta.FileSize > int64(cfg.MaxRegionSize) && cfg.StrictFormat && !cfg.CSV.Header {
 						estimatedChunkCount += math.Round(float64(fileMeta.FileMeta.FileSize) / float64(cfg.MaxRegionSize))
 					} else {
-						estimatedChunkCount += 1
+						estimatedChunkCount++
 					}
 				} else {
-					estimatedChunkCount += 1
+					estimatedChunkCount++
 				}
 			}
 		}
@@ -735,7 +735,7 @@ func (rc *RestoreController) estimateChunkCountIntoMetrics(ctx context.Context) 
 	return nil
 }
 
-func (rc *RestoreController) saveStatusCheckpoint(tableName string, engineID int32, err error, statusIfSucceed checkpoints.CheckpointStatus) {
+func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err error, statusIfSucceed checkpoints.CheckpointStatus) {
 	merger := &checkpoints.StatusCheckpointMerger{Status: statusIfSucceed, EngineID: engineID}
 
 	log.L().Debug("update checkpoint", zap.String("table", tableName), zap.Int32("engine_id", engineID),
@@ -761,7 +761,7 @@ func (rc *RestoreController) saveStatusCheckpoint(tableName string, engineID int
 }
 
 // listenCheckpointUpdates will combine several checkpoints together to reduce database load.
-func (rc *RestoreController) listenCheckpointUpdates() {
+func (rc *Controller) listenCheckpointUpdates() {
 	rc.checkpointsWg.Add(1)
 
 	var lock sync.Mutex
@@ -836,7 +836,7 @@ func (rc *RestoreController) listenCheckpointUpdates() {
 	rc.checkpointsWg.Done()
 }
 
-func (rc *RestoreController) runPeriodicActions(ctx context.Context, stop <-chan struct{}) {
+func (rc *Controller) runPeriodicActions(ctx context.Context, stop <-chan struct{}) {
 	// a nil channel blocks forever.
 	// if the cron duration is zero we use the nil channel to skip the action.
 	var logProgressChan <-chan time.Time
@@ -979,7 +979,7 @@ func (rc *RestoreController) runPeriodicActions(ctx context.Context, stop <-chan
 
 var checksumManagerKey struct{}
 
-func (rc *RestoreController) restoreTables(ctx context.Context) error {
+func (rc *Controller) restoreTables(ctx context.Context) error {
 	logTask := log.L().Begin(zap.InfoLevel, "restore all tables data")
 
 	// for local backend, we should disable some pd scheduler and change some settings, to
@@ -1192,7 +1192,7 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 
 func (tr *TableRestore) restoreTable(
 	ctx context.Context,
-	rc *RestoreController,
+	rc *Controller,
 	cp *checkpoints.TableCheckpoint,
 ) (bool, error) {
 	// 1. Load the table info.
@@ -1244,7 +1244,7 @@ func (tr *TableRestore) restoreTable(
 	return tr.postProcess(ctx, rc, cp, false /* force-analyze */)
 }
 
-func (tr *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController, cp *checkpoints.TableCheckpoint) error {
+func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
 	indexEngineCp := cp.Engines[indexEngineID]
 	if indexEngineCp == nil {
 		return errors.Errorf("table %v index engine checkpoint not found", tr.tableName)
@@ -1271,7 +1271,7 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *RestoreControlle
 		// that index engine checkpoint status less than `CheckpointStatusImported`.
 		// So the index engine must be found in above process
 		if indexEngine == nil {
-			return errors.Errorf("table checkpoint status %v incompitable with index engine checkpoint status %v",
+			return errors.Errorf("table checkpoint status %v incompatible with index engine checkpoint status %v",
 				cp.Status, indexEngineCp.Status)
 		}
 
@@ -1379,7 +1379,7 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *RestoreControlle
 
 func (tr *TableRestore) restoreEngine(
 	ctx context.Context,
-	rc *RestoreController,
+	rc *Controller,
 	indexEngine *kv.OpenedEngine,
 	engineID int32,
 	cp *checkpoints.EngineCheckpoint,
@@ -1554,7 +1554,7 @@ func (tr *TableRestore) restoreEngine(
 func (tr *TableRestore) importEngine(
 	ctx context.Context,
 	closedEngine *kv.ClosedEngine,
-	rc *RestoreController,
+	rc *Controller,
 	engineID int32,
 	cp *checkpoints.EngineCheckpoint,
 ) error {
@@ -1598,7 +1598,7 @@ func (tr *TableRestore) importEngine(
 // post-process-at-last config is true. And if this two phases are skipped, the first return value will be true.
 func (tr *TableRestore) postProcess(
 	ctx context.Context,
-	rc *RestoreController,
+	rc *Controller,
 	cp *checkpoints.TableCheckpoint,
 	forcePostProcess bool,
 ) (bool, error) {
@@ -1705,7 +1705,7 @@ func (tr *TableRestore) postProcess(
 }
 
 // do full compaction for the whole data.
-func (rc *RestoreController) fullCompact(ctx context.Context) error {
+func (rc *Controller) fullCompact(ctx context.Context) error {
 	if !rc.cfg.PostRestore.Compact {
 		log.L().Info("skip full compaction")
 		return nil
@@ -1721,7 +1721,7 @@ func (rc *RestoreController) fullCompact(ctx context.Context) error {
 	return errors.Trace(rc.doCompact(ctx, FullLevelCompact))
 }
 
-func (rc *RestoreController) doCompact(ctx context.Context, level int32) error {
+func (rc *Controller) doCompact(ctx context.Context, level int32) error {
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
 	return kv.ForAllStores(
 		ctx,
@@ -1733,16 +1733,16 @@ func (rc *RestoreController) doCompact(ctx context.Context, level int32) error {
 	)
 }
 
-func (rc *RestoreController) switchToImportMode(ctx context.Context) {
+func (rc *Controller) switchToImportMode(ctx context.Context) {
 	rc.switchTiKVMode(ctx, sstpb.SwitchMode_Import)
 }
 
-func (rc *RestoreController) switchToNormalMode(ctx context.Context) error {
+func (rc *Controller) switchToNormalMode(ctx context.Context) error {
 	rc.switchTiKVMode(ctx, sstpb.SwitchMode_Normal)
 	return nil
 }
 
-func (rc *RestoreController) switchTiKVMode(ctx context.Context, mode sstpb.SwitchMode) {
+func (rc *Controller) switchTiKVMode(ctx context.Context, mode sstpb.SwitchMode) {
 	// It is fine if we miss some stores which did not switch to Import mode,
 	// since we're running it periodically, so we exclude disconnected stores.
 	// But it is essential all stores be switched back to Normal mode to allow
@@ -1766,7 +1766,7 @@ func (rc *RestoreController) switchTiKVMode(ctx context.Context, mode sstpb.Swit
 	)
 }
 
-func (rc *RestoreController) enforceDiskQuota(ctx context.Context) {
+func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 	if !atomic.CompareAndSwapInt32(&rc.diskQuotaState, diskQuotaStateIdle, diskQuotaStateChecking) {
 		// do not run multiple the disk quota check / import simultaneously.
 		// (we execute the lock check in background to avoid blocking the cron thread)
@@ -1851,7 +1851,7 @@ func (rc *RestoreController) enforceDiskQuota(ctx context.Context) {
 	}()
 }
 
-func (rc *RestoreController) checkRequirements(ctx context.Context) error {
+func (rc *Controller) checkRequirements(ctx context.Context) error {
 	// skip requirement check if explicitly turned off
 	if !rc.cfg.App.CheckRequirements {
 		return nil
@@ -1859,7 +1859,7 @@ func (rc *RestoreController) checkRequirements(ctx context.Context) error {
 	return rc.backend.CheckRequirements(ctx)
 }
 
-func (rc *RestoreController) setGlobalVariables(ctx context.Context) error {
+func (rc *Controller) setGlobalVariables(ctx context.Context) error {
 	// set new collation flag base on tidb config
 	enabled := ObtainNewCollationEnabled(ctx, rc.tidbGlue.GetSQLExecutor())
 	// we should enable/disable new collation here since in server mode, tidb config
@@ -1868,13 +1868,13 @@ func (rc *RestoreController) setGlobalVariables(ctx context.Context) error {
 	return nil
 }
 
-func (rc *RestoreController) waitCheckpointFinish() {
+func (rc *Controller) waitCheckpointFinish() {
 	// wait checkpoint process finish so that we can do cleanup safely
 	close(rc.saveCpCh)
 	rc.checkpointsWg.Wait()
 }
 
-func (rc *RestoreController) cleanCheckpoints(ctx context.Context) error {
+func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
 	rc.waitCheckpointFinish()
 
 	if !rc.cfg.Checkpoint.Enable {
@@ -1897,7 +1897,7 @@ func (rc *RestoreController) cleanCheckpoints(ctx context.Context) error {
 	return errors.Annotate(err, "clean checkpoints")
 }
 
-func (rc *RestoreController) isLocalBackend() bool {
+func (rc *Controller) isLocalBackend() bool {
 	return rc.cfg.TikvImporter.Backend == "local"
 }
 
@@ -2003,7 +2003,7 @@ func (tr *TableRestore) Close() {
 	tr.logger.Info("restore done")
 }
 
-func (tr *TableRestore) populateChunks(ctx context.Context, rc *RestoreController, cp *checkpoints.TableCheckpoint) error {
+func (tr *TableRestore) populateChunks(ctx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
 	task := tr.logger.Begin(zap.InfoLevel, "load engines and files")
 	chunks, err := mydump.MakeTableRegions(ctx, tr.tableMeta, len(tr.tableInfo.Core.Columns), rc.cfg, rc.ioWorkers, rc.store)
 	if err == nil {
@@ -2150,7 +2150,7 @@ func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
 	for _, idx := range colIndexes {
 		// skip columns with index -1
 		if idx >= 0 {
-			// original fiels contains _tidb_rowid field
+			// original fields contains _tidb_rowid field
 			if idx == len(tableInfo.Columns) {
 				names = append(names, model.ExtraHandleName.O)
 			} else {
@@ -2164,7 +2164,7 @@ func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
 func (tr *TableRestore) importKV(
 	ctx context.Context,
 	closedEngine *kv.ClosedEngine,
-	rc *RestoreController,
+	rc *Controller,
 	engineID int32,
 ) error {
 	task := closedEngine.Logger().Begin(zap.InfoLevel, "import and cleanup engine")
@@ -2239,7 +2239,7 @@ func (cr *chunkRestore) deliverLoop(
 	t *TableRestore,
 	engineID int32,
 	dataEngine, indexEngine *kv.LocalEngineWriter,
-	rc *RestoreController,
+	rc *Controller,
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
 
@@ -2329,7 +2329,7 @@ func (cr *chunkRestore) deliverLoop(
 			deliverLogger.Warn("Slowed down write rows")
 		})
 		failpoint.Inject("FailAfterWriteRows", nil)
-		// TODO: for local backend, we may save checkpoint more frequently, e.g. after writen
+		// TODO: for local backend, we may save checkpoint more frequently, e.g. after written
 		// 10GB kv pairs to data engine, we can do a flush for both data & index engine, then we
 		// can safely update current checkpoint.
 
@@ -2344,7 +2344,7 @@ func (cr *chunkRestore) deliverLoop(
 	return
 }
 
-func saveCheckpoint(rc *RestoreController, t *TableRestore, engineID int32, chunk *checkpoints.ChunkCheckpoint) {
+func saveCheckpoint(rc *Controller, t *TableRestore, engineID int32, chunk *checkpoints.ChunkCheckpoint) {
 	// We need to update the AllocBase every time we've finished a file.
 	// The AllocBase is determined by the maximum of the "handle" (_tidb_rowid
 	// or integer primary key), which can only be obtained by reading all data.
@@ -2381,7 +2381,7 @@ func (cr *chunkRestore) encodeLoop(
 	logger log.Logger,
 	kvEncoder kv.Encoder,
 	deliverCompleteCh <-chan deliverResult,
-	rc *RestoreController,
+	rc *Controller,
 ) (readTotalDur time.Duration, encodeTotalDur time.Duration, err error) {
 	send := func(kvs []deliveredKVs) error {
 		select {
@@ -2479,7 +2479,7 @@ func (cr *chunkRestore) restore(
 	t *TableRestore,
 	engineID int32,
 	dataEngine, indexEngine *kv.LocalEngineWriter,
-	rc *RestoreController,
+	rc *Controller,
 ) error {
 	// Create the encoder.
 	kvEncoder, err := rc.backend.NewEncoder(t.encTable, &kv.SessionOptions{

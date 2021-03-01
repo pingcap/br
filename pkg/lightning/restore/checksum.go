@@ -55,7 +55,7 @@ type ChecksumManager interface {
 	Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error)
 }
 
-func newChecksumManager(ctx context.Context, rc *RestoreController) (ChecksumManager, error) {
+func newChecksumManager(ctx context.Context, rc *Controller) (ChecksumManager, error) {
 	// if we don't need checksum, just return nil
 	if rc.cfg.TikvImporter.Backend == config.BackendTiDB || rc.cfg.PostRestore.Checksum == config.OpLevelOff {
 		return nil, nil
@@ -195,7 +195,7 @@ func (m *gcLifeTimeManager) addOneJob(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	m.runningJobs += 1
+	m.runningJobs++
 	return nil
 }
 
@@ -207,7 +207,7 @@ func (m *gcLifeTimeManager) removeOneJob(ctx context.Context, db *sql.DB) {
 	m.runningJobsLock.Lock()
 	defer m.runningJobsLock.Unlock()
 
-	m.runningJobs -= 1
+	m.runningJobs--
 	if m.runningJobs == 0 {
 		err := UpdateGCLifeTime(ctx, db, m.oriGCLifeTime)
 		if err != nil {

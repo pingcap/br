@@ -167,11 +167,11 @@ func (s *testMydumpReaderSuite) TestExportStatementGibberishError(c *C) {
 type AlwaysErrorReadSeekCloser struct{}
 
 func (AlwaysErrorReadSeekCloser) Read([]byte) (int, error) {
-	return 0, errors.New("read error!")
+	return 0, errors.New("read error")
 }
 
 func (AlwaysErrorReadSeekCloser) Seek(int64, int) (int64, error) {
-	return 0, errors.New("seek error!")
+	return 0, errors.New("seek error")
 }
 
 func (AlwaysErrorReadSeekCloser) Close() error {

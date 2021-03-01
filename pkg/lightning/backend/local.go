@@ -996,7 +996,7 @@ func newBytesBuffer() *bytesBuffer {
 
 func (b *bytesBuffer) addBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
-		b.curBufIdx += 1
+		b.curBufIdx++
 		b.curBuf = b.bufs[b.curBufIdx]
 	} else {
 		buf := recycleChan.Acquire()
@@ -1682,7 +1682,7 @@ func (c *RangePropertiesCollector) insertNewPoint(key []byte) {
 // implement `TablePropertyCollector.Add`
 func (c *RangePropertiesCollector) Add(key pebble.InternalKey, value []byte) error {
 	c.currentOffsets.Size += uint64(len(value)) + uint64(len(key.UserKey))
-	c.currentOffsets.Keys += 1
+	c.currentOffsets.Keys++
 	if len(c.lastKey) == 0 || c.sizeInLastRange() >= c.propSizeIdxDistance ||
 		c.keysInLastRange() >= c.propKeysIdxDistance {
 		c.insertNewPoint(key.UserKey)

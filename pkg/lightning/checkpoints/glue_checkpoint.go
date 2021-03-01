@@ -54,7 +54,7 @@ type GlueCheckpointsDB struct {
 	schema         string
 }
 
-var _ CheckpointsDB = (*GlueCheckpointsDB)(nil)
+var _ DB = (*GlueCheckpointsDB)(nil)
 
 func NewGlueCheckpointsDB(ctx context.Context, se Session, f func() (Session, error), schemaName string) (*GlueCheckpointsDB, error) {
 	var escapedSchemaName strings.Builder

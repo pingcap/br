@@ -296,7 +296,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 		Engines: make(map[int32]*checkpoints.EngineCheckpoint),
 	}
 
-	rc := &RestoreController{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
+	rc := &Controller{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
 	err := s.tr.populateChunks(context.Background(), rc, cp)
 	c.Assert(err, IsNil)
 	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
@@ -460,7 +460,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 
 	cfg.Mydumper.CSV.Header = true
 	cfg.Mydumper.StrictFormat = true
-	rc := &RestoreController{cfg: cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: store}
+	rc := &Controller{cfg: cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: store}
 
 	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{})
 	c.Assert(err, IsNil)
@@ -724,7 +724,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	importer := kv.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
-	rc := &RestoreController{saveCpCh: chptCh}
+	rc := &Controller{saveCpCh: chptCh}
 	go func() {
 		for range chptCh {
 		}
@@ -756,7 +756,7 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	importer := kv.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
-	rc := &RestoreController{saveCpCh: chptCh}
+	rc := &Controller{saveCpCh: chptCh}
 	go func() {
 		for range chptCh {
 		}
@@ -812,7 +812,7 @@ func (s *chunkRestoreSuite) TearDownTest(c *C) {
 }
 
 func (s *chunkRestoreSuite) TestDeliverLoopCancel(c *C) {
-	rc := &RestoreController{backend: kv.NewMockImporter(nil, "")}
+	rc := &Controller{backend: kv.NewMockImporter(nil, "")}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	kvsCh := make(chan []deliveredKVs)
@@ -851,7 +851,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &RestoreController{cfg: cfg, backend: importer}
+	rc := &Controller{cfg: cfg, backend: importer}
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
@@ -944,7 +944,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	}()
 
 	cfg := &config.Config{}
-	rc := &RestoreController{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
 
 	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
 	c.Assert(err, IsNil)
@@ -964,7 +964,7 @@ func (s *chunkRestoreSuite) TestEncodeLoop(c *C) {
 	})
 	c.Assert(err, IsNil)
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, IsNil)
 	c.Assert(kvsCh, HasLen, 2)
@@ -991,7 +991,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopCanceled(c *C) {
 
 	go cancel()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(errors.Cause(err), Equals, context.Canceled)
 	c.Assert(kvsCh, HasLen, 0)
@@ -1011,7 +1011,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 	s.cr.parser.Close()
 
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, `in file .*[/\\]?db\.table\.2\.sql:0 at offset 0:.*file already closed`)
 	c.Assert(kvsCh, HasLen, 0)
@@ -1033,7 +1033,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 		}
 	}()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, "fake deliver error")
 	c.Assert(kvsCh, HasLen, 0)
@@ -1050,7 +1050,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 
 	ctx := context.Background()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 
 	reader, err := store.Open(ctx, fileName)
 	c.Assert(err, IsNil)
@@ -1122,7 +1122,7 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	// Now actually start the restore loop.
 
 	saveCpCh := make(chan saveCp, 2)
-	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &RestoreController{
+	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &Controller{
 		cfg:      s.cfg,
 		saveCpCh: saveCpCh,
 		backend:  importer,
@@ -1136,7 +1136,7 @@ var _ = Suite(&restoreSchemaSuite{})
 
 type restoreSchemaSuite struct {
 	ctx        context.Context
-	rc         *RestoreController
+	rc         *Controller
 	controller *gomock.Controller
 }
 
@@ -1178,7 +1178,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	config.App.RegionConcurrency = 8
 	mydumpLoader, err := mydump.NewMyDumpLoaderWithStore(ctx, config, store)
 	c.Assert(err, IsNil)
-	s.rc = &RestoreController{
+	s.rc = &Controller{
 		cfg:           config,
 		store:         store,
 		dbMetas:       mydumpLoader.GetDatabases(),

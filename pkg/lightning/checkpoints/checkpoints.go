@@ -457,7 +457,7 @@ type TaskCheckpoint struct {
 	LightningVer string
 }
 
-type CheckpointsDB interface {
+type DB interface {
 	Initialize(ctx context.Context, cfg *config.Config, dbInfo map[string]*TidbDBInfo) error
 	TaskCheckpoint(ctx context.Context) (*TaskCheckpoint, error)
 	Get(ctx context.Context, tableName string) (*TableCheckpoint, error)
@@ -482,7 +482,7 @@ type CheckpointsDB interface {
 	DumpChunks(ctx context.Context, csv io.Writer) error
 }
 
-func OpenCheckpointsDB(ctx context.Context, cfg *config.Config) (CheckpointsDB, error) {
+func OpenCheckpointsDB(ctx context.Context, cfg *config.Config) (DB, error) {
 	if !cfg.Checkpoint.Enable {
 		return NewNullCheckpointsDB(), nil
 	}
@@ -1112,7 +1112,6 @@ func (cpdb *FileCheckpointsDB) InsertEngineCheckpoints(_ context.Context, tableN
 			if len(value.ColumnPermutation) > 0 {
 				chunk.ColumnPermutation = intSlice2Int32Slice(value.ColumnPermutation)
 			}
-
 		}
 		tableModel.Engines[engineID] = engineModel
 	}
@@ -1157,14 +1156,14 @@ func (cpdb *FileCheckpointsDB) Update(checkpointDiffs map[string]*TableCheckpoin
 
 // Management functions ----------------------------------------------------------------------------
 
-var cannotManageNullDB = errors.New("cannot perform this function while checkpoints is disabled")
+var errCannotManageNullDB = errors.New("cannot perform this function while checkpoints is disabled")
 
 func (*NullCheckpointsDB) RemoveCheckpoint(context.Context, string) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) MoveCheckpoints(context.Context, int64) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) GetLocalStoringTables(context.Context) (map[string][]int32, error) {
@@ -1172,23 +1171,23 @@ func (*NullCheckpointsDB) GetLocalStoringTables(context.Context) (map[string][]i
 }
 
 func (*NullCheckpointsDB) IgnoreErrorCheckpoint(context.Context, string) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) DestroyErrorCheckpoint(context.Context, string) ([]DestroyedTableCheckpoint, error) {
-	return nil, errors.Trace(cannotManageNullDB)
+	return nil, errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) DumpTables(context.Context, io.Writer) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) DumpEngines(context.Context, io.Writer) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (*NullCheckpointsDB) DumpChunks(context.Context, io.Writer) error {
-	return errors.Trace(cannotManageNullDB)
+	return errors.Trace(errCannotManageNullDB)
 }
 
 func (cpdb *MySQLCheckpointsDB) RemoveCheckpoint(ctx context.Context, tableName string) error {
@@ -1516,7 +1515,6 @@ func (cpdb *FileCheckpointsDB) GetLocalStoringTables(_ context.Context) (map[str
 					break
 				}
 			}
-
 		}
 	}
 

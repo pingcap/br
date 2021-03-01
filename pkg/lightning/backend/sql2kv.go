@@ -95,7 +95,7 @@ func autoRandomIncrementBits(col *table.Column, randomBits int) int {
 	incrementalBits := typeBitsLength - randomBits
 	hasSignBit := !mysql.HasUnsignedFlag(col.Flag)
 	if hasSignBit {
-		incrementalBits -= 1
+		incrementalBits--
 	}
 	return incrementalBits
 }

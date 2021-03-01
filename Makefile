@@ -208,7 +208,7 @@ static: prepare tools
 		--disable exhaustive \
 		--disable godot \
 		--disable gosec \
-		$$($(PACKAGE_DIRECTORIES) | grep -v "lightning")
+		$$($(PACKAGE_DIRECTORIES))
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".

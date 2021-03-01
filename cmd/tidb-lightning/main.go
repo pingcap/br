@@ -78,13 +78,12 @@ func main() {
 	err = func() error {
 		if globalCfg.App.ServerMode {
 			return app.RunServer()
-		} else {
-			cfg := config.NewConfig()
-			if err := cfg.LoadFromGlobal(globalCfg); err != nil {
-				return err
-			}
-			return app.RunOnce(context.Background(), cfg, nil, nil)
 		}
+		cfg := config.NewConfig()
+		if err := cfg.LoadFromGlobal(globalCfg); err != nil {
+			return err
+		}
+		return app.RunOnce(context.Background(), cfg, nil, nil)
 	}()
 
 	if err != nil {

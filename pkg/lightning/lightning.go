@@ -54,7 +54,7 @@ type Lightning struct {
 	globalCfg *config.GlobalConfig
 	globalTLS *common.TLS
 	// taskCfgs is the list of task configurations enqueued in the server mode
-	taskCfgs   *config.ConfigList
+	taskCfgs   *config.List
 	ctx        context.Context
 	shutdown   context.CancelFunc // for whole lightning context
 	server     http.Server
@@ -301,7 +301,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 	dbMetas := mdl.GetDatabases()
 	web.BroadcastInitProgress(dbMetas)
 
-	var procedure *restore.RestoreController
+	var procedure *restore.Controller
 	procedure, err = restore.NewRestoreController(ctx, dbMetas, taskCfg, s, g)
 	if err != nil {
 		log.L().Error("restore failed", log.ShortError(err))
