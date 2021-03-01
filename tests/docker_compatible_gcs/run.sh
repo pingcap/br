@@ -19,13 +19,8 @@
 set -eux
 
 BUCKET="test"
-EXPECTED_KVS=300000
 
 mkdir -p "$DATA_PATH"
-
-# download gcs backup data from file server and extract to storage path.
-curl http://lease.pingcap.org/gcs_bk.tar.gz -o $TEST_DIR/gcs_data.tar.gz
-tar -zxvf $TEST_DIR/gcs_data.tar.gz -C $DATA_PATH
 
 # we need start a oauth server or gcs client will failed to handle request.
 KEY=$(cat <<- EOF
@@ -43,20 +38,16 @@ echo $KEY > "tests/$TEST_NAME/config.json"
 # export test CREDENTIALS for gcs oauth
 export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
+# create gcs bucket
+curl -XPOST http://$GCS_HOST:$GCS_PORT/storage/v1/b -d '{"name":"test"}'
+
+# backup cluster data
+bin/br backup db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"  --check-requirements=false
+
 # do not log to terminal
 unset BR_LOG_TO_TERM
 LOG_PATH=$TEST_DIR/restore.log
 
-# restore backup data from v4.0.5 to v4.0.10
-for i in `seq 5 10`
-do
-    echo "restore v4.0.$i data starts..."
-    LOG_PATH=$TEST_DIR/restore.log.v4.0.$i
-    bin/br restore db --db sbtest -s "gcs://$BUCKET/bkv4.0.$i" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH
-    kvs=$(cat $LOG_PATH | grep summary |  awk -F 'total kv:' '{print $2}' | awk -F '"' '{print $1}' | awk -F ',' '{print $1}' | xargs)
-    if [ $kvs -ne $EXPECTED_KVS ]; then
-        echo "restore v4.0.$i data failed due to restore data not as expected"
-        cat $LOG_PATH
-        exit 1
-    fi
-done
+# restore backup data 
+echo "restore ${TAG} data starts..."
+bin/br restore db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH --check-requirements=false

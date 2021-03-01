@@ -28,16 +28,10 @@ jobs:
         go-version: 1.15
 
     - name: Pull images
-      run: docker-compose -f docker-compose.yaml pull --ignore-pull-failures
-
-    - name: Start server
-      run: |
-        docker-compose -f docker-compose.yaml rm -s -v
-        docker-compose -f docker-compose.yaml build
-        docker-compose -f docker-compose.yaml up --remove-orphans -d
+      run: docker-compose -f compatible/docker-compose.yaml pull --ignore-pull-failures
 
     - name: Compatible test
-      run: docker-compose -f docker-compose.yaml exec -T control make compatible_test
+      run: sh compatible/step.sh
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
