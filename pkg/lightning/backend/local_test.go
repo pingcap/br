@@ -465,11 +465,12 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }

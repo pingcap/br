@@ -107,7 +107,7 @@ func (s *testMydumpLoaderSuite) TestLoader(c *C) {
 
 func (s *testMydumpLoaderSuite) TestEmptyDB(c *C) {
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, "no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database.")
+	c.Assert(err, ErrorMatches, "no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database")
 }
 
 func (s *testMydumpLoaderSuite) TestDuplicatedDB(c *C) {

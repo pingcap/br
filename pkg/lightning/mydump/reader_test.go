@@ -191,5 +191,5 @@ func (s *testMydumpReaderSuite) TestExportStatementHandleNonEOFError(c *C) {
 
 	f := FileInfo{FileMeta: SourceFileMeta{Path: "no-perm-file", FileSize: 1}}
 	_, err := ExportStatement(ctx, mockStorage, f, "auto")
-	c.Assert(err, ErrorMatches, "read error!")
+	c.Assert(err, ErrorMatches, "read error")
 }

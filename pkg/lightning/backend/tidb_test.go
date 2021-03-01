@@ -148,7 +148,8 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	// test encode rows with _tidb_rowid
 	encoder, err = ignoreBackend.NewEncoder(s.tbl, &kv.SessionOptions{})
 	c.Assert(err, IsNil)
-	row, err = encoder.Encode(logger, []types.Datum{
+	// TODO: check row here?
+	_, err = encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
 		types.NewIntDatum(1), // _tidb_rowid field
 	}, 1, []int{0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1})
