@@ -187,13 +187,13 @@ func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, _ *ta
 		sb.Write(value)
 	case types.KindString:
 		// See: https://github.com/pingcap/tidb-lightning/issues/550
-		//if enc.mode.HasStrictMode() {
+		// if enc.mode.HasStrictMode() {
 		//	d, err := table.CastValue(enc.se, *datum, col.ToInfo(), false, false)
 		//	if err != nil {
 		//		return errors.Trace(err)
 		//	}
 		//	datum = &d
-		//}
+		// }
 
 		enc.appendSQLBytes(sb, datum.GetBytes())
 	case types.KindBytes:
@@ -506,11 +506,11 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 					return err
 				}
 
-				//+--------------+------------+-------------+--------------------+----------------+
-				//| DB_NAME      | TABLE_NAME | COLUMN_NAME | NEXT_GLOBAL_ROW_ID | ID_TYPE        |
-				//+--------------+------------+-------------+--------------------+----------------+
-				//| testsysbench | t          | _tidb_rowid |                  1 | AUTO_INCREMENT |
-				//+--------------+------------+-------------+--------------------+----------------+
+				// +--------------+------------+-------------+--------------------+----------------+
+				// | DB_NAME      | TABLE_NAME | COLUMN_NAME | NEXT_GLOBAL_ROW_ID | ID_TYPE        |
+				// +--------------+------------+-------------+--------------------+----------------+
+				// | testsysbench | t          | _tidb_rowid |                  1 | AUTO_INCREMENT |
+				// +--------------+------------+-------------+--------------------+----------------+
 
 				// if columns length is 4, it doesn't contains the last column `ID_TYPE`, and it will always be 'AUTO_INCREMENT'
 				// for v4.0.0~v4.0.2 show table t next_row_id only returns 4 columns.

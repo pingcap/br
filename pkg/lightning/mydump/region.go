@@ -58,7 +58,6 @@ func (reg *TableRegion) Size() int64 {
 	return reg.Chunk.EndOffset - reg.Chunk.Offset
 }
 
-////////////////////////////////////////////////////////////////
 
 func AllocateEngineIDs(
 	filesRegions []*TableRegion,

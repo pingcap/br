@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/pingcap/br/pkg/utils"
 
@@ -37,25 +36,25 @@ var (
 // CSVParser is basically a copy of encoding/csv, but special-cased for MySQL-like input.
 type CSVParser struct {
 	blockParser
-	cfg       *config.CSVConfig
-	
+	cfg *config.CSVConfig
+
 	comma            []byte
 	quote            []byte
 	quoteIndexFunc   func([]byte) int
 	unquoteIndexFunc func([]byte) int
-	
+
 	// recordBuffer holds the unescaped fields, one after another.
 	// The fields can be accessed by using the indexes in fieldIndexes.
 	// E.g., For the row `a,"b","c""d",e`, recordBuffer will contain `abc"de`
 	// and fieldIndexes will contain the indexes [1, 2, 5, 6].
 	recordBuffer []byte
-	
+
 	// fieldIndexes is an index of fields inside recordBuffer.
 	// The i'th field ends at offset fieldIndexes[i] in recordBuffer.
 	fieldIndexes []int
-	
+
 	lastRecord []string
-	
+
 	escFlavor backslashEscapeFlavor
 	// if set to true, csv parser will treat the first non-empty line as header line
 	shouldParseHeader bool
@@ -290,7 +289,7 @@ outside:
 				continue
 			}
 			// skip lines only contain whitespaces
-			if err == nil && whitespaceLine && len(bytes.TrimFunc(parser.recordBuffer, unicode.IsSpace)) == 0 {
+			if err == nil && whitespaceLine && len(bytes.TrimSpace(parser.recordBuffer)) == 0 {
 				parser.recordBuffer = parser.recordBuffer[:0]
 				continue
 			}

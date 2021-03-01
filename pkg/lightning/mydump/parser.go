@@ -277,7 +277,7 @@ func unescape(
 	if len(delim) > 0 {
 		delim2 := delim + delim
 		if strings.Index(input, delim2) != -1 {
-			input = strings.Replace(input, delim2, delim, -1)
+			input = strings.ReplaceAll(input, delim2, delim)
 		}
 	}
 	if escFlavor != backslashEscapeFlavorNone && strings.IndexByte(input, '\\') != -1 {

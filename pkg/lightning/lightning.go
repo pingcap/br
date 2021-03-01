@@ -370,6 +370,11 @@ func (l *Lightning) handleTask(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
 		taskID, _, err := parseTaskID(req)
+		// golint tells us to refactor this with switch stmt.
+		// However switch stmt doesn't support init-statements,
+		// hence if we follow it things might be worse.
+		// Anyway, this chain of if-else isn't unacceptable.
+		//nolint:gocritic
 		if e, ok := err.(*strconv.NumError); ok && e.Num == "" {
 			l.handleGetTask(w)
 		} else if err == nil {
@@ -684,7 +689,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 	return nil
 }
 
-/// checkSchemaConflict return error if checkpoint table scheme is conflict with data files
+// checkSchemaConflict return error if checkpoint table scheme is conflict with data files
 func checkSchemaConflict(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
 	if cfg.Checkpoint.Enable && cfg.Checkpoint.Driver == config.CheckpointDriverMySQL {
 		for _, db := range dbsMeta {

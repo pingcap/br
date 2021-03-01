@@ -27,8 +27,6 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 )
 
-//////////////////////////////////////////////////////////
-
 var _ = Suite(&testMydumpReaderSuite{})
 
 type testMydumpReaderSuite struct{}

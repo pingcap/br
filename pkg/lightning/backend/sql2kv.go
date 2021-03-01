@@ -302,15 +302,16 @@ func (kvcodec *tableKVEncoder) Encode(
 		j := columnPermutation[i]
 		isAutoIncCol := mysql.HasAutoIncrementFlag(col.Flag)
 		isPk := mysql.HasPriKeyFlag(col.Flag)
-		if j >= 0 && j < len(row) {
+		switch {
+		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
 				err = col.HandleBadNull(&value, kvcodec.se.vars.StmtCtx)
 			}
-		} else if isAutoIncCol {
+		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
 			value, err = table.CastValue(kvcodec.se, types.NewIntDatum(rowID), col.ToInfo(), false, false)
-		} else if isAutoRandom && isPk {
+		case isAutoRandom && isPk:
 			var val types.Datum
 			if mysql.HasUnsignedFlag(col.Flag) {
 				val = types.NewUintDatum(uint64(kvcodec.autoRandomHeaderBits | rowID))
@@ -318,11 +319,11 @@ func (kvcodec *tableKVEncoder) Encode(
 				val = types.NewIntDatum(kvcodec.autoRandomHeaderBits | rowID)
 			}
 			value, err = table.CastValue(kvcodec.se, val, col.ToInfo(), false, false)
-		} else if col.IsGenerated() {
+		case col.IsGenerated():
 			// inject some dummy value for gen col so that MutRowFromDatums below sees a real value instead of nil.
 			// if MutRowFromDatums sees a nil it won't initialize the underlying storage and cause SetDatum to panic.
 			value = types.GetMinValue(&col.FieldType)
-		} else {
+		default:
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {

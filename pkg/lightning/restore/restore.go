@@ -149,20 +149,20 @@ type RestoreController struct {
 	alterTableLock  sync.Mutex
 	sysVars         map[string]string
 	tls             *common.TLS
-	
+
 	errorSummaries errorSummaries
-	
+
 	checkpointsDB CheckpointsDB
 	saveCpCh      chan saveCp
 	checkpointsWg sync.WaitGroup
-	
+
 	closedEngineLimit *worker.Pool
 	store             storage.ExternalStorage
 	checksumManager   ChecksumManager
-	
+
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
-	compactState    int32
+	compactState   int32
 }
 
 func NewRestoreController(
@@ -906,16 +906,17 @@ func (rc *RestoreController) runPeriodicActions(ctx context.Context, stop <-chan
 
 			var state string
 			var remaining zap.Field
-			if finished >= estimated {
+			switch {
+			case finished >= estimated:
 				if engineFinished < engineEstimated {
 					state = "importing"
 				} else {
 					state = "post-processing"
 				}
 				remaining = zap.Skip()
-			} else if finished > 0 {
+			case finished > 0:
 				state = "writing"
-			} else {
+			default:
 				state = "preparing"
 			}
 
@@ -1676,11 +1677,12 @@ func (t *TableRestore) postProcess(
 
 	// 5. do table analyze
 	if cp.Status < CheckpointStatusAnalyzed {
-		if rc.cfg.PostRestore.Analyze == config.OpLevelOff {
+		switch {
+		case rc.cfg.PostRestore.Analyze == config.OpLevelOff:
 			t.logger.Info("skip analyze")
 			rc.saveStatusCheckpoint(t.tableName, WholeTableEngineID, nil, CheckpointStatusAnalyzeSkipped)
 			cp.Status = CheckpointStatusAnalyzed
-		} else if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
+		case forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast:
 			err := t.analyzeTable(ctx, rc.tidbGlue.GetSQLExecutor())
 			// witch post restore level 'optional', we will skip analyze error
 			if rc.cfg.PostRestore.Analyze == config.OpLevelOptional {
@@ -1694,7 +1696,7 @@ func (t *TableRestore) postProcess(
 				return false, errors.Trace(err)
 			}
 			cp.Status = CheckpointStatusAnalyzed
-		} else {
+		default:
 			finished = false
 		}
 	}
@@ -2213,8 +2215,6 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 	task.End(zap.ErrorLevel, err)
 	return err
 }
-
-////////////////////////////////////////////////////////////////
 
 var (
 	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
