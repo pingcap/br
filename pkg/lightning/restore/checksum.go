@@ -22,7 +22,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/checksum"
-	. "github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -52,7 +52,7 @@ type RemoteChecksum struct {
 }
 
 type ChecksumManager interface {
-	Checksum(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error)
+	Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error)
 }
 
 func newChecksumManager(ctx context.Context, rc *RestoreController) (ChecksumManager, error) {
@@ -114,7 +114,7 @@ func newTiDBChecksumExecutor(db *sql.DB) *tidbChecksumExecutor {
 	}
 }
 
-func (e *tidbChecksumExecutor) Checksum(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error) {
+func (e *tidbChecksumExecutor) Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
 	var err error
 	if err = e.manager.addOneJob(ctx, e.db); err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (e *tidbChecksumExecutor) Checksum(ctx context.Context, tableInfo *TidbTabl
 
 // DoChecksum do checksum for tables.
 // table should be in <db>.<table>, format.  e.g. foo.bar
-func DoChecksum(ctx context.Context, table *TidbTableInfo) (*RemoteChecksum, error) {
+func DoChecksum(ctx context.Context, table *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
 	var err error
 	manager, ok := ctx.Value(&checksumManagerKey).(ChecksumManager)
 	if !ok {
@@ -266,7 +266,7 @@ func newTiKVChecksumManager(client kv.Client, pdClient pd.Client, distSQLScanCon
 	}
 }
 
-func (e *tikvChecksumManager) checksumDB(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error) {
+func (e *tikvChecksumManager) checksumDB(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
 	executor, err := checksum.NewExecutorBuilder(tableInfo.Core, oracle.ComposeTS(time.Now().Unix()*1000, 0)).
 		SetConcurrency(e.distSQLScanConcurrency).
 		Build()
@@ -308,7 +308,7 @@ func (e *tikvChecksumManager) checksumDB(ctx context.Context, tableInfo *TidbTab
 	return nil, err
 }
 
-func (e *tikvChecksumManager) Checksum(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error) {
+func (e *tikvChecksumManager) Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
 	tbl := common.UniqueTable(tableInfo.DB, tableInfo.Name)
 	err := e.manager.addOneJob(ctx, tbl, oracle.ComposeTS(time.Now().Unix()*1000, 0))
 	if err != nil {
@@ -352,7 +352,7 @@ type gcTTLManager struct {
 	pdClient pd.Client
 	// tableGCSafeTS is a binary heap that stored active checksum jobs GC safe point ts
 	tableGCSafeTS []*tableChecksumTS
-	currentTs     uint64
+	currentTS     uint64
 	serviceID     string
 	// 0 for not start, otherwise started
 	started uint32
@@ -372,15 +372,15 @@ func (m *gcTTLManager) addOneJob(ctx context.Context, table string, ts uint64) e
 	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	var curTs uint64
+	var curTS uint64
 	if len(m.tableGCSafeTS) > 0 {
-		curTs = m.tableGCSafeTS[0].gcSafeTS
+		curTS = m.tableGCSafeTS[0].gcSafeTS
 	}
 	m.Push(&tableChecksumTS{table: table, gcSafeTS: ts})
 	heap.Fix(m, len(m.tableGCSafeTS)-1)
-	m.currentTs = m.tableGCSafeTS[0].gcSafeTS
-	if curTs == 0 || m.currentTs < curTs {
-		return m.doUpdateGCTTL(ctx, m.currentTs)
+	m.currentTS = m.tableGCSafeTS[0].gcSafeTS
+	if curTS == 0 || m.currentTS < curTS {
+		return m.doUpdateGCTTL(ctx, m.currentTS)
 	}
 	return nil
 }
@@ -405,18 +405,18 @@ func (m *gcTTLManager) removeOneJob(table string) {
 		}
 	}
 
-	var newTs uint64
+	var newTS uint64
 	if len(m.tableGCSafeTS) > 0 {
-		newTs = m.tableGCSafeTS[0].gcSafeTS
+		newTS = m.tableGCSafeTS[0].gcSafeTS
 	}
-	m.currentTs = newTs
+	m.currentTS = newTS
 }
 
 func (m *gcTTLManager) updateGCTTL(ctx context.Context) error {
 	m.lock.Lock()
-	currentTs := m.currentTs
+	currentTS := m.currentTS
 	m.lock.Unlock()
-	return m.doUpdateGCTTL(ctx, currentTs)
+	return m.doUpdateGCTTL(ctx, currentTS)
 }
 
 func (m *gcTTLManager) doUpdateGCTTL(ctx context.Context, ts uint64) error {

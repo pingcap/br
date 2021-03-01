@@ -107,7 +107,7 @@ type Range struct {
 // localFileMeta contains some field that is necessary to continue the engine restore/import process.
 // These field should be written to disk when we update chunk checkpoint
 type localFileMeta struct {
-	Ts uint64 `json:"ts"`
+	TS uint64 `json:"ts"`
 	// Length is the number of KV pairs stored by the engine.
 	Length atomic.Int64 `json:"length"`
 	// TotalSize is the total pre-compressed KV byte size stored by engine.
@@ -126,7 +126,7 @@ const (
 type LocalFile struct {
 	localFileMeta
 	db           *pebble.DB
-	Uuid         uuid.UUID
+	UUID         uuid.UUID
 	localWriters sync.Map
 
 	// isImportingAtomic is an atomic variable indicating whether the importMutex has been locked.
@@ -136,7 +136,7 @@ type LocalFile struct {
 }
 
 func (e *LocalFile) Close() error {
-	log.L().Debug("closing local engine", zap.Stringer("engine", e.Uuid), zap.Stack("stack"))
+	log.L().Debug("closing local engine", zap.Stringer("engine", e.UUID), zap.Stack("stack"))
 	if e.db == nil {
 		return nil
 	}
@@ -147,13 +147,13 @@ func (e *LocalFile) Close() error {
 
 // Cleanup remove meta and db files
 func (e *LocalFile) Cleanup(dataDir string) error {
-	dbPath := filepath.Join(dataDir, e.Uuid.String())
+	dbPath := filepath.Join(dataDir, e.UUID.String())
 	return os.RemoveAll(dbPath)
 }
 
 // Exist checks if db folder existing (meta sometimes won't flush before lightning exit)
 func (e *LocalFile) Exist(dataDir string) error {
-	dbPath := filepath.Join(dataDir, e.Uuid.String())
+	dbPath := filepath.Join(dataDir, e.UUID.String())
 	if _, err := os.Stat(dbPath); err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (e *LocalFile) Exist(dataDir string) error {
 func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
 	sstables, err := e.db.SSTables(pebble.WithProperties())
 	if err != nil {
-		log.L().Warn("get table properties failed", zap.Stringer("engine", e.Uuid), log.ShortError(err))
+		log.L().Warn("get table properties failed", zap.Stringer("engine", e.UUID), log.ShortError(err))
 		return nil, errors.Trace(err)
 	}
 
@@ -174,7 +174,7 @@ func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
 				data := hack.Slice(prop)
 				rangeProps, err := decodeRangeProperties(data)
 				if err != nil {
-					log.L().Warn("decodeRangeProperties failed", zap.Stringer("engine", e.Uuid),
+					log.L().Warn("decodeRangeProperties failed", zap.Stringer("engine", e.UUID),
 						zap.Stringer("fileNum", info.FileNum), log.ShortError(err))
 					return nil, errors.Trace(err)
 				}
@@ -205,7 +205,7 @@ func (e *LocalFile) getEngineFileSize() EngineFileSize {
 	})
 
 	return EngineFileSize{
-		UUID:        e.Uuid,
+		UUID:        e.UUID,
 		DiskSize:    total.Size,
 		MemSize:     memSize,
 		IsImporting: e.isLocked(),
@@ -295,14 +295,14 @@ func (e *LocalFile) saveEngineMeta() error {
 func (e *LocalFile) loadEngineMeta() {
 	jsonBytes, closer, err := e.db.Get(engineMetaKey)
 	if err != nil {
-		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.Uuid), zap.Error(err))
+		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
 		return
 	}
 	defer closer.Close()
 
 	err = json.Unmarshal(jsonBytes, &e.localFileMeta)
 	if err != nil {
-		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.Uuid), zap.ByteString("content", jsonBytes), zap.Error(err))
+		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.UUID), zap.ByteString("content", jsonBytes), zap.Error(err))
 	}
 }
 
@@ -459,8 +459,8 @@ func NewLocalBackend(
 }
 
 // lock locks a local file and returns the LocalFile instance if it exists.
-func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *LocalFile {
-	if e, ok := local.engines.Load(engineId); ok {
+func (local *local) lockEngine(engineID uuid.UUID, state importMutexState) *LocalFile {
+	if e, ok := local.engines.Load(engineID); ok {
 		engine := e.(*LocalFile)
 		engine.lock(state)
 		return engine
@@ -549,13 +549,13 @@ func (local *local) Close() {
 }
 
 // FlushEngine ensure the written data is saved successfully, to make sure no data lose after restart
-func (local *local) FlushEngine(ctx context.Context, engineId uuid.UUID) error {
-	engineFile := local.lockEngine(engineId, importMutexStateFlush)
+func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
+	engineFile := local.lockEngine(engineID, importMutexStateFlush)
 
 	// the engine cannot be deleted after while we've acquired the lock identified by UUID.
 
 	if engineFile == nil {
-		return errors.Errorf("engine '%s' not found", engineId)
+		return errors.Errorf("engine '%s' not found", engineID)
 	}
 	defer engineFile.unlock()
 	return engineFile.flushEngineWithoutLock(ctx)
@@ -619,7 +619,7 @@ func (local *local) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error 
 	if err != nil {
 		return err
 	}
-	e, _ := local.engines.LoadOrStore(engineUUID, &LocalFile{Uuid: engineUUID})
+	e, _ := local.engines.LoadOrStore(engineUUID, &LocalFile{UUID: engineUUID})
 	engine := e.(*LocalFile)
 	engine.db = db
 	engine.loadEngineMeta()
@@ -644,7 +644,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			return err
 		}
 		engineFile := &LocalFile{
-			Uuid: engineUUID,
+			UUID: engineUUID,
 			db:   db,
 		}
 		engineFile.loadEngineMeta()
@@ -744,7 +744,7 @@ func (local *local) WriteToTiKV(
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
-				CommitTs: engineFile.Ts,
+				CommitTs: engineFile.TS,
 			},
 		}
 		clients = append(clients, wstream)
@@ -939,7 +939,7 @@ func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error
 	ranges := splitRangeBySizeProps(Range{start: firstKey, end: endKey}, sizeProps,
 		local.regionSplitSize, regionMaxKeyCount*2/3)
 
-	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.Uuid),
+	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.UUID),
 		zap.Int64("totalSize", engineFileTotalSize), zap.Int64("totalCount", engineFileLength),
 		log.ZapRedactBinary("firstKey", firstKey), log.ZapRedactBinary("lastKey", lastKey),
 		zap.Int("ranges", len(ranges)))
@@ -1239,7 +1239,7 @@ loopWrite:
 func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *LocalFile, ranges []Range, remainRanges *syncdRanges) error {
 	if engineFile.Length.Load() == 0 {
 		// engine is empty, this is likes because it's a index engine but the table contains no index
-		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.Uuid))
+		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.UUID))
 		return nil
 	}
 	log.L().Debug("the ranges Length write to tikv", zap.Int("Length", len(ranges)))
@@ -1568,8 +1568,8 @@ func nextKey(key []byte) []byte {
 	// in tikv <= 4.x, tikv will truncate the row key, so we should fetch the next valid row key
 	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
 	if tablecodec.IsRecordKey(key) {
-		tableId, handle, _ := tablecodec.DecodeRecordKey(key)
-		return tablecodec.EncodeRowKeyWithHandle(tableId, handle.Next())
+		tableID, handle, _ := tablecodec.DecodeRecordKey(key)
+		return tablecodec.EncodeRowKeyWithHandle(tableID, handle.Next())
 	}
 
 	// if key is an index, directly append a 0x00 to the key.
@@ -1775,7 +1775,7 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 		return err
 	}
 	w.kvsChan <- kvs
-	w.local.Ts = ts
+	w.local.TS = ts
 	return nil
 }
 

@@ -146,17 +146,17 @@ type Config struct {
 	BWList filter.MySQLReplicationRules `toml:"black-white-list" json:"black-white-list"`
 }
 
-func (c *Config) String() string {
-	bytes, err := json.Marshal(c)
+func (cfg *Config) String() string {
+	bytes, err := json.Marshal(cfg)
 	if err != nil {
 		log.L().Error("marshal config to json error", log.ShortError(err))
 	}
 	return string(bytes)
 }
 
-func (c *Config) ToTLS() (*common.TLS, error) {
-	hostPort := net.JoinHostPort(c.TiDB.Host, strconv.Itoa(c.TiDB.StatusPort))
-	return common.NewTLS(c.Security.CAPath, c.Security.CertPath, c.Security.KeyPath, hostPort)
+func (cfg *Config) ToTLS() (*common.TLS, error) {
+	hostPort := net.JoinHostPort(cfg.TiDB.Host, strconv.Itoa(cfg.TiDB.StatusPort))
+	return common.NewTLS(cfg.Security.CAPath, cfg.Security.CertPath, cfg.Security.KeyPath, hostPort)
 }
 
 type Lightning struct {

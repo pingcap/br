@@ -22,7 +22,6 @@ import (
 	"github.com/google/uuid"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
 
 	kvpb "github.com/pingcap/kvproto/pkg/import_kvpb"
 
@@ -69,7 +68,7 @@ func (s *importerSuite) setUpTest(c *C) {
 	})
 
 	s.mockClient.EXPECT().
-		OpenEngine(s.ctx, &import_kvpb.OpenEngineRequest{Uuid: s.engineUUID}).
+		OpenEngine(s.ctx, &kvpb.OpenEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
 	var err error
@@ -88,18 +87,18 @@ func (s *importerSuite) TestWriteRows(c *C) {
 	s.mockClient.EXPECT().WriteEngine(s.ctx).Return(s.mockWriter, nil)
 
 	headSendCall := s.mockWriter.EXPECT().
-		Send(&import_kvpb.WriteEngineRequest{
-			Chunk: &import_kvpb.WriteEngineRequest_Head{
-				Head: &import_kvpb.WriteHead{Uuid: s.engineUUID},
+		Send(&kvpb.WriteEngineRequest{
+			Chunk: &kvpb.WriteEngineRequest_Head{
+				Head: &kvpb.WriteHead{Uuid: s.engineUUID},
 			},
 		}).
 		Return(nil)
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
-			c.Assert(x.GetBatch().GetMutations(), DeepEquals, []*import_kvpb.Mutation{
-				{Op: import_kvpb.Mutation_Put, Key: []byte("k1"), Value: []byte("v1")},
-				{Op: import_kvpb.Mutation_Put, Key: []byte("k2"), Value: []byte("v2")},
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
+			c.Assert(x.GetBatch().GetMutations(), DeepEquals, []*kvpb.Mutation{
+				{Op: kvpb.Mutation_Put, Key: []byte("k1"), Value: []byte("v1")},
+				{Op: kvpb.Mutation_Put, Key: []byte("k2"), Value: []byte("v2")},
 			})
 			return nil
 		}).
@@ -121,7 +120,7 @@ func (s *importerSuite) TestWriteHeadSendFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return errors.Annotate(context.Canceled, "fake unrecoverable write head error")
 		})
@@ -142,13 +141,13 @@ func (s *importerSuite) TestWriteBatchSendFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return nil
 		})
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetBatch(), NotNil)
 			return errors.Annotate(context.Canceled, "fake unrecoverable write batch error")
 		}).
@@ -170,13 +169,13 @@ func (s *importerSuite) TestWriteCloseFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return nil
 		})
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetBatch(), NotNil)
 			return nil
 		}).
@@ -195,13 +194,13 @@ func (s *importerSuite) TestCloseImportCleanupEngine(c *C) {
 	defer s.tearDownTest()
 
 	s.mockClient.EXPECT().
-		CloseEngine(s.ctx, &import_kvpb.CloseEngineRequest{Uuid: s.engineUUID}).
+		CloseEngine(s.ctx, &kvpb.CloseEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 	s.mockClient.EXPECT().
-		ImportEngine(s.ctx, &import_kvpb.ImportEngineRequest{Uuid: s.engineUUID, PdAddr: testPDAddr}).
+		ImportEngine(s.ctx, &kvpb.ImportEngineRequest{Uuid: s.engineUUID, PdAddr: testPDAddr}).
 		Return(nil, nil)
 	s.mockClient.EXPECT().
-		CleanupEngine(s.ctx, &import_kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
+		CleanupEngine(s.ctx, &kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
 	engine, err := s.engine.Close(s.ctx)

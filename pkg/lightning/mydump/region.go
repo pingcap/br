@@ -58,7 +58,6 @@ func (reg *TableRegion) Size() int64 {
 	return reg.Chunk.EndOffset - reg.Chunk.Offset
 }
 
-
 func AllocateEngineIDs(
 	filesRegions []*TableRegion,
 	dataFileSizes []float64,
@@ -332,7 +331,7 @@ func SplitLargeFile(
 	prevRowIdxMax int64,
 	ioWorker *worker.Pool,
 	store storage.ExternalStorage,
-) (prevRowIdMax int64, regions []*TableRegion, dataFileSizes []float64, err error) {
+) (prevRowIDMax int64, regions []*TableRegion, dataFileSizes []float64, err error) {
 	maxRegionSize := int64(cfg.Mydumper.MaxRegionSize)
 	dataFileSizes = make([]float64, 0, dataFile.FileMeta.FileSize/maxRegionSize+1)
 	startOffset, endOffset := int64(0), maxRegionSize
@@ -359,7 +358,7 @@ func SplitLargeFile(
 				return 0, nil, nil, err
 			}
 			parser := NewCSVParser(&cfg.Mydumper.CSV, r, int64(cfg.Mydumper.ReadBlockSize), ioWorker, false)
-			if err = parser.SetPos(endOffset, prevRowIdMax); err != nil {
+			if err = parser.SetPos(endOffset, prevRowIDMax); err != nil {
 				return 0, nil, nil, err
 			}
 			pos, err := parser.ReadUntilTokNewLine()

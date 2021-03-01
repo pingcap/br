@@ -566,10 +566,10 @@ func (parser *CSVParser) ReadColumns() error {
 	return nil
 }
 
-var newLineAsciiSet = makeByteSet([]byte{'\r', '\n'})
+var newLineASCIISet = makeByteSet([]byte{'\r', '\n'})
 
 func indexOfNewLine(b []byte) int {
-	return IndexAnyByte(b, &newLineAsciiSet)
+	return IndexAnyByte(b, &newLineASCIISet)
 }
 
 func (parser *CSVParser) ReadUntilTokNewLine() (int64, error) {

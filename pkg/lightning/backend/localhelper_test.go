@@ -470,9 +470,9 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 
 	stmtCtx := new(stmtctx.StatementContext)
 
-	tableId := int64(1)
-	tableStartKey := tablecodec.EncodeTablePrefix(tableId)
-	tableEndKey := tablecodec.EncodeTablePrefix(tableId + 1)
+	tableID := int64(1)
+	tableStartKey := tablecodec.EncodeTablePrefix(tableID)
+	tableEndKey := tablecodec.EncodeTablePrefix(tableID + 1)
 	keys := [][]byte{[]byte(""), tableStartKey}
 	// pre split 2 regions
 	for i := int64(0); i < 2; i++ {
@@ -480,7 +480,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 		c.Assert(err, IsNil)
 		h, err := kv.NewCommonHandle(keyBytes)
 		c.Assert(err, IsNil)
-		key := tablecodec.EncodeRowKeyWithHandle(tableId, h)
+		key := tablecodec.EncodeRowKeyWithHandle(tableID, h)
 		keys = append(keys, key)
 	}
 	keys = append(keys, tableEndKey, []byte(""))
@@ -498,7 +498,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 			c.Assert(err, IsNil)
 			h, err := kv.NewCommonHandle(keyBytes)
 			c.Assert(err, IsNil)
-			key := tablecodec.EncodeRowKeyWithHandle(tableId, h)
+			key := tablecodec.EncodeRowKeyWithHandle(tableID, h)
 			rangeKeys = append(rangeKeys, key)
 		}
 	}

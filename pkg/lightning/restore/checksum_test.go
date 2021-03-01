@@ -176,7 +176,7 @@ func (s *checksumSuite) TestDoChecksumWithTikv(c *C) {
 		kvClient.maxErrCount = i
 		kvClient.curErrCount = 0
 		checksumExec := &tikvChecksumManager{manager: newGCTTLManager(pdClient), client: kvClient}
-		startTs := oracle.ComposeTS(time.Now().Unix()*1000, 0)
+		startTS := oracle.ComposeTS(time.Now().Unix()*1000, 0)
 		ctx := context.WithValue(context.Background(), &checksumManagerKey, checksumExec)
 		_, err = DoChecksum(ctx, &TidbTableInfo{DB: "test", Name: "t", Core: tableInfo})
 		// with max error retry < maxErrorRetryCount, the checksum can success
@@ -190,7 +190,7 @@ func (s *checksumSuite) TestDoChecksumWithTikv(c *C) {
 		// after checksum, safepint should be small than start ts
 		ts := pdClient.currentSafePoint()
 		// 1ms for the schedule deviation
-		c.Assert(ts <= startTs+1, IsTrue)
+		c.Assert(ts <= startTS+1, IsTrue)
 		c.Assert(atomic.LoadUint32(&checksumExec.manager.started) > 0, IsTrue)
 	}
 }
@@ -307,23 +307,23 @@ func (s *checksumSuite) TestGcTTLManagerMulti(c *C) {
 	for i := uint64(1); i <= 5; i++ {
 		err := manager.addOneJob(ctx, fmt.Sprintf("test%d", i), i)
 		c.Assert(err, IsNil)
-		c.Assert(manager.currentTs, Equals, uint64(1))
+		c.Assert(manager.currentTS, Equals, uint64(1))
 	}
 
 	manager.removeOneJob("test2")
-	c.Assert(manager.currentTs, Equals, uint64(1))
+	c.Assert(manager.currentTS, Equals, uint64(1))
 
 	manager.removeOneJob("test1")
-	c.Assert(manager.currentTs, Equals, uint64(3))
+	c.Assert(manager.currentTS, Equals, uint64(3))
 
 	manager.removeOneJob("test3")
-	c.Assert(manager.currentTs, Equals, uint64(4))
+	c.Assert(manager.currentTS, Equals, uint64(4))
 
 	manager.removeOneJob("test4")
-	c.Assert(manager.currentTs, Equals, uint64(5))
+	c.Assert(manager.currentTS, Equals, uint64(5))
 
 	manager.removeOneJob("test5")
-	c.Assert(manager.currentTs, Equals, uint64(0))
+	c.Assert(manager.currentTS, Equals, uint64(0))
 }
 
 func (s *checksumSuite) TestPdServiceID(c *C) {

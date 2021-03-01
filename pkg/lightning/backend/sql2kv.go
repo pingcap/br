@@ -409,8 +409,8 @@ func (kvs kvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
-func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
-	if len(totalKVs) == 0 {
+func (kvs kvPairs) SplitIntoChunks(splitSize int) []Rows {
+	if len(kvs) == 0 {
 		return nil
 	}
 
@@ -418,17 +418,17 @@ func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
 	i := 0
 	cumSize := 0
 
-	for j, pair := range totalKVs {
+	for j, pair := range kvs {
 		size := len(pair.Key) + len(pair.Val)
 		if i < j && cumSize+size > splitSize {
-			res = append(res, kvPairs(totalKVs[i:j]))
+			res = append(res, kvPairs(kvs[i:j]))
 			i = j
 			cumSize = 0
 		}
 		cumSize += size
 	}
 
-	return append(res, kvPairs(totalKVs[i:]))
+	return append(res, kvPairs(kvs[i:]))
 }
 
 func (kvs kvPairs) Clear() Rows {

@@ -195,7 +195,7 @@ func (g GlueCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckpoint,
 
 		row := req.GetRow(0)
 		taskCp = &TaskCheckpoint{}
-		taskCp.TaskId = row.GetInt64(0)
+		taskCp.TaskID = row.GetInt64(0)
 		taskCp.SourceDir = row.GetString(1)
 		taskCp.Backend = row.GetString(2)
 		taskCp.ImporterAddr = row.GetString(3)
@@ -580,10 +580,10 @@ func (g GlueCheckpointsDB) GetLocalStoringTables(ctx context.Context) (map[strin
 	// 2. engine status is earlier than CheckpointStatusImported, and
 	// 3. chunk has been read
 	query := fmt.Sprintf(`
-		SELECT DISTINCT t.table_name, c.engine_id 
-		FROM %s.%s t, %s.%s c, %s.%s e 
-		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id 
-			AND %d < t.status AND t.status < %d 
+		SELECT DISTINCT t.table_name, c.engine_id
+		FROM %s.%s t, %s.%s c, %s.%s e
+		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id
+			AND %d < t.status AND t.status < %d
 			AND %d < e.status AND e.status < %d
 			AND c.pos > c.offset;`,
 		g.schema, CheckpointTableNameTable, g.schema, CheckpointTableNameChunk, g.schema, CheckpointTableNameEngine,

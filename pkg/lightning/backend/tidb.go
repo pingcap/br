@@ -49,8 +49,8 @@ type tidbRow string
 type tidbRows []tidbRow
 
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface
-func (row tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, r := range row {
+func (rows tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	for _, r := range rows {
 		encoder.AppendString(string(r))
 	}
 	return nil

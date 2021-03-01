@@ -446,7 +446,7 @@ type DestroyedTableCheckpoint struct {
 }
 
 type TaskCheckpoint struct {
-	TaskId       int64
+	TaskID       int64
 	SourceDir    string
 	Backend      string
 	ImporterAddr string
@@ -675,7 +675,7 @@ func (cpdb *MySQLCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckp
 
 	taskQuery := fmt.Sprintf(ReadTaskTemplate, cpdb.schema, CheckpointTableNameTask)
 	taskCp := &TaskCheckpoint{}
-	err := s.QueryRow(ctx, "fetch task checkpoint", taskQuery, &taskCp.TaskId, &taskCp.SourceDir, &taskCp.Backend,
+	err := s.QueryRow(ctx, "fetch task checkpoint", taskQuery, &taskCp.TaskID, &taskCp.SourceDir, &taskCp.Backend,
 		&taskCp.ImporterAddr, &taskCp.TiDBHost, &taskCp.TiDBPort, &taskCp.PdAddr, &taskCp.SortedKVDir, &taskCp.LightningVer)
 	if err != nil {
 		// if task checkpoint is empty, return nil
@@ -1000,7 +1000,7 @@ func (cpdb *FileCheckpointsDB) TaskCheckpoint(_ context.Context) (*TaskCheckpoin
 	}
 
 	return &TaskCheckpoint{
-		TaskId:       cp.TaskId,
+		TaskID:       cp.TaskId,
 		SourceDir:    cp.SourceDir,
 		Backend:      cp.Backend,
 		ImporterAddr: cp.ImporterAddr,

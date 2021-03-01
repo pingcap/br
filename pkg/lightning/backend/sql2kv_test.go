@@ -215,9 +215,9 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 	}))
 }
 
-func mockTableInfo(c *C, createSql string) *model.TableInfo {
+func mockTableInfo(c *C, createSQL string) *model.TableInfo {
 	parser := parser.New()
-	node, err := parser.ParseOneStmt(createSql, "", "")
+	node, err := parser.ParseOneStmt(createSQL, "", "")
 	c.Assert(err, IsNil)
 	sctx := mock.NewContext()
 	info, err := ddl.MockTableInfo(sctx, node.(*ast.CreateTableStmt), 1)
