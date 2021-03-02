@@ -13,13 +13,6 @@ jobs:
     timeout-minutes: 25
 
     steps:
-    - name: Free disk space
-      run: |
-        sudo rm -rf /usr/local/lib/android
-        sudo rm -rf /usr/share/dotnet
-        docker volume prune -f
-        docker image prune -f
-
     - uses: actions/checkout@v2
 
     - name: Set up Go
@@ -37,7 +30,7 @@ jobs:
       run: |
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml build
-        TAG=nightly PORT_SUFFIX=1  docker-compose -f docker-compose.yaml up --remove-orphans -d
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml up --remove-orphans -d
 
     - name: Compatible test
       run: sleep 5 && TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
