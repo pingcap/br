@@ -87,6 +87,9 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) Backend {
 
 func (row tidbRow) ClassifyAndAppend(data *Rows, checksum *verification.KVChecksum, _ *Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
+	// I'm not sure if `rows := data.(*tidbRows); *rows = append(*rows, row)` could solve this lint.
+	// Seems there are some stories. Leave it untouched.
+	//nolint:gocritic
 	*data = append(rows, row)
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
 	checksum.Add(&cs)
@@ -418,6 +421,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	return errors.Trace(err)
 }
 
+//nolint:nakedret // TODO: refactor
 func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName string) (tables []*model.TableInfo, err error) {
 	s := common.SQLWithRetry{
 		DB:     be.db,

@@ -291,6 +291,7 @@ func (kvcodec *tableKVEncoder) Encode(
 
 	var value types.Datum
 	var err error
+	//nolint:prealloc // This is a placeholder.
 	var record []types.Datum
 
 	if kvcodec.recordCache != nil {

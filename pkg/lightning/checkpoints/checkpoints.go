@@ -64,6 +64,11 @@ const (
 	CheckpointTableNameTable  = "table_v6"
 	CheckpointTableNameEngine = "engine_v5"
 	CheckpointTableNameChunk  = "chunk_v5"
+
+	// Some frequently used table name or constants.
+	TableNameAll = "all"
+	StringLitAll = "'all'"
+	ColTableName = "table_name"
 )
 
 const (
@@ -1200,7 +1205,7 @@ func (cpdb *MySQLCheckpointsDB) RemoveCheckpoint(ctx context.Context, tableName 
 		Logger: log.With(zap.String("table", tableName)),
 	}
 
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		return s.Exec(ctx, "remove all checkpoints", "DROP SCHEMA "+cpdb.schema)
 	}
 
@@ -1299,12 +1304,12 @@ func (cpdb *MySQLCheckpointsDB) GetLocalStoringTables(ctx context.Context) (map[
 
 func (cpdb *MySQLCheckpointsDB) IgnoreErrorCheckpoint(ctx context.Context, tableName string) error {
 	var colName string
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		// This will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
+		colName = StringLitAll
 	} else {
-		colName = "table_name"
+		colName = ColTableName
 	}
 
 	engineQuery := fmt.Sprintf(`
@@ -1333,13 +1338,13 @@ func (cpdb *MySQLCheckpointsDB) IgnoreErrorCheckpoint(ctx context.Context, table
 func (cpdb *MySQLCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tableName string) ([]DestroyedTableCheckpoint, error) {
 	var colName, aliasedColName string
 
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		// These will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
-		aliasedColName = "'all'"
+		colName = StringLitAll
+		aliasedColName = StringLitAll
 	} else {
-		colName = "table_name"
+		colName = ColTableName
 		aliasedColName = "t.table_name"
 	}
 
@@ -1482,7 +1487,7 @@ func (cpdb *FileCheckpointsDB) RemoveCheckpoint(_ context.Context, tableName str
 	cpdb.lock.Lock()
 	defer cpdb.lock.Unlock()
 
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		cpdb.checkpoints.Reset()
 		return errors.Trace(os.Remove(cpdb.path))
 	}
@@ -1533,7 +1538,7 @@ func (cpdb *FileCheckpointsDB) IgnoreErrorCheckpoint(_ context.Context, targetTa
 	defer cpdb.lock.Unlock()
 
 	for tableName, tableModel := range cpdb.checkpoints.Checkpoints {
-		if !(targetTableName == "all" || targetTableName == tableName) {
+		if !(targetTableName == TableNameAll || targetTableName == tableName) {
 			continue
 		}
 		if tableModel.Status <= uint32(CheckpointStatusMaxInvalid) {
@@ -1556,7 +1561,7 @@ func (cpdb *FileCheckpointsDB) DestroyErrorCheckpoint(_ context.Context, targetT
 
 	for tableName, tableModel := range cpdb.checkpoints.Checkpoints {
 		// Obtain the list of tables
-		if !(targetTableName == "all" || targetTableName == tableName) {
+		if !(targetTableName == TableNameAll || targetTableName == tableName) {
 			continue
 		}
 		if tableModel.Status <= uint32(CheckpointStatusMaxInvalid) {

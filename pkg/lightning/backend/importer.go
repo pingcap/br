@@ -194,6 +194,7 @@ outside:
 
 func (importer *importer) WriteRowsToImporter(
 	ctx context.Context,
+	//nolint:interfacer // false positive
 	engineUUID uuid.UUID,
 	ts uint64,
 	rows Rows,

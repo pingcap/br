@@ -265,7 +265,9 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 				Path:     fakeFileName,
 				Type:     mydump.SourceTypeSQL,
 				SortKey:  fmt.Sprintf("%d", i),
-				FileSize: 37}})
+				FileSize: 37,
+			},
+		})
 	}
 
 	fakeCsvContent := []byte("1,2,3\r\n4,5,6\r\n")
@@ -278,7 +280,9 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 			Path:     csvName,
 			Type:     mydump.SourceTypeCSV,
 			SortKey:  "99",
-			FileSize: 14}})
+			FileSize: 14,
+		},
+	})
 
 	s.tableMeta = &mydump.MDTableMeta{
 		DB:        "db",
@@ -288,7 +292,9 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 			TableName: filter.Table{Schema: "db", Name: "table"},
 			FileMeta: mydump.SourceFileMeta{
 				Path: "db.table-schema.sql",
-				Type: mydump.SourceTypeTableSchema}},
+				Type: mydump.SourceTypeTableSchema,
+			},
+		},
 		DataFiles: fakeDataFiles,
 	}
 }
@@ -1207,6 +1213,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	}
 }
 
+//nolint:interfacer // change test case signature might cause Check failed to find this test case?
 func (s *restoreSchemaSuite) SetUpTest(c *C) {
 	s.controller, s.ctx = gomock.WithContext(context.Background(), c)
 	mockBackend := mock.NewMockBackend(s.controller)

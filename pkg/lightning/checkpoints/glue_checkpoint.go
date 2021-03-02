@@ -513,7 +513,7 @@ func (g GlueCheckpointsDB) RemoveCheckpoint(ctx context.Context, tableName strin
 	}
 	defer se.Close()
 
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		return common.Retry("remove all checkpoints", logger, func() error {
 			_, err := se.Execute(ctx, "DROP SCHEMA "+g.schema)
 			return err
@@ -632,12 +632,12 @@ func (g GlueCheckpointsDB) IgnoreErrorCheckpoint(ctx context.Context, tableName 
 	defer se.Close()
 
 	var colName string
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		// This will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
+		colName = StringLitAll
 	} else {
-		colName = "table_name"
+		colName = ColTableName
 	}
 
 	tableName = common.InterpolateMySQLString(tableName)
@@ -669,13 +669,13 @@ func (g GlueCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tableName
 
 	var colName, aliasedColName string
 
-	if tableName == "all" {
+	if tableName == TableNameAll {
 		// These will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
-		aliasedColName = "'all'"
+		colName = StringLitAll
+		aliasedColName = StringLitAll
 	} else {
-		colName = "table_name"
+		colName = ColTableName
 		aliasedColName = "t.table_name"
 	}
 

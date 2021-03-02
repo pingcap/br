@@ -2239,6 +2239,7 @@ type deliverResult struct {
 	err      error
 }
 
+//nolint:nakedret // TODO: refactor
 func (cr *chunkRestore) deliverLoop(
 	ctx context.Context,
 	kvsCh <-chan []deliveredKVs,
@@ -2380,6 +2381,7 @@ func saveCheckpoint(rc *Controller, t *TableRestore, engineID int32, chunk *chec
 	}
 }
 
+//nolint:nakedret // TODO: refactor
 func (cr *chunkRestore) encodeLoop(
 	ctx context.Context,
 	kvsCh chan<- []deliveredKVs,

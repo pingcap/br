@@ -197,6 +197,7 @@ func (t PostOpLevel) MarshalText() ([]byte, error) {
 // parser command line parameter
 func (t *PostOpLevel) FromStringValue(s string) error {
 	switch strings.ToLower(s) {
+	//nolint:goconst // This 'false' and other 'false's aren't the same.
 	case "off", "false":
 		*t = OpLevelOff
 	case "required", "true":

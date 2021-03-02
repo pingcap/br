@@ -25,7 +25,7 @@ var _ = Suite(&backendSuite{})
 // FIXME: Cannot use the real SetUpTest/TearDownTest to set up the mock
 // otherwise the mock error will be ignored.
 
-func (s *backendSuite) setUpTest(c *C) {
+func (s *backendSuite) setUpTest(c gomock.TestReporter) {
 	s.controller = gomock.NewController(c)
 	s.mockBackend = mock.NewMockBackend(s.controller)
 	s.backend = kv.MakeBackend(s.mockBackend)
@@ -273,6 +273,7 @@ func (s *backendSuite) TestImportFailedRecovered(c *C) {
 	c.Assert(err, IsNil)
 }
 
+//nolint:interfacer // change test case signature might cause Check failed to find this function?
 func (s *backendSuite) TestClose(c *C) {
 	s.setUpTest(c)
 	defer s.tearDownTest()

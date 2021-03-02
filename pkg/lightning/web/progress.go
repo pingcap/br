@@ -89,7 +89,7 @@ type taskStatus uint8
 
 const (
 	taskStatusRunning   taskStatus = 1
-	taskStatusCompleted            = 2
+	taskStatusCompleted taskStatus = 2
 )
 
 type tableInfo struct {
