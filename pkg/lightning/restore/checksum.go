@@ -14,8 +14,7 @@ import (
 	"github.com/pingcap/failpoint"
 	tidbcfg "github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store"
-	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/driver"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tipb/go-tipb"
 	pd "github.com/tikv/pd/client"
@@ -84,12 +83,12 @@ func newChecksumManager(ctx context.Context, rc *Controller) (ChecksumManager, e
 			conf.Security.ClusterSSLKey = tlsOpt.KeyPath
 			tidbcfg.StoreGlobalConfig(conf)
 		}
-		store, err := store.TiKVDriver{}.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddr))
+		store, err := driver.TiKVDriver{}.Open(fmt.Sprintf("tikv://%s?disableGC=true", pdAddr))
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 
-		manager = newTiKVChecksumManager(store.(tikv.Storage).GetClient(), pdCli, uint(rc.cfg.TiDB.DistSQLScanConcurrency))
+		manager = newTiKVChecksumManager(store.(kv.Storage).GetClient(), pdCli, uint(rc.cfg.TiDB.DistSQLScanConcurrency))
 	} else {
 		db, err := rc.tidbGlue.GetDB()
 		if err != nil {
