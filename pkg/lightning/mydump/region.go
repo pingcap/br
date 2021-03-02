@@ -138,6 +138,7 @@ func MakeTableRegions(
 	cfg *config.Config,
 	ioWorkers *worker.Pool,
 	store storage.ExternalStorage,
+	prevRowIDMax int64,
 ) ([]*TableRegion, error) {
 	// Split files into regions
 	type fileRegionRes struct {
@@ -210,7 +211,6 @@ func MakeTableRegions(
 
 	filesRegions := make([]*TableRegion, 0, len(meta.DataFiles))
 	dataFileSizes := make([]float64, 0, len(meta.DataFiles))
-	prevRowIDMax := int64(0)
 	for _, dataFile := range meta.DataFiles {
 		fileRegionsRes := fileRegionsMap[dataFile.FileMeta.Path]
 		var delta int64

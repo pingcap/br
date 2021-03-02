@@ -42,6 +42,9 @@ message TableCheckpointModel {
     int64 alloc_base = 4;
     map<sint32, EngineCheckpointModel> engines = 8;
     int64 tableID = 9;
+    uint64 kv_bytes = 10;
+    uint64 kv_kvs = 11;
+    fixed64 kv_checksum = 12;
 }
 
 message EngineCheckpointModel {

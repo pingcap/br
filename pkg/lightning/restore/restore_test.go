@@ -298,7 +298,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 	}
 
 	rc := &RestoreController{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
-	err := s.tr.populateChunks(context.Background(), rc, cp)
+	err := s.tr.populateChunks(context.Background(), rc, cp, 0)
 	c.Assert(err, IsNil)
 	c.Assert(cp.Engines, DeepEquals, map[int32]*EngineCheckpoint{
 		-1: {
@@ -403,7 +403,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 	s.cfg.Mydumper.StrictFormat = true
 	regionSize := s.cfg.Mydumper.MaxRegionSize
 	s.cfg.Mydumper.MaxRegionSize = 5
-	err = s.tr.populateChunks(context.Background(), rc, cp)
+	err = s.tr.populateChunks(context.Background(), rc, cp, 0)
 	c.Assert(err, NotNil)
 	c.Assert(err, ErrorMatches, `.*unknown columns in header \[1 2 3\]`)
 	s.cfg.Mydumper.MaxRegionSize = regionSize
@@ -465,7 +465,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 
 	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &TableCheckpoint{})
 	c.Assert(err, IsNil)
-	c.Assert(tr.populateChunks(context.Background(), rc, cp), IsNil)
+	c.Assert(tr.populateChunks(context.Background(), rc, cp, 0), IsNil)
 
 	c.Assert(cp.Engines, DeepEquals, map[int32]*EngineCheckpoint{
 		-1: {

@@ -1209,7 +1209,50 @@ func (t *TableRestore) restoreTable(
 			zap.Int("filesCnt", cp.CountChunks()),
 		)
 	} else if cp.Status < CheckpointStatusAllWritten {
-		if err := t.populateChunks(ctx, rc, cp); err != nil {
+		var maxRowID int64
+		versionStr, err := rc.tidbGlue.GetSQLExecutor().ObtainStringWithLog(
+			ctx, "SELECT version()", "fetch tidb version", log.L())
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		version, err := common.ExtractTiDBVersion(versionStr)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+		// "show table next_row_id" is only available after v4.0.0
+		if version.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB &&
+			(common.TableHasAutoRowID(t.tableInfo.Core) || t.tableInfo.Core.GetAutoIncrementColInfo() != nil) {
+			// TODO: GetDB is not available in lightning in SQL
+			db, _ := rc.tidbGlue.GetDB()
+			autoIDInfos, err := kv.FetchTableAutoIDInfos(db, t.tableName)
+			if err != nil {
+				return false, errors.Trace(err)
+			}
+			if len(autoIDInfos) == 1 {
+				maxRowID = autoIDInfos[0].NextID - 1
+			} else if len(autoIDInfos) == 0 {
+				return false, errors.New("can't fetch previous auto id base")
+			} else {
+				return false, errors.New("not supported: more than one auto id allocator found")
+			}
+			// maxRowID > 0 means table is likely contains data, so need to fetch current checksum value.
+			if maxRowID > 0 {
+				baseChecksum, err := DoChecksum(ctx, t.tableInfo)
+				if err != nil {
+					return false, errors.Trace(err)
+				}
+				cp.Checksum = verify.MakeKVChecksum(baseChecksum.TotalBytes, baseChecksum.TotalKVs, baseChecksum.Checksum)
+				rc.saveCpCh <- saveCp{
+					tableName: t.tableName,
+					merger: &TableChecksumMerger{
+						Checksum: cp.Checksum,
+					},
+				}
+				t.logger.Info("checksum before restore table", zap.Object("checksum", &cp.Checksum))
+			}
+
+		}
+		if err := t.populateChunks(ctx, rc, cp, maxRowID); err != nil {
 			return false, errors.Trace(err)
 		}
 		if err := rc.checkpointsDB.InsertEngineCheckpoints(ctx, t.tableName, cp.Engines); err != nil {
@@ -1652,6 +1695,10 @@ func (t *TableRestore) postProcess(
 					}
 				}
 				t.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
+				if cp.Checksum.SumKVS() > 0 {
+					localChecksum.Add(&cp.Checksum)
+					t.logger.Info("merged local checksum", zap.Object("checksum", &localChecksum))
+				}
 				err := t.compareChecksum(ctx, localChecksum)
 				// with post restore level 'optional', we will skip checksum error
 				if rc.cfg.PostRestore.Checksum == config.OpLevelOptional {
@@ -2001,9 +2048,9 @@ func (tr *TableRestore) Close() {
 	tr.logger.Info("restore done")
 }
 
-func (t *TableRestore) populateChunks(ctx context.Context, rc *RestoreController, cp *TableCheckpoint) error {
+func (t *TableRestore) populateChunks(ctx context.Context, rc *RestoreController, cp *TableCheckpoint, rowIDBase int64) error {
 	task := t.logger.Begin(zap.InfoLevel, "load engines and files")
-	chunks, err := mydump.MakeTableRegions(ctx, t.tableMeta, len(t.tableInfo.Core.Columns), rc.cfg, rc.ioWorkers, rc.store)
+	chunks, err := mydump.MakeTableRegions(ctx, t.tableMeta, len(t.tableInfo.Core.Columns), rc.cfg, rc.ioWorkers, rc.store, rowIDBase)
 	if err == nil {
 		timestamp := time.Now().Unix()
 		failpoint.Inject("PopulateChunkTimestamp", func(v failpoint.Value) {

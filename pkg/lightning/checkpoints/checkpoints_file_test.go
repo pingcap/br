@@ -118,6 +118,10 @@ func (s *cpFileSuite) SetUpTest(c *C) {
 		AllocBase: 132861,
 	}
 	rcm.MergeInto(cpd)
+	cksum := checkpoints.TableChecksumMerger{
+		Checksum: verification.MakeKVChecksum(4492, 686, 486070148910),
+	}
+	cksum.MergeInto(cpd)
 	ccm := checkpoints.ChunkCheckpointMerger{
 		EngineID: 0,
 		Key:      checkpoints.ChunkCheckpointKey{Path: "/tmp/path/1.sql", Offset: 0},
@@ -159,6 +163,7 @@ func (s *cpFileSuite) TestGet(c *C) {
 	c.Assert(cp, DeepEquals, &checkpoints.TableCheckpoint{
 		Status:    checkpoints.CheckpointStatusAllWritten,
 		AllocBase: 132861,
+		Checksum:  verification.MakeKVChecksum(4492, 686, 486070148910),
 		Engines: map[int32]*checkpoints.EngineCheckpoint{
 			-1: {
 				Status: checkpoints.CheckpointStatusLoaded,

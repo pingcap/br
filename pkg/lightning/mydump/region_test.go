@@ -66,7 +66,7 @@ func (s *testMydumpRegionSuite) TestTableRegion(c *C) {
 
 	ioWorkers := worker.NewPool(context.Background(), 1, "io")
 	for _, meta := range dbMeta.Tables {
-		regions, err := MakeTableRegions(context.Background(), meta, 1, cfg, ioWorkers, loader.GetStore())
+		regions, err := MakeTableRegions(context.Background(), meta, 1, cfg, ioWorkers, loader.GetStore(), 0)
 		c.Assert(err, IsNil)
 
 		// check - region-size vs file-size
