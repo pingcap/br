@@ -28,10 +28,13 @@ jobs:
         go-version: 1.15
 
     - name: Pull images
-      run: docker-compose -f compatible/docker-compose.yaml pull --ignore-pull-failures
+      run: docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
+
+    - name: Generate Compatible test backup data
+      run: sh compatible/prepare_backup.sh
 
     - name: Compatible test
-      run: sh compatible/step.sh
+      run: docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}

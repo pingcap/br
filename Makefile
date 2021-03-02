@@ -127,8 +127,11 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
+compatible_test_prepare: br 
+	tests/run_compatible.sh prepare
+
 compatible_test: build build_for_integration_test
-	tests/run_compatible.sh
+	tests/run_compatible.sh 
 
 coverage: tools
 	tools/bin/gocovmerge "$(TEST_DIR)"/cov.* | grep -vE ".*.pb.go|.*__failpoint_binding__.go" > "$(TEST_DIR)/all_cov.out"

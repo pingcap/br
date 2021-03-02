@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This test is used to test compatible for BR restore.
+# This test is used to generate backup for later compatible test.
 set -eux
 
 BUCKET="test"
@@ -36,10 +36,8 @@ echo $KEY > "tests/$TEST_NAME/config.json"
 # export test CREDENTIALS for gcs oauth
 export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
-# do not log to terminal
-unset BR_LOG_TO_TERM
-LOG_PATH=$TEST_DIR/restore.log
+# create gcs bucket
+curl -XPOST http://$GCS_HOST:$GCS_PORT/storage/v1/b -d '{"name":"test"}'
 
-# restore backup data 
-echo "restore ${TAG} data starts..."
-bin/br restore db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH --check-requirements=false
+# backup cluster data
+bin/br backup db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"  --check-requirements=false

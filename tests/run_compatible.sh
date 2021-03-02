@@ -19,6 +19,12 @@
 
 set -eu
 
+if [ $1 = "prepare" ]; then
+    process="prepare"
+else
+    process="run"
+fi
+
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
@@ -27,7 +33,7 @@ TEST_DIR=/tmp/backup_restore_compatible_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 
-for script in tests/docker_compatible_*/run.sh; do
+for script in tests/docker_compatible_*/${process}.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
