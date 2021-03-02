@@ -38,6 +38,7 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml build
         TAG=nightly PORT_SUFFIX=1  docker-compose -f docker-compose.yaml up --remove-orphans -d
+        sleep 5
 
     - name: Compatible test
       run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
