@@ -114,6 +114,7 @@ FROM pingcap/tiflash:$IMAGE_TAG.$docker_repo        AS tiflash-builder
 FROM pingcap/tidb-lightning:$IMAGE_TAG.$docker_repo AS lightning-builder
 FROM pingcap/br:v4.0.8                              AS br408-builder
 FROM minio/minio                                    AS minio-builder
+FROM minio/mc                                       AS mc-builder
 FROM fsouza/fake-gcs-server                         AS gcs-builder
 
 FROM golang:1.13.8-buster as ycsb-builder
@@ -135,10 +136,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     less \
     jq \
-    default-mysql-client \
-    python-pip
-
-RUN pip install s3cmd
+    default-mysql-client
 
 RUN mkdir -p /br/bin
 COPY --from=tidb-builder      /tidb-server                   /br/bin/tidb-server
@@ -153,6 +151,7 @@ COPY --from=tiflash-builder   /tiflash/libtiflash_proxy.so   /br/bin/libtiflash_
 COPY --from=tiflash-builder   /tiflash/flash_cluster_manager /br/bin/flash_cluster_manager
 COPY --from=lightning-builder /tikv-importer                 /br/bin/tikv-importer
 COPY --from=minio-builder     /usr/bin/minio                 /br/bin/minio
+COPY --from=mc-builder        /usr/bin/mc                    /br/bin/mc
 COPY --from=gcs-builder       /bin/fake-gcs-server           /br/bin/fake-gcs-server
 
 WORKDIR /br
