@@ -1,9 +1,9 @@
 # test latest 3 version clusters
-TAGS=$(git tag | sort -r | head -n3)
-echo $TAGS
+TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
+echo "recent version of cluster is $TAGS"
 
 i=0
-for tag in $TAGS; do 
+for tag in $TAGS; do
 	i=$(( i + 1 ))
 	export TAG=$tag
 	export PORT_SUFFIX=$i
@@ -16,4 +16,4 @@ for tag in $TAGS; do
 	docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
 	docker-compose -f compatible/backup_cluster.yaml down
 	echo "destroy $TAG cluster"
-done 
+done

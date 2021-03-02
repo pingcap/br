@@ -16,14 +16,9 @@ So we need a test workflow to check the compatblity.
 This workflow needs previous backup data. to get this data. we have the following steps
 
 - Build clusters with previous version.
-- Perform sysbench prepae on each cluster.
 - Run backup jobs with correspond BR with different storage(s3, gcs, local).
-- Collect all backup data and upload to a fileserver.
 
 We have 3 different storage. so we should make sure backward compatible seperately.
-
-To reduce the whole time costs. we choose to download previous data. not to generate them temporarily.
-And consider we need update backup data when new version BR published. we need another workflow to prepare data in the future.
 
 ### Test Content
 
