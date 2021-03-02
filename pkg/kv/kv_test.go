@@ -14,6 +14,7 @@
 package kv
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -43,4 +44,48 @@ func (s *rowSuite) TestMarshal(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(strings.TrimRight(out.String(), "\n"), Equals,
 		`{"row": ["kind: int64, val: 1", "kind: null, val: NULL", "kind: max, val: +inf", "kind: min, val: -inf"]}`)
+}
+
+func (s *kvSuite) TestSimplePairIter(c *C) {
+	pairs := []Pair{
+		{Key: []byte("1"), Val: []byte("a")},
+		{Key: []byte("2"), Val: []byte("b")},
+		{Key: []byte("3"), Val: []byte("c")},
+		{Key: []byte("5"), Val: []byte("d")},
+	}
+	expectCount := 4
+	iter := newSimpleKVIter(pairs)
+	count := 0
+	for iter.Next() {
+		count++
+	}
+	c.Assert(count, Equals, expectCount)
+
+	c.Assert(iter.First(), IsTrue)
+	c.Assert(iter.Last(), IsTrue)
+
+	c.Assert(iter.Seek([]byte("1")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("1")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("a")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	c.Assert(iter.Seek([]byte("2")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("2")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("b")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	c.Assert(iter.Seek([]byte("3")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("3")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("c")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	// 4 not exists, so seek position will move to 5.
+	c.Assert(iter.Seek([]byte("4")), IsTrue)
+	c.Assert(bytes.Equal(iter.Key(), []byte("5")), IsTrue)
+	c.Assert(bytes.Equal(iter.Value(), []byte("d")), IsTrue)
+	c.Assert(iter.Valid(), IsTrue)
+
+	// 6 not exists, so seek position will not valid.
+	c.Assert(iter.Seek([]byte("6")), IsFalse)
+	c.Assert(iter.Valid(), IsFalse)
 }

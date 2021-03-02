@@ -33,16 +33,24 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/driver"
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 	"github.com/pingcap/tidb/tablecodec"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/httputil"
+	"github.com/pingcap/br/pkg/task"
 )
 
 var (
+	ca             = flag.String("ca", "", "CA certificate path for TLS connection")
+	cert           = flag.String("cert", "", "certificate path for TLS connection")
+	key            = flag.String("key", "", "private key path for TLS connection")
 	tidbStatusAddr = flag.String("tidb", "", "TiDB status address")
 	pdAddr         = flag.String("pd", "", "PD address")
 	dbName         = flag.String("db", "", "Database name")
@@ -76,13 +84,24 @@ func main() {
 		log.Panic("get table id failed", zap.Error(err))
 	}
 
-	pdclient, err := pd.NewClient([]string{*pdAddr}, pd.SecurityOption{})
+	pdclient, err := pd.NewClient([]string{*pdAddr}, pd.SecurityOption{
+		CAPath:   *ca,
+		CertPath: *cert,
+		KeyPath:  *key,
+	})
 	if err != nil {
 		log.Panic("create pd client failed", zap.Error(err))
 	}
 	pdcli := &codecPDClient{Client: pdclient}
 
-	driver := tikv.Driver{}
+	if len(*ca) != 0 {
+		tidbCfg := config.NewConfig()
+		tidbCfg.Security.ClusterSSLCA = *ca
+		tidbCfg.Security.ClusterSSLCert = *cert
+		tidbCfg.Security.ClusterSSLKey = *key
+		config.StoreGlobalConfig(tidbCfg)
+	}
+	driver := driver.TiKVDriver{}
 	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr))
 	if err != nil {
 		log.Panic("create tikv client failed", zap.Error(err))
@@ -101,6 +120,22 @@ func main() {
 	}
 }
 
+func newHTTPClient() *http.Client {
+	if len(*ca) != 0 {
+		tlsCfg := &task.TLSConfig{
+			CA:   *ca,
+			Cert: *cert,
+			Key:  *key,
+		}
+		cfg, err := tlsCfg.ToTLSConfig()
+		if err != nil {
+			log.Panic("fail to parse TLS config", zap.Error(err))
+		}
+		return httputil.NewClient(cfg)
+	}
+	return http.DefaultClient
+}
+
 // getTableID of the table with specified table name.
 func getTableID(ctx context.Context, dbAddr, dbName, table string) (int64, error) {
 	dbHost, _, err := net.SplitHostPort(dbAddr)
@@ -108,13 +143,14 @@ func getTableID(ctx context.Context, dbAddr, dbName, table string) (int64, error
 		return 0, errors.Trace(err)
 	}
 	dbStatusAddr := net.JoinHostPort(dbHost, "10080")
-	url := fmt.Sprintf("http://%s/schema/%s/%s", dbStatusAddr, dbName, table)
+	url := fmt.Sprintf("https://%s/schema/%s/%s", dbStatusAddr, dbName, table)
 
+	client := newHTTPClient()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
