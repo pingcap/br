@@ -91,11 +91,11 @@ type mdLoaderSetup struct {
 func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error) {
 	u, err := storage.ParseBackend(cfg.Mydumper.SourceDir, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	s, err := storage.Create(ctx, u, true)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	return NewMyDumpLoaderWithStore(ctx, cfg, s)
@@ -267,12 +267,13 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	for _, dbMeta := range s.loader.dbs {
 		// Put the small table in the front of the slice which can avoid large table
 		// take a long time to import and block small table to release index worker.
-		sort.SliceStable(dbMeta.Tables, func(i, j int) bool {
-			return dbMeta.Tables[i].TotalSize < dbMeta.Tables[j].TotalSize
+		meta := dbMeta
+		sort.SliceStable(meta.Tables, func(i, j int) bool {
+			return meta.Tables[i].TotalSize < meta.Tables[j].TotalSize
 		})
 
 		// sort each table source files by sort-key
-		for _, tbMeta := range dbMeta.Tables {
+		for _, tbMeta := range meta.Tables {
 			dataFiles := tbMeta.DataFiles
 			sort.SliceStable(dataFiles, func(i, j int) bool {
 				return dataFiles[i].FileMeta.SortKey < dataFiles[j].FileMeta.SortKey

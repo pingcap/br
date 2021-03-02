@@ -214,7 +214,7 @@ func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, _ *ta
 		sb.Grow(3 + 2*len(value))
 		sb.WriteString("x'")
 		if _, err := hex.NewEncoder(sb).Write(value); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		sb.WriteByte('\'')
 
@@ -282,7 +282,8 @@ func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, co
 		if i != 0 {
 			encoded.WriteByte(',')
 		}
-		if err := enc.appendSQL(&encoded, &field, getColumnByIndex(cols, enc.columnIdx[i])); err != nil {
+		datum := field
+		if err := enc.appendSQL(&encoded, &datum, getColumnByIndex(cols, enc.columnIdx[i])); err != nil {
 			logger.Error("tidb encode failed",
 				zap.Array("original", rowArrayMarshaler(row)),
 				zap.Int("originalCol", i),
@@ -544,6 +545,8 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 					}
 				}
 			}
+			// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
+			//nolint:sqlclosecheck
 			if err := rows.Close(); err != nil {
 				return err
 			}

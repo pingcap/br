@@ -801,6 +801,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 
 		lock.Unlock()
 
+		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
 		failpoint.Inject("FailIfImportedChunk", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() >= uint64(val.(int)) {
 				rc.checkpointsWg.Done()
@@ -809,6 +810,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
+		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
 		failpoint.Inject("FailIfStatusBecomes", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.StatusCheckpointMerger); ok && merger.EngineID >= 0 && int(merger.Status) == val.(int) {
 				rc.checkpointsWg.Done()
@@ -817,6 +819,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
+		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
 		failpoint.Inject("FailIfIndexEngineImported", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.StatusCheckpointMerger); ok &&
 				merger.EngineID == checkpoints.WholeTableEngineID &&
@@ -827,6 +830,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
+		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
 		failpoint.Inject("KillIfImportedChunk", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() >= uint64(val.(int)) {
 				if err := common.KillMySelf(); err != nil {
@@ -915,7 +919,6 @@ func (rc *Controller) runPeriodicActions(ctx context.Context, stop <-chan struct
 				} else {
 					state = "post-processing"
 				}
-				remaining = zap.Skip()
 			case finished > 0:
 				state = "writing"
 			default:
@@ -1168,7 +1171,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			err = ctx.Err()
 		}
 		logTask.End(zap.ErrorLevel, err)
-		return err
+		return errors.Trace(err)
 	default:
 	}
 

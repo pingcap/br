@@ -423,7 +423,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	resp, err = http.DefaultClient.Do(req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.StatusCode, Equals, http.StatusOK)
-
+	c.Assert(resp.Body.Close(), IsNil)
 	// ... and the task should be canceled now.
 	c.Assert(<-errCh, Equals, context.Canceled)
 }

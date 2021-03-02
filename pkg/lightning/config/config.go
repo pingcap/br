@@ -319,7 +319,7 @@ func (sec *Security) RegisterMySQL() error {
 	tlsConfig, err := common.ToTLSConfig(sec.CAPath, sec.CertPath, sec.KeyPath)
 	switch {
 	case err != nil:
-		return err
+		return errors.Trace(err)
 	case tlsConfig != nil:
 		// error happens only when the key coincides with the built-in names.
 		_ = gomysql.RegisterTLSConfig("cluster", tlsConfig)
@@ -338,7 +338,7 @@ type Duration struct {
 func (d *Duration) UnmarshalText(text []byte) error {
 	var err error
 	d.Duration, err = time.ParseDuration(string(text))
-	return err
+	return errors.Trace(err)
 }
 
 func (d Duration) MarshalText() ([]byte, error) {
@@ -594,7 +594,7 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	}
 	cfg.AdjustMydumper()
 	cfg.AdjustCheckPoint()
-	return cfg.CheckAndAdjustFilePath(err)
+	return cfg.CheckAndAdjustFilePath()
 }
 
 func (cfg *Config) CheckAndAdjustForLocalBackend() error {
@@ -624,7 +624,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 
 		storageSize, err := common.GetStorageSize(storageSizeDir)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 		if storageSize.Available <= reservedSize {
 			return errors.Errorf(
@@ -705,7 +705,7 @@ func (cfg *Config) CheckAndAdjustTiDBPort(ctx context.Context, mustHaveInternalC
 	return nil
 }
 
-func (cfg *Config) CheckAndAdjustFilePath(err error) error {
+func (cfg *Config) CheckAndAdjustFilePath() error {
 	var u *url.URL
 
 	// An absolute Windows path like "C:\Users\XYZ" would be interpreted as
@@ -717,6 +717,7 @@ func (cfg *Config) CheckAndAdjustFilePath(err error) error {
 	// On Windows, the drive letter can only be single letters from "A:" to "Z:",
 	// so this won't mistake "S3:" as a Windows path.
 	if len(filepath.VolumeName(cfg.Mydumper.SourceDir)) == 0 {
+		var err error
 		u, err = url.Parse(cfg.Mydumper.SourceDir)
 		if err != nil {
 			return errors.Trace(err)

@@ -364,14 +364,15 @@ func (cp *TableCheckpoint) Apply(cpd *TableCheckpointDiff) {
 			engine.Status = engineDiff.status
 		}
 		for key, diff := range engineDiff.chunks {
+			checkpointKey := key
 			index := sort.Search(len(engine.Chunks), func(i int) bool {
-				return !engine.Chunks[i].Key.less(&key)
+				return !engine.Chunks[i].Key.less(&checkpointKey)
 			})
 			if index >= len(engine.Chunks) {
 				continue
 			}
 			chunk := engine.Chunks[index]
-			if chunk.Key != key {
+			if chunk.Key != checkpointKey {
 				continue
 			}
 			chunk.Chunk.Offset = diff.pos
