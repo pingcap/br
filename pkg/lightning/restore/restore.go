@@ -158,7 +158,6 @@ type Controller struct {
 
 	closedEngineLimit *worker.Pool
 	store             storage.ExternalStorage
-	checksumManager   ChecksumManager
 
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32

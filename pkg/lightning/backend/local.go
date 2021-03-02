@@ -99,9 +99,8 @@ var (
 // Range record start and end key for localStoreDir.DB
 // so we can write it to tikv in streaming
 type Range struct {
-	start  []byte
-	end    []byte
-	length int
+	start []byte
+	end   []byte
 }
 
 // localFileMeta contains some field that is necessary to continue the engine restore/import process.
@@ -348,7 +347,6 @@ type connPool struct {
 	mu sync.Mutex
 
 	conns   []*grpc.ClientConn
-	name    string
 	next    int
 	cap     int
 	newConn func(ctx context.Context) (*grpc.ClientConn, error)
@@ -927,7 +925,7 @@ func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error
 
 	// <= 96MB no need to split into range
 	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= regionMaxKeyCount {
-		ranges := []Range{{start: firstKey, end: endKey, length: int(engineFileLength)}}
+		ranges := []Range{{start: firstKey, end: endKey}}
 		return ranges, nil
 	}
 
