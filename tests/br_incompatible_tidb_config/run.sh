@@ -99,7 +99,7 @@ run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AU
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL
-last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB$TABLE" | tail -n1)
+last_backup_ts=$(run_br validate decode --field="end-version" -s "local://$TEST_DIR/$DB$TABLE" | grep -oE "^[0-9]+")
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE" --lastbackupts $last_backup_ts
 
 run_sql "drop schema $DB;"

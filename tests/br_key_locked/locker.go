@@ -33,6 +33,12 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+<<<<<<< HEAD
+=======
+	"github.com/pingcap/tidb/config"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/store/driver"
+>>>>>>> fa0f417... tests: replace br with run_br in integration tests (#763)
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
@@ -81,7 +87,18 @@ func main() {
 	}
 	pdcli := &codecPDClient{Client: pdclient}
 
+<<<<<<< HEAD
 	driver := tikv.Driver{}
+=======
+	if len(*ca) != 0 {
+		tidbCfg := config.NewConfig()
+		tidbCfg.Security.ClusterSSLCA = *ca
+		tidbCfg.Security.ClusterSSLCert = *cert
+		tidbCfg.Security.ClusterSSLKey = *key
+		config.StoreGlobalConfig(tidbCfg)
+	}
+	driver := driver.TiKVDriver{}
+>>>>>>> fa0f417... tests: replace br with run_br in integration tests (#763)
 	store, err := driver.Open(fmt.Sprintf("tikv://%s?disableGC=true", *pdAddr))
 	if err != nil {
 		log.Panic("create tikv client failed", zap.Error(err))

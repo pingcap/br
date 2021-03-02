@@ -8,7 +8,11 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
+<<<<<<< HEAD
 	"github.com/pingcap/tidb/store/tikv"
+=======
+	"github.com/pingcap/tidb/store/driver"
+>>>>>>> fa0f417... tests: replace br with run_br in integration tests (#763)
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/glue"
@@ -38,7 +42,11 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 		conf.Security.ClusterSSLKey = option.KeyPath
 		config.StoreGlobalConfig(conf)
 	}
+<<<<<<< HEAD
 	return tikv.Driver{}.Open(path)
+=======
+	return driver.TiKVDriver{}.Open(path)
+>>>>>>> fa0f417... tests: replace br with run_br in integration tests (#763)
 }
 
 // OwnsStorage implements glue.Glue.
