@@ -1540,7 +1540,6 @@ func (t *TableRestore) restoreEngine(
 			}
 			if err == nil {
 				err = indexWriter.Close(ctx)
-				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Inc()
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
