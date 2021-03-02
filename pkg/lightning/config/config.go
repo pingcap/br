@@ -95,7 +95,6 @@ const (
 )
 
 var (
-	defaultConfigPaths    = []string{"tidb-lightning.toml", "conf/tidb-lightning.toml"}
 	supportedStorageTypes = []string{"file", "local", "s3", "noop"}
 
 	DefaultFilter = []string{

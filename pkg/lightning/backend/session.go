@@ -17,9 +17,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/pingcap/br/pkg/lightning/log"
-	"go.uber.org/zap"
 	"strconv"
+
+	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/lightning/log"
 
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
