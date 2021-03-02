@@ -49,9 +49,14 @@ for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
     go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB${i}
 done
+
+bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/mybucket
 S3_KEY=""
 for p in $(seq 2); do
+<<<<<<< HEAD
   s3cmd --access_key=$MINIO_ACCESS_KEY --secret_key=$MINIO_SECRET_KEY --host=$S3_ENDPOINT --host-bucket=$S3_ENDPOINT --no-ssl mb s3://mybucket
+=======
+>>>>>>> d98c0c7... tests: create bucket only once and remove bucket via mc (#775)
 
   for i in $(seq $DB_COUNT); do
       row_count_ori[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
@@ -114,11 +119,10 @@ for p in $(seq 2); do
   fi
 
   # prepare for next test
+  bin/mc rm --config-dir "$TEST_DIR/$TEST_NAME" --recursive --force minio/mybucket
   S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
   export AWS_ACCESS_KEY_ID=""
   export AWS_SECRET_ACCESS_KEY=""
-  rm -rf "$TEST_DIR/$DB"
-  mkdir -p "$TEST_DIR/$DB"
 done
 
 for i in $(seq $DB_COUNT); do
