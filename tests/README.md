@@ -10,8 +10,14 @@ programs.
 	* `bin/tikv-server`
 	* `bin/pd-server`
     * `bin/pd-ctl`
+<<<<<<< HEAD
 	* `bin/go-ycsb`
 	* `bin/minio`
+=======
+    * `bin/go-ycsb`
+    * `bin/minio`
+    * `bin/mc`
+>>>>>>> 07e2d65... tests: replace s3cmd with minio/mc (#767)
     * `bin/tiflash`
     * `bin/cdc`
 
@@ -23,7 +29,13 @@ programs.
 
     * `mysql` (the CLI client)
     * `curl`
+<<<<<<< HEAD
     * `s3cmd`
+=======
+    * `openssl`
+    * `wget`
+    * `lsof`
+>>>>>>> 07e2d65... tests: replace s3cmd with minio/mc (#767)
 
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
