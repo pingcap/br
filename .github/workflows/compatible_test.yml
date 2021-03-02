@@ -27,14 +27,20 @@ jobs:
       with:
         go-version: 1.15
 
-    - name: Pull images
-      run: docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
-
     - name: Generate Compatible test backup data
       run: sh compatible/prepare_backup.sh
 
+    - name: Pull images
+      run: TAG=nightly docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
+
+    - name: Start server
+      run: |
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml rm -s -v
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml build
+        TAG=nightly PORT_SUFFIX=1  docker-compose -f docker-compose.yaml up --remove-orphans -d
+
     - name: Compatible test
-      run: docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+      run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
