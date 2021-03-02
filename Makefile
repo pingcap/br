@@ -143,7 +143,6 @@ bins:
 	@which bin/pd-ctl
 	@which bin/go-ycsb
 	@which bin/minio
-	@which bin/br
 	@which bin/tiflash
 	@which bin/libtiflash_proxy.so
 	@which bin/cdc
