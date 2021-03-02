@@ -57,12 +57,7 @@ func (s *testMydumpReaderSuite) TestExportStatementNoTrailingNewLine(c *C) {
 }
 
 func (s *testMydumpReaderSuite) TestExportStatementWithComment(c *C) {
-	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
-	c.Assert(err, IsNil)
-	defer os.Remove(file.Name())
-
-	_, err = file.Write([]byte(`
+	s.exportStatmentShouldBe(c, `
 		/* whatever blabla
 			multiple lines comment
 			multiple lines comment
@@ -71,29 +66,11 @@ func (s *testMydumpReaderSuite) TestExportStatementWithComment(c *C) {
 			multiple lines comment
 		 */;
 		CREATE DATABASE whatever;
-`))
-	c.Assert(err, IsNil)
-	stat, err := file.Stat()
-	c.Assert(err, IsNil)
-	err = file.Close()
-	c.Assert(err, IsNil)
-
-	store, err := storage.NewLocalStorage(dir)
-	c.Assert(err, IsNil)
-
-	f := FileInfo{FileMeta: SourceFileMeta{Path: stat.Name(), FileSize: stat.Size()}}
-	data, err := ExportStatement(context.TODO(), store, f, "auto")
-	c.Assert(err, IsNil)
-	c.Assert(data, DeepEquals, []byte("CREATE DATABASE whatever;"))
+`, "CREATE DATABASE whatever;")
 }
 
 func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(c *C) {
-	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
-	c.Assert(err, IsNil)
-	defer os.Remove(file.Name())
-
-	_, err = file.Write([]byte(`
+	s.exportStatmentShouldBe(c, `
 		/* whatever blabla
 			multiple lines comment
 			multiple lines comment
@@ -101,7 +78,16 @@ func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(
 			multiple lines comment
 			multiple lines comment
 		 */;
-		CREATE DATABASE whatever;`))
+		CREATE DATABASE whatever;`, "CREATE DATABASE whatever;")
+}
+
+func (s *testMydumpReaderSuite) exportStatmentShouldBe(c *C, stmt string, expected string) {
+	dir := c.MkDir()
+	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	c.Assert(err, IsNil)
+	defer os.Remove(file.Name())
+
+	_, err = file.Write([]byte(stmt))
 	c.Assert(err, IsNil)
 	stat, err := file.Stat()
 	c.Assert(err, IsNil)
@@ -113,7 +99,7 @@ func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(
 	f := FileInfo{FileMeta: SourceFileMeta{Path: stat.Name(), FileSize: stat.Size()}}
 	data, err := ExportStatement(context.TODO(), store, f, "auto")
 	c.Assert(err, IsNil)
-	c.Assert(data, DeepEquals, []byte("CREATE DATABASE whatever;"))
+	c.Assert(data, DeepEquals, []byte(expected))
 }
 
 func (s *testMydumpReaderSuite) TestExportStatementGBK(c *C) {

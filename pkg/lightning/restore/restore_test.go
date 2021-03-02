@@ -301,6 +301,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 	rc := &Controller{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
 	err := s.tr.populateChunks(context.Background(), rc, cp)
 	c.Assert(err, IsNil)
+	//nolint:dupl // false positive.
 	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
 		-1: {
 			Status: checkpoints.CheckpointStatusLoaded,

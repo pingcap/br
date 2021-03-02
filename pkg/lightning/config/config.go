@@ -538,79 +538,17 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	mustHaveInternalConnections := true
 	switch cfg.TikvImporter.Backend {
 	case BackendTiDB:
-		if cfg.App.IndexConcurrency == 0 {
-			cfg.App.IndexConcurrency = cfg.App.RegionConcurrency
-		}
-		if cfg.App.TableConcurrency == 0 {
-			cfg.App.TableConcurrency = cfg.App.RegionConcurrency
-		}
+		cfg.DefaultVarsForTiDBBackend()
 		mustHaveInternalConnections = false
 	case BackendImporter, BackendLocal:
-		if cfg.App.IndexConcurrency == 0 {
-			cfg.App.IndexConcurrency = 2
-		}
-		if cfg.App.TableConcurrency == 0 {
-			cfg.App.TableConcurrency = 6
-		}
-		if cfg.TikvImporter.RangeConcurrency == 0 {
-			cfg.TikvImporter.RangeConcurrency = 16
-		}
-		if cfg.TikvImporter.RegionSplitSize == 0 {
-			cfg.TikvImporter.RegionSplitSize = SplitRegionSize
-		}
-		if cfg.TiDB.DistSQLScanConcurrency == 0 {
-			cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
-		}
-		if cfg.TiDB.BuildStatsConcurrency == 0 {
-			cfg.TiDB.BuildStatsConcurrency = defaultBuildStatsConcurrency
-		}
-		if cfg.TiDB.IndexSerialScanConcurrency == 0 {
-			cfg.TiDB.IndexSerialScanConcurrency = defaultIndexSerialScanConcurrency
-		}
-		if cfg.TiDB.ChecksumTableConcurrency == 0 {
-			cfg.TiDB.ChecksumTableConcurrency = defaultChecksumTableConcurrency
-		}
+		cfg.DefaultVarsForImporterAndLocalBackend()
 	default:
 		return errors.Errorf("invalid config: unsupported `tikv-importer.backend` (%s)", cfg.TikvImporter.Backend)
 	}
 
 	if cfg.TikvImporter.Backend == BackendLocal {
-		if len(cfg.TikvImporter.SortedKVDir) == 0 {
-			return errors.Errorf("tikv-importer.sorted-kv-dir must not be empty!")
-		}
-
-		storageSizeDir := filepath.Clean(cfg.TikvImporter.SortedKVDir)
-		sortedKVDirInfo, err := os.Stat(storageSizeDir)
-		switch {
-		case os.IsNotExist(err):
-			// the sorted-kv-dir does not exist, meaning we will create it automatically.
-			// so we extract the storage size from its parent directory.
-			storageSizeDir = filepath.Dir(storageSizeDir)
-		case err == nil:
-			if !sortedKVDirInfo.IsDir() {
-				return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
-			}
-		default:
-			return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
-		}
-
-		if cfg.TikvImporter.DiskQuota == 0 {
-			enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
-			writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
-			reservedSize := enginesCount*autoDiskQuotaLocalReservedSize + writeAmount*autoDiskQuotaLocalReservedSpeed
-
-			storageSize, err := common.GetStorageSize(storageSizeDir)
-			if err != nil {
-				return err
-			}
-			if storageSize.Available <= reservedSize {
-				return errors.Errorf(
-					"insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space, or specify `tikv-importer.disk-quota`",
-					cfg.TikvImporter.SortedKVDir,
-					units.BytesSize(float64(storageSize.Available)),
-					units.BytesSize(float64(reservedSize)))
-			}
-			cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
+		if err := cfg.CheckAndAdjustForLocalBackend(); err != nil {
+			return err
 		}
 	}
 
@@ -629,25 +567,8 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		return errors.Annotate(err, "invalid config: `mydumper.tidb.sql_mode` must be a valid SQL_MODE")
 	}
 
-	if cfg.TiDB.Security == nil {
-		cfg.TiDB.Security = &cfg.Security
-	}
-
-	switch cfg.TiDB.TLS {
-	case "":
-		if len(cfg.TiDB.Security.CAPath) > 0 {
-			cfg.TiDB.TLS = "cluster"
-		} else {
-			cfg.TiDB.TLS = "false"
-		}
-	case "cluster":
-		if len(cfg.Security.CAPath) == 0 {
-			return errors.New("invalid config: cannot set `tidb.tls` to 'cluster' without a [security] section")
-		}
-	case "false", "skip-verify", "preferred":
-		break
-	default:
-		return errors.Errorf("invalid config: unsupported `tidb.tls` config %s", cfg.TiDB.TLS)
+	if err := cfg.CheckAndAdjustSecurity(); err != nil {
+		return err
 	}
 
 	// mydumper.filter and black-white-list cannot co-exist.
@@ -667,6 +588,92 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		}
 	}
 
+	if err := cfg.CheckAndAdjustTiDBPort(ctx, mustHaveInternalConnections); err != nil {
+		return err
+	}
+	cfg.AdjustMydumper()
+	cfg.AdjustCheckPoint()
+	return cfg.CheckAndAdjustFilePath(err)
+}
+
+func (cfg *Config) CheckAndAdjustForLocalBackend() error {
+	if len(cfg.TikvImporter.SortedKVDir) == 0 {
+		return errors.Errorf("tikv-importer.sorted-kv-dir must not be empty!")
+	}
+
+	storageSizeDir := filepath.Clean(cfg.TikvImporter.SortedKVDir)
+	sortedKVDirInfo, err := os.Stat(storageSizeDir)
+	switch {
+	case os.IsNotExist(err):
+		// the sorted-kv-dir does not exist, meaning we will create it automatically.
+		// so we extract the storage size from its parent directory.
+		storageSizeDir = filepath.Dir(storageSizeDir)
+	case err == nil:
+		if !sortedKVDirInfo.IsDir() {
+			return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
+		}
+	default:
+		return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
+	}
+
+	if cfg.TikvImporter.DiskQuota == 0 {
+		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
+		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
+		reservedSize := enginesCount*autoDiskQuotaLocalReservedSize + writeAmount*autoDiskQuotaLocalReservedSpeed
+
+		storageSize, err := common.GetStorageSize(storageSizeDir)
+		if err != nil {
+			return err
+		}
+		if storageSize.Available <= reservedSize {
+			return errors.Errorf(
+				"insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space, or specify `tikv-importer.disk-quota`",
+				cfg.TikvImporter.SortedKVDir,
+				units.BytesSize(float64(storageSize.Available)),
+				units.BytesSize(float64(reservedSize)))
+		}
+		cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
+	}
+	return nil
+}
+
+func (cfg *Config) DefaultVarsForTiDBBackend() {
+	if cfg.App.IndexConcurrency == 0 {
+		cfg.App.IndexConcurrency = cfg.App.RegionConcurrency
+	}
+	if cfg.App.TableConcurrency == 0 {
+		cfg.App.TableConcurrency = cfg.App.RegionConcurrency
+	}
+}
+
+func (cfg *Config) DefaultVarsForImporterAndLocalBackend() {
+	if cfg.App.IndexConcurrency == 0 {
+		cfg.App.IndexConcurrency = 2
+	}
+	if cfg.App.TableConcurrency == 0 {
+		cfg.App.TableConcurrency = 6
+	}
+	if cfg.TikvImporter.RangeConcurrency == 0 {
+		cfg.TikvImporter.RangeConcurrency = 16
+	}
+	if cfg.TikvImporter.RegionSplitSize == 0 {
+		cfg.TikvImporter.RegionSplitSize = SplitRegionSize
+	}
+	if cfg.TiDB.DistSQLScanConcurrency == 0 {
+		cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
+	}
+	if cfg.TiDB.BuildStatsConcurrency == 0 {
+		cfg.TiDB.BuildStatsConcurrency = defaultBuildStatsConcurrency
+	}
+	if cfg.TiDB.IndexSerialScanConcurrency == 0 {
+		cfg.TiDB.IndexSerialScanConcurrency = defaultIndexSerialScanConcurrency
+	}
+	if cfg.TiDB.ChecksumTableConcurrency == 0 {
+		cfg.TiDB.ChecksumTableConcurrency = defaultChecksumTableConcurrency
+	}
+}
+
+func (cfg *Config) CheckAndAdjustTiDBPort(ctx context.Context, mustHaveInternalConnections bool) error {
 	// automatically determine the TiDB port & PD address from TiDB settings
 	if mustHaveInternalConnections && (cfg.TiDB.Port <= 0 || len(cfg.TiDB.PdAddr) == 0) {
 		tls, err := cfg.ToTLS()
@@ -694,47 +701,10 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	if mustHaveInternalConnections && len(cfg.TiDB.PdAddr) == 0 {
 		return errors.New("invalid `tidb.pd-addr` setting")
 	}
+	return nil
+}
 
-	// handle mydumper
-	if cfg.Mydumper.BatchSize <= 0 {
-		// if rows in source files are not sorted by primary key(if primary is number or cluster index enabled),
-		// the key range in each data engine may have overlap, thus a bigger engine size can somewhat alleviate it.
-		cfg.Mydumper.BatchSize = defaultBatchSize
-	}
-	if cfg.Mydumper.BatchImportRatio < 0.0 || cfg.Mydumper.BatchImportRatio >= 1.0 {
-		cfg.Mydumper.BatchImportRatio = 0.75
-	}
-	if cfg.Mydumper.ReadBlockSize <= 0 {
-		cfg.Mydumper.ReadBlockSize = ReadBlockSize
-	}
-	if len(cfg.Mydumper.CharacterSet) == 0 {
-		cfg.Mydumper.CharacterSet = "auto"
-	}
-
-	if len(cfg.Checkpoint.Schema) == 0 {
-		cfg.Checkpoint.Schema = "tidb_lightning_checkpoint"
-	}
-	if len(cfg.Checkpoint.Driver) == 0 {
-		cfg.Checkpoint.Driver = CheckpointDriverFile
-	}
-	if len(cfg.Checkpoint.DSN) == 0 {
-		switch cfg.Checkpoint.Driver {
-		case CheckpointDriverMySQL:
-			param := common.MySQLConnectParam{
-				Host:             cfg.TiDB.Host,
-				Port:             cfg.TiDB.Port,
-				User:             cfg.TiDB.User,
-				Password:         cfg.TiDB.Psw,
-				SQLMode:          mysql.DefaultSQLMode,
-				MaxAllowedPacket: defaultMaxAllowedPacket,
-				TLS:              cfg.TiDB.TLS,
-			}
-			cfg.Checkpoint.DSN = param.ToDSN()
-		case CheckpointDriverFile:
-			cfg.Checkpoint.DSN = "/tmp/" + cfg.Checkpoint.Schema + ".pb"
-		}
-	}
-
+func (cfg *Config) CheckAndAdjustFilePath(err error) error {
 	var u *url.URL
 
 	// An absolute Windows path like "C:\Users\XYZ" would be interpreted as
@@ -778,7 +748,73 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	if !found {
 		return errors.Errorf("Unsupported data-source-dir url '%s'", cfg.Mydumper.SourceDir)
 	}
+	return nil
+}
 
+func (cfg *Config) AdjustCheckPoint() {
+	if len(cfg.Checkpoint.Schema) == 0 {
+		cfg.Checkpoint.Schema = "tidb_lightning_checkpoint"
+	}
+	if len(cfg.Checkpoint.Driver) == 0 {
+		cfg.Checkpoint.Driver = CheckpointDriverFile
+	}
+	if len(cfg.Checkpoint.DSN) == 0 {
+		switch cfg.Checkpoint.Driver {
+		case CheckpointDriverMySQL:
+			param := common.MySQLConnectParam{
+				Host:             cfg.TiDB.Host,
+				Port:             cfg.TiDB.Port,
+				User:             cfg.TiDB.User,
+				Password:         cfg.TiDB.Psw,
+				SQLMode:          mysql.DefaultSQLMode,
+				MaxAllowedPacket: defaultMaxAllowedPacket,
+				TLS:              cfg.TiDB.TLS,
+			}
+			cfg.Checkpoint.DSN = param.ToDSN()
+		case CheckpointDriverFile:
+			cfg.Checkpoint.DSN = "/tmp/" + cfg.Checkpoint.Schema + ".pb"
+		}
+	}
+}
+
+func (cfg *Config) AdjustMydumper() {
+	if cfg.Mydumper.BatchSize <= 0 {
+		// if rows in source files are not sorted by primary key(if primary is number or cluster index enabled),
+		// the key range in each data engine may have overlap, thus a bigger engine size can somewhat alleviate it.
+		cfg.Mydumper.BatchSize = defaultBatchSize
+	}
+	if cfg.Mydumper.BatchImportRatio < 0.0 || cfg.Mydumper.BatchImportRatio >= 1.0 {
+		cfg.Mydumper.BatchImportRatio = 0.75
+	}
+	if cfg.Mydumper.ReadBlockSize <= 0 {
+		cfg.Mydumper.ReadBlockSize = ReadBlockSize
+	}
+	if len(cfg.Mydumper.CharacterSet) == 0 {
+		cfg.Mydumper.CharacterSet = "auto"
+	}
+}
+
+func (cfg *Config) CheckAndAdjustSecurity() error {
+	if cfg.TiDB.Security == nil {
+		cfg.TiDB.Security = &cfg.Security
+	}
+
+	switch cfg.TiDB.TLS {
+	case "":
+		if len(cfg.TiDB.Security.CAPath) > 0 {
+			cfg.TiDB.TLS = "cluster"
+		} else {
+			cfg.TiDB.TLS = "false"
+		}
+	case "cluster":
+		if len(cfg.Security.CAPath) == 0 {
+			return errors.New("invalid config: cannot set `tidb.tls` to 'cluster' without a [security] section")
+		}
+	case "false", "skip-verify", "preferred":
+		break
+	default:
+		return errors.Errorf("invalid config: unsupported `tidb.tls` config %s", cfg.TiDB.TLS)
+	}
 	return nil
 }
 
