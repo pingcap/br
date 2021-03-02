@@ -15,6 +15,11 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    - name: Sleep for 5 seconds
+      uses: jakejarvis/wait-action@master
+      with:
+        time: '5s'
+
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
@@ -31,11 +36,6 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml up --remove-orphans -d
-
-    - name: Sleep for 30 seconds
-      uses: jakejarvis/wait-action@master
-      with:
-        time: '5s'
 
     - name: Compatible test
       run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
