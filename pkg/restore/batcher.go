@@ -323,10 +323,7 @@ func (b *Batcher) Send(ctx context.Context) {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
-	log.Info("restore batch start",
-		ZapRanges(ranges),
-		ZapTables(tbs),
-	)
+	log.Info("restore batch start", rtree.ZapRanges(ranges), ZapTables(tbs))
 	// Leave is called at b.contextCleaner
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
 		b.sendErr <- err

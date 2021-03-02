@@ -19,9 +19,6 @@ TABLE="usertable"
 TABLE_COUNT=16
 PATH="tests/$TEST_NAME:bin:$PATH"
 
-run_sql "set @@global.tidb_enable_table_partition ='nightly'"
-sleep 3
-
 echo "load data..."
 DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT prepare.sh
 
@@ -59,8 +56,6 @@ done
 if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

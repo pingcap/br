@@ -5,16 +5,17 @@ package restore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"strings"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -36,6 +37,8 @@ const (
 	ScatterWaitInterval      = 50 * time.Millisecond
 	ScatterMaxWaitInterval   = time.Second
 	ScatterWaitUpperInterval = 180 * time.Second
+
+	ScanRegionPaginationLimit = 128
 
 	RejectStoreCheckRetryTimes  = 64
 	RejectStoreCheckInterval    = 100 * time.Millisecond
@@ -69,6 +72,7 @@ func (rs *RegionSplitter) Split(
 	onSplit OnSplitFunc,
 ) error {
 	if len(ranges) == 0 {
+		log.Info("skip split regions, no range")
 		return nil
 	}
 
@@ -84,8 +88,8 @@ func (rs *RegionSplitter) Split(
 	if errSplit != nil {
 		return errors.Trace(errSplit)
 	}
-	minKey := codec.EncodeBytes([]byte{}, sortedRanges[0].StartKey)
-	maxKey := codec.EncodeBytes([]byte{}, sortedRanges[len(sortedRanges)-1].EndKey)
+	minKey := codec.EncodeBytes(sortedRanges[0].StartKey)
+	maxKey := codec.EncodeBytes(sortedRanges[len(sortedRanges)-1].EndKey)
 	for _, rule := range rewriteRules.Table {
 		if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
 			minKey = rule.GetNewKeyPrefix()
@@ -106,12 +110,12 @@ func (rs *RegionSplitter) Split(
 	scatterRegions := make([]*RegionInfo, 0)
 SplitRegions:
 	for i := 0; i < SplitRetryTimes; i++ {
-		regions, errScan := PaginateScanRegion(ctx, rs.client, minKey, maxKey, scanRegionPaginationLimit)
+		regions, errScan := PaginateScanRegion(ctx, rs.client, minKey, maxKey, ScanRegionPaginationLimit)
 		if errScan != nil {
 			return errors.Trace(errScan)
 		}
 		if len(regions) == 0 {
-			log.Warn("cannot scan any region")
+			log.Warn("split regions cannot scan any region")
 			return nil
 		}
 		splitKeyMap := getSplitKeys(rewriteRules, sortedRanges, regions)
@@ -122,14 +126,19 @@ SplitRegions:
 		for regionID, keys := range splitKeyMap {
 			var newRegions []*RegionInfo
 			region := regionMap[regionID]
+			log.Info("split regions",
+				logutil.Region(region.Region), logutil.Keys(keys), rtree.ZapRanges(ranges))
 			newRegions, errSplit = rs.splitAndScatterRegions(ctx, region, keys)
 			if errSplit != nil {
 				if strings.Contains(errSplit.Error(), "no valid key") {
 					for _, key := range keys {
-						log.Error("no valid key",
-							zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
-							zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)),
-							zap.Stringer("key", logutil.WrapKey(codec.EncodeBytes([]byte{}, key))))
+						// Region start/end keys are encoded. split_region RPC
+						// requires raw keys (without encoding).
+						log.Error("split regions no valid key",
+							logutil.Key("startKey", region.Region.StartKey),
+							logutil.Key("endKey", region.Region.EndKey),
+							logutil.Key("key", codec.EncodeBytes(key)),
+							rtree.ZapRanges(ranges))
 					}
 					return errors.Trace(errSplit)
 				}
@@ -138,16 +147,18 @@ SplitRegions:
 					interval = SplitMaxRetryInterval
 				}
 				time.Sleep(interval)
-				if i > 3 {
-					log.Warn("splitting regions failed, retry it",
-						zap.Error(errSplit),
-						logutil.Region(region.Region),
-						zap.Any("leader", region.Leader),
-						zap.Array("keys", logutil.WrapKeys(keys)))
-				}
+				log.Warn("split regions failed, retry",
+					zap.Error(errSplit),
+					logutil.Region(region.Region),
+					logutil.Leader(region.Leader),
+					logutil.Keys(keys), rtree.ZapRanges(ranges))
 				continue SplitRegions
 			}
-			log.Debug("split regions", logutil.Region(region.Region), zap.Array("keys", logutil.WrapKeys(keys)))
+			if len(newRegions) != len(keys) {
+				log.Warn("split key count and new region count mismatch",
+					zap.Int("new region count", len(newRegions)),
+					zap.Int("split key count", len(keys)))
+			}
 			scatterRegions = append(scatterRegions, newRegions...)
 			onSplit(keys)
 		}
@@ -201,7 +212,7 @@ func (rs *RegionSplitter) isScatterRegionFinished(ctx context.Context, regionID 
 	}
 	retryTimes := ctx.Value(retryTimes).(int)
 	if retryTimes > 3 {
-		log.Warn("get operator", zap.Uint64("regionID", regionID), zap.Stringer("resp", resp))
+		log.Info("get operator", zap.Uint64("regionID", regionID), zap.Stringer("resp", resp))
 	}
 	// If the current operator of the region is not 'scatter-region', we could assume
 	// that 'scatter-operator' has finished or timeout
@@ -271,6 +282,38 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	return newRegions, nil
 }
 
+// PaginateScanRegion scan regions with a limit pagination and
+// return all regions at once.
+// It reduces max gRPC message size.
+func PaginateScanRegion(
+	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
+) ([]*RegionInfo, error) {
+	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
+		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey, startKey %s, endkey %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
+
+	regions := []*RegionInfo{}
+	for {
+		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		regions = append(regions, batch...)
+		if len(batch) < limit {
+			// No more region
+			break
+		}
+		startKey = batch[len(batch)-1].Region.GetEndKey()
+		if len(startKey) == 0 ||
+			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
+			// All key space have scanned
+			break
+		}
+	}
+	return regions, nil
+}
+
 // getSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // the ranges, groups the split keys by region id.
 func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
@@ -293,9 +336,9 @@ func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*R
 			}
 			splitKeyMap[region.Region.GetId()] = append(splitKeys, key)
 			log.Debug("get key for split region",
-				zap.Stringer("key", logutil.WrapKey(key)),
-				zap.Stringer("startKey", logutil.WrapKey(region.Region.StartKey)),
-				zap.Stringer("endKey", logutil.WrapKey(region.Region.EndKey)))
+				logutil.Key("key", key),
+				logutil.Key("startKey", region.Region.StartKey),
+				logutil.Key("endKey", region.Region.EndKey))
 		}
 	}
 	return splitKeyMap
@@ -307,7 +350,7 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	if len(splitKey) == 0 {
 		return nil
 	}
-	splitKey = codec.EncodeBytes([]byte{}, splitKey)
+	splitKey = codec.EncodeBytes(splitKey)
 	for _, region := range regions {
 		// If splitKey is the boundary of the region
 		if bytes.Equal(splitKey, region.Region.GetStartKey()) {
@@ -321,7 +364,7 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	return nil
 }
 
-func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *import_sstpb.RewriteRule) {
+func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *sst.RewriteRule) {
 	// We should search the dataRules firstly.
 	for _, rule := range rewriteRules.Data {
 		if bytes.HasPrefix(s, rule.GetOldKeyPrefix()) {
@@ -341,23 +384,29 @@ func beforeEnd(key []byte, end []byte) bool {
 	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
-func keyInsideRegion(region *metapb.Region, key []byte) bool {
-	return bytes.Compare(key, region.GetStartKey()) >= 0 && beforeEnd(key, region.GetEndKey())
+func intersectRange(region *metapb.Region, rg Range) Range {
+	var startKey, endKey []byte
+	if len(region.StartKey) > 0 {
+		_, startKey, _ = codec.DecodeBytes(region.StartKey)
+	}
+	if bytes.Compare(startKey, rg.Start) < 0 {
+		startKey = rg.Start
+	}
+	if len(region.EndKey) > 0 {
+		_, endKey, _ = codec.DecodeBytes(region.EndKey)
+	}
+	if beforeEnd(rg.End, endKey) {
+		endKey = rg.End
+	}
+
+	return Range{Start: startKey, End: endKey}
 }
 
-func nextKey(key []byte) []byte {
-	if len(key) == 0 {
-		return []byte{}
-	}
-	res := make([]byte, 0, len(key)+1)
-	pos := 0
-	for i := len(key) - 1; i >= 0; i-- {
-		if key[i] != '\xff' {
-			pos = i
-			break
-		}
-	}
-	s, e := key[:pos], key[pos]+1
-	res = append(append(res, s...), e)
-	return res
+func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
+	rg := meta.GetRange()
+	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
+}
+
+func keyInsideRegion(region *metapb.Region, key []byte) bool {
+	return bytes.Compare(key, region.GetStartKey()) >= 0 && (beforeEnd(key, region.GetEndKey()))
 }

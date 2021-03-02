@@ -2897,7 +2897,7 @@
         "options": [
 
         ],
-        "query": "label_values(tikv_engine_size_bytes, cluster)",
+        "query": "label_values(tikv_engine_size_bytes, tidb_cluster)",
         "refresh": 2,
         "regex": "",
         "sort": 1,

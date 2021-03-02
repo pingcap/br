@@ -4,6 +4,8 @@ package restore
 
 import (
 	"bytes"
+	"sort"
+	"sync"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -17,6 +19,43 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
+// Range record start and end key for localStoreDir.DB
+// so we can write it to tikv in streaming
+type Range struct {
+	Start []byte
+	End   []byte
+}
+
+type syncdRanges struct {
+	sync.Mutex
+	ranges []Range
+}
+
+func (r *syncdRanges) add(g Range) {
+	r.Lock()
+	r.ranges = append(r.ranges, g)
+	r.Unlock()
+}
+
+func (r *syncdRanges) take() []Range {
+	r.Lock()
+	rg := r.ranges
+	r.ranges = []Range{}
+	r.Unlock()
+	if len(rg) > 0 {
+		sort.Slice(rg, func(i, j int) bool {
+			return bytes.Compare(rg[i].Start, rg[j].Start) < 0
+		})
+	}
+	return rg
+}
+
+func newSyncdRanges() *syncdRanges {
+	return &syncdRanges{
+		ranges: make([]Range, 0, 128),
+	}
+}
+
 // SortRanges checks if the range overlapped and sort them.
 func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range, error) {
 	rangeTree := rtree.NewRangeTree()
@@ -28,26 +67,25 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 			if startID == endID {
 				rg.StartKey, rule = replacePrefix(rg.StartKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.StartKey)))
+					log.Warn("cannot find rewrite rule", logutil.Key("key", rg.StartKey))
 				} else {
 					log.Debug(
 						"rewrite start key",
-						zap.Stringer("key", logutil.WrapKey(rg.StartKey)),
-						logutil.RewriteRule(rule))
+						logutil.Key("key", rg.StartKey), logutil.RewriteRule(rule))
 				}
 				rg.EndKey, rule = replacePrefix(rg.EndKey, rewriteRules)
 				if rule == nil {
-					log.Warn("cannot find rewrite rule", zap.Stringer("key", logutil.WrapKey(rg.EndKey)))
+					log.Warn("cannot find rewrite rule", logutil.Key("key", rg.EndKey))
 				} else {
 					log.Debug(
 						"rewrite end key",
-						zap.Stringer("key", logutil.WrapKey(rg.EndKey)),
+						logutil.Key("key", rg.EndKey),
 						logutil.RewriteRule(rule))
 				}
 			} else {
 				log.Warn("table id does not match",
-					zap.Stringer("startKey", logutil.WrapKey(rg.StartKey)),
-					zap.Stringer("endKey", logutil.WrapKey(rg.EndKey)),
+					logutil.Key("startKey", rg.StartKey),
+					logutil.Key("endKey", rg.EndKey),
 					zap.Int64("startID", startID),
 					zap.Int64("endID", endID))
 				return nil, errors.Annotate(berrors.ErrRestoreTableIDMismatch, "table id mismatch")
@@ -55,8 +93,10 @@ func SortRanges(ranges []rtree.Range, rewriteRules *RewriteRules) ([]rtree.Range
 		}
 		if out := rangeTree.InsertRange(rg); out != nil {
 			log.Error("insert ranges overlapped",
-				logutil.ZapRedactReflect("out", out),
-				logutil.ZapRedactReflect("range", rg))
+				logutil.Key("startKeyOut", out.StartKey),
+				logutil.Key("endKeyOut", out.EndKey),
+				logutil.Key("startKeyIn", rg.StartKey),
+				logutil.Key("endKeyIn", rg.EndKey))
 			return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "ranges overlapped")
 		}
 	}

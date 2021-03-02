@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
@@ -37,13 +38,72 @@ const (
 	resetRetryTimes = 3
 )
 
+// Pool is a lazy pool of gRPC channels.
+// When `Get` called, it lazily allocates new connection if connection not full.
+// If it's full, then it will return allocated channels round-robin.
+type Pool struct {
+	mu sync.Mutex
+
+	conns   []*grpc.ClientConn
+	next    int
+	cap     int
+	newConn func(ctx context.Context) (*grpc.ClientConn, error)
+}
+
+func (p *Pool) takeConns() (conns []*grpc.ClientConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.conns, conns = nil, p.conns
+	p.next = 0
+	return conns
+}
+
+// Close closes the conn pool.
+func (p *Pool) Close() {
+	for _, c := range p.takeConns() {
+		if err := c.Close(); err != nil {
+			log.Warn("failed to close clientConn", zap.String("target", c.Target()), zap.Error(err))
+		}
+	}
+}
+
+// Get tries to get an existing connection from the pool, or make a new one if the pool not full.
+func (p *Pool) Get(ctx context.Context) (*grpc.ClientConn, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.conns) < p.cap {
+		c, err := p.newConn(ctx)
+		if err != nil {
+			return nil, err
+		}
+		p.conns = append(p.conns, c)
+		return c, nil
+	}
+
+	conn := p.conns[p.next]
+	p.next = (p.next + 1) % p.cap
+	return conn, nil
+}
+
+// NewConnPool creates a new Pool by the specified conn factory function and capacity.
+func NewConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, error)) *Pool {
+	return &Pool{
+		cap:     cap,
+		conns:   make([]*grpc.ClientConn, 0, cap),
+		newConn: newConn,
+
+		mu: sync.Mutex{},
+	}
+}
+
 // Mgr manages connections to a TiDB cluster.
 type Mgr struct {
 	*pdutil.PdController
-	tlsConf  *tls.Config
-	dom      *domain.Domain
-	storage  tikv.Storage
-	grpcClis struct {
+	tlsConf   *tls.Config
+	dom       *domain.Domain
+	storage   kv.Storage   // Used to access SQL related interfaces.
+	tikvStore tikv.Storage // Used to access TiKV specific interfaces.
+	grpcClis  struct {
 		mu   sync.Mutex
 		clis map[uint64]*grpc.ClientConn
 	}
@@ -107,7 +167,7 @@ func NewMgr(
 	ctx context.Context,
 	g glue.Glue,
 	pdAddrs string,
-	storage tikv.Storage,
+	storage kv.Storage,
 	tlsConf *tls.Config,
 	securityOption pd.SecurityOption,
 	keepalive keepalive.ClientParameters,
@@ -118,6 +178,11 @@ func NewMgr(
 		span1 := span.Tracer().StartSpan("conn.NewMgr", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
+	}
+
+	tikvStorage, ok := storage.(tikv.Storage)
+	if !ok {
+		return nil, berrors.ErrKVNotTiKV
 	}
 
 	controller, err := pdutil.NewPdController(ctx, pdAddrs, tlsConf, securityOption)
@@ -162,6 +227,7 @@ func NewMgr(
 	mgr := &Mgr{
 		PdController: controller,
 		storage:      storage,
+		tikvStore:    tikvStorage,
 		dom:          dom,
 		tlsConf:      tlsConf,
 		ownsStorage:  g.OwnsStorage(),
@@ -256,8 +322,8 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 	return backup.NewBackupClient(conn), nil
 }
 
-// GetTiKV returns a tikv storage.
-func (mgr *Mgr) GetTiKV() tikv.Storage {
+// GetStorage returns a kv storage.
+func (mgr *Mgr) GetStorage() kv.Storage {
 	return mgr.storage
 }
 
@@ -268,7 +334,7 @@ func (mgr *Mgr) GetTLSConfig() *tls.Config {
 
 // GetLockResolver gets the LockResolver.
 func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
-	return mgr.storage.GetLockResolver()
+	return mgr.tikvStore.GetLockResolver()
 }
 
 // GetDomain returns a tikv storage.
