@@ -131,7 +131,7 @@ compatible_test_prepare: br
 	tests/run_compatible.sh prepare
 
 compatible_test: build build_for_integration_test
-	tests/run_compatible.sh 
+	tests/run_compatible.sh run
 
 coverage: tools
 	tools/bin/gocovmerge "$(TEST_DIR)"/cov.* | grep -vE ".*.pb.go|.*__failpoint_binding__.go" > "$(TEST_DIR)/all_cov.out"

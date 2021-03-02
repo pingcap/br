@@ -32,7 +32,7 @@ for tag in $TAGS; do
 	docker-compose -f compatible/backup_cluster.yaml build
 	docker-compose -f compatible/backup_cluster.yaml up -d
 	# wait for cluster ready
-	sleep 5
+	sleep 8
 	# prepare SQL data
 	docker-compose -f compatible/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
 	# prepare SQL data

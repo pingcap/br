@@ -19,12 +19,8 @@
 
 set -eu
 
-if [ $1 = "prepare" ]; then
-    process="prepare"
-else
-    process="run"
-fi
-
+git fetch --tags
+TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n2)
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
@@ -33,13 +29,14 @@ TEST_DIR=/tmp/backup_restore_compatible_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 
-for script in tests/docker_compatible_*/${process}.sh; do
+for script in tests/docker_compatible_*/${1}.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
     GCS_HOST="$GCS_HOST" \
     GCS_PORT="$GCS_PORT" \
     DATA_PATH="$DATA_PATH" \
+    TAGS="$TAGS" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
     BR_LOG_TO_TERM=1 \
