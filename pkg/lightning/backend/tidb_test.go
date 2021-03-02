@@ -187,6 +187,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 }
 
 // TODO: temporarily disable this test before we fix strict mode
+//nolint:unused
 func (s *mysqlSuite) testStrictMode(c *C) {
 	ft := *types.NewFieldType(mysql.TypeVarchar)
 	ft.Charset = charset.CharsetUTF8MB4

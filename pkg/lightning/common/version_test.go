@@ -20,6 +20,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 )
 
+const None = "None"
+
 func (s *utilSuite) TestVersion(c *C) {
 	common.ReleaseVersion = "ReleaseVersion"
 	common.BuildTS = "BuildTS"
@@ -35,11 +37,11 @@ UTC Build Time: BuildTS
 Go Version: GoVersion
 `)
 	common.PrintInfo("test", func() {
-		common.ReleaseVersion = "None"
-		common.BuildTS = "None"
-		common.GitHash = "None"
-		common.GitBranch = "None"
-		common.GoVersion = "None"
+		common.ReleaseVersion = None
+		common.BuildTS = None
+		common.GitHash = None
+		common.GitBranch = None
+		common.GoVersion = None
 	})
 
 	version = common.GetRawInfo()

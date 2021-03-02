@@ -130,6 +130,7 @@ func (parser *CSVParser) readByte() (byte, error) {
 	return b, nil
 }
 
+//nolint:unused // Maybe useful in the future.
 func (parser *CSVParser) readBytes(buf []byte) (int, error) {
 	cnt := 0
 	for cnt < len(buf) {

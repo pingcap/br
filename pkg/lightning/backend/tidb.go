@@ -87,7 +87,7 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) Backend {
 
 func (row tidbRow) ClassifyAndAppend(data *Rows, checksum *verification.KVChecksum, _ *Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
-	*data = tidbRows(append(rows, row))
+	*data = append(rows, row)
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
 	checksum.Add(&cs)
 }
@@ -540,7 +540,9 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 					}
 				}
 			}
-			rows.Close()
+			if err := rows.Close(); err != nil {
+				return err
+			}
 			if rows.Err() != nil {
 				return rows.Err()
 			}

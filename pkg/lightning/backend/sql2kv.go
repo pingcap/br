@@ -429,16 +429,16 @@ func (kvs kvPairs) SplitIntoChunks(splitSize int) []Rows {
 	for j, pair := range kvs {
 		size := len(pair.Key) + len(pair.Val)
 		if i < j && cumSize+size > splitSize {
-			res = append(res, kvPairs(kvs[i:j]))
+			res = append(res, kvs[i:j])
 			i = j
 			cumSize = 0
 		}
 		cumSize += size
 	}
 
-	return append(res, kvPairs(kvs[i:]))
+	return append(res, kvs[i:])
 }
 
 func (kvs kvPairs) Clear() Rows {
-	return kvPairs(kvs[:0])
+	return kvs[:0]
 }

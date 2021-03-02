@@ -524,11 +524,12 @@ func IsCheckpointsDBExists(ctx context.Context, cfg *config.Config) (bool, error
 		if err != nil {
 			return false, errors.Trace(err)
 		}
+		defer rows.Close()
+		result := rows.Next()
 		if err := rows.Err(); err != nil {
 			return false, err
 		}
-		defer rows.Close()
-		return rows.Next(), nil
+		return result, nil
 
 	case config.CheckpointDriverFile:
 		_, err := os.Stat(cfg.Checkpoint.DSN)
@@ -1406,6 +1407,7 @@ func (cpdb *MySQLCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tabl
 	return targetTables, nil
 }
 
+//nolint:rowserrcheck // sqltocsv.Write will check this.
 func (cpdb *MySQLCheckpointsDB) DumpTables(ctx context.Context, writer io.Writer) error {
 	rows, err := cpdb.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT
@@ -1421,14 +1423,12 @@ func (cpdb *MySQLCheckpointsDB) DumpTables(ctx context.Context, writer io.Writer
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
 	defer rows.Close()
 
 	return errors.Trace(sqltocsv.Write(writer, rows))
 }
 
+//nolint:rowserrcheck // sqltocsv.Write will check this.
 func (cpdb *MySQLCheckpointsDB) DumpEngines(ctx context.Context, writer io.Writer) error {
 	rows, err := cpdb.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT
@@ -1442,14 +1442,12 @@ func (cpdb *MySQLCheckpointsDB) DumpEngines(ctx context.Context, writer io.Write
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
 	defer rows.Close()
 
 	return errors.Trace(sqltocsv.Write(writer, rows))
 }
 
+//nolint:rowserrcheck // sqltocsv.Write will check this.
 func (cpdb *MySQLCheckpointsDB) DumpChunks(ctx context.Context, writer io.Writer) error {
 	rows, err := cpdb.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT
@@ -1474,9 +1472,6 @@ func (cpdb *MySQLCheckpointsDB) DumpChunks(ctx context.Context, writer io.Writer
 	`, cpdb.schema, CheckpointTableNameChunk))
 	if err != nil {
 		return errors.Trace(err)
-	}
-	if err := rows.Err(); err != nil {
-		return err
 	}
 	defer rows.Close()
 
