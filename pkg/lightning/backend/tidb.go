@@ -210,7 +210,9 @@ func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, _ *ta
 		value := datum.GetBinaryLiteral()
 		sb.Grow(3 + 2*len(value))
 		sb.WriteString("x'")
-		hex.NewEncoder(sb).Write(value)
+		if _, err := hex.NewEncoder(sb).Write(value); err != nil {
+			return err
+		}
 		sb.WriteByte('\'')
 
 	case types.KindMysqlBit:

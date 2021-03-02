@@ -212,11 +212,13 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 				return err
 			}
 		}
-		encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
+		if err := encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
 			enc.AddString("val", log.RedactString(str))
 			return nil
-		}))
+		})); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -334,10 +336,14 @@ func (kvcodec *tableKVEncoder) Encode(
 
 		if isAutoRandom && isPk {
 			incrementalBits := autoRandomIncrementBits(col, int(kvcodec.tbl.Meta().AutoRandomBits))
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType)
+			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType); err != nil {
+				return nil, err
+			}
 		}
 		if isAutoIncCol {
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType)
+			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -352,7 +358,9 @@ func (kvcodec *tableKVEncoder) Encode(
 			return nil, logKVConvertFailed(logger, row, j, extraHandleColumnInfo, err)
 		}
 		record = append(record, value)
-		kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
+		if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(kvcodec.genCols) > 0 {

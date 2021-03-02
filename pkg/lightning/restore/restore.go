@@ -829,7 +829,9 @@ func (rc *Controller) listenCheckpointUpdates() {
 
 		failpoint.Inject("KillIfImportedChunk", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() >= uint64(val.(int)) {
-				common.KillMySelf()
+				if err := common.KillMySelf(); err != nil {
+					log.L().Warn("KillMySelf() failed to kill itself", log.ShortError(err))
+				}
 			}
 		})
 	}
@@ -1221,10 +1223,14 @@ func (tr *TableRestore) restoreTable(
 		// rebase the allocator so it exceeds the number of rows.
 		if tr.tableInfo.Core.PKIsHandle && tr.tableInfo.Core.ContainsAutoRandomBits() {
 			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoRandID)
-			tr.alloc.Get(autoid.AutoRandomType).Rebase(tr.tableInfo.ID, cp.AllocBase, false)
+			if err := tr.alloc.Get(autoid.AutoRandomType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
+				return false, err
+			}
 		} else {
 			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoIncID)
-			tr.alloc.Get(autoid.RowIDAllocType).Rebase(tr.tableInfo.ID, cp.AllocBase, false)
+			if err := tr.alloc.Get(autoid.RowIDAllocType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
+				return false, err
+			}
 		}
 		rc.saveCpCh <- saveCp{
 			tableName: tr.tableName,
@@ -2172,7 +2178,7 @@ func (tr *TableRestore) importKV(
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
 	if err == nil {
-		closedEngine.Cleanup(ctx)
+		err = closedEngine.Cleanup(ctx)
 	}
 
 	dur := task.End(zap.ErrorLevel, err)

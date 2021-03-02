@@ -56,6 +56,14 @@ type GlueCheckpointsDB struct {
 
 var _ DB = (*GlueCheckpointsDB)(nil)
 
+// dropPreparedStmt drops the statement and when meet an error,
+// print an error message.
+func dropPreparedStmt(session Session, stmtID uint32) {
+	if err := session.DropPreparedStmt(stmtID); err != nil {
+		log.L().Error("failed to drop prepared statement", log.ShortError(err))
+	}
+}
+
 func NewGlueCheckpointsDB(ctx context.Context, se Session, f func() (Session, error), schemaName string) (*GlueCheckpointsDB, error) {
 	var escapedSchemaName strings.Builder
 	common.WriteMySQLIdentifier(&escapedSchemaName, schemaName)
@@ -126,7 +134,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(stmtID)
+		defer dropPreparedStmt(s, stmtID)
 		_, err = s.ExecutePreparedStmt(c, stmtID, []types.Datum{
 			types.NewIntDatum(cfg.TaskID),
 			types.NewStringDatum(cfg.Mydumper.SourceDir),
@@ -146,7 +154,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(stmtID2)
+		defer dropPreparedStmt(s, stmtID2)
 
 		for _, db := range dbInfo {
 			for _, table := range db.Tables {
@@ -354,13 +362,13 @@ func (g GlueCheckpointsDB) InsertEngineCheckpoints(ctx context.Context, tableNam
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(engineStmt)
+		defer dropPreparedStmt(s, engineStmt)
 
 		chunkStmt, _, _, err := s.PrepareStmt(fmt.Sprintf(ReplaceChunkTemplate, g.schema, CheckpointTableNameChunk))
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(chunkStmt)
+		defer dropPreparedStmt(s, chunkStmt)
 
 		for engineID, engine := range checkpointMap {
 			_, err := s.ExecutePreparedStmt(c, engineStmt, []types.Datum{
@@ -420,22 +428,22 @@ func (g GlueCheckpointsDB) Update(checkpointDiffs map[string]*TableCheckpointDif
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(chunkStmt)
+		defer dropPreparedStmt(s, chunkStmt)
 		rebaseStmt, _, _, err := s.PrepareStmt(rebaseQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(rebaseStmt)
+		defer dropPreparedStmt(s, rebaseStmt)
 		tableStatusStmt, _, _, err := s.PrepareStmt(tableStatusQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(tableStatusStmt)
+		defer dropPreparedStmt(s, tableStatusStmt)
 		engineStatusStmt, _, _, err := s.PrepareStmt(engineStatusQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(engineStatusStmt)
+		defer dropPreparedStmt(s, engineStatusStmt)
 
 		for tableName, cpd := range checkpointDiffs {
 			if cpd.hasStatus {

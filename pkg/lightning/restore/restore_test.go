@@ -289,8 +289,10 @@ func (s *tableRestoreSuiteBase) SetUpTest(c *C) {
 }
 
 func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	}()
 
 	cp := &checkpoints.TableCheckpoint{
 		Engines: make(map[int32]*checkpoints.EngineCheckpoint),
@@ -447,8 +449,10 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 		DataFiles:  fakeDataFiles,
 	}
 
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	}()
 
 	cp := &checkpoints.TableCheckpoint{
 		Engines: make(map[int32]*checkpoints.EngineCheckpoint),

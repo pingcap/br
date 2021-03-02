@@ -20,7 +20,7 @@ var _ = Suite(&tikvSuite{})
 
 func (s *tikvSuite) TestForAllStores(c *C) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`
+		_, _ = w.Write([]byte(`
 			{
 				"count": 5,
 				"stores": [

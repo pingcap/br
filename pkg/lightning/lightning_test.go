@@ -118,13 +118,13 @@ func (s *lightningServerSuite) SetUpTest(c *C) {
 	s.lightning = New(cfg)
 	s.taskCfgCh = make(chan *config.Config)
 	s.lightning.ctx = context.WithValue(s.lightning.ctx, &taskCfgRecorderKey, s.taskCfgCh)
-	s.lightning.GoServe()
+	_ = s.lightning.GoServe()
 
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
 }
 
 func (s *lightningServerSuite) TearDownTest(c *C) {
-	failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
+	_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
 	s.lightning.Stop()
 }
 
@@ -141,7 +141,10 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	c.Assert(data["error"], Equals, "server-mode not enabled")
 	resp.Body.Close()
 
-	go s.lightning.RunServer()
+	go func() {
+		err := s.lightning.RunServer()
+		c.Assert(err, IsNil)
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	req, err := http.NewRequest(http.MethodPut, url, nil)
@@ -228,7 +231,10 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 		return result.ID
 	}
 
-	go s.lightning.RunServer()
+	go func() {
+		err := s.lightning.RunServer()
+		c.Assert(err, IsNil)
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	// Check `GET /tasks` without any active tasks
@@ -474,7 +480,9 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	c.Assert(err, IsNil)
 	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError", "return(true)")
 	c.Assert(err, IsNil)
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError")
+	}()
 	// with this dbMetas, the estimated fds will be 2050, so should return error
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
@@ -490,7 +498,9 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 
 	// the min rlimit should be bigger than the default min value (16384)
 	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue", "return(8200)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
+	}()
 	c.Assert(err, IsNil)
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, IsNil)

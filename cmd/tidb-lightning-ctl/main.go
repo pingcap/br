@@ -58,7 +58,7 @@ func run() error {
 		// there is a check if `-d` points to a valid storage, and '' is not.
 		// since tidb-lightning-ctl does not need `-d` we change the default to a valid but harmless value.
 		dFlag := fs.Lookup("d")
-		dFlag.Value.Set("noop://")
+		_ = dFlag.Value.Set("noop://")
 		dFlag.DefValue = "noop://"
 
 		compact = fs.Bool("compact", false, "do manual compaction on the target cluster")
@@ -244,8 +244,8 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "* Encountered error while closing engine:", err)
 					lastErr = err
-				} else {
-					closedEngine.Cleanup(ctx)
+				} else if err := closedEngine.Cleanup(ctx); err != nil {
+					lastErr = err
 				}
 			}
 		}
