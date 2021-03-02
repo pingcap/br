@@ -18,8 +18,6 @@ set -eux
 
 BUCKET="test"
 
-mkdir -p "$DATA_PATH"
-
 # we need start a oauth server or gcs client will failed to handle request.
 KEY=$(cat <<- EOF
 {
