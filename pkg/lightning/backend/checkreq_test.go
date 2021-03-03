@@ -63,7 +63,7 @@ func (s *checkReqSuite) TestCheckTiDBVersion(c *C) {
 	version = "5.7.25-TiDB-v9999.0.0"
 	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
 
-	version = "5.7.25-TiDB-v6.0.0"
+	version = "5.7.25-TiDB-v5.0.0"
 	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
 
 	version = "5.7.25-TiDB-v1.0.0"
@@ -91,7 +91,7 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 	version = "9999.0.0"
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
-	version = "6.0.0"
+	version = "5.0.0"
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
 	version = "1.0.0"
@@ -135,6 +135,6 @@ func (s *checkReqSuite) TestCheckTiKVVersion(c *C) {
 	versions = []string{"4.0.0", "1.0.0"}
 	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv1\.test:20160\) version too old.*`)
 
-	versions = []string{"6.0.0"}
+	versions = []string{"5.0.0"}
 	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
 }
