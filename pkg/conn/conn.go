@@ -271,7 +271,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 // GetBackupClient get or create a backup client.
 func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, errors.Trace(ctx.Err())
 	}
 
 	mgr.grpcClis.mu.Lock()
