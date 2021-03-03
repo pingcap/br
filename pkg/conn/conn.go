@@ -270,9 +270,12 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 
 // GetBackupClient get or create a backup client.
 func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
-
 	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
 		// Find a cached backup client.
 		return backup.NewBackupClient(conn), nil
