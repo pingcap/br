@@ -1,0 +1,11 @@
+[[black-white-list.ignore-tables]]
+db-name = "firstdb"
+tbl-name = "~."
+
+[[black-white-list.do-tables]]
+db-name = "~."
+tbl-name = "second"
+
+[[black-white-list.do-tables]]
+db-name = "seconddb"
+tbl-name = "fourth"
