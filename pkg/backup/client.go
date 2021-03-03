@@ -870,7 +870,13 @@ backupLoop:
 		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
 				log.Debug("failpoint reset-retryable-error injected.")
-				err = status.Errorf(codes.Unavailable, "Unavailable error")
+				err = status.Error(codes.Unavailable, "Unavailable error")
+			}
+		})
+		failpoint.Inject("reset-not-retryable-error", func(val failpoint.Value) {
+			if val.(bool) {
+				log.Debug("failpoint reset-not-retryable-error injected.")
+				err = status.Error(codes.Unknown, "Your server was haunted hence doesn't work, meow :3")
 			}
 		})
 		if err != nil {

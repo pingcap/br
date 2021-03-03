@@ -72,6 +72,9 @@ func (push *pushDown) pushBackup(
 					return nil
 				},
 				func() (backup.BackupClient, error) {
+					if ctx.Err() != nil {
+						return nil, ctx.Err()
+					}
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
