@@ -31,11 +31,7 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f docker-compose.yaml up --remove-orphans -d
-
-    - name: Sleep for 5 seconds
-      uses: jakejarvis/wait-action@master
-      with:
-        time: '5s'
+        sleep 10
 
     - name: Compatible test
       run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
