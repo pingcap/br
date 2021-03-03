@@ -136,3 +136,13 @@ func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
 		c.Assert(foundStores, DeepEquals, testCase.expectedStores)
 	}
 }
+
+func (s *testClientSuite) TestGetConnOnCancelledContext(c *C) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.mgr.GetBackupClient(ctx, 42)
+	c.Assert(err, ErrorMatches, ".*context canceled.*")
+	_, err = s.mgr.ResetBackupClient(ctx, 42)
+	c.Assert(err, ErrorMatches, ".*context canceled.*")
+}
