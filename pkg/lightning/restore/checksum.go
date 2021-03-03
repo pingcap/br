@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -61,7 +62,8 @@ func newChecksumManager(ctx context.Context, rc *RestoreController) (ChecksumMan
 	}
 
 	pdAddr := rc.cfg.TiDB.PdAddr
-	pdVersion, err := common.FetchPDVersion(ctx, rc.tls, pdAddr)
+	// TODO: unify pdutil.FetchPDVersion with PdController.GetClusterVersion.
+	pdVersion, err := pdutil.FetchPDVersion(ctx, rc.tls, pdAddr)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

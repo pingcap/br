@@ -19,16 +19,10 @@ else ifneq ($(shell git status --porcelain),)
 	VERSION := $(VERSION)-dirty
 endif
 
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-# TODO: unify LDFLAGS
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.ReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GoVersion=$(shell go version)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitHash=$(shell git rev-parse HEAD)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
 LIGHTNING_BIN     := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl

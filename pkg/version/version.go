@@ -1,13 +1,10 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package utils
+package version
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"regexp"
-	"runtime"
 	"strings"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -15,45 +12,12 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/util/israce"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/version/build"
 )
-
-// Version information.
-var (
-	BRReleaseVersion = "None"
-	BRBuildTS        = "None"
-	BRGitHash        = "None"
-	BRGitBranch      = "None"
-	goVersion        = runtime.Version()
-	VersionHash      = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
-)
-
-// LogBRInfo logs version information about BR.
-func LogBRInfo() {
-	log.Info("Welcome to Backup & Restore (BR)")
-	log.Info("BR", zap.String("release-version", BRReleaseVersion))
-	log.Info("BR", zap.String("git-hash", BRGitHash))
-	log.Info("BR", zap.String("git-branch", BRGitBranch))
-	log.Info("BR", zap.String("go-version", goVersion))
-	log.Info("BR", zap.String("utc-build-time", BRBuildTS))
-	log.Info("BR", zap.Bool("race-enabled", israce.RaceEnabled))
-}
-
-// BRInfo returns version information about BR.
-func BRInfo() string {
-	buf := bytes.Buffer{}
-	fmt.Fprintf(&buf, "Release Version: %s\n", BRReleaseVersion)
-	fmt.Fprintf(&buf, "Git Commit Hash: %s\n", BRGitHash)
-	fmt.Fprintf(&buf, "Git Branch: %s\n", BRGitBranch)
-	fmt.Fprintf(&buf, "Go Version: %s\n", goVersion)
-	fmt.Fprintf(&buf, "UTC Build Time: %s\n", BRBuildTS)
-	fmt.Fprintf(&buf, "Race Enabled: %t", israce.RaceEnabled)
-	return buf.String()
-}
 
 var (
 	minTiKVVersion          = semver.New("3.1.0-beta.2")
@@ -64,7 +28,7 @@ var (
 )
 
 func removeVAndHash(v string) string {
-	v = VersionHash.ReplaceAllLiteralString(v, "")
+	v = build.VersionHash.ReplaceAllLiteralString(v, "")
 	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
 }
@@ -101,9 +65,9 @@ func IsTiFlash(store *metapb.Store) bool {
 
 // CheckClusterVersion check TiKV version.
 func CheckClusterVersion(ctx context.Context, client pd.Client) error {
-	BRVersion, err := semver.NewVersion(removeVAndHash(BRReleaseVersion))
+	BRVersion, err := semver.NewVersion(removeVAndHash(build.ReleaseVersion))
 	if err != nil {
-		return errors.Annotatef(berrors.ErrVersionMismatch, "%s: invalid BR version, please recompile using `git fetch origin --tags && make build`", err)
+		return errors.Annotatef(berrors.ErrVersionMismatch, "%s: invalid version, please recompile using `git fetch origin --tags && make build`", err)
 	}
 	stores, err := client.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
@@ -131,12 +95,12 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 
 		if tikvVersion.Compare(*minTiKVVersion) < 0 {
 			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s don't support BR, please upgrade cluster to %s",
-				s.Address, tikvVersionString, BRReleaseVersion)
+				s.Address, tikvVersionString, build.ReleaseVersion)
 		}
 
 		if tikvVersion.Major != BRVersion.Major {
 			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
-				s.Address, tikvVersionString, BRReleaseVersion)
+				s.Address, tikvVersionString, build.ReleaseVersion)
 		}
 
 		// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
@@ -145,22 +109,70 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		if tikvVersion.Major == 3 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
 				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, tikvVersionString, BRReleaseVersion)
+					s.Address, tikvVersionString, build.ReleaseVersion)
 			}
 		}
 
 		if tikvVersion.Major == 4 {
 			if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
 				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, tikvVersionString, BRReleaseVersion)
+					s.Address, tikvVersionString, build.ReleaseVersion)
 			}
 		}
 
 		// don't warn if we are the master build, which always have the version v4.0.0-beta.2-*
-		if BRGitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
+		if build.GitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
 			log.Warn(fmt.Sprintf("BR version is outdated, please consider use version %s of BR", tikvVersionString))
 			break
 		}
 	}
 	return nil
+}
+
+// CheckVersion checks if the actual version is within [requiredMinVersion, requiredMaxVersion).
+func CheckVersion(component string, actual, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	if actual.Compare(requiredMinVersion) < 0 {
+		return errors.Annotatef(berrors.ErrVersionMismatch,
+			"%s version too old, required to be in [%s, %s), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion,
+			actual,
+		)
+	}
+	if actual.Compare(requiredMaxVersion) >= 0 {
+		return errors.Annotatef(berrors.ErrVersionMismatch,
+			"%s version too new, expected to be within [%s, %s), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion,
+			actual,
+		)
+	}
+	return nil
+}
+
+// ExtractTiDBVersion extracts TiDB version from TiDB SQL `version()` outputs.
+func ExtractTiDBVersion(version string) (*semver.Version, error) {
+	// version format: "5.7.10-TiDB-v2.1.0-rc.1-7-g38c939f"
+	//                               ^~~~~~~~~^ we only want this part
+	// version format: "5.7.10-TiDB-v2.0.4-1-g06a0bf5"
+	//                               ^~~~^
+	// version format: "5.7.10-TiDB-v2.0.7"
+	//                               ^~~~^
+	// version format: "5.7.25-TiDB-v3.0.0-beta-211-g09beefbe0-dirty"
+	//                               ^~~~~~~~~^
+	// The version is generated by `git describe --tags` on the TiDB repository.
+	versions := strings.Split(strings.TrimSuffix(version, "-dirty"), "-")
+	end := len(versions)
+	switch end {
+	case 3, 4:
+	case 5, 6:
+		end -= 2
+	default:
+		return nil, errors.Annotatef(berrors.ErrVersionMismatch, "not a valid TiDB version: %s", version)
+	}
+	rawVersion := strings.Join(versions[2:end], "-")
+	rawVersion = strings.TrimPrefix(rawVersion, "v")
+	return semver.NewVersion(rawVersion)
 }

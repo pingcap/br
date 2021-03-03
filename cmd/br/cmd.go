@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var (
@@ -58,7 +59,7 @@ func timestampLogFileName() string {
 
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
-	cmd.Version = utils.BRInfo()
+	cmd.Version = build.Info()
 	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display version information about BR")
 	cmd.SetVersionTemplate("{{printf \"%s\" .Version}}\n")
 

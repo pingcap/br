@@ -163,5 +163,5 @@ func (s *testLoggingSuite) TestSSTMeta(c *C) {
 func (s *testLoggingSuite) TestShortError(c *C) {
 	err := errors.Annotate(berrors.ErrInvalidArgument, "test")
 
-	assertTrimEqual(c, logutil.ShortError(err), `{"error": "test: [BR:Common:ErrInvalidArgument]invalid argument"}`)
+	assertTrimEqual(c, logutil.ShortError(err), `{"error": "test: [BRIE:Common:ErrInvalidArgument]invalid argument"}`)
 }

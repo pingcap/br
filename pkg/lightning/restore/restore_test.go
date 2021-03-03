@@ -47,6 +47,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var _ = Suite(&restoreSuite{})
@@ -126,9 +127,9 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 	defer cpdb.Close()
 	ctx := context.Background()
 
-	actualReleaseVersion := common.ReleaseVersion
+	actualReleaseVersion := build.ReleaseVersion
 	defer func() {
-		common.ReleaseVersion = actualReleaseVersion
+		build.ReleaseVersion = actualReleaseVersion
 	}()
 
 	taskCp, err := cpdb.TaskCheckpoint(ctx)
@@ -170,7 +171,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 			cfg.TiDB.PdAddr = "127.0.0.1:3379"
 		},
 		"version": func(cfg *config.Config) {
-			common.ReleaseVersion = "some newer version"
+			build.ReleaseVersion = "some newer version"
 		},
 	}
 
@@ -182,7 +183,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		fn(cfg)
 		err := verifyCheckpoint(cfg, taskCp)
 		if conf == "version" {
-			common.ReleaseVersion = actualReleaseVersion
+			build.ReleaseVersion = actualReleaseVersion
 			c.Assert(err, ErrorMatches, "lightning version is 'some newer version', but checkpoint was created at '"+actualReleaseVersion+"'.*")
 		} else {
 			c.Assert(err, ErrorMatches, fmt.Sprintf("config '%s' value '.*' different from checkpoint value .*", conf))

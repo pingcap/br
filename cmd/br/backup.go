@@ -15,7 +15,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/trace"
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 func runBackupCommand(command *cobra.Command, cmdName string) error {
@@ -73,7 +73,7 @@ func NewBackupCommand() *cobra.Command {
 			if err := Init(c); err != nil {
 				return errors.Trace(err)
 			}
-			utils.LogBRInfo()
+			build.LogInfo(build.BR)
 			task.LogArguments(c)
 
 			// Do not run ddl worker in BR.
