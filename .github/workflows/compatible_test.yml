@@ -21,25 +21,20 @@ jobs:
         go-version: 1.15
 
     - name: Generate Compatible test backup data
+      timeout-minutes: 15
       run: sh compatible/prepare_backup.sh
 
     - name: Pull images
+      timeout-minutes: 1
       run: TAG=nightly docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
 
     - name: Start server
+      timeout-minutes: 2
       run: |
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
-
-    - name: Sleep for 30 seconds
-      uses: jakejarvis/wait-action@master
-      timeout-minutes: 1
-      with:
-        time: '10s'
-
-    - name: Compatible Test
-      run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
