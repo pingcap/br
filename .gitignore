@@ -1,8 +1,6 @@
 /br
 /bin
 /.idea
-*.log
-*.ngo
 /docker/data/
 /docker/logs/
 *.swp
