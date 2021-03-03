@@ -23,20 +23,27 @@ TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' 
 echo "recent version of cluster is $TAGS"
 
 i=0
+
+runBackup() {
+  # generate backup data in /tmp/br/docker/backup_data/$TAG/, we can do restore after all data backuped later.
+  echo "build $1 cluster"
+  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml build
+  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml up -d
+  # wait for cluster ready
+  sleep 8
+  # prepare SQL data
+  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
+  # prepare SQL data
+  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml exec -T control make compatible_test_prepare
+  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml down
+  echo "destroy $1 cluster"
+}
+
 for tag in $TAGS; do
-	i=$(( i + 3 ))
-	export TAG=$tag
-	export PORT_SUFFIX=$i
-	# generate backup data in /tmp/br/docker/backup_data/$TAG/, we can do restore after all data backuped later.
-	echo "build $TAG cluster"
-	docker-compose -f compatible/backup_cluster.yaml build
-	docker-compose -f compatible/backup_cluster.yaml up -d
-	# wait for cluster ready
-	sleep 8
-	# prepare SQL data
-	docker-compose -f compatible/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
-	# prepare SQL data
-	docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test_prepare
-	docker-compose -f compatible/backup_cluster.yaml down
-	echo "destroy $TAG cluster"
+   i=$(( i + 3 ))
+   runBackup $tag $i &
 done
+
+wait
+
+echo "prepare backup data successfully"
