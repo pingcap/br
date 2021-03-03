@@ -42,10 +42,10 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/lightning/mock"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
 )
 
