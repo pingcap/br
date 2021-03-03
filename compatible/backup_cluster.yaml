@@ -157,6 +157,7 @@ services:
     volumes:
       - ../docker/config/tidb.toml:/tidb.toml:ro
       - /tmp/br/docker/backup_logs/${TAG}:/logs
+      - ./credentials:/credentials
     command:
       - --store=tikv
       - --path=pd0:2379
@@ -175,6 +176,8 @@ services:
     #     soft: 1000000
     #     hard: 1000000
     restart: on-failure
+    env_file:
+      - ../docker/gcs.env
 
   minio:
     image: minio/minio

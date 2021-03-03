@@ -18,7 +18,7 @@ set -eux
 # update tags
 git fetch --tags
 
-# get latest 3 version clusters
+# get latest 2 version clusters
 TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n2)
 echo "recent version of cluster is $TAGS"
 
@@ -29,18 +29,16 @@ runBackup() {
   echo "build $1 cluster"
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml build
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml up -d
+  trap "TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml down" EXIT
   # wait for cluster ready
-  sleep 8
+  sleep 20
   # prepare SQL data
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
-  # prepare SQL data
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml exec -T control make compatible_test_prepare
-  TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatible/backup_cluster.yaml down
-  echo "destroy $1 cluster"
 }
 
 for tag in $TAGS; do
-   i=$(( i + 3 ))
+   i=$(( i + 1 ))
    runBackup $tag $i &
 done
 
