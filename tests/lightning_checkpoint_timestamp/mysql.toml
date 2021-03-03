@@ -1,0 +1,11 @@
+[lightning]
+region-concurrency = 1
+
+[checkpoint]
+enable = true
+schema = "tidb_lightning_checkpoint_timestamp"
+driver = "mysql"
+keep-after-success = true
+
+[mydumper]
+read-block-size = 1

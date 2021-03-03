@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/tablecodec"
@@ -19,6 +18,7 @@ import (
 	"github.com/tikv/pd/server/schedule/placement"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/httputil"
 )
 
 // UndoFunc is a 'undo' operation of some undoable command.
@@ -41,13 +41,10 @@ func ResetTS(ctx context.Context, pdAddr string, ts uint64, tlsConf *tls.Config)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cli := &http.Client{Timeout: 30 * time.Second}
+	cli := httputil.NewClient(tlsConf)
 	prefix := "http://"
 	if tlsConf != nil {
 		prefix = "https://"
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = tlsConf
-		cli.Transport = transport
 	}
 	reqURL := prefix + pdAddr + resetTSURL
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, strings.NewReader(string(payload)))
@@ -70,13 +67,10 @@ func ResetTS(ctx context.Context, pdAddr string, ts uint64, tlsConf *tls.Config)
 
 // GetPlacementRules return the current placement rules.
 func GetPlacementRules(ctx context.Context, pdAddr string, tlsConf *tls.Config) ([]placement.Rule, error) {
-	cli := &http.Client{Timeout: 30 * time.Second}
+	cli := httputil.NewClient(tlsConf)
 	prefix := "http://"
 	if tlsConf != nil {
 		prefix = "https://"
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		transport.TLSClientConfig = tlsConf
-		cli.Transport = transport
 	}
 	reqURL := prefix + pdAddr + placementRuleURL
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)

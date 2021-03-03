@@ -5,15 +5,17 @@ programs.
 
 ## Preparations
 
-1. The following 7 executables must be copied or linked into these locations:
+1. The following 9 executables must be copied or linked into these locations:
+
     * `bin/tidb-server`
-	* `bin/tikv-server`
-	* `bin/pd-server`
+    * `bin/tikv-server`
+    * `bin/pd-server`
     * `bin/pd-ctl`
-	* `bin/go-ycsb`
-	* `bin/minio`
+    * `bin/go-ycsb`
+    * `bin/minio`
     * `bin/tiflash`
     * `bin/cdc`
+    * `bin/tikv-importer`
 
     The versions must be ≥2.1.0 as usual.
 
@@ -24,25 +26,34 @@ programs.
     * `mysql` (the CLI client)
     * `curl`
     * `s3cmd`
+    * `openssl`
+    * `wget`
+    * `lsof`
 
 3. The user executing the tests must have permission to create the folder
     `/tmp/backup_restore_test`. All test artifacts will be written into this folder.
 
 ## Running
 
-Make sure the path is `br/`
+Run `make test` to execute the unit tests.
 
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`
-2. Check that all 7 required executables and `br` executable exist
+2. Check that all 9 required executables and `br` executable exist
 3. Execute `tests/run.sh`
+4. To start cluster with tiflash, please run `TIFLASH=1 tests/run.sh`
 
 If the first two steps are done before, you could also run `tests/run.sh` directly.
 This script will
 
 1. Start PD, TiKV and TiDB in background with local storage
 2. Find out all `tests/*/run.sh` and run it
+
+Run `tests/run.sh --debug` to pause immediately after all servers are started.
+
+After executing the tests, run `make coverage` to get a coverage report at
+`/tmp/backup_restore_test/all_cov.html`.
 
 ## Writing new tests
 
@@ -52,3 +63,8 @@ The script should exit with a nonzero error code on failure.
 Several convenient commands are provided:
 
 * `run_sql <SQL>` — Executes an SQL query on the TiDB database
+* `run_lightning [CONFIG]` — Starts `tidb-lightning` using `tests/TEST_NAME/CONFIG.toml`
+* `check_contains <TEXT>` — Checks if the previous `run_sql` result contains the given text
+    (in `-E` format)
+* `check_not_contains <TEXT>` — Checks if the previous `run_sql` result does not contain the given
+    text (in `-E` format)

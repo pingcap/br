@@ -1,13 +1,13 @@
 #!/bin/sh
 
-cat > tests/config/tiflash-learner.toml <<eof
+cat > $TEST_DIR/tiflash-learner.toml <<EOF
 [rocksdb]
 wal-dir = ""
 
 [security]
-ca-path = ""
-cert-path = ""
-key-path = ""
+ca-path = "$TEST_DIR/certs/ca.pem"
+cert-path = "$TEST_DIR/certs/tiflash.pem"
+key-path = "$TEST_DIR/certs/tiflash.key"
 
 [server]
 addr = "0.0.0.0:20170"
@@ -17,17 +17,19 @@ status-addr = "$TIFLASH_STATUS"
 
 [storage]
 data-dir = "$TEST_DIR/tiflash/data"
-eof
+reserve-space = "1KB"
+EOF
 
-cat > tests/config/tiflash.toml <<eof
+cat > $TEST_DIR/tiflash.toml <<EOF
 default_profile = "default"
 display_name = "TiFlash"
-http_port = 8125
+https_port = 8125
 listen_host = "0.0.0.0"
 mark_cache_size = 5368709120
 path = "$TEST_DIR/tiflash/data"
-tcp_port = 9002
-tmp_path = "/tmp/tiflash"
+tcp_port_secure = 9002
+tmp_path = "$TEST_DIR/tiflash/tmp"
+capacity = "10737418240"
 
 [application]
 runAsDaemon = true
@@ -37,7 +39,7 @@ service_addr = "127.0.0.1:3930"
 tidb_status_addr = "127.0.0.1:10080"
 
 [flash.proxy]
-config = "$PWD/tests/config/tiflash-learner.toml"
+config = "$TEST_DIR/tiflash-learner.toml"
 log-file = "$TEST_DIR/tiflash-proxy.log"
 
 [flash.flash_cluster]
@@ -55,7 +57,7 @@ errorlog = "$TEST_DIR/tiflash-stderr.log"
 size = "1000M"
 
 [raft]
-pd_addr = "127.0.0.1:2379"
+pd_addr = "$PD_ADDR"
 
 [profiles]
 [profiles.default]
@@ -86,4 +88,9 @@ execution_time = 0
 queries = 0
 read_rows = 0
 result_rows = 0
-eof
+
+[security]
+ca_path = "$TEST_DIR/certs/ca.pem"
+cert_path = "$TEST_DIR/certs/tiflash.pem"
+key_path = "$TEST_DIR/certs/tiflash.key"
+EOF
