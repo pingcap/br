@@ -31,8 +31,15 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
-        sleep 5 
-        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+
+    - name: Sleep for 30 seconds
+      uses: jakejarvis/wait-action@master
+      timeout-minutes: 1
+      with:
+        time: '10s'
+
+    - name: Compatible Test
+      run: TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
