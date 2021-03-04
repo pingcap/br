@@ -137,7 +137,7 @@ func (s *testClientSuite) TestGetAllTiKVStores(c *C) {
 	}
 }
 
-func (s *testClientSuite) TestGetConnOnCancelledContext(c *C) {
+func (s *testClientSuite) TestGetConnOnCanceledContext(c *C) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
