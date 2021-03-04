@@ -13,6 +13,7 @@ programs.
     * `bin/pd-ctl`
     * `bin/go-ycsb`
     * `bin/minio`
+    * `bin/mc`
     * `bin/tiflash`
     * `bin/cdc`
     * `bin/tikv-importer`
@@ -26,7 +27,6 @@ programs.
 
     * `mysql` (the CLI client)
     * `curl`
-    * `s3cmd`
     * `openssl`
     * `wget`
     * `lsof`

@@ -86,9 +86,14 @@ const (
 )
 
 var (
+	// Local backend is compatible with TiDB [4.0.0, 6.0.0).
 	localMinTiDBVersion = *semver.New("4.0.0")
 	localMinTiKVVersion = *semver.New("4.0.0")
 	localMinPDVersion   = *semver.New("4.0.0")
+	// TODO: bump max versions based on the version define in Makefile.
+	localMaxTiDBVersion = *semver.New("6.0.0")
+	localMaxTiKVVersion = *semver.New("6.0.0")
+	localMaxPDVersion   = *semver.New("6.0.0")
 )
 
 var (
@@ -1431,13 +1436,13 @@ func (local *local) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) err
 }
 
 func (local *local) CheckRequirements(ctx context.Context) error {
-	if err := checkTiDBVersionBySQL(ctx, local.g, localMinTiDBVersion); err != nil {
+	if err := checkTiDBVersionBySQL(ctx, local.g, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
 		return err
 	}
-	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion); err != nil {
+	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
 		return err
 	}
-	if err := checkTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion); err != nil {
+	if err := checkTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
 		return err
 	}
 	return nil

@@ -79,6 +79,7 @@ for BACKEND in importer local; do
 
   run_sql 'DROP DATABASE cpeng;'
   run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint;'
+  rm -rf $TEST_DIR/lightning_checkpoint_engines.sorted
 
   set +e
   for i in $(seq "$ENGINE_COUNT"); do
