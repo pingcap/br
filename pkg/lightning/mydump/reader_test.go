@@ -22,8 +22,8 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 
-	"github.com/pingcap/br/pkg/lightning/mock"
 	. "github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
 )
 

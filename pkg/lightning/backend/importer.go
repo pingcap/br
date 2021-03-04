@@ -39,9 +39,14 @@ const (
 )
 
 var (
-	requiredTiDBVersion = *semver.New("2.1.0")
-	requiredPDVersion   = *semver.New("2.1.0")
-	requiredTiKVVersion = *semver.New("2.1.0")
+	// Importer backend is compatible with TiDB [2.1.0, 6.0.0).
+	requiredMinTiDBVersion = *semver.New("2.1.0")
+	requiredMinPDVersion   = *semver.New("2.1.0")
+	requiredMinTiKVVersion = *semver.New("2.1.0")
+	// TODO: bump max versions based on the version define in Makefile.
+	requiredMaxTiDBVersion = *semver.New("6.0.0")
+	requiredMaxPDVersion   = *semver.New("6.0.0")
+	requiredMaxTiKVVersion = *semver.New("6.0.0")
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is
@@ -272,37 +277,37 @@ func (*importer) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, 
 }
 
 func (importer *importer) CheckRequirements(ctx context.Context) error {
-	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredTiDBVersion); err != nil {
+	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredMinTiDBVersion, requiredMaxTiDBVersion); err != nil {
 		return err
 	}
-	if err := checkPDVersion(ctx, importer.tls, importer.pdAddr, requiredPDVersion); err != nil {
+	if err := checkPDVersion(ctx, importer.tls, importer.pdAddr, requiredMinPDVersion, requiredMaxPDVersion); err != nil {
 		return err
 	}
-	if err := checkTiKVVersion(ctx, importer.tls, importer.pdAddr, requiredTiKVVersion); err != nil {
+	if err := checkTiKVVersion(ctx, importer.tls, importer.pdAddr, requiredMinTiKVVersion, requiredMaxTiKVVersion); err != nil {
 		return err
 	}
 	return nil
 }
 
-func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredVersion semver.Version) error {
+func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	var status struct{ Version string }
 	err := tls.GetJSON(ctx, "/status", &status)
 	if err != nil {
 		return err
 	}
 
-	return checkTiDBVersion(status.Version, requiredVersion)
+	return checkTiDBVersion(status.Version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiDBVersion(versionStr string, requiredVersion semver.Version) error {
+func checkTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	version, err := common.ExtractTiDBVersion(versionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return checkVersion("TiDB", requiredVersion, *version)
+	return checkVersion("TiDB", *version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredVersion semver.Version) error {
+func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	versionStr, err := g.GetSQLExecutor().ObtainStringWithLog(
 		ctx,
 		"SELECT version();",
@@ -312,19 +317,19 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredVersion sem
 		return errors.Trace(err)
 	}
 
-	return checkTiDBVersion(versionStr, requiredVersion)
+	return checkTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredVersion semver.Version) error {
+func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	version, err := common.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	return checkVersion("PD", requiredVersion, *version)
+	return checkVersion("PD", *version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredVersion semver.Version) error {
+func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	return ForAllStores(
 		ctx,
 		tls.WithHost(pdAddr),
@@ -335,21 +340,32 @@ func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requi
 			if err != nil {
 				return errors.Annotate(err, component)
 			}
-			return checkVersion(component, requiredVersion, *version)
+			return checkVersion(component, *version, requiredMinVersion, requiredMaxVersion)
 		},
 	)
 }
 
-func checkVersion(component string, expected, actual semver.Version) error {
-	if actual.Compare(expected) >= 0 {
-		return nil
+func checkVersion(component string, actual, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	// actual version must be within [requiredMinVersion, requiredMaxVersion).
+	if actual.Compare(requiredMinVersion) < 0 {
+		return errors.Errorf(
+			"%s version too old, required to be in [%s, %s), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion,
+			actual,
+		)
 	}
-	return errors.Errorf(
-		"%s version too old, expected '>=%s', found '%s'",
-		component,
-		expected,
-		actual,
-	)
+	if actual.Compare(requiredMaxVersion) >= 0 {
+		return errors.Errorf(
+			"%s version too new, expected to be within [%s, %s), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion,
+			actual,
+		)
+	}
+	return nil
 }
 
 func (importer *importer) FetchRemoteTableModels(ctx context.Context, schema string) ([]*model.TableInfo, error) {

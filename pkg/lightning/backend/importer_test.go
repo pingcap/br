@@ -27,7 +27,7 @@ import (
 
 	kv "github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/common"
-	"github.com/pingcap/br/pkg/lightning/mock"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 type importerSuite struct {
