@@ -18,8 +18,8 @@ set -eux
 # update tags
 git fetch --tags
 
-# get latest 2 version clusters
-TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n2)
+# get latest 3 version clusters
+TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
 echo "recent version of cluster is $TAGS"
 
 i=0

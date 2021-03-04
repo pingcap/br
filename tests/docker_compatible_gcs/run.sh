@@ -34,12 +34,10 @@ echo $KEY > "tests/$TEST_NAME/config.json"
 # export test CREDENTIALS for gcs oauth
 export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
-# do not log to terminal
-unset BR_LOG_TO_TERM
-LOG_PATH=$TEST_DIR/restore.log
-
-# restore backup data
+# restore backup data one by one
 for TAG in ${TAGS}; do
     echo "restore ${TAG} data starts..."
-    bin/br restore db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --log-file $LOG_PATH --check-requirements=false
+    bin/br restore db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/"
+    # clean up data for next restoration
+    run_sql_in_container "drop database test;"
 done

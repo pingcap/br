@@ -21,7 +21,7 @@ set -eu
 
 # TODO get tags from compatible_prepare_data
 git fetch --tags
-TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n2)
+TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
 
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
