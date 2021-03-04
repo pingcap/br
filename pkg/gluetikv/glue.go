@@ -55,3 +55,8 @@ func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redi
 func (Glue) Record(name string, val uint64) {
 	summary.CollectUint(name, val)
 }
+
+// GetVersion implements glue.Glue.
+func (Glue) GetVersion() string {
+	return "BR\n" + utils.BRInfo()
+}
