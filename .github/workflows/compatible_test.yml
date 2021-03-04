@@ -13,6 +13,13 @@ jobs:
     timeout-minutes: 25
 
     steps:
+    - name: Free disk space
+      run: |
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/share/dotnet
+        docker volume prune -f
+        docker image prune -f
+
     - uses: actions/checkout@v2
 
     - name: Set up Go
@@ -23,10 +30,6 @@ jobs:
     - name: Generate Compatible test backup data
       timeout-minutes: 15
       run: sh compatible/prepare_backup.sh
-
-    - name: Pull images
-      timeout-minutes: 1
-      run: TAG=nightly docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
 
     - name: Start server
       run: |
