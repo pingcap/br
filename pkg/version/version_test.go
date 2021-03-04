@@ -160,7 +160,7 @@ func (s *checkSuite) TestCompareVersion(c *C) {
 }
 
 func (s *checkSuite) TestNextMajorVersion(c *C) {
-	build.ReleaseVersion = "v4.0.0-rc.2"
+	build.ReleaseVersion = "v4.0.0-rc.1"
 	c.Assert(NextMajorVersion().String(), Equals, "5.0.0")
 	build.ReleaseVersion = "4.0.0-rc-35-g31dae220"
 	c.Assert(NextMajorVersion().String(), Equals, "5.0.0")

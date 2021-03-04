@@ -30,7 +30,7 @@ var (
 	versionHash = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 )
 
-// NextMajorVersion returns the next major versoin.
+// NextMajorVersion returns the next major version.
 func NextMajorVersion() semver.Version {
 	nextMajorVersion := semver.New(removeVAndHash(build.ReleaseVersion))
 	nextMajorVersion.BumpMajor()
