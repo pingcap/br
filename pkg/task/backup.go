@@ -256,12 +256,18 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	req := kvproto.BackupRequest{
+		ClusterId:        client.GetClusterID(),
 		StartVersion:     cfg.LastBackupTS,
 		EndVersion:       backupTS,
 		RateLimit:        cfg.RateLimit,
 		Concurrency:      defaultBackupConcurrency,
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
+	}
+	brVersion := g.GetVersion()
+	clusterVersion, err := mgr.GetClusterVersion(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
@@ -271,7 +277,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	// nothing to backup
 	if ranges == nil {
-		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
+		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
 		if err2 != nil {
 			return errors.Trace(err2)
 		}
@@ -323,7 +329,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
+	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
 	if err != nil {
 		return errors.Trace(err)
 	}
