@@ -131,7 +131,7 @@ integration_test: bins build build_for_integration_test
 compatible_test_prepare: 
 	tests/run_compatible.sh prepare
 
-compatible_test: build build_for_integration_test
+compatible_test: br
 	tests/run_compatible.sh run
 
 coverage: tools
