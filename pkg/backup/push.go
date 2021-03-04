@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/opentracing/opentracing-go"
@@ -116,6 +117,11 @@ func (push *pushDown) pushBackup(
 					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
 
 				default:
+					// UNSAFE! TODO: Add a error type for failed to put file.
+					if messageIsRetryableFailedToWrite(errPb.GetMsg()) {
+						log.Warn("backup occur failed to write file error", zap.String("error", errPb.GetMsg()))
+						continue
+					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
 					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
 				}
@@ -124,4 +130,11 @@ func (push *pushDown) pushBackup(
 			return res, errors.Trace(err)
 		}
 	}
+}
+
+func messageIsRetryableFailedToWrite(msg string) bool {
+	return strings.Contains(msg, "failed to put object") /* If failed to backup to S3... */ &&
+		//...Because of s3 stop or not start...
+		(strings.Contains(msg, "Server closed") || strings.Contains(msg, "Connection refused"))
+	//...those condition would be retryable.
 }
