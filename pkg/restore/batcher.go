@@ -274,7 +274,7 @@ func (b *Batcher) drainRanges() DrainResult {
 
 		// the batch is full, we should stop here!
 		// we use strictly greater than because when we send a batch at equal, the offset should plus one.
-		// (because the last table is sent, we should put it in emptyTables), and this will intrduce extra complex.
+		// (because the last table is sent, we should put it in emptyTables), and this will introduce extra complex.
 		if thisTableLen+collected > b.batchSizeThreshold {
 			drainSize := b.batchSizeThreshold - collected
 			thisTableRanges := thisTable.Range
@@ -317,10 +317,7 @@ func (b *Batcher) Send(ctx context.Context) {
 	drainResult := b.drainRanges()
 	tbs := drainResult.TablesToSend
 	ranges := drainResult.Ranges
-	log.Info("restore batch start",
-		ZapRanges(ranges),
-		ZapTables(tbs),
-	)
+	log.Info("restore batch start", rtree.ZapRanges(ranges), ZapTables(tbs))
 	// Leave is called at b.contextCleaner
 	if err := b.manager.Enter(ctx, drainResult.TablesToSend); err != nil {
 		b.sendErr <- err

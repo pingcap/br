@@ -4,12 +4,10 @@ package rtree
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/google/btree"
 	"github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/logutil"
 )
@@ -19,11 +17,6 @@ type Range struct {
 	StartKey []byte
 	EndKey   []byte
 	Files    []*backup.File
-}
-
-// String formats a range to a string.
-func (rg *Range) String() string {
-	return fmt.Sprintf("[%x %x]", rg.StartKey, rg.EndKey)
 }
 
 // Intersect returns?
@@ -134,9 +127,8 @@ func (rangeTree *RangeTree) Update(rg Range) {
 	// Range has backuped, overwrite overlapping range.
 	for _, item := range overlaps {
 		log.Info("delete overlapping range",
-			zap.Stringer("StartKey", logutil.WrapKey(item.StartKey)),
-			zap.Stringer("EndKey", logutil.WrapKey(item.EndKey)),
-		)
+			logutil.Key("startKey", item.StartKey),
+			logutil.Key("endKey", item.EndKey))
 		rangeTree.Delete(item)
 	}
 	rangeTree.ReplaceOrInsert(&rg)

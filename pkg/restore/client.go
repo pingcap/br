@@ -543,16 +543,13 @@ func (rc *Client) RestoreFiles(
 	defer func() {
 		elapsed := time.Since(start)
 		if err == nil {
-			log.Info("Restore files",
-				zap.Duration("take", elapsed),
-				logutil.Files(files))
+			log.Info("Restore files", zap.Duration("take", elapsed), logutil.Files(files))
 			summary.CollectSuccessUnit("files", len(files), elapsed)
 		}
 	}()
 
-	log.Debug("start to restore files",
-		zap.Int("files", len(files)),
-	)
+	log.Debug("start to restore files", zap.Int("files", len(files)))
+
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {
@@ -591,8 +588,8 @@ func (rc *Client) RestoreRaw(
 	defer func() {
 		elapsed := time.Since(start)
 		log.Info("Restore Raw",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.Duration("take", elapsed))
 	}()
 	errCh := make(chan error, len(files))
@@ -615,16 +612,16 @@ func (rc *Client) RestoreRaw(
 	if err := eg.Wait(); err != nil {
 		log.Error(
 			"restore raw range failed",
-			zap.String("startKey", hex.EncodeToString(startKey)),
-			zap.String("endKey", hex.EncodeToString(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.Error(err),
 		)
 		return errors.Trace(err)
 	}
 	log.Info(
 		"finish to restore raw range",
-		zap.String("startKey", hex.EncodeToString(startKey)),
-		zap.String("endKey", hex.EncodeToString(endKey)),
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey),
 	)
 	return nil
 }

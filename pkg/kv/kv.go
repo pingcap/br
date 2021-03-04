@@ -14,6 +14,8 @@
 package kv
 
 import (
+	"fmt"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -23,7 +25,9 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 )
 
 var extraHandleColumnInfo = model.NewExtraHandleColInfo()
@@ -76,8 +80,6 @@ func NewTableKVEncoder(tbl table.Table, options *SessionOptions) Encoder {
 	}
 }
 
-type rowArrayMarshaler []types.Datum
-
 var kindStr = [...]string{
 	types.KindNull:          "null",
 	types.KindInt64:         "int64",
@@ -101,31 +103,33 @@ var kindStr = [...]string{
 }
 
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface.
-func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, datum := range row {
-		kind := datum.Kind()
-		var str string
-		var err error
-		switch kind {
-		case types.KindNull:
-			str = "NULL"
-		case types.KindMinNotNull:
-			str = "-inf"
-		case types.KindMaxValue:
-			str = "+inf"
-		default:
-			str, err = datum.ToString()
-			if err != nil {
-				return errors.Trace(err)
+func zapRow(key string, row []types.Datum) zap.Field {
+	return logutil.AbbreviatedArray(key, row, func(input interface{}) []string {
+		row := input.([]types.Datum)
+		vals := make([]string, 0, len(row))
+		for _, datum := range row {
+			kind := datum.Kind()
+			var str string
+			var err error
+			switch kind {
+			case types.KindNull:
+				str = "NULL"
+			case types.KindMinNotNull:
+				str = "-inf"
+			case types.KindMaxValue:
+				str = "+inf"
+			default:
+				str, err = datum.ToString()
+				if err != nil {
+					vals = append(vals, err.Error())
+					continue
+				}
 			}
+			vals = append(vals,
+				fmt.Sprintf("kind: %s, val: %s", kindStr[kind], redact.String(str)))
 		}
-		_ = encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
-			enc.AddString("kind", kindStr[kind])
-			enc.AddString("val", str)
-			return nil
-		}))
-	}
-	return nil
+		return vals
+	})
 }
 
 // Pairs represents the slice of Pair.
@@ -212,8 +216,8 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
 		log.Error("kv add Record failed",
-			zap.Array("originalRow", rowArrayMarshaler(row)),
-			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			zapRow("originalRow", row),
+			zapRow("convertedRow", record),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)
@@ -263,8 +267,8 @@ func (kvcodec *tableKVEncoder) RemoveRecord(
 	err = kvcodec.tbl.RemoveRecord(kvcodec.se, rowID, record)
 	if err != nil {
 		log.Error("kv remove record failed",
-			zap.Array("originalRow", rowArrayMarshaler(row)),
-			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			zapRow("originalRow", row),
+			zapRow("convertedRow", record),
 			zap.Error(err),
 		)
 		return nil, 0, errors.Trace(err)

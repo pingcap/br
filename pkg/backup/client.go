@@ -292,8 +292,8 @@ func BuildBackupRangeAndSchema(
 			switch {
 			case tableInfo.IsSequence():
 				globalAutoID, err = seqAlloc.NextGlobalAutoID(tableInfo.ID)
-			case tableInfo.IsView():
-				// no auto ID for views.
+			case tableInfo.IsView() || !utils.NeedAutoID(tableInfo):
+				// no auto ID for views or table without either rowID nor auto_increment ID.
 			default:
 				globalAutoID, err = idAlloc.NextGlobalAutoID(tableInfo.ID)
 			}
@@ -502,10 +502,10 @@ func (bc *Client) BackupRange(
 		}
 	}()
 	log.Info("backup started",
-		zap.Stringer("StartKey", logutil.WrapKey(startKey)),
-		zap.Stringer("EndKey", logutil.WrapKey(endKey)),
-		zap.Uint64("RateLimit", req.RateLimit),
-		zap.Uint32("Concurrency", req.Concurrency))
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey),
+		zap.Uint64("rateLimit", req.RateLimit),
+		zap.Uint32("concurrency", req.Concurrency))
 
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
@@ -538,8 +538,8 @@ func (bc *Client) BackupRange(
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
-			zap.Stringer("startKey", logutil.WrapKey(startKey)),
-			zap.Stringer("endKey", logutil.WrapKey(endKey)),
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey),
 			zap.String("cf", req.Cf))
 	} else {
 		log.Info("backup time range",
@@ -574,14 +574,15 @@ func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Pee
 		}
 		if region.Leader != nil {
 			log.Info("find leader",
-				zap.Reflect("Leader", region.Leader), zap.Stringer("Key", logutil.WrapKey(key)))
+				zap.Reflect("Leader", region.Leader), logutil.Key("key", key))
 			return region.Leader, nil
 		}
-		log.Warn("no region found", zap.Stringer("Key", logutil.WrapKey(key)))
+		log.Warn("no region found", logutil.Key("key", key))
 		time.Sleep(time.Millisecond * time.Duration(100*i))
 		continue
 	}
-	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader for key %s", logutil.WrapKey(key))
+	log.Error("can not find leader", logutil.Key("key", key))
+	return nil, errors.Annotatef(berrors.ErrBackupNoLeader, "can not find leader")
 }
 
 func (bc *Client) fineGrainedBackup(
@@ -664,8 +665,8 @@ func (bc *Client) fineGrainedBackup(
 						zap.Reflect("error", resp.Error))
 				}
 				log.Info("put fine grained range",
-					zap.Stringer("StartKey", logutil.WrapKey(resp.StartKey)),
-					zap.Stringer("EndKey", logutil.WrapKey(resp.EndKey)),
+					logutil.Key("startKey", resp.StartKey),
+					logutil.Key("endKey", resp.EndKey),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -829,8 +830,8 @@ func SendBackup(
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
 		log.Info("try backup",
-			zap.Stringer("StartKey", logutil.WrapKey(req.StartKey)),
-			zap.Stringer("EndKey", logutil.WrapKey(req.EndKey)),
+			logutil.Key("startKey", req.StartKey),
+			logutil.Key("endKey", req.EndKey),
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
@@ -879,8 +880,8 @@ backupLoop:
 			}
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
-				zap.Stringer("StartKey", logutil.WrapKey(resp.GetStartKey())),
-				zap.Stringer("EndKey", logutil.WrapKey(resp.GetEndKey())))
+				logutil.Key("startKey", resp.GetStartKey()),
+				logutil.Key("endKey", resp.GetEndKey()))
 			err = respFn(resp)
 			if err != nil {
 				return errors.Trace(err)
@@ -986,35 +987,6 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 	}
 
 	return checksums, nil
-}
-
-// FilterSchema filter in-place schemas that doesn't have backup files
-// this is useful during incremental backup, no files in backup means no files to restore
-// so we can skip some DDL in restore to speed up restoration.
-func FilterSchema(backupMeta *kvproto.BackupMeta) error {
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	schemas := make([]*kvproto.Schema, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-		if len(tbl.Files) > 0 {
-			schemas = append(schemas, schema)
-		}
-	}
-	backupMeta.Schemas = schemas
-	return nil
 }
 
 // isRetryableError represents whether we should retry reset grpc connection.

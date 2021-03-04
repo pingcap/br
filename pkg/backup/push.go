@@ -17,7 +17,7 @@ import (
 	"github.com/pingcap/br/pkg/rtree"
 )
 
-// pushDown warps a backup task.
+// pushDown wraps a backup task.
 type pushDown struct {
 	mgr    ClientMgr
 	respCh chan *backup.BackupResponse

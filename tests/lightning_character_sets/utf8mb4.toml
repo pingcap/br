@@ -1,0 +1,5 @@
+[lightning]
+table-concurrency = 1
+
+[mydumper]
+character-set = "utf8mb4"

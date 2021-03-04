@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -273,8 +274,10 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 		}
 	}
+	if len(qs.Prefix) > 0 && !strings.HasSuffix(qs.Prefix, "/") {
+		qs.Prefix += "/"
+	}
 
-	qs.Prefix += "/"
 	return &S3Storage{
 		session: ses,
 		svc:     c,
@@ -372,20 +375,20 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
-	prefix := rs.options.Prefix + opt.SubDir
-	if !strings.HasSuffix(prefix, "/") {
+	prefix := path.Join(rs.options.Prefix, opt.SubDir)
+	if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
 	maxKeys := int64(1000)
 	if opt.ListCount > 0 {
 		maxKeys = opt.ListCount
 	}
-
 	req := &s3.ListObjectsInput{
 		Bucket:  aws.String(rs.options.Bucket),
 		Prefix:  aws.String(prefix),
 		MaxKeys: aws.Int64(maxKeys),
 	}
+
 	for {
 		// FIXME: We can't use ListObjectsV2, it is not universally supported.
 		// (Ceph RGW supported ListObjectsV2 since v15.1.0, released 2020 Jan 30th)

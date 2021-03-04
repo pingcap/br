@@ -72,7 +72,7 @@ func NewBRContextManager(client *Client) ContextManager {
 type brContextManager struct {
 	client *Client
 
-	// This 'set' of table ID allow us handle each table just once.
+	// This 'set' of table ID allow us to handle each table just once.
 	hasTable map[int64]CreatedTable
 }
 
@@ -232,10 +232,7 @@ func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult,
 				return
 			}
 			if err := SplitRanges(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
-				log.Error("failed on split range",
-					zap.Any("ranges", ranges),
-					zap.Error(err),
-				)
+				log.Error("failed on split range", rtree.ZapRanges(result.Ranges), zap.Error(err))
 				b.sink.EmitError(err)
 				return
 			}
@@ -264,10 +261,7 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 				return
 			}
 
-			log.Info("restore batch done",
-				ZapRanges(result.Ranges),
-				zap.Int("file count", len(files)),
-			)
+			log.Info("restore batch done", rtree.ZapRanges(result.Ranges))
 			b.sink.EmitTables(result.BlankTablesAfterSend...)
 		}
 	}
