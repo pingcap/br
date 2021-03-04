@@ -1028,5 +1028,5 @@ func CollectChecksums(backupMeta *kvproto.BackupMeta) ([]Checksum, error) {
 
 // isRetryableError represents whether we should retry reset grpc connection.
 func isRetryableError(err error) bool {
-	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
+	return status.Code(err) == codes.Unavailable
 }
