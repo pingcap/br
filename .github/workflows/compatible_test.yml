@@ -29,7 +29,6 @@ jobs:
       run: TAG=nightly docker-compose -f compatible/backup_cluster.yaml pull --ignore-pull-failures
 
     - name: Start server
-      timeout-minutes: 2
       run: |
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml rm -s -v
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
