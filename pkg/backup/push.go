@@ -134,7 +134,7 @@ func (push *pushDown) pushBackup(
 
 func messageIsRetryableFailedToWrite(msg string) bool {
 	return strings.Contains(msg, "failed to put object") /* If failed to backup to S3... */ &&
-		//...Because of s3 stop or not start...
+		// ...Because of s3 stop or not start...
 		(strings.Contains(msg, "Server closed") || strings.Contains(msg, "Connection refused"))
-	//...those condition would be retryable.
+	// ...those condition would be retryable.
 }
