@@ -160,6 +160,12 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		}
 	}
 
+	brVersion := g.GetVersion()
+	clusterVersion, err := mgr.GetClusterVersion(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	// The number of regions need to backup
 	approximateRegions, err := mgr.GetRegionCount(ctx, backupRange.StartKey, backupRange.EndKey)
 	if err != nil {
@@ -174,6 +180,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
 	req := kvproto.BackupRequest{
+		ClusterId:        client.GetClusterID(),
 		StartVersion:     0,
 		EndVersion:       0,
 		RateLimit:        cfg.RateLimit,
@@ -192,7 +199,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 
 	// Checksum
 	rawRanges := []*kvproto.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
-	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil)
+	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil, clusterVersion, brVersion)
 	if err != nil {
 		return errors.Trace(err)
 	}
