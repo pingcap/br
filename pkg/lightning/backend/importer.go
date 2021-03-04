@@ -41,14 +41,13 @@ const (
 )
 
 var (
-	// Importer backend is compatible with TiDB [2.1.0, 6.0.0).
+	// Importer backend is compatible with TiDB [2.1.0, NextMajorVersion).
 	requiredMinTiDBVersion = *semver.New("2.1.0")
 	requiredMinPDVersion   = *semver.New("2.1.0")
 	requiredMinTiKVVersion = *semver.New("2.1.0")
-	// TODO: bump max versions based on the version define in Makefile.
-	requiredMaxTiDBVersion = *semver.New("6.0.0")
-	requiredMaxPDVersion   = *semver.New("6.0.0")
-	requiredMaxTiKVVersion = *semver.New("6.0.0")
+	requiredMaxTiDBVersion = version.NextMajorVersion()
+	requiredMaxPDVersion   = version.NextMajorVersion()
+	requiredMaxTiKVVersion = version.NextMajorVersion()
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is

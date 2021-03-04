@@ -5,6 +5,7 @@ package version
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -25,10 +26,20 @@ var (
 	incompatibleTiKVMajor4  = semver.New("4.0.0-rc.1")
 	compatibleTiFlashMajor3 = semver.New("3.1.0")
 	compatibleTiFlashMajor4 = semver.New("4.0.0")
+
+	versionHash = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 )
 
+// NextMajorVersion returns the next major versoin.
+func NextMajorVersion() semver.Version {
+	nextMajorVersion := semver.New(removeVAndHash(build.ReleaseVersion))
+	nextMajorVersion.BumpMajor()
+	return *nextMajorVersion
+}
+
+// removeVAndHash sanitizes a version string.
 func removeVAndHash(v string) string {
-	v = build.VersionHash.ReplaceAllLiteralString(v, "")
+	v = versionHash.ReplaceAllLiteralString(v, "")
 	v = strings.TrimSuffix(v, "-dirty")
 	return strings.TrimPrefix(v, "v")
 }

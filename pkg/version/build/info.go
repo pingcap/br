@@ -5,7 +5,6 @@ package build
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"runtime"
 
 	"github.com/pingcap/log"
@@ -15,12 +14,11 @@ import (
 
 // Version information.
 var (
-	ReleaseVersion = "None"
+	ReleaseVersion = "v5.0.0-master"
 	BuildTS        = "None"
 	GitHash        = "None"
 	GitBranch      = "None"
 	goVersion      = runtime.Version()
-	VersionHash    = regexp.MustCompile("-[0-9]+-g[0-9a-f]{7,}")
 )
 
 // AppName is a name of a built binary.

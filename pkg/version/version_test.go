@@ -159,6 +159,20 @@ func (s *checkSuite) TestCompareVersion(c *C) {
 		Compare(*semver.New("2.1.0-rc.1")), Equals, 0)
 }
 
+func (s *checkSuite) TestNextMajorVersion(c *C) {
+	build.ReleaseVersion = "v4.0.0-rc.2"
+	c.Assert(NextMajorVersion().String(), Equals, "5.0.0")
+	build.ReleaseVersion = "4.0.0-rc-35-g31dae220"
+	c.Assert(NextMajorVersion().String(), Equals, "5.0.0")
+	build.ReleaseVersion = "4.0.0-9-g30f0b014"
+	c.Assert(NextMajorVersion().String(), Equals, "5.0.0")
+
+	build.ReleaseVersion = "v5.0.0-rc.2"
+	c.Assert(NextMajorVersion().String(), Equals, "6.0.0")
+	build.ReleaseVersion = "v5.0.0-master"
+	c.Assert(NextMajorVersion().String(), Equals, "6.0.0")
+}
+
 func (s *checkSuite) TestExtractTiDBVersion(c *C) {
 	vers, err := ExtractTiDBVersion("5.7.10-TiDB-v2.1.0-rc.1-7-g38c939f")
 	c.Assert(err, IsNil)
