@@ -25,7 +25,7 @@ S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
 
 # create bucket
 /usr/bin/mc config host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
-/usr/bin/mc mb minio/test
+/usr/bin/mc mb minio/test --ignore-existing
 
 # backup cluster data
 run_sql_in_container "backup database test to 's3://$BUCKET/bk${TAG}?endpoint=http://$S3_ENDPOINT$S3_KEY&force-path-style=true';"
