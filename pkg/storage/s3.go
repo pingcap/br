@@ -341,7 +341,6 @@ func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) 
 		Bucket: aws.String(rs.options.Bucket),
 		Key:    aws.String(rs.options.Prefix + file),
 	}
-
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
 		return nil, errors.Annotatef(err,
