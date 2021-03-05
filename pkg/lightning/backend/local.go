@@ -202,6 +202,8 @@ func (e *LocalFile) getEngineFileSize() EngineFileSize {
 	var memSize int64
 	e.localWriters.Range(func(k, v interface{}) bool {
 		w := k.(*LocalWriter)
+		w.totalSizeLock.RLock()
+		defer w.totalSizeLock.RUnlock()
 		memSize += w.writeBatch.totalSize
 		if w.writer != nil {
 			total.Size += int64(w.writer.writer.EstimatedSize())
@@ -1771,6 +1773,7 @@ type LocalWriter struct {
 	memtableSizeLimit int64
 	writeBatch        kvMemCache
 	writer            *sstWriter
+	totalSizeLock     sync.RWMutex
 }
 
 func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
@@ -1784,6 +1787,15 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	w.kvsChan <- kvs
 	w.local.Ts = ts
 	return nil
+}
+
+func (w *LocalWriter) IsSynchronized() bool {
+	if len(w.kvsChan) != 0 {
+		return false
+	}
+	w.totalSizeLock.RLock()
+	defer w.totalSizeLock.RUnlock()
+	return w.writeBatch.totalSize == 0 && (w.writer == nil || w.writer.totalCount == 0)
 }
 
 func (w *LocalWriter) Close() error {
@@ -1813,7 +1825,11 @@ func (w *LocalWriter) genSSTPath() string {
 }
 
 func (w *LocalWriter) writeRowsLoop() {
+	var shouldDeferUnlock bool
 	defer func() {
+		if shouldDeferUnlock {
+			w.totalSizeLock.Unlock()
+		}
 		if w.writer != nil {
 			w.writer.cleanUp()
 			w.writer = nil
@@ -1833,24 +1849,32 @@ outside:
 				break outside
 			}
 
+			shouldDeferUnlock = true
+			w.totalSizeLock.Lock()
+
 			w.writeBatch.append(kvs)
-			if w.writeBatch.totalSize <= w.memtableSizeLimit {
-				break
-			}
-			if w.writer == nil {
-				w.writer, err = newSSTWriter(w.genSSTPath())
-				if err != nil {
+			if w.writeBatch.totalSize > w.memtableSizeLimit {
+				if w.writer == nil {
+					w.writer, err = newSSTWriter(w.genSSTPath())
+					if err != nil {
+						w.writeErr.Set(err)
+						return
+					}
+				}
+
+				if err = w.writeKVsOrIngest(0); err != nil {
 					w.writeErr.Set(err)
 					return
 				}
 			}
 
-			if err = w.writeKVsOrIngest(0); err != nil {
-				w.writeErr.Set(err)
-				return
-			}
+			w.totalSizeLock.Unlock()
+			shouldDeferUnlock = false
 
 		case replyErrCh := <-flushCh:
+			shouldDeferUnlock = true
+			w.totalSizeLock.Lock()
+
 			err = w.writeKVsOrIngest(localIngestDescriptionFlushed)
 			if w.writer != nil {
 				err = w.writer.ingestInto(w.local, localIngestDescriptionFlushed)
@@ -1858,6 +1882,10 @@ outside:
 					err = w.writer.reopen()
 				}
 			}
+
+			w.totalSizeLock.Unlock()
+			shouldDeferUnlock = false
+
 			replyErrCh <- err
 			if err != nil {
 				w.writeErr.Set(err)
@@ -1865,6 +1893,9 @@ outside:
 			}
 		}
 	}
+
+	shouldDeferUnlock = true
+	w.totalSizeLock.Lock()
 
 	if err = w.writeKVsOrIngest(0); err != nil {
 		w.writeErr.Set(err)
@@ -1980,6 +2011,8 @@ func (sw *sstWriter) ingestInto(e *LocalFile, desc localIngestDescription) error
 		sw.totalSize = 0
 		sw.totalCount = 0
 		sw.lastKey = nil
+	} else {
+		sw.cleanUp()
 	}
 	sw.writer = nil
 	return nil

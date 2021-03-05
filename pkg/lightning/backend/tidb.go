@@ -580,3 +580,7 @@ func (w *TiDBWriter) Close() error {
 func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows Rows) error {
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
+
+func (w *TiDBWriter) IsSynchronized() bool {
+	return true
+}

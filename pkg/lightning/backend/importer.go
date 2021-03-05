@@ -403,3 +403,7 @@ func (w *ImporterWriter) Close() error {
 func (w *ImporterWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
 	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
 }
+
+func (w *ImporterWriter) IsSynchronized() bool {
+	return true
+}
