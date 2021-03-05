@@ -96,10 +96,10 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > restore_stats
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
 
 # stats should not be equal because we disable stats by default.
-if diff -q backup_stats restore_stats > /dev/null
+if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "TEST: [$TEST_NAME] fail due to stats are equal"
   exit 1
@@ -134,15 +134,15 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0' | jq 'del(.last_update_version)' > $RESOTRE_STAT
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version)' > $RESOTRE_STAT
 
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
   echo "stats are equal"
 else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
-  cat $BACKUP_STAT | head 1000
-  cat $RESOTRE_STAT | head 1000
+  cat $BACKUP_STAT | head -n 1000
+  cat $RESOTRE_STAT | head -n 1000
   exit 1
 fi
 
@@ -158,8 +158,6 @@ echo "database $DB$ [original] row count: ${row_count_ori}, [after br] row count
 if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

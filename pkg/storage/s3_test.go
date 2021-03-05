@@ -29,7 +29,12 @@ type s3Suite struct {
 	storage    *S3Storage
 }
 
-var _ = Suite(&s3Suite{})
+type s3SuiteCustom struct{}
+
+var (
+	_ = Suite(&s3Suite{})
+	_ = Suite(&s3SuiteCustom{})
+)
 
 // FIXME: Cannot use the real SetUpTest/TearDownTest to set up the mock
 // otherwise the mock error will be ignored.
@@ -774,7 +779,7 @@ func (s *s3Suite) TestWalkDir(c *C) {
 			}, nil
 		}).
 		After(firstCall)
-	s.s3.EXPECT().
+	thirdCall := s.s3.EXPECT().
 		ListObjectsWithContext(ctx, gomock.Any()).
 		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 			c.Assert(aws.StringValue(input.Marker), Equals, aws.StringValue(contents[3].Key))
@@ -785,6 +790,31 @@ func (s *s3Suite) TestWalkDir(c *C) {
 			}, nil
 		}).
 		After(secondCall)
+	fourthCall := s.s3.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Prefix), Equals, "prefix/")
+			c.Assert(aws.StringValue(input.Marker), Equals, "")
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(4))
+			c.Assert(aws.StringValue(input.Delimiter), Equals, "")
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(true),
+				Contents:    contents[:4],
+			}, nil
+		}).
+		After(thirdCall)
+	s.s3.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Marker), Equals, aws.StringValue(contents[3].Key))
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(4))
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(false),
+				Contents:    contents[4:],
+			}, nil
+		}).
+		After(fourthCall)
 
 	// Ensure we receive the items in order.
 	i := 0
@@ -801,4 +831,109 @@ func (s *s3Suite) TestWalkDir(c *C) {
 	)
 	c.Assert(err, IsNil)
 	c.Assert(i, Equals, len(contents))
+
+	// test with empty subDir
+	i = 0
+	err = s.storage.WalkDir(
+		ctx,
+		&WalkOption{ListCount: 4},
+		func(path string, size int64) error {
+			comment := Commentf("index = %d", i)
+			c.Assert("prefix/"+path, Equals, *contents[i].Key, comment)
+			c.Assert(size, Equals, *contents[i].Size, comment)
+			i++
+			return nil
+		},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(i, Equals, len(contents))
+}
+
+// TestWalkDirBucket checks WalkDir retrieves all directory content under a bucket.
+func (s *s3SuiteCustom) TestWalkDirWithEmptyPrefix(c *C) {
+	controller := gomock.NewController(c)
+	s3API := mock.NewMockS3API(controller)
+	storage := NewS3StorageForTest(
+		s3API,
+		&backup.S3{
+			Region:       "us-west-2",
+			Bucket:       "bucket",
+			Prefix:       "",
+			Acl:          "acl",
+			Sse:          "sse",
+			StorageClass: "sc",
+		},
+	)
+	defer controller.Finish()
+	ctx := aws.BackgroundContext()
+
+	contents := []*s3.Object{
+		{
+			Key:  aws.String("sp/.gitignore"),
+			Size: aws.Int64(437),
+		},
+		{
+			Key:  aws.String("prefix/sp/01.jpg"),
+			Size: aws.Int64(27499),
+		},
+	}
+	firstCall := s3API.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Prefix), Equals, "")
+			c.Assert(aws.StringValue(input.Marker), Equals, "")
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(2))
+			c.Assert(aws.StringValue(input.Delimiter), Equals, "")
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(false),
+				Contents:    contents,
+			}, nil
+		})
+	s3API.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Prefix), Equals, "sp/")
+			c.Assert(aws.StringValue(input.Marker), Equals, "")
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(2))
+			c.Assert(aws.StringValue(input.Delimiter), Equals, "")
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(false),
+				Contents:    contents[:1],
+			}, nil
+		}).
+		After(firstCall)
+
+	// Ensure we receive the items in order.
+	i := 0
+	err := storage.WalkDir(
+		ctx,
+		&WalkOption{SubDir: "", ListCount: 2},
+		func(path string, size int64) error {
+			comment := Commentf("index = %d", i)
+			c.Assert(path, Equals, *contents[i].Key, comment)
+			c.Assert(size, Equals, *contents[i].Size, comment)
+			i++
+			return nil
+		},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(i, Equals, len(contents))
+
+	// test with non-empty sub-dir
+	i = 0
+	err = storage.WalkDir(
+		ctx,
+		&WalkOption{SubDir: "sp", ListCount: 2},
+		func(path string, size int64) error {
+			comment := Commentf("index = %d", i)
+			c.Assert(path, Equals, *contents[i].Key, comment)
+			c.Assert(size, Equals, *contents[i].Size, comment)
+			i++
+			return nil
+		},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(i, Equals, 1)
 }

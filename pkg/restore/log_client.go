@@ -113,8 +113,9 @@ func NewLogRestoreClient(
 		}
 	}
 
-	splitClient := NewSplitClient(restoreClient.GetPDClient(), restoreClient.GetTLSConfig())
-	importClient := NewImportClient(splitClient, restoreClient.tlsConf, restoreClient.keepaliveConf)
+	tlsConf := restoreClient.GetTLSConfig()
+	splitClient := NewSplitClient(restoreClient.GetPDClient(), tlsConf)
+	importClient := NewImportClient(splitClient, tlsConf, restoreClient.keepaliveConf)
 
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
@@ -555,8 +556,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			log.Debug("ingest meta", zap.Reflect("meta", meta))
 			resp, err := l.Ingest(ctx, meta, region)
 			if err != nil {
-				log.Warn("ingest failed", zap.Error(err), logutil.SSTMeta(meta),
-					logutil.Region(region.Region), zap.Any("leader", region.Leader))
+				log.Warn("ingest failed, retry", zap.Error(err), logutil.SSTMeta(meta),
+					logutil.Region(region.Region), logutil.Leader(region.Leader))
 				continue
 			}
 			needRetry, newRegion, errIngest := isIngestRetryable(resp, region, meta)
@@ -574,8 +575,8 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if newRegion != nil && i < maxRetryTimes-1 {
 				region = newRegion
 			} else {
-				log.Warn("retry ingest due to", logutil.SSTMeta(meta), logutil.Region(region.Region),
-					zap.Any("leader", region.Leader), logutil.ZapRedactReflect("new region", newRegion),
+				log.Warn("ingest failed", logutil.SSTMeta(meta), logutil.Region(region.Region),
+					logutil.Leader(region.Leader), logutil.Region(newRegion.Region),
 					zap.Error(errIngest))
 				return errIngest
 			}
