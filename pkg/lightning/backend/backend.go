@@ -371,6 +371,10 @@ func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string,
 	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
 }
 
+func (w *LocalEngineWriter) IsSynchronized() bool {
+	return w.writer.IsSynchronized()
+}
+
 func (w *LocalEngineWriter) Close() error {
 	return w.writer.Close()
 }
@@ -486,5 +490,11 @@ type EngineWriter interface {
 		commitTS uint64,
 		rows Rows,
 	) error
+
+	// IsSynchronized returns whether the content of the writer has been
+	// entirely synchronized into a permanant storage which persists even after
+	// Lightning restarts.
+	IsSynchronized() bool
+
 	Close() error
 }

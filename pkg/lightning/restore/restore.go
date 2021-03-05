@@ -131,7 +131,6 @@ func (es *errorSummaries) record(tableName string, err error, status CheckpointS
 const (
 	diskQuotaStateIdle int32 = iota
 	diskQuotaStateChecking
-	diskQuotaStateImporting
 )
 
 type RestoreController struct {
@@ -1379,6 +1378,49 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 	return nil
 }
 
+// FinishedNoCheckpointChunks is a synchronized array of ChunkCheckpoints,
+// shared among all deliverLoop within the same engine. This is used to hold a
+// list of ChunkCheckpoints which has been fully written, but not yet updated
+// into the checkpoints.
+type FinishedNoCheckpointChunks interface {
+	// Add a chunk checkpoint to this array. Returns true if the checkpoint is
+	// now cached into the array. If this method returns false, the caller can
+	// assume the checkpoint is fully written and the checkpoint can be saved.
+	Add(ccp *ChunkCheckpoint) bool
+	// Take the whole array out.
+	Take() []*ChunkCheckpoint
+}
+
+type localFinishedNoCheckpointChunks struct {
+	lock   sync.Mutex
+	chunks []*ChunkCheckpoint
+}
+
+// Add implements FinishedNoCheckpointChunks
+func (fc *localFinishedNoCheckpointChunks) Add(ccp *ChunkCheckpoint) bool {
+	fc.lock.Lock()
+	defer fc.lock.Unlock()
+	fc.chunks = append(fc.chunks, ccp)
+	return true
+}
+
+// Take implements FinishedNoCheckpointChunks
+func (fc *localFinishedNoCheckpointChunks) Take() []*ChunkCheckpoint {
+	fc.lock.Lock()
+	defer fc.lock.Unlock()
+	res := fc.chunks
+	if len(res) > 0 {
+		fc.chunks = make([]*ChunkCheckpoint, 0, len(fc.chunks))
+	}
+	return res
+}
+
+type externalFinishedNoCheckpointChunks struct{}
+
+func (externalFinishedNoCheckpointChunks) Add(*ChunkCheckpoint) bool { return false }
+
+func (externalFinishedNoCheckpointChunks) Take() []*ChunkCheckpoint { return nil }
+
 func (t *TableRestore) restoreEngine(
 	ctx context.Context,
 	rc *RestoreController,
@@ -1422,6 +1464,12 @@ func (t *TableRestore) restoreEngine(
 
 	var wg sync.WaitGroup
 	var chunkErr common.OnceError
+	var finishedChunks FinishedNoCheckpointChunks
+	if rc.isLocalBackend() {
+		finishedChunks = new(localFinishedNoCheckpointChunks)
+	} else {
+		finishedChunks = externalFinishedNoCheckpointChunks{}
+	}
 
 	// Restore table data
 	for chunkIndex, chunk := range cp.Chunks {
@@ -1468,7 +1516,7 @@ func (t *TableRestore) restoreEngine(
 				rc.regionWorkers.Recycle(w)
 			}()
 			metric.ChunkCounter.WithLabelValues(metric.ChunkStateRunning).Add(remainChunkCnt)
-			err := cr.restore(ctx, t, engineID, dataWriter, indexWriter, rc)
+			err := cr.restore(ctx, t, engineID, dataWriter, indexWriter, finishedChunks, rc)
 			if err == nil {
 				err = dataWriter.Close()
 			}
@@ -1839,7 +1887,6 @@ func (rc *RestoreController) enforceDiskQuota(ctx context.Context) {
 			// at this point, all engines are synchronized on disk.
 			// we then import every large engines one by one and complete.
 			// if any engine failed to import, we just try again next time, since the data are still intact.
-			atomic.StoreInt32(&rc.diskQuotaState, diskQuotaStateImporting)
 			task := logger.Begin(zap.WarnLevel, "importing large engines for disk quota")
 			var importErr error
 			for _, engine := range largeEngines {
@@ -2243,6 +2290,7 @@ func (cr *chunkRestore) deliverLoop(
 	t *TableRestore,
 	engineID int32,
 	dataEngine, indexEngine *kv.LocalEngineWriter,
+	finishedChunks FinishedNoCheckpointChunks,
 	rc *RestoreController,
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
@@ -2254,6 +2302,7 @@ func (cr *chunkRestore) deliverLoop(
 		zap.String("task", "deliver"),
 	)
 
+	var isCheckpointOutdated bool
 	for !channelClosed {
 		var dataChecksum, indexChecksum verify.KVChecksum
 		var columns []string
@@ -2286,15 +2335,26 @@ func (cr *chunkRestore) deliverLoop(
 			}
 		}
 
-		// we are allowed to save checkpoint when the disk quota state moved to "importing"
-		// since all engines are flushed.
-		if atomic.LoadInt32(&rc.diskQuotaState) == diskQuotaStateImporting {
-			saveCheckpoint(rc, t, engineID, cr.chunk)
-		}
-
 		func() {
 			rc.diskQuotaLock.RLock()
 			defer rc.diskQuotaLock.RUnlock()
+
+			select {
+			case <-ctx.Done():
+				err = ctx.Err()
+				return
+			default:
+			}
+
+			if isCheckpointOutdated && indexEngine.IsSynchronized() && dataEngine.IsSynchronized() {
+				// we are allowed to save checkpoint when everything has been written out.
+				saveCheckpoint(rc, t, engineID, cr.chunk)
+				// also save the fully written ones.
+				for _, finishedChunk := range finishedChunks.Take() {
+					saveCheckpoint(rc, t, engineID, finishedChunk)
+				}
+				isCheckpointOutdated = false
+			}
 
 			// Write KVs into the engine
 			start := time.Now()
@@ -2325,10 +2385,8 @@ func (cr *chunkRestore) deliverLoop(
 		cr.chunk.Checksum.Add(&indexChecksum)
 		cr.chunk.Chunk.Offset = offset
 		cr.chunk.Chunk.PrevRowIDMax = rowID
-		if !rc.isLocalBackend() && (dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0) {
-			// No need to save checkpoint if nothing was delivered.
-			saveCheckpoint(rc, t, engineID, cr.chunk)
-		}
+		isCheckpointOutdated = true
+
 		failpoint.Inject("SlowDownWriteRows", func() {
 			deliverLogger.Warn("Slowed down write rows")
 		})
@@ -2336,13 +2394,10 @@ func (cr *chunkRestore) deliverLoop(
 		// TODO: for local backend, we may save checkpoint more frequently, e.g. after writen
 		// 10GB kv pairs to data engine, we can do a flush for both data & index engine, then we
 		// can safely update current checkpoint.
+	}
 
-		failpoint.Inject("LocalBackendSaveCheckpoint", func() {
-			if !rc.isLocalBackend() && (dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0) {
-				// No need to save checkpoint if nothing was delivered.
-				saveCheckpoint(rc, t, engineID, cr.chunk)
-			}
-		})
+	if isCheckpointOutdated && !finishedChunks.Add(cr.chunk) {
+		saveCheckpoint(rc, t, engineID, cr.chunk)
 	}
 
 	return
@@ -2483,6 +2538,7 @@ func (cr *chunkRestore) restore(
 	t *TableRestore,
 	engineID int32,
 	dataEngine, indexEngine *kv.LocalEngineWriter,
+	finishedChunks FinishedNoCheckpointChunks,
 	rc *RestoreController,
 ) error {
 	// Create the encoder.
@@ -2508,7 +2564,7 @@ func (cr *chunkRestore) restore(
 
 	go func() {
 		defer close(deliverCompleteCh)
-		dur, err := cr.deliverLoop(ctx, kvsCh, t, engineID, dataEngine, indexEngine, rc)
+		dur, err := cr.deliverLoop(ctx, kvsCh, t, engineID, dataEngine, indexEngine, finishedChunks, rc)
 		select {
 		case <-ctx.Done():
 		case deliverCompleteCh <- deliverResult{dur, err}:

@@ -835,11 +835,12 @@ func (s *chunkRestoreSuite) TearDownTest(c *C) {
 
 func (s *chunkRestoreSuite) TestDeliverLoopCancel(c *C) {
 	rc := &RestoreController{backend: kv.NewMockImporter(nil, "")}
+	var fc externalFinishedNoCheckpointChunks
 
 	ctx, cancel := context.WithCancel(context.Background())
 	kvsCh := make(chan []deliveredKVs)
 	go cancel()
-	_, err := s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, nil, nil, rc)
+	_, err := s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, nil, nil, fc, rc)
 	c.Assert(errors.Cause(err), Equals, context.Canceled)
 }
 
@@ -873,12 +874,16 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &RestoreController{cfg: cfg, backend: importer}
+	saveCpCh := make(chan saveCp, 2)
+	rc := &RestoreController{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	var fc externalFinishedNoCheckpointChunks
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
-	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
+	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, fc, rc)
 	c.Assert(err, IsNil)
+	c.Assert(saveCpCh, HasLen, 2)
+	c.Assert(s.cr.chunk.Checksum.SumKVS(), Equals, uint64(0))
 }
 
 func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
@@ -967,8 +972,9 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 
 	cfg := &config.Config{}
 	rc := &RestoreController{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	var fc externalFinishedNoCheckpointChunks
 
-	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
+	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, fc, rc)
 	c.Assert(err, IsNil)
 	c.Assert(saveCpCh, HasLen, 2)
 	c.Assert(s.cr.chunk.Chunk.Offset, Equals, int64(12))
@@ -1143,8 +1149,9 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 
 	// Now actually start the restore loop.
 
+	var fc externalFinishedNoCheckpointChunks
 	saveCpCh := make(chan saveCp, 2)
-	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &RestoreController{
+	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, fc, &RestoreController{
 		cfg:      s.cfg,
 		saveCpCh: saveCpCh,
 		backend:  importer,

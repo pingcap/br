@@ -98,7 +98,7 @@ for ckpt in mysql file; do
 
   # when position of chunk file doesn't equal to offset, intermediate file should exist
   set +e
-  export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/LocalBackendSaveCheckpoint=return;github.com/pingcap/br/pkg/lightning/restore/FailIfImportedChunk=return(1)"
+  export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/FailIfImportedChunk=return(1)"
   run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
   set -e
   run_lightning_ctl --check-local-storage \

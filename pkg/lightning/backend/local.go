@@ -1771,6 +1771,7 @@ type LocalWriter struct {
 	memtableSizeLimit int64
 	writeBatch        kvMemCache
 	writer            *sstWriter
+	isDirty           atomic.Bool
 }
 
 func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
@@ -1781,9 +1782,14 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	if err := w.writeErr.Get(); err != nil {
 		return err
 	}
+	w.isDirty.Store(true)
 	w.kvsChan <- kvs
 	w.local.Ts = ts
 	return nil
+}
+
+func (w *LocalWriter) IsSynchronized() bool {
+	return !w.isDirty.Load()
 }
 
 func (w *LocalWriter) Close() error {
@@ -1833,21 +1839,21 @@ outside:
 				break outside
 			}
 
+			w.isDirty.Store(true)
 			w.writeBatch.append(kvs)
-			if w.writeBatch.totalSize <= w.memtableSizeLimit {
-				break
-			}
-			if w.writer == nil {
-				w.writer, err = newSSTWriter(w.genSSTPath())
-				if err != nil {
+			if w.writeBatch.totalSize > w.memtableSizeLimit {
+				if w.writer == nil {
+					w.writer, err = newSSTWriter(w.genSSTPath())
+					if err != nil {
+						w.writeErr.Set(err)
+						return
+					}
+				}
+
+				if err = w.writeKVsOrIngest(0); err != nil {
 					w.writeErr.Set(err)
 					return
 				}
-			}
-
-			if err = w.writeKVsOrIngest(0); err != nil {
-				w.writeErr.Set(err)
-				return
 			}
 
 		case replyErrCh := <-flushCh:
@@ -1855,9 +1861,11 @@ outside:
 			if w.writer != nil {
 				err = w.writer.ingestInto(w.local, localIngestDescriptionFlushed)
 				if err == nil {
+					w.isDirty.Store(false)
 					err = w.writer.reopen()
 				}
 			}
+
 			replyErrCh <- err
 			if err != nil {
 				w.writeErr.Set(err)
@@ -1875,6 +1883,7 @@ outside:
 			w.writeErr.Set(err)
 		}
 	}
+	w.isDirty.Store(false)
 }
 
 func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
@@ -1980,6 +1989,8 @@ func (sw *sstWriter) ingestInto(e *LocalFile, desc localIngestDescription) error
 		sw.totalSize = 0
 		sw.totalCount = 0
 		sw.lastKey = nil
+	} else {
+		sw.cleanUp()
 	}
 	sw.writer = nil
 	return nil

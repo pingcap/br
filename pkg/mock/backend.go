@@ -456,3 +456,17 @@ func (mr *MockEngineWriterMockRecorder) Close() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEngineWriter)(nil).Close))
 }
+
+// IsSynchronized mocks base method
+func (m *MockEngineWriter) IsSynchronized() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsSynchronized")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsSynchronized indicates an expected call of IsSynchronized
+func (mr *MockEngineWriterMockRecorder) IsSynchronized() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsSynchronized", reflect.TypeOf((*MockEngineWriter)(nil).IsSynchronized))
+}
