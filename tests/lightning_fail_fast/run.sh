@@ -26,8 +26,6 @@ for CFG in chunk engine; do
   ERRORCODE=$?
   set -e
 
-  cat $TEST_DIR/lightning-tidb.log > $TEST_DIR/lightning.log
-
   [ "$ERRORCODE" -ne 0 ]
 
   tail -n 1 $TEST_DIR/lightning-tidb.log | grep -Fq "Error 1062: Duplicate entry '1-1' for key 'uq'"
