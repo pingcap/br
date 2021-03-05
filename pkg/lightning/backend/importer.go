@@ -348,10 +348,10 @@ func checkVersion(component string, actual, requiredMinVersion, requiredMaxVersi
 	// actual version must be within [requiredMinVersion, requiredMaxVersion).
 	if actual.Compare(requiredMinVersion) < 0 {
 		return errors.Errorf(
-			"%s version too old, major version required to be in [%d, %d), found '%s'",
+			"%s version too old, required to be in [%s, %s), found '%s'",
 			component,
-			requiredMinVersion.Major,
-			requiredMaxVersion.Major,
+			requiredMinVersion,
+			requiredMaxVersion,
 			actual,
 		)
 	}
@@ -360,9 +360,9 @@ func checkVersion(component string, actual, requiredMinVersion, requiredMaxVersi
 	// changes.
 	if actual.Major >= requiredMaxVersion.Major {
 		return errors.Errorf(
-			"%s version too new, major version expected to be within [%d, %d), found '%s'",
+			"%s version too new, major version expected to be within [%s, %d.0.0), found '%s'",
 			component,
-			requiredMinVersion.Major,
+			requiredMinVersion,
 			requiredMaxVersion.Major,
 			actual,
 		)
