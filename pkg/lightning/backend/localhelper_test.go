@@ -610,3 +610,55 @@ func (s *localSuite) TestBatchSplitByRangesWithClusteredIndex(c *C) {
 func (s *localSuite) TestBatchSplitByRangesWithClusteredIndexEpochNotMatch(c *C) {
 	s.doTestBatchSplitByRangesWithClusteredIndex(c, &splitRegionEpochNotMatchHookRandom{})
 }
+
+func (s *localSuite) TestNeedSplit(c *C) {
+	tableId := int64(1)
+	peers := make([]*metapb.Peer, 1)
+	peers[0] = &metapb.Peer{
+		Id:      1,
+		StoreId: 1,
+	}
+	keys := []int64{10, 100, 500, 1000, 999999, -1}
+	start := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(0))
+	regionStart := codec.EncodeBytes([]byte{}, start)
+	regions := make([]*restore.RegionInfo, 0)
+	for _, end := range keys {
+		var regionEndKey []byte
+		if end >= 0 {
+			endKey := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(end))
+			regionEndKey = codec.EncodeBytes([]byte{}, endKey)
+		}
+		region := &restore.RegionInfo{
+			Region: &metapb.Region{
+				Id:          1,
+				Peers:       peers,
+				StartKey:    regionStart,
+				EndKey:      regionEndKey,
+				RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			},
+		}
+		regions = append(regions, region)
+		regionStart = regionEndKey
+	}
+
+	checkMap := map[int64]int{
+		0:         -1,
+		5:         0,
+		99:        1,
+		100:       -1,
+		512:       3,
+		8888:      4,
+		999999:    -1,
+		100000000: 5,
+	}
+
+	for hdl, idx := range checkMap {
+		checkKey := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(hdl))
+		res := needSplit(checkKey, regions)
+		if idx < 0 {
+			c.Assert(res, IsNil)
+		} else {
+			c.Assert(res, DeepEquals, regions[idx])
+		}
+	}
+}

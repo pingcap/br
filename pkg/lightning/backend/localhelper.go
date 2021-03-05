@@ -450,7 +450,7 @@ func needSplit(key []byte, regions []*split.RegionInfo) *split.RegionInfo {
 	splitKey := codec.EncodeBytes([]byte{}, key)
 
 	idx := sort.Search(len(regions), func(i int) bool {
-		return bytes.Compare(splitKey, regions[i].Region.EndKey) <= 0
+		return beforeEnd(splitKey, regions[i].Region.EndKey)
 	})
 	if idx < len(regions) {
 		// If splitKey is in a region
