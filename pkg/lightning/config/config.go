@@ -531,6 +531,12 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.Mydumper.DefaultFileRules = true
 	}
 
+	// RegionConcurrency > NumCPU is meaningless.
+	cpuCount := runtime.NumCPU()
+	if cfg.App.RegionConcurrency > cpuCount {
+		cfg.App.RegionConcurrency = cpuCount
+	}
+
 	cfg.TikvImporter.Backend = strings.ToLower(cfg.TikvImporter.Backend)
 	mustHaveInternalConnections := true
 	switch cfg.TikvImporter.Backend {

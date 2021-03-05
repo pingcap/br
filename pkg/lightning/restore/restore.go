@@ -191,6 +191,7 @@ type Controller struct {
 	alterTableLock sync.Mutex
 	sysVars        map[string]string
 	tls            *common.TLS
+	checkTemplate  Template
 
 	errorSummaries errorSummaries
 
@@ -334,6 +335,7 @@ func NewRestoreControllerWithPauser(
 		tidbGlue:      g,
 		sysVars:       defaultImportantVariables,
 		tls:           tls,
+		checkTemplate: NewSimpleTemplate(),
 
 		errorSummaries:    makeErrorSummaries(log.L()),
 		checkpointsDB:     cpdb,
@@ -705,7 +707,19 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 
 	// Estimate the number of chunks for progress reporting
 	err = rc.estimateChunkCountIntoMetrics(ctx)
-	return err
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = rc.DataCheck(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.L().Info(rc.checkTemplate.Output())
+	fmt.Println(rc.checkTemplate.Output())
+	if !rc.checkTemplate.Success() {
+		return errors.Errorf("lightning pre check failed. please fix the check item and make check passed")
+	}
+	return nil
 }
 
 // verifyCheckpoint check whether previous task checkpoint is compatible with task config
@@ -2201,17 +2215,7 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 }
 
 func (rc *Controller) checkRequirements(ctx context.Context) error {
-	// skip requirement check if explicitly turned off
-	if !rc.cfg.App.CheckRequirements {
-		return nil
-	}
-	checkCtx := &backend.CheckCtx{
-		DBMetas: rc.dbMetas,
-	}
-	if err := rc.backend.CheckRequirements(ctx, checkCtx); err != nil {
-		return errors.Trace(err)
-	}
-	return nil
+	return rc.PreCheck(ctx)
 }
 
 func (rc *Controller) setGlobalVariables(ctx context.Context) error {
@@ -2255,6 +2259,63 @@ func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
 
 func (rc *Controller) isLocalBackend() bool {
 	return rc.cfg.TikvImporter.Backend == "local"
+}
+
+// PreCheck checks
+// 1. Cluster resource
+// 2. Local node resource
+// 3. Lightning configuration
+// before restore tables start.
+func (rc *Controller) PreCheck(ctx context.Context) error {
+	if err := rc.ClusterIsAvailable(ctx); err != nil {
+		return errors.Trace(err)
+	}
+	if err := rc.ClusterIsOnline(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := rc.StoragePermission(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := rc.HasLargeCSV(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := rc.ClusterResource(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if rc.isLocalBackend() {
+		if err := rc.LocalResource(ctx); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// DataCheck checks the data schema which needs #rc.restoreSchema finished.
+func (rc *Controller) DataCheck(ctx context.Context) error {
+	var err error
+	for _, dbInfo := range rc.dbInfos {
+		for _, tableInfo := range dbInfo.Tables {
+			uniqueName := common.UniqueTable(dbInfo.Name, tableInfo.Name)
+			if rc.cfg.Checkpoint.Enable {
+				if err = rc.CheckpointIsValid(ctx, uniqueName); err != nil {
+					return errors.Trace(err)
+				}
+			}
+			if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+				if err := rc.TableHasDataInCluster(ctx, uniqueName); err != nil {
+					return errors.Trace(err)
+				}
+				if err := rc.SchemaIsValid(ctx); err != nil {
+					return errors.Trace(err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 type chunkRestore struct {
