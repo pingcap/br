@@ -23,6 +23,7 @@ set -eu
 git fetch --tags
 TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
 
+EXPECTED_KVS=1000
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
@@ -37,6 +38,7 @@ for script in tests/docker_compatible_*/${1}.sh; do
     GCS_HOST="$GCS_HOST" \
     GCS_PORT="$GCS_PORT" \
     TAGS="$TAGS" \
+    EXPECTED_KVS="$EXPECTED_KVS" \
     PATH="tests/_utils:bin:$PATH" \
     TEST_NAME="$(basename "$(dirname "$script")")" \
     BR_LOG_TO_TERM=1 \
