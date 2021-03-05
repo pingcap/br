@@ -23,11 +23,10 @@ run_sql "
 USE $DB;
 
 CREATE TABLE t0 (
-	id VARCHAR(255),
-	data INT,
-	PRIMARY KEY(id)
+    id VARCHAR(255),
+    data INT,
+    PRIMARY KEY(id)
 );
-
 INSERT INTO t0 VALUES ('1', 1);
 INSERT INTO t0 VALUES ('2', 2);
 INSERT INTO t0 VALUES ('3', 3);
@@ -42,7 +41,6 @@ CREATE TABLE t1 (
     UNIQUE KEY(b),
     KEY(a)
 );
-
 INSERT INTO t1 VALUES ('111', 111, '111');
 INSERT INTO t1 VALUES ('222', 222, '222');
 INSERT INTO t1 VALUES ('333', 333, '333');
@@ -57,13 +55,11 @@ CREATE TABLE t2 (
     KEY(id, a),
     UNIQUE KEY(id, a)
 );
-
 INSERT INTO t2 VALUES ('aaaa', 1111, 11.0);
 INSERT INTO t2 VALUES ('bbbb', 1111, 12.0);
 INSERT INTO t2 VALUES ('cccc', 1111, 13.0);
 INSERT INTO t2 VALUES ('dddd', 1111, 14.0);
 INSERT INTO t2 VALUES ('eeee', 1111, 15.0);
-
 
 create table t_bit(a bit primary key, b int);
 INSERT INTO t_bit VALUES(1,2);
@@ -94,7 +90,6 @@ INSERT INTO t_date VALUES ('2020-02-20', 1);
 INSERT INTO t_date VALUES ('2020-02-21', 2);
 INSERT INTO t_date VALUES ('2020-02-22', 3);
 
-
 create table t_time(a time primary key, b int);
 
 INSERT INTO t_time VALUES ('11:22:33', 1);
@@ -115,7 +110,6 @@ create table t_year(a year primary key, b int);
 INSERT INTO t_year VALUES ('2020', 1);
 INSERT INTO t_year VALUES ('2021', 2);
 INSERT INTO t_year VALUES ('2022', 3);
-
 
 create table t_char(a char(20) primary key, b int);
 INSERT INTO t_char VALUES ('abcc', 1);
@@ -147,7 +141,6 @@ INSERT INTO t8(a) VALUES (2020);
 INSERT INTO t8(a) VALUES (2021);
 INSERT INTO t8(a) VALUES (2022);
 
-
 create table t9(a int, b varchar(255), c int, primary key(a ,b));
 insert into t9 values(1, 'aaa', 1),(2, 'bbb', 2),(3, 'ccc', 3);
 
@@ -157,10 +150,16 @@ insert into t10 values(1, 1, 1),(2, 2, 2),(3, 3, 3);
 create table t11(a int, b float, c int, primary key(a,b));
 insert into t11 values(1, 1.1, 1),(2, 2.2, 2),(3, 3.3, 3);
 
-  
 create table t12(name char(255) primary key, b int, c int, index idx(name), unique index uidx(name));
 insert into t12 values('aaaa', 1, 1), ('bbb', 2, 2), ('ccc', 3, 3);
 "
+
+clustered_table_count=$(run_sql "\
+    SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES \
+    WHERE tidb_pk_type = 'CLUSTERED' AND table_schema = '$DB';" \
+    | awk '/COUNT/{print $2}')
+
+[ $clustered_table_count -gt 0 ] || { echo No clustered index table; exit 1; }
 
 # backup table
 echo "backup start..."
@@ -172,6 +171,5 @@ run_sql "CREATE DATABASE $DB;"
 # restore table
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
-
 
 run_sql "DROP DATABASE $DB;"
