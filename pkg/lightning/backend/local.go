@@ -610,7 +610,6 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		L0CompactionThreshold: local.maxOpenFiles / 2,
 		L0StopWritesThreshold: local.maxOpenFiles / 2,
 		MaxOpenFiles:          local.maxOpenFiles,
-		DisableWAL:            true,
 		ReadOnly:              readOnly,
 		TablePropertyCollectors: []func() pebble.TablePropertyCollector{
 			newRangePropertiesCollector,
@@ -1915,7 +1914,24 @@ func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
 		}
 	}
 
-	// if write failed only because of unorderedness, we immediately ingest the memcache.
+	// if write failed because of unorderedness, we immediately ingest or write the memcache.
+
+	// first check if the memcache overlaps with the any existing keys
+	iterOpt := pebble.IterOptions{
+		LowerBound: w.writeBatch.minKey,
+		UpperBound: append(w.writeBatch.maxKey, 0),
+	}
+	iter := w.local.db.NewIter(&iterOpt)
+	hasOverlap := iter.First()
+	iter.Close()
+
+	// if there is overlapping, we use batch write to avoid creating too many L0 files eventually.
+	if hasOverlap {
+		return w.writeBatch.writeToDB(w.local)
+	}
+
+	// otherwise, we construct an SST file and ingest (which will be put to the lowest level).
+
 	immWriter, err := newSSTWriter(w.genSSTPath())
 	if err != nil {
 		return err
@@ -1960,10 +1976,10 @@ func (sw *sstWriter) writeKVs(m *kvMemCache) error {
 	if len(m.kvs) == 0 {
 		return nil
 	}
-	m.sort()
-	if bytes.Compare(m.kvs[0].Key, sw.lastKey) <= 0 {
+	if bytes.Compare(m.minKey, sw.lastKey) <= 0 {
 		return errorUnorderedSSTInsertion
 	}
+	m.sort()
 
 	internalKey := sstable.InternalKey{
 		Trailer: uint64(sstable.InternalKeyKindSet),
@@ -1995,11 +2011,13 @@ func (sw *sstWriter) ingestInto(e *LocalFile, desc localIngestDescription) error
 			defer e.unlock()
 		}
 		meta, _ := sw.writer.Metadata() // this method returns error only if it has not been closed yet.
-		log.L().Info("write data to local DB",
+
+		log.L().Info("ingest data to local DB",
 			zap.Int64("size", sw.totalSize),
 			zap.Int64("kvs", sw.totalCount),
 			zap.Uint8("description", uint8(desc)),
 			zap.Uint64("sstFileSize", meta.Size),
+			zap.Stringer("engineUUID", e.Uuid),
 			log.ZapRedactBinary("firstKey", meta.SmallestPoint.UserKey),
 			log.ZapRedactBinary("lastKey", meta.LargestPoint.UserKey))
 
@@ -2050,21 +2068,53 @@ type kvMemCache struct {
 	kvs       []common.KvPair
 	totalSize int64
 	notSorted bool // record "not sorted" instead of "sorted" so that the zero value is correct.
+	minKey    []byte
+	maxKey    []byte
 }
 
 // append more KV pairs to the kvMemCache.
 func (m *kvMemCache) append(kvs []common.KvPair) {
-	if !m.notSorted {
-		var lastKey []byte
-		if len(m.kvs) > 0 {
-			lastKey = m.kvs[len(m.kvs)-1].Key
-		}
-		for _, kv := range kvs {
-			if bytes.Compare(kv.Key, lastKey) <= 0 {
-				m.notSorted = true
-				break
+	if len(kvs) == 0 {
+		return
+	}
+
+	localKVSorted := true
+	localMinKey := kvs[0].Key
+	localMaxKey := kvs[0].Key
+
+	for _, kv := range kvs[1:] {
+		if localKVSorted {
+			if bytes.Compare(kv.Key, localMaxKey) > 0 {
+				localMaxKey = kv.Key
+				continue
 			}
-			lastKey = kv.Key
+			localKVSorted = false
+		}
+		if bytes.Compare(kv.Key, localMinKey) < 0 {
+			localMinKey = kv.Key
+		}
+		if bytes.Compare(kv.Key, localMaxKey) > 0 {
+			localMaxKey = kv.Key
+		}
+	}
+
+	if len(m.kvs) == 0 {
+		// m is empty, just copy the local stats.
+		m.notSorted = !localKVSorted
+		m.minKey = localMinKey
+		m.maxKey = localMaxKey
+	} else if !m.notSorted && localKVSorted && bytes.Compare(m.maxKey, localMinKey) < 0 {
+		// kvs is sorted, m is sorted and not empty, and kvs is after m
+		// => everything is still sorted, just update the new max key.
+		m.maxKey = localMaxKey
+	} else {
+		// unordered append, need to compare to update the min/max
+		m.notSorted = true
+		if bytes.Compare(localMinKey, m.minKey) < 0 {
+			m.minKey = localMinKey
+		}
+		if bytes.Compare(localMaxKey, m.maxKey) > 0 {
+			m.maxKey = localMaxKey
 		}
 	}
 
@@ -2087,4 +2137,36 @@ func (m *kvMemCache) clear() {
 	m.kvs = m.kvs[:0]
 	m.totalSize = 0
 	m.notSorted = false
+	m.minKey = nil
+	m.maxKey = nil
+}
+
+// writeToDB writes the entire content into the pebble batch, and then clears itself.
+func (m *kvMemCache) writeToDB(e *LocalFile) error {
+	log.L().Info("batch write data to local DB",
+		zap.Int64("size", m.totalSize),
+		zap.Int("kvs", len(m.kvs)),
+		zap.Stringer("engineUUID", e.Uuid),
+		log.ZapRedactBinary("firstKey", m.minKey),
+		log.ZapRedactBinary("lastKey", m.maxKey))
+
+	batch := e.db.NewBatch()
+	defer batch.Close()
+
+	writeOpts := pebble.WriteOptions{Sync: true}
+
+	for _, kv := range m.kvs {
+		if err := batch.Set(kv.Key, kv.Val, &writeOpts); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	if err := e.db.Apply(batch, &writeOpts); err != nil {
+		return errors.Trace(err)
+	}
+
+	e.TotalSize.Add(m.totalSize)
+	e.Length.Add(int64(len(m.kvs)))
+	m.clear()
+
+	return nil
 }
