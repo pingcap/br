@@ -71,8 +71,6 @@ const (
 	gRPCKeepAliveTimeout = 3 * time.Second
 	gRPCBackOffMaxDelay  = 3 * time.Second
 
-	LocalMemoryTableSize = config.LocalMemoryTableSize
-
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
 	regionMaxKeyCount = 1_440_000
 
@@ -346,6 +344,9 @@ type local struct {
 
 	tcpConcurrency int
 	maxOpenFiles   int
+
+	engineMemCacheSize      int
+	localWriterMemCacheSize int64
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -412,14 +413,14 @@ func NewLocalBackend(
 	ctx context.Context,
 	tls *common.TLS,
 	pdAddr string,
-	regionSplitSize int64,
-	localFile string,
-	rangeConcurrency int,
-	sendKVPairs int,
+	cfg *config.TikvImporter,
 	enableCheckpoint bool,
 	g glue.Glue,
 	maxOpenFiles int,
 ) (Backend, error) {
+	localFile := cfg.SortedKVDir
+	rangeConcurrency := cfg.RangeConcurrency
+
 	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
 	if err != nil {
 		return MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
@@ -452,14 +453,17 @@ func NewLocalBackend(
 		g:        g,
 
 		localStoreDir:   localFile,
-		regionSplitSize: regionSplitSize,
+		regionSplitSize: int64(cfg.RegionSplitSize),
 
 		rangeConcurrency:  worker.NewPool(ctx, rangeConcurrency, "range"),
 		ingestConcurrency: worker.NewPool(ctx, rangeConcurrency*2, "ingest"),
 		tcpConcurrency:    rangeConcurrency,
-		batchWriteKVPairs: sendKVPairs,
+		batchWriteKVPairs: cfg.SendKVPairs,
 		checkpointEnabled: enableCheckpoint,
 		maxOpenFiles:      utils.MaxInt(maxOpenFiles, openFilesLowerThreshold),
+
+		engineMemCacheSize:      int(cfg.EngineMemCacheSize),
+		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
 	return MakeBackend(local), nil
@@ -601,7 +605,7 @@ func (local *local) ShouldPostProcess() bool {
 
 func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.DB, error) {
 	opt := &pebble.Options{
-		MemTableSize: LocalMemoryTableSize,
+		MemTableSize: local.engineMemCacheSize,
 		// the default threshold value may cause write stall.
 		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
@@ -1453,13 +1457,13 @@ func (local *local) NewEncoder(tbl table.Table, options *SessionOptions) (Encode
 	return NewTableKVEncoder(tbl, options)
 }
 
-func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error) {
+func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	e, ok := local.engines.Load(engineUUID)
 	if !ok {
 		return nil, errors.Errorf("could not find engine for %s", engineUUID.String())
 	}
 	engineFile := e.(*LocalFile)
-	return openLocalWriter(engineFile, local.localStoreDir, maxCacheSize), nil
+	return openLocalWriter(engineFile, local.localStoreDir, local.localWriterMemCacheSize), nil
 }
 
 func openLocalWriter(f *LocalFile, sstDir string, memtableSizeLimit int64) *LocalWriter {

@@ -105,6 +105,12 @@ addr = "127.0.0.1:8287"
 # this default config can make full use of a 10Gib bandwidth network, if the network bandwidth is higher, you can increase
 # this to gain better performance. Larger value will also increase the memory usage slightly.
 #range-concurrency = 16
+# The memory cache used in local backend for each engine. The memory usage during write-KV phase by the engines is bound
+# by (index-concurrency + table-concurrency) * engine-mem-cache-size.
+#engine-mem-cache-size = '512MiB'
+# The memory cache used in for local sorting during the encode-KV phase before flushing into the engines. The memory
+# usage is bound by region-concurrency * local-writer-mem-cache-size.
+#local-writer-mem-cache-size = '256MiB'
 
 [mydumper]
 # block size of file reading
