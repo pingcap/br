@@ -228,8 +228,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, int64(cfg.TikvImporter.RegionSplitSize),
-			cfg.TikvImporter.SortedKVDir, cfg.TikvImporter.RangeConcurrency, cfg.TikvImporter.SendKVPairs,
+		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -1396,19 +1395,7 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
-	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
-	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
-	// Thus, the disk size occupied by these writers are up to
-	// (region-concurrency + index-concurrency) * 512 MiB.
-	// This number should not exceed the disk quota.
-	// Therefore, we need to reduce that "512 MiB" to respect the disk quota:
-	localWriterMaxCacheSize := int64(rc.cfg.TikvImporter.DiskQuota) // int64(rc.cfg.App.IndexConcurrency+rc.cfg.App.RegionConcurrency)
-	if localWriterMaxCacheSize > config.LocalMemoryTableSize {
-		localWriterMaxCacheSize = config.LocalMemoryTableSize
-	}
-
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+	indexWriter, err := indexEngine.LocalWriter(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1456,7 +1443,7 @@ func (t *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+		dataWriter, err := dataEngine.LocalWriter(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
