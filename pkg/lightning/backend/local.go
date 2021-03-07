@@ -29,6 +29,7 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/coreos/go-semver/semver"
+	"github.com/docker/go-units"
 	"github.com/google/btree"
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
@@ -77,8 +78,18 @@ const (
 
 	propRangeIndex = "tikv.range_index"
 
-	defaultPropSizeIndexDistance = 4 * 1024 * 1024 // 4MB
+	defaultPropSizeIndexDistance = 4 * units.MiB
 	defaultPropKeysIndexDistance = 40 * 1024
+
+	// defaultLocalWriterKVsChannelCap is the capacity of the
+	// LocalWriter.kvsChan field, which acts as the buffer between local writer
+	// and deliverLoop. Each entry in the channel can be observed from metrics
+	//
+	//		2 * sum(lightning_block_deliver_bytes_sum) / sum(lightning_block_deliver_bytes_count)
+	//
+	// which has a minimum size of 64 KB and a maximum size depending on the KV
+	// encoding of each row. It can be as high as 1 MiB.
+	defaultLocalWriterKVsChannelCap = 16
 
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
@@ -1468,7 +1479,7 @@ func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (Engi
 func openLocalWriter(f *LocalFile, sstDir string, memtableSizeLimit int64) *LocalWriter {
 	w := &LocalWriter{
 		sstDir:            sstDir,
-		kvsChan:           make(chan []common.KvPair, 1024),
+		kvsChan:           make(chan []common.KvPair, defaultLocalWriterKVsChannelCap),
 		flushCh:           make(chan chan error),
 		consumeCh:         make(chan struct{}, 1),
 		local:             f,
