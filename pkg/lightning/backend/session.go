@@ -203,6 +203,7 @@ func newSession(options *SessionOptions) *session {
 	vars.StmtCtx.OverflowAsWarning = !sqlMode.HasStrictMode()
 	vars.StmtCtx.AllowInvalidDate = sqlMode.HasAllowInvalidDatesMode()
 	vars.StmtCtx.IgnoreZeroInDate = !sqlMode.HasStrictMode() || sqlMode.HasAllowInvalidDatesMode()
+	vars.SQLMode = sqlMode
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
 			vars.SetSystemVar(k, v)
