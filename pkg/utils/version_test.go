@@ -173,7 +173,7 @@ func (s *versionSuite) TestProxyFields(c *check.C) {
 			}
 		}
 
-		for _, field := range ProxyFields() {
+		for _, field := range proxyFields() {
 			idx, ok := revIndex[field.Key]
 			c.Assert(ok, check.IsTrue)
 			c.Assert((1<<idx)&mask, check.Not(check.Equals), 0)
