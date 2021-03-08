@@ -74,81 +74,6 @@ services:
     env_file:
       - ../docker/minio.env
 
-  tikv1:
-    image: pingcap/tikv:${TAG}
-    volumes:
-      - ../docker/config/tikv.toml:/tikv.toml:ro
-      - /tmp/br/docker/backup_data/${TAG}:/data
-      - /tmp/br/docker/backup_logs/${TAG}:/logs
-    command:
-      - --addr=0.0.0.0:20160
-      - --advertise-addr=tikv1:20160
-      - --data-dir=/data/tikv1
-      - --pd=pd0:2379
-      - --config=/tikv.toml
-      - --log-file=/logs/tikv1.log
-    depends_on:
-      - "pd0"
-    # sysctls:
-    #   net.core.somaxconn: 32768
-    # ulimits:
-    #   nofile:
-    #     soft: 1000000
-    #     hard: 1000000
-    restart: on-failure
-    env_file:
-      - ../docker/minio.env
-
-  tikv2:
-    image: pingcap/tikv:${TAG}
-    volumes:
-      - ../docker/config/tikv.toml:/tikv.toml:ro
-      - /tmp/br/docker/backup_data/${TAG}:/data
-      - /tmp/br/docker/backup_logs/${TAG}:/logs
-    command:
-      - --addr=0.0.0.0:20160
-      - --advertise-addr=tikv2:20160
-      - --data-dir=/data/tikv2
-      - --pd=pd0:2379
-      - --config=/tikv.toml
-      - --log-file=/logs/tikv2.log
-    depends_on:
-      - "pd0"
-    # sysctls:
-    #   net.core.somaxconn: 32768
-    # ulimits:
-    #   nofile:
-    #     soft: 1000000
-    #     hard: 1000000
-    restart: on-failure
-    env_file:
-      - ../docker/minio.env
-
-  tikv3:
-    image: pingcap/tikv:${TAG}
-    volumes:
-      - ../docker/config/tikv.toml:/tikv.toml:ro
-      - /tmp/br/docker/backup_data/${TAG}:/data
-      - /tmp/br/docker/backup_logs/${TAG}:/logs
-    command:
-      - --addr=0.0.0.0:20160
-      - --advertise-addr=tikv3:20160
-      - --data-dir=/data/tikv3
-      - --pd=pd0:2379
-      - --config=/tikv.toml
-      - --log-file=/logs/tikv3.log
-    depends_on:
-      - "pd0"
-    # sysctls:
-    #   net.core.somaxconn: 32768
-    # ulimits:
-    #   nofile:
-    #     soft: 1000000
-    #     hard: 1000000
-    restart: on-failure
-    env_file:
-      - ../docker/minio.env
-
   tidb:
     image: pingcap/tidb:${TAG}
     ports:
@@ -166,9 +91,6 @@ services:
       - --advertise-address=tidb
     depends_on:
       - "tikv0"
-      - "tikv1"
-      - "tikv2"
-      - "tikv3"
     # sysctls:
     #   net.core.somaxconn: 32768
     # ulimits:
