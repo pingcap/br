@@ -29,7 +29,7 @@ We have 3 different storage. so we should make sure backward compatible seperate
 
 ### Running tests
 
-Start cluster with docker-compose and Build br with latest version.
+Start a cluster with docker-compose and Build br with latest version.
 
 ```sh
 docker-compose -f docker-compose.yaml rm -s -v && \
