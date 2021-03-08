@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"golang.org/x/net/http/httpproxy"
 	"regexp"
 	"runtime"
 	"strings"
@@ -163,4 +164,21 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		}
 	}
 	return nil
+}
+
+// LogEnvVariables logs related environment variables.
+func LogEnvVariables() {
+	// log http proxy settings, it will be used in gRPC connection by default
+	proxyCfg := httpproxy.FromEnvironment()
+	fields := make([]zap.Field, 0, 3)
+	if proxyCfg.HTTPProxy != "" {
+		fields = append(fields, zap.String("http_proxy", proxyCfg.HTTPProxy))
+	}
+	if proxyCfg.HTTPSProxy != "" {
+		fields = append(fields, zap.String("https_proxy", proxyCfg.HTTPSProxy))
+	}
+	if proxyCfg.NoProxy != "" {
+		fields = append(fields, zap.String("no_proxy", proxyCfg.NoProxy))
+	}
+	log.Info("using proxy config", fields...)
 }

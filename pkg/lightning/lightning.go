@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pingcap/br/pkg/utils"
 	"io"
 	"io/ioutil"
 	"net"
@@ -30,14 +31,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/errors"
-	"github.com/pingcap/failpoint"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/shurcooL/httpgzip"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"golang.org/x/net/http/httpproxy"
-
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -48,6 +41,12 @@ import (
 	"github.com/pingcap/br/pkg/lightning/restore"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shurcooL/httpgzip"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Lightning struct {
@@ -220,7 +219,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 		log.L().Info("cfg", zap.Stringer("cfg", taskCfg))
 	})
 
-	logEnvVariables()
+	utils.LogEnvVariables()
 
 	ctx, cancel := context.WithCancel(taskCtx)
 	l.cancelLock.Lock()
@@ -323,15 +322,6 @@ func (l *Lightning) Stop() {
 		log.L().Warn("failed to shutdown HTTP server", log.ShortError(err))
 	}
 	l.shutdown()
-}
-
-// logEnvVariables add related environment variables to log
-func logEnvVariables() {
-	// log http proxy settings, it will be used in gRPC connection by default
-	proxyCfg := httpproxy.FromEnvironment()
-	if proxyCfg.HTTPProxy != "" || proxyCfg.HTTPSProxy != "" {
-		log.L().Info("environment variables", zap.Reflect("httpproxy", proxyCfg))
-	}
 }
 
 func writeJSONError(w http.ResponseWriter, code int, prefix string, err error) {
