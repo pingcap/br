@@ -158,12 +158,12 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 		tlsConfig := task.TLSConfig{}
 		useTLS := !(tlsConfig.ParseFromFlags(cmd.Flags()) != nil || tlsConfig.Cert == "" || tlsConfig.Key == "")
-		startPProf := func() { utils.StartPProfListener(statusAddr) }
+		startPProf := func(addr string) { utils.StartPProfListener(addr) }
 		if useTLS {
-			startPProf = func() { utils.StartPProfListenerTLS(statusAddr, tlsConfig.Cert, tlsConfig.Key) }
+			startPProf = func(addr string) { utils.StartPProfListenerTLS(addr, tlsConfig.Cert, tlsConfig.Key) }
 		}
 		if statusAddr != "" {
-			startPProf()
+			startPProf(statusAddr)
 		} else {
 			utils.StartDynamicPProfListener(startPProf)
 		}

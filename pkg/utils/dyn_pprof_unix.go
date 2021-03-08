@@ -17,16 +17,16 @@ const startPProfSignal = syscall.SIGUSR1
 var signalChan = make(chan os.Signal, 1)
 
 // StartDynamicPProfListener starts the listener that will enable pprof when received `startPProfSignal`.
-func StartDynamicPProfListener(start func()) {
+func StartDynamicPProfListener(start func(addr string)) {
 	signal.Notify(signalChan, startPProfSignal)
 	go onSignalStartPProf(signalChan, start)
 }
 
-func onSignalStartPProf(signals <-chan os.Signal, start func()) {
+func onSignalStartPProf(signals <-chan os.Signal, start func(addr string)) {
 	for sig := range signals {
 		if sig == startPProfSignal {
 			log.Info("signal received, starting pprof...", zap.Stringer("signal", sig))
-			start()
+			start("0.0.0.0:0")
 		}
 	}
 }
