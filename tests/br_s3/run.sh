@@ -33,9 +33,9 @@ start_s3() {
     bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
     pid=$!
     i=0
-    while ! curl -o /dev/null -s "http://$S3_ENDPOINT/"; do
+    while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
         i=$(($i+1))
-        if [ $i -gt 7 ]; then
+        if [ $i -gt 30 ]; then
             echo 'Failed to start minio'
             exit 1
         fi
@@ -47,7 +47,7 @@ start_s3() {
 start_s3
 echo "started s3 with pid = $s3_pid"
 bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
-host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+    host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
 # Fill in the database
 for i in $(seq $DB_COUNT); do
@@ -68,18 +68,9 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  (run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
-      --log-file $BACKUP_LOG --ratelimit 1 || \
-      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 )) &
-  br_pid=$!
-
-  # restart S3, to make sure we can success to backup even S3 disconnected.
-  sleep 1
-  kill -9 $s3_pid
-  sleep 15
-  start_s3
-
-  wait $br_pid
+  run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+      --log-file $BACKUP_LOG || \
+      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 )
   cat $BACKUP_LOG
   BR_LOG_TO_TERM=1
 

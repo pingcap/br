@@ -119,7 +119,7 @@ func (push *pushDown) pushBackup(
 				default:
 					// UNSAFE! TODO: Add a error type for failed to put file.
 					if messageIsRetryableFailedToWrite(errPb.GetMsg()) {
-						log.Warn("backup occur failed to write file error", zap.String("error", errPb.GetMsg()))
+						log.Warn("backup occur s3 storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
