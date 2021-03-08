@@ -13,6 +13,6 @@ coverage:
     project:
       default:
         target: auto
-        # Allows a 5% drop from the previous base commit coverage,
+        # Allows a 3% drop from the previous base commit coverage,
         # because there are some flaky tests.
         threshold: 3%
