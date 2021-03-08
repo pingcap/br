@@ -148,12 +148,6 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
 }
 
-// SetOption implements the kv.Transaction interface
-func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
-
-// DelOption implements the kv.Transaction interface
-func (t *transaction) DelOption(kv.Option) {}
-
 // SetAssertion implements the kv.Transaction interface
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
@@ -201,6 +195,7 @@ func newSession(options *SessionOptions) *session {
 	vars.StmtCtx.OverflowAsWarning = !sqlMode.HasStrictMode()
 	vars.StmtCtx.AllowInvalidDate = sqlMode.HasAllowInvalidDatesMode()
 	vars.StmtCtx.IgnoreZeroInDate = !sqlMode.HasStrictMode() || sqlMode.HasAllowInvalidDatesMode()
+	vars.SQLMode = sqlMode
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
 			if err := vars.SetSystemVar(k, v); err != nil {

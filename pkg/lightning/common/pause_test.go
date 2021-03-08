@@ -79,7 +79,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		}()
 	}
 
-	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 10*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 100*time.Millisecond)
 
 	// after calling Pause(), these should be blocking...
 
@@ -101,7 +102,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		p.Resume()
 	}()
 
-	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 550*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 800*time.Millisecond)
 
 	// if the context is canceled, Wait() should immediately unblock...
 
@@ -119,7 +121,8 @@ func (s *pauseSuite) TestPause(c *C) {
 	}
 
 	cancel()
-	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 10*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 100*time.Millisecond)
 
 	// canceling the context does not affect the state of the pauser
 
@@ -135,7 +138,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		p.Resume()
 	}()
 
-	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 550*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 800*time.Millisecond)
 }
 
 // Run `go test github.com/pingcap/br/pkg/lightning/common -check.b -test.v` to get benchmark result.
