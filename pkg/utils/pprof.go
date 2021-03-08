@@ -23,13 +23,12 @@ var (
 	mu           sync.Mutex
 )
 
-// StartPProfListener forks a new goroutine listening on specified port and provide pprof info.
-func StartPProfListener(statusAddr string) {
+func listen(statusAddr string) net.Listener {
 	mu.Lock()
 	defer mu.Unlock()
 	if startedPProf != "" {
 		log.Warn("Try to start pprof when it has been started, nothing will happen", zap.String("address", startedPProf))
-		return
+		return nil
 	}
 	failpoint.Inject("determined-pprof-port", func(v failpoint.Value) {
 		port := v.(int)
@@ -39,19 +38,40 @@ func StartPProfListener(statusAddr string) {
 	listener, err := net.Listen("tcp", statusAddr)
 	if err != nil {
 		log.Warn("failed to start pprof", zap.String("addr", statusAddr), zap.Error(err))
-		return
+		return nil
 	}
 	startedPProf = listener.Addr().String()
 	log.Info("bound pprof to addr", zap.String("addr", startedPProf))
 	_, _ = fmt.Fprintf(os.Stderr, "bound pprof to addr %s\n", startedPProf)
+	return listener
+}
 
-	go func() {
-		if e := http.Serve(listener, nil); e != nil {
-			log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
-			mu.Lock()
-			startedPProf = ""
-			mu.Unlock()
-			return
-		}
-	}()
+// StartPProfListenerTLS forks a new goroutine listening on specified port and provide pprof info, with TLS.
+func StartPProfListenerTLS(statusAddr, certFile, keyFile string) {
+	if listener := listen(statusAddr); listener != nil {
+		go func() {
+			if e := http.ServeTLS(listener, nil, certFile, keyFile); e != nil {
+				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
+				mu.Lock()
+				startedPProf = ""
+				mu.Unlock()
+				return
+			}
+		}()
+	}
+}
+
+// StartPProfListener forks a new goroutine listening on specified port and provide pprof info.
+func StartPProfListener(statusAddr string) {
+	if listener := listen(statusAddr); listener != nil {
+		go func() {
+			if e := http.Serve(listener, nil); e != nil {
+				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
+				mu.Lock()
+				startedPProf = ""
+				mu.Unlock()
+				return
+			}
+		}()
+	}
 }

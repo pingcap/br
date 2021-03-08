@@ -151,16 +151,21 @@ func Init(cmd *cobra.Command) (err error) {
 		}
 
 		// Initialize the pprof server.
-		// TODO: Support TLS.
 		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
 		if e != nil {
 			err = e
 			return
 		}
+		tlsConfig := task.TLSConfig{}
+		useTLS := !(tlsConfig.ParseFromFlags(cmd.Flags()) != nil || tlsConfig.Cert == "" || tlsConfig.Key == "")
+		startPProf := func() { utils.StartPProfListener(statusAddr) }
+		if useTLS {
+			startPProf = func() { utils.StartPProfListenerTLS(statusAddr, tlsConfig.Cert, tlsConfig.Key) }
+		}
 		if statusAddr != "" {
-			utils.StartPProfListener(statusAddr)
+			startPProf()
 		} else {
-			utils.StartDynamicPProfListener()
+			utils.StartDynamicPProfListener(startPProf)
 		}
 	})
 	return errors.Trace(err)
