@@ -170,6 +170,13 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 // LogEnvVariables logs related environment variables.
 func LogEnvVariables() {
 	// log http proxy settings, it will be used in gRPC connection by default
+	fields := ProxyFields()
+	if len(fields) > 0 {
+		log.Info("using proxy config", fields...)
+	}
+}
+
+func ProxyFields() []zap.Field {
 	proxyCfg := httpproxy.FromEnvironment()
 	fields := make([]zap.Field, 0, 3)
 	if proxyCfg.HTTPProxy != "" {
@@ -181,7 +188,5 @@ func LogEnvVariables() {
 	if proxyCfg.NoProxy != "" {
 		fields = append(fields, zap.String("no_proxy", proxyCfg.NoProxy))
 	}
-	if len(fields) > 0 {
-		log.Info("using proxy config", fields...)
-	}
+	return fields
 }

@@ -30,8 +30,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -49,6 +47,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/restore"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type Lightning struct {
