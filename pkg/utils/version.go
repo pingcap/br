@@ -180,5 +180,7 @@ func LogEnvVariables() {
 	if proxyCfg.NoProxy != "" {
 		fields = append(fields, zap.String("no_proxy", proxyCfg.NoProxy))
 	}
-	log.Info("using proxy config", fields...)
+	if len(fields) > 0 {
+		log.Info("using proxy config", fields...)
+	}
 }
