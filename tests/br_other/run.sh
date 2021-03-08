@@ -84,7 +84,6 @@ echo "starting pprof..."
 
 # give the former backup some time to write down lock file (and start pprof server).
 sleep 1
-# TODO Support TLS.
 run_curl "https://localhost:$PPROF_PORT/debug/pprof/trace?seconds=1" &>/dev/null
 echo "pprof started..."
 
