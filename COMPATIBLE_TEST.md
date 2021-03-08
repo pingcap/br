@@ -2,7 +2,7 @@
 
 ## Background
 
-We have some incompatible issue before which makes BR cannot restore backuped data in some situations.
+We had some incompatible issues before which made BR cannot restore backuped data in some situations.
 So we need a test workflow to check the compatblity.
 
 ## Goal
