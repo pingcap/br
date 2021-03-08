@@ -2,7 +2,7 @@
 
 ## Background
 
-We have some incompatible issue before which makes BR cannot restore backuped data in some situations.
+We had some incompatible issues before which made BR cannot restore backuped data in some situations.
 So we need a test workflow to check the compatblity.
 
 ## Goal
@@ -29,7 +29,7 @@ We have 3 different storage. so we should make sure backward compatible seperate
 
 ### Running tests
 
-Start cluster with docker-compose and Build br with latest version.
+Start a cluster with docker-compose and Build br with latest version.
 
 ```sh
 docker-compose -f docker-compose.yaml rm -s -v && \
