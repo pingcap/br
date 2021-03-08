@@ -91,12 +91,6 @@ services:
       - --advertise-address=tidb
     depends_on:
       - "tikv0"
-    # sysctls:
-    #   net.core.somaxconn: 32768
-    # ulimits:
-    #   nofile:
-    #     soft: 1000000
-    #     hard: 1000000
     restart: on-failure
     env_file:
       - ../docker/gcs.env
@@ -107,7 +101,10 @@ services:
       - 2492${PORT_SUFFIX}:24927
     volumes:
       - /tmp/br/docker/data/s3:/data/s3
-    command: server --address=:24927 /data/s3
+    command:
+      - server
+      - --address=:24927
+      - /data/s3
     env_file:
       - ../docker/minio.env
 
@@ -117,7 +114,12 @@ services:
       - 2081${PORT_SUFFIX}:20818
     volumes:
       - /tmp/br/docker/backup_data/gcs:/data/gcs
-    command: -scheme http -host gcs -port 20818 -filesystem-root /data/gcs -public-host gcs:20818
+    command:
+      - -scheme http
+      - -host gcs
+      - -port 20818
+      - -filesystem-root /data/gcs
+      - -public-host gcs:20818
 
   # we need a oauth server for gcs test
   oauth:
