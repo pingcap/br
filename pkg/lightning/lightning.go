@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pingcap/br/pkg/utils"
 	"io"
 	"io/ioutil"
 	"net"
@@ -31,6 +30,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/utils"
+
+	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shurcooL/httpgzip"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -41,12 +49,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/restore"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/failpoint"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/shurcooL/httpgzip"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 type Lightning struct {

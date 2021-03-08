@@ -6,10 +6,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"golang.org/x/net/http/httpproxy"
 	"regexp"
 	"runtime"
 	"strings"
+
+	"golang.org/x/net/http/httpproxy"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
 
