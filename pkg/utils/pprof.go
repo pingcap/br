@@ -46,11 +46,10 @@ func listen(statusAddr string) net.Listener {
 	return listener
 }
 
-// StartPProfListenerTLS forks a new goroutine listening on specified port and provide pprof info, with TLS.
-func StartPProfListenerTLS(statusAddr, certFile, keyFile string) {
+func startPProfWith(statusAddr string, serve func(net.Listener) error) {
 	if listener := listen(statusAddr); listener != nil {
 		go func() {
-			if e := http.ServeTLS(listener, nil, certFile, keyFile); e != nil {
+			if e := serve(listener); e != nil {
 				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
 				mu.Lock()
 				startedPProf = ""
@@ -61,17 +60,16 @@ func StartPProfListenerTLS(statusAddr, certFile, keyFile string) {
 	}
 }
 
+// StartPProfListenerTLS forks a new goroutine listening on specified port and provide pprof info, with TLS.
+func StartPProfListenerTLS(statusAddr, certFile, keyFile string) {
+	startPProfWith(statusAddr, func(listener net.Listener) error {
+		return http.ServeTLS(listener, nil, certFile, keyFile)
+	})
+}
+
 // StartPProfListener forks a new goroutine listening on specified port and provide pprof info.
 func StartPProfListener(statusAddr string) {
-	if listener := listen(statusAddr); listener != nil {
-		go func() {
-			if e := http.Serve(listener, nil); e != nil {
-				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
-				mu.Lock()
-				startedPProf = ""
-				mu.Unlock()
-				return
-			}
-		}()
-	}
+	startPProfWith(statusAddr, func(listener net.Listener) error {
+		return http.Serve(listener, nil)
+	})
 }
