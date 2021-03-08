@@ -780,7 +780,7 @@ func OnBackupResponse(
 	default:
 		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
 		if messageIsRetryableFailedToWrite(resp.GetError().GetMsg()) {
-			log.Warn("backup occur failed to write file error.", zap.String("error", resp.GetError().GetMsg()))
+			log.Warn("backup occur s3 storage error.", zap.String("error", resp.GetError().GetMsg()))
 			return nil, 3000, nil
 		}
 		log.Error("backup occur unknown error", zap.String("error", resp.Error.GetMsg()), zap.Uint64("storeID", storeID))
