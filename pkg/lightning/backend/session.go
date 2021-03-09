@@ -199,7 +199,7 @@ func newSession(options *SessionOptions) *session {
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
 			if err := vars.SetSystemVar(k, v); err != nil {
-				log.L().Warn("new session: failed to set system var",
+				log.L().DPanic("new session: failed to set system var",
 					log.ShortError(err),
 					zap.String("key", k))
 			}

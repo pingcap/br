@@ -801,7 +801,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 
 		lock.Unlock()
 
-		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
+		//nolint:scopelint // This would be either INLINED or ERASED, at compile time.
 		failpoint.Inject("FailIfImportedChunk", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() >= uint64(val.(int)) {
 				rc.checkpointsWg.Done()
@@ -810,7 +810,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
-		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
+		//nolint:scopelint // This would be either INLINED or ERASED, at compile time.
 		failpoint.Inject("FailIfStatusBecomes", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.StatusCheckpointMerger); ok && merger.EngineID >= 0 && int(merger.Status) == val.(int) {
 				rc.checkpointsWg.Done()
@@ -819,7 +819,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
-		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
+		//nolint:scopelint // This would be either INLINED or ERASED, at compile time.
 		failpoint.Inject("FailIfIndexEngineImported", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.StatusCheckpointMerger); ok &&
 				merger.EngineID == checkpoints.WholeTableEngineID &&
@@ -830,7 +830,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 			}
 		})
 
-		//nolint:scopelint // This would be either INLINED or ERASED, believe me!
+		//nolint:scopelint // This would be either INLINED or ERASED, at compile time.
 		failpoint.Inject("KillIfImportedChunk", func(val failpoint.Value) {
 			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() >= uint64(val.(int)) {
 				if err := common.KillMySelf(); err != nil {

@@ -298,8 +298,10 @@ func makeParquetFileRegion(
 	if err != nil {
 		return prevRowIdxMax, nil, errors.Trace(err)
 	}
-	// TODO: handle the error here?
-	numberRows, _ := ReadParquetFileRowCount(ctx, store, r, dataFile.FileMeta.Path)
+	numberRows, err := ReadParquetFileRowCount(ctx, store, r, dataFile.FileMeta.Path)
+	if err != nil {
+		return 0, nil, errors.Trace(err)
+	}
 	rowIDMax := prevRowIdxMax + numberRows
 	region := &TableRegion{
 		DB:       meta.DB,

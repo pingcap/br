@@ -273,8 +273,7 @@ func (s *backendSuite) TestImportFailedRecovered(c *C) {
 	c.Assert(err, IsNil)
 }
 
-//nolint:interfacer // change test case signature might cause Check failed to find this function?
-func (s *backendSuite) TestClose(c *C) {
+func (s *backendSuite) TestClose(c gomock.TestReporter) {
 	s.setUpTest(c)
 	defer s.tearDownTest()
 

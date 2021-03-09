@@ -87,8 +87,7 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) Backend {
 
 func (row tidbRow) ClassifyAndAppend(data *Rows, checksum *verification.KVChecksum, _ *Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
-	// I'm not sure if `rows := data.(*tidbRows); *rows = append(*rows, row)` could solve this lint.
-	// Seems there are some stories. Leave it untouched.
+	// We cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
 	//nolint:gocritic
 	*data = append(rows, row)
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
