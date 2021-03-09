@@ -554,7 +554,7 @@ func (s *s3Suite) TestReadError(c *C) {
 		GetObjectWithContext(ctx, gomock.Any()).
 		Return(nil, expectedErr)
 
-	_, err := s.storage.ReadFile(ctx, "file-missing")
+	_, err := s.storage.Read(ctx, "file-missing")
 
 	c.Assert(err, ErrorMatches, "failed to read s3 file, file info: "+
 		"input.bucket='bucket', input.key='prefix/file-missing': "+expectedErr.Error())
