@@ -21,12 +21,7 @@ for CFG in chunk engine; do
   rm -f "$TEST_DIR/lightning-tidb.log"
   run_sql 'DROP DATABASE IF EXISTS fail_fast;'
 
-  set +e
-  run_lightning --backend tidb --enable-checkpoint=0 --log-file "$TEST_DIR/lightning-tidb.log" --config "tests/$TEST_NAME/$CFG.toml"
-  ERRORCODE=$?
-  set -e
-
-  [ "$ERRORCODE" -ne 0 ]
+  ! run_lightning --backend tidb --enable-checkpoint=0 --log-file "$TEST_DIR/lightning-tidb.log" --config "tests/$TEST_NAME/$CFG.toml"
 
   tail -n 1 $TEST_DIR/lightning-tidb.log | grep -Fq "Error 1062: Duplicate entry '1-1' for key 'uq'"
   ! grep -Fq "restore file completed" $TEST_DIR/lightning-tidb.log
