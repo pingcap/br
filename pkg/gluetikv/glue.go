@@ -8,7 +8,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/driver"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/glue"
@@ -38,7 +38,7 @@ func (Glue) Open(path string, option pd.SecurityOption) (kv.Storage, error) {
 		conf.Security.ClusterSSLKey = option.KeyPath
 		config.StoreGlobalConfig(conf)
 	}
-	return tikv.Driver{}.Open(path)
+	return driver.TiKVDriver{}.Open(path)
 }
 
 // OwnsStorage implements glue.Glue.
@@ -54,4 +54,9 @@ func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redi
 // Record implements glue.Glue.
 func (Glue) Record(name string, val uint64) {
 	summary.CollectUint(name, val)
+}
+
+// GetVersion implements glue.Glue.
+func (Glue) GetVersion() string {
+	return "BR\n" + utils.BRInfo()
 }

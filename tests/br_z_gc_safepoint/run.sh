@@ -18,7 +18,7 @@
 # slows down other tests to changing GC safe point. Adding a z prefix to run
 # the test last.
 
-set -eu
+set -eux
 
 DB="$TEST_NAME"
 TABLE="usertable"
@@ -30,7 +30,11 @@ run_sql "CREATE DATABASE $DB;"
 go-ycsb load mysql -P tests/$TEST_NAME/workload -p mysql.host=$TIDB_IP -p mysql.port=$TIDB_PORT -p mysql.user=root -p mysql.db=$DB
 
 # Update GC safepoint to now + 5s after 10s seconds.
-sleep 10 && bin/gc -pd $PD_ADDR -gc-offset "5s" -update-service true &
+sleep 10 && bin/gc -pd $PD_ADDR \
+    --ca "$TEST_DIR/certs/ca.pem" \
+    --cert "$TEST_DIR/certs/br.pem" \
+    --key "$TEST_DIR/certs/br.key" \
+    -gc-offset "5s" -update-service true &
 
 # total bytes is 1136000
 # Set ratelimit to 40960 bytes/second, it will finish within 25s,
@@ -45,7 +49,11 @@ if [ "$backup_gc_fail" -ne "0" ];then
 fi
 
 # set safePoint otherwise the default safePoint is zero
-bin/gc -pd $PD_ADDR -gc-offset "1s"
+bin/gc -pd $PD_ADDR \
+    --ca "$TEST_DIR/certs/ca.pem" \
+    --cert "$TEST_DIR/certs/br.pem" \
+    --key "$TEST_DIR/certs/br.key" \
+    -gc-offset "1s"
 
 backup_gc_fail=0
 echo "incremental backup start (expect fail)..."

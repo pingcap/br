@@ -1,0 +1,6 @@
+[checkpoint]
+enable = true
+driver = "mysql"
+
+[tidb]
+sql-mode = 'STRICT_ALL_TABLES'

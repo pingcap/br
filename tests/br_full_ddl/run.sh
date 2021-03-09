@@ -63,7 +63,7 @@ run_sql "analyze table $DB.$TABLE;"
 #        }
 #     ]
 # }
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $BACKUP_STAT
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $BACKUP_STAT
 
 # backup full
 echo "backup start with stats..."
@@ -96,7 +96,7 @@ fi
 
 echo "restore full without stats..."
 run_br restore full -s "local://$TEST_DIR/${DB}_disable_stats" --pd $PD_ADDR
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $RESOTRE_STAT
+curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $RESOTRE_STAT
 
 # stats should not be equal because we disable stats by default.
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
@@ -135,7 +135,7 @@ if [ "${skip_count}" -gt "2" ];then
     exit 1
 fi
 
-curl $TIDB_IP:10080/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .correlation)' > $RESOTRE_STAT
+run_curl https://$TIDB_STATUS_ADDR/stats/dump/$DB/$TABLE | jq '.columns.field0 | del(.last_update_version, .fm_sketch, .correlation)' > $RESOTRE_STAT
 
 if diff -q $BACKUP_STAT $RESOTRE_STAT > /dev/null
 then
@@ -160,8 +160,6 @@ echo "database $DB$ [original] row count: ${row_count_ori}, [after br] row count
 if $fail; then
     echo "TEST: [$TEST_NAME] failed!"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

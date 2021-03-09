@@ -167,17 +167,20 @@ func (t *transaction) Delete(k kv.Key) error {
 	return t.kvMemBuf.Delete(k)
 }
 
-// SetOption implements the kv.Transaction interface.
-func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
-
-// DelOption implements the kv.Transaction interface.
-func (t *transaction) DelOption(kv.Option) {}
-
 // SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
 func (t *transaction) GetUnionStore() kv.UnionStore {
 	return &t.kvUnionStore
+}
+
+// GetTableInfo implements the kv.Transaction interface.
+func (t *transaction) GetTableInfo(id int64) *model.TableInfo {
+	return nil
+}
+
+// CacheTableInfo implements the kv.Transaction interface.
+func (t *transaction) CacheTableInfo(id int64, info *model.TableInfo) {
 }
 
 // session is a trimmed down Session type which only wraps our own trimmed-down

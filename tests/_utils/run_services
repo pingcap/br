@@ -15,32 +15,32 @@
 
 set -eu
 
-TEST_DIR=/tmp/backup_restore_test
-
-PD_ADDR="127.0.0.1:2379"
-TIDB_IP="127.0.0.1"
-TIDB_PORT="4000"
-TIDB_ADDR="127.0.0.1:4000"
-TIDB_STATUS_ADDR="127.0.0.1:10080"
-# actaul tikv_addr are TIKV_ADDR${i}
-TIKV_ADDR="127.0.0.1:2016"
-TIKV_STATUS_ADDR="127.0.0.1:2018"
-TIKV_COUNT=3
-TIFLASH_STATUS="127.0.0.1:17000"
-TIFLASH_HTTP="127.0.0.1:8125"
+export PD_PEER_ADDR="127.0.0.1:2380"
+export PD_ADDR="127.0.0.1:2379"
+export TIDB_IP="127.0.0.1"
+export TIDB_PORT="4000"
+export TIDB_ADDR="127.0.0.1:4000"
+export TIDB_STATUS_ADDR="127.0.0.1:10080"
+# actual tikv_addr are TIKV_ADDR${i}
+export TIKV_ADDR="127.0.0.1:2016"
+export TIKV_STATUS_ADDR="127.0.0.1:2018"
+export TIKV_COUNT=3
+export TIFLASH_STATUS="127.0.0.1:17000"
+export TIFLASH_HTTP="127.0.0.1:8125"
+export IMPORTER_ADDR="127.0.0.1:8808"
 
 cleanup_data() {
     # Clean up data
-    for svc in "br" "tidb" "tiflash" "tikv" "pd"; do
+    for svc in "br" "tidb" "tiflash" "tikv" "pd" "importer"; do
         find "$TEST_DIR" -maxdepth 1 -name "${svc}*" -type d -exec echo delete {} \; -exec rm -rf {} \; 2> /dev/null
     done
 }
 
 stop_services() {
-    for svc in "br" "tidb-server" "tiflash" "TiFlashMain" "tikv-server" "pd-server"; do
-        killall -v -1 $svc || continue
+    for svc in "br" "tidb-server" "tiflash" "TiFlashMain" "tikv-server" "pd-server" "cdc" "minio" "tikv-importer"; do
+        killall -v -1 $svc 2>/dev/null || continue
         sleep 1 # give some grace shutdown period
-        killall -v -9 $svc || continue
+        killall -v -9 $svc &>/dev/null || continue
     done
     sleep 1 # give some time for the OS to reap all processes
     lsof -n -P -i :2379 -i :4000 -i :10080 -i :20161 -i :20162 -i :20163 -i :20181 -i :20182 -i :20183 -i :17000 -i :8125 || true
@@ -61,29 +61,46 @@ start_services() {
 }
 
 start_services_impl() {
-    stop_services
-    cleanup_data
+    stop_services || true
+    cleanup_data || true
 
-    source tests/_utils/make_tiflash_config
+    TIDB_CONFIG="tests/config/tidb.toml"
+    TIKV_CONFIG="tests/config/tikv.toml"
+    PD_CONFIG="tests/config/pd.toml"
+    RUN_TIFLASH="YES"
 
-    TIDB_CONFIG="${1-tests}/config/tidb.toml"
-    TIKV_CONFIG="${1-tests}/config/tikv.toml"
-    PD_CONFIG="${1-tests}/config/pd.toml"
-    TIFLASH_CONFIG="${1-tests}/config/tiflash.toml"
+    while [[ $# -gt 0 ]]
+    do
+        local key="$1"
 
-    if [ ! -e $PD_CONFIG ]; then PD_CONFIG=tests/config/pd.toml; fi
-    if [ ! -e $TIFLASH_CONFIG ]; then TIFLASH_CONFIG=tests/config/tiflash.toml; fi
+        case $key in
+            --tidb-cfg)
+            TIDB_CONFIG="$2"
+            shift # past argument
+            shift # past value
+            ;;
+            --no-tiflash)
+            RUN_TIFLASH="NO"
+            shift # past argument
+            ;;
+            *)    # unknown option
+            echo "Unknown args $@"
+            exit 1
+            ;;
+        esac
+    done
 
     echo "Starting PD..."
     mkdir -p "$TEST_DIR/pd"
     bin/pd-server \
-        --client-urls "http://$PD_ADDR" \
+        --client-urls "https://$PD_ADDR" \
+        --peer-urls "https://$PD_PEER_ADDR" \
         --log-file "$TEST_DIR/pd.log" \
         --data-dir "$TEST_DIR/pd" \
         --config $PD_CONFIG &
     # wait until PD is online...
     i=0
-    while ! curl -o /dev/null -sf "http://$PD_ADDR/pd/api/v1/version"; do
+    while ! run_curl "https://$PD_ADDR/pd/api/v1/version"; do
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to start PD'
@@ -100,13 +117,13 @@ start_services_impl() {
             -A "$TIKV_ADDR$i" \
             --status-addr "$TIKV_STATUS_ADDR$i" \
             --log-file "$TEST_DIR/tikv${i}.log" \
-            --log-level debug \
+            --log-level info \
             -C "$TIKV_CONFIG" \
             -s "$TEST_DIR/tikv${i}" &
     done
 
     echo "Waiting initializing TiKV..."
-    while ! curl -sf "http://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
+    while ! run_curl "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
        i=$((i+1))
        if [ "$i" -gt 20 ]; then
           echo 'Failed to initialize TiKV cluster'
@@ -119,6 +136,7 @@ start_services_impl() {
     bin/tidb-server \
         -P 4000 \
         --status 10080 \
+        --advertise-address="127.0.0.1" \
         --store tikv \
         --path "$PD_ADDR" \
         --config "$TIDB_CONFIG" \
@@ -126,7 +144,7 @@ start_services_impl() {
 
     echo "Verifying TiDB is started..."
     i=0
-    while ! curl -o /dev/null -sf "http://$TIDB_IP:10080/status"; do
+    while ! run_curl "https://$TIDB_IP:10080/status"; do
         i=$((i+1))
         if [ "$i" -gt 50 ]; then
             echo 'Failed to start TiDB'
@@ -135,14 +153,21 @@ start_services_impl() {
         sleep 3
     done
 
-    if [[ ! $@ =~ "--no-tiflash" ]]; then
+    echo "Starting Importer..."
+    bin/tikv-importer \
+        --addr "$IMPORTER_ADDR" \
+        --import-dir "$TEST_DIR/importer" \
+        --log-file "$TEST_DIR/importer.log" \
+        --config "tests/config/importer.toml" &
+
+    if [[ $RUN_TIFLASH == "YES" ]]; then
         if ! start_tiflash; then
             return 1
         fi
     fi
 
     i=0
-    while ! curl "http://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
+    while ! run_curl "https://$PD_ADDR/pd/api/v1/cluster/status" | grep -q "\"is_initialized\": true"; do
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo 'Failed to bootstrap cluster'
@@ -154,11 +179,11 @@ start_services_impl() {
 
 start_tiflash() {
     echo "Starting TiFlash..."
-    LD_LIBRARY_PATH=bin/ bin/tiflash server --config-file=$TIFLASH_CONFIG &
-    echo "TiFlash started..."
+    tests/_utils/make_tiflash_config
+    LD_LIBRARY_PATH=bin/ bin/tiflash server --config-file="$TEST_DIR/tiflash.toml" &
 
     i=0
-    while ! curl -sf http://$TIFLASH_HTTP 1>/dev/null 2>&1; do
+    while ! run_curl https://$TIFLASH_HTTP 1>/dev/null 2>&1; do
         i=$((i+1))
         if [ "$i" -gt 20 ]; then
             echo "failed to start tiflash"
@@ -167,98 +192,6 @@ start_tiflash() {
         echo "TiFlash seems doesn't started, retrying..."
         sleep 3
     done
-}
 
-start_services_with_tls() {
-    stop_services
-    cleanup_data
-
-    PD_CONFIG="$1/config/pd.toml"
-    TIDB_CONFIG="$1/config/tidb.toml"
-    TIKV_CONFIG="$1/config/tikv.toml"
-
-    echo $PD_CONFIG
-    echo $TIDB_CONFIG
-    echo $TIKV_CONFIG
-
-    echo "Starting PD..."
-    bin/pd-server \
-        --client-urls "https://$PD_ADDR" \
-        --log-file "$TEST_DIR/pd.log" \
-        --config "$PD_CONFIG" \
-        --data-dir "$TEST_DIR/pd" &
-    # wait until PD is online...
-    i=0
-    while ! curl --cacert $1/certificates/ca.pem \
-        --cert $1/certificates/client.pem \
-        --key $1/certificates/client-key.pem \
-        -o /dev/null -sf "https://$PD_ADDR/pd/api/v1/version"; do
-        i=$((i+1))
-        if [ "$i" -gt 20 ]; then
-            echo 'Failed to start PD'
-            exit 1
-        fi
-        sleep 3
-    done
-
-    echo "Starting TiKV..."
-    for i in $(seq $TIKV_COUNT); do
-        bin/tikv-server \
-            --pd "$PD_ADDR" \
-            -A "$TIKV_ADDR$i" \
-            --status-addr "$TIKV_STATUS_ADDR$i" \
-            --log-file "$TEST_DIR/tikv${i}.log" \
-            --log-level debug \
-            -C "$TIKV_CONFIG" \
-            -s "$TEST_DIR/tikv${i}" &
-    done
-
-    echo "Waiting initializing TiKV..."
-    while ! curl --cacert $1/certificates/ca.pem \
-            --cert $1/certificates/client.pem \
-            --key $1/certificates/client-key.pem \
-            -sf "https://$PD_ADDR/pd/api/v1/cluster/status" | grep '"is_initialized": true'; do
-       i=$((i+1))
-       if [ "$i" -gt 20 ]; then
-          echo 'Failed to initialize TiKV cluster'
-          exit 1
-       fi
-       sleep 4
-    done
-
-    echo "Starting TiDB..."
-    bin/tidb-server \
-        -P 4000 \
-        --status 10080 \
-        --store tikv \
-        --config "$TIDB_CONFIG" \
-        --path "$PD_ADDR" \
-        --log-file "$TEST_DIR/tidb.log" &
-
-    echo "Verifying TiDB is started..."
-    i=0
-    while ! curl --cacert $1/certificates/ca.pem \
-            --cert $1/certificates/client.pem \
-            --key $1/certificates/client-key.pem \
-            -o /dev/null -sf "https://$TIDB_IP:10080/status"; do
-        i=$((i+1))
-        if [ "$i" -gt 50 ]; then
-            echo 'Failed to start TiDB'
-            exit 1
-        fi
-        sleep 3
-    done
-
-    i=0
-    while ! curl --cacert $1/certificates/ca.pem \
-            --cert $1/certificates/client.pem \
-            --key $1/certificates/client-key.pem \
-            "https://$PD_ADDR/pd/api/v1/cluster/status" -sf | grep -q "\"is_initialized\": true"; do
-        i=$((i+1))
-        if [ "$i" -gt 20 ]; then
-            echo 'Failed to bootstrap cluster'
-            exit 1
-        fi
-        sleep 3
-    done
+    echo "TiFlash started."
 }

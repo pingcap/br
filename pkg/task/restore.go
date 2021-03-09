@@ -170,7 +170,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 
 	keepaliveCfg := GetKeepalive(&cfg.Config)
 	keepaliveCfg.PermitWithoutStream = true
-	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetTiKV(), mgr.GetTLSConfig(), keepaliveCfg)
+	client, err := restore.NewRestoreClient(g, mgr.GetPDClient(), mgr.GetStorage(), mgr.GetTLSConfig(), keepaliveCfg)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -229,7 +229,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// restore checksum will check safe point with its start ts, see details at
 	// https://github.com/pingcap/tidb/blob/180c02127105bed73712050594da6ead4d70a85f/store/tikv/kv.go#L186-L190
 	// so, we should keep the safe point unchangeable. to avoid GC life time is shorter than transaction duration.
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -279,7 +282,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		// Only in binary we can use multi-thread sessions to create tables.
 		// so use OwnStorage() to tell whether we are use binary or SQL.
 		dbPool, err = restore.MakeDBPool(defaultDDLConcurrency, func() (*restore.DB, error) {
-			return restore.NewDB(g, mgr.GetTiKV())
+			return restore.NewDB(g, mgr.GetStorage())
 		})
 	}
 	if err != nil {
@@ -351,7 +354,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// Checksum
 	if cfg.Checksum {
 		finish = client.GoValidateChecksum(
-			ctx, afterRestoreStream, mgr.GetTiKV().GetClient(), errCh, updateCh, cfg.ChecksumConcurrency)
+			ctx, afterRestoreStream, mgr.GetStorage().GetClient(), errCh, updateCh, cfg.ChecksumConcurrency)
 	} else {
 		// when user skip checksum, just collect tables, and drop them.
 		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)

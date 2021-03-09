@@ -1,0 +1,3 @@
+[lightning]
+table-concurrency = 4
+index-concurrency = 4

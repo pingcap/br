@@ -556,7 +556,9 @@ func (s *s3Suite) TestReadError(c *C) {
 		Return(nil, expectedErr)
 
 	_, err := s.storage.ReadFile(ctx, "file-missing")
-	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
+
+	c.Assert(err, ErrorMatches, "failed to read s3 file, file info: "+
+		"input.bucket='bucket', input.key='prefix/file-missing': "+expectedErr.Error())
 }
 
 // TestFileExistsError checks that a HeadObject error is propagated.
@@ -870,7 +872,7 @@ func (s *s3Suite) TestWalkDir(c *C) {
 			}, nil
 		}).
 		After(firstCall)
-	s.s3.EXPECT().
+	thirdCall := s.s3.EXPECT().
 		ListObjectsWithContext(ctx, gomock.Any()).
 		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 			c.Assert(aws.StringValue(input.Marker), Equals, aws.StringValue(contents[3].Key))
@@ -881,12 +883,53 @@ func (s *s3Suite) TestWalkDir(c *C) {
 			}, nil
 		}).
 		After(secondCall)
+	fourthCall := s.s3.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Prefix), Equals, "prefix/")
+			c.Assert(aws.StringValue(input.Marker), Equals, "")
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(4))
+			c.Assert(aws.StringValue(input.Delimiter), Equals, "")
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(true),
+				Contents:    contents[:4],
+			}, nil
+		}).
+		After(thirdCall)
+	s.s3.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Marker), Equals, aws.StringValue(contents[3].Key))
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(4))
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(false),
+				Contents:    contents[4:],
+			}, nil
+		}).
+		After(fourthCall)
 
 	// Ensure we receive the items in order.
 	i := 0
 	err := s.storage.WalkDir(
 		ctx,
 		&WalkOption{SubDir: "sp", ListCount: 2},
+		func(path string, size int64) error {
+			comment := Commentf("index = %d", i)
+			c.Assert("prefix/"+path, Equals, *contents[i].Key, comment)
+			c.Assert(size, Equals, *contents[i].Size, comment)
+			i++
+			return nil
+		},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(i, Equals, len(contents))
+
+	// test with empty subDir
+	i = 0
+	err = s.storage.WalkDir(
+		ctx,
+		&WalkOption{ListCount: 4},
 		func(path string, size int64) error {
 			comment := Commentf("index = %d", i)
 			c.Assert("prefix/"+path, Equals, *contents[i].Key, comment)
@@ -927,7 +970,7 @@ func (s *s3SuiteCustom) TestWalkDirWithEmptyPrefix(c *C) {
 			Size: aws.Int64(27499),
 		},
 	}
-	s3API.EXPECT().
+	firstCall := s3API.EXPECT().
 		ListObjectsWithContext(ctx, gomock.Any()).
 		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
@@ -940,6 +983,20 @@ func (s *s3SuiteCustom) TestWalkDirWithEmptyPrefix(c *C) {
 				Contents:    contents,
 			}, nil
 		})
+	s3API.EXPECT().
+		ListObjectsWithContext(ctx, gomock.Any()).
+		DoAndReturn(func(_ context.Context, input *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
+			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
+			c.Assert(aws.StringValue(input.Prefix), Equals, "sp/")
+			c.Assert(aws.StringValue(input.Marker), Equals, "")
+			c.Assert(aws.Int64Value(input.MaxKeys), Equals, int64(2))
+			c.Assert(aws.StringValue(input.Delimiter), Equals, "")
+			return &s3.ListObjectsOutput{
+				IsTruncated: aws.Bool(false),
+				Contents:    contents[:1],
+			}, nil
+		}).
+		After(firstCall)
 
 	// Ensure we receive the items in order.
 	i := 0
@@ -956,4 +1013,20 @@ func (s *s3SuiteCustom) TestWalkDirWithEmptyPrefix(c *C) {
 	)
 	c.Assert(err, IsNil)
 	c.Assert(i, Equals, len(contents))
+
+	// test with non-empty sub-dir
+	i = 0
+	err = storage.WalkDir(
+		ctx,
+		&WalkOption{SubDir: "sp", ListCount: 2},
+		func(path string, size int64) error {
+			comment := Commentf("index = %d", i)
+			c.Assert(path, Equals, *contents[i].Key, comment)
+			c.Assert(size, Equals, *contents[i].Size, comment)
+			i++
+			return nil
+		},
+	)
+	c.Assert(err, IsNil)
+	c.Assert(i, Equals, 1)
 }

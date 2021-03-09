@@ -118,8 +118,9 @@ func NewLogRestoreClient(
 		}
 	}
 
-	splitClient := NewSplitClient(restoreClient.GetPDClient(), restoreClient.GetTLSConfig())
-	importClient := NewImportClient(splitClient, restoreClient.tlsConf, restoreClient.keepaliveConf)
+	tlsConf := restoreClient.GetTLSConfig()
+	splitClient := NewSplitClient(restoreClient.GetPDClient(), tlsConf)
+	importClient := NewImportClient(splitClient, tlsConf, restoreClient.keepaliveConf)
 
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
@@ -143,7 +144,7 @@ func NewLogRestoreClient(
 		eventPullers:   make(map[int64]*cdclog.EventPuller),
 		tableBuffers:   make(map[int64]*cdclog.TableBuffer),
 		tableFilter:    tableFilter,
-		ingester:       NewIngester(splitClient, cfg, commitTS),
+		ingester:       NewIngester(splitClient, cfg, commitTS, tlsConf),
 	}
 	return lc, nil
 }

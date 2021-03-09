@@ -1,0 +1,5 @@
+[lightning]
+table-concurrency = 3
+
+[tidb]
+sql-mode = ''
