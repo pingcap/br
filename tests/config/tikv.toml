@@ -17,7 +17,6 @@ sync-log = false
 capacity = "10GB"
 
 [cdc]
-hibernate-regions-compatible=false
 # Speed up TiKV region heartbeat
 pd-heartbeat-tick-interval = "1s"
 
