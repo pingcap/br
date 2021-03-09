@@ -39,19 +39,24 @@ func (checker *unblocksChecker) Check(params []interface{}, names []string) (boo
 	max := params[2].(time.Duration)
 
 	ch := make(chan time.Duration)
+	start := time.Now()
 	go func() {
-		start := time.Now()
 		wg.Wait()
 		ch <- time.Since(start)
 	}()
 	select {
 	case dur := <-ch:
 		if dur < min {
-			return false, "WaitGroup unblocked before minimum duration"
+			return false, "WaitGroup unblocked before minimum duration, it was " + dur.String()
 		}
 		return true, ""
 	case <-time.After(max):
-		return false, "WaitGroup did not unblock after maximum duration"
+		select {
+		case dur := <-ch:
+			return false, "WaitGroup did not unblock after maximum duration, it was " + dur.String()
+		case <-time.After(1 * time.Second):
+			return false, "WaitGroup did not unblock after maximum duration"
+		}
 	}
 }
 
@@ -74,7 +79,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		}()
 	}
 
-	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 10*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 100*time.Millisecond)
 
 	// after calling Pause(), these should be blocking...
 
@@ -96,7 +102,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		p.Resume()
 	}()
 
-	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 520*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 800*time.Millisecond)
 
 	// if the context is canceled, Wait() should immediately unblock...
 
@@ -114,7 +121,8 @@ func (s *pauseSuite) TestPause(c *C) {
 	}
 
 	cancel()
-	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 10*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 0*time.Millisecond, 100*time.Millisecond)
 
 	// canceling the context does not affect the state of the pauser
 
@@ -130,7 +138,8 @@ func (s *pauseSuite) TestPause(c *C) {
 		p.Resume()
 	}()
 
-	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 520*time.Millisecond)
+	// Give them more time to unblock in case of time exceeding due to high pressure of CI.
+	c.Assert(&wg, unblocksBetween, 500*time.Millisecond, 800*time.Millisecond)
 }
 
 // Run `go test github.com/pingcap/br/pkg/lightning/common -check.b -test.v` to get benchmark result.
