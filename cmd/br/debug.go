@@ -40,6 +40,7 @@ func NewDebugCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			utils.LogBRInfo()
+			utils.LogEnvVariables()
 			task.LogArguments(c)
 			return nil
 		},
