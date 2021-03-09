@@ -167,12 +167,6 @@ func (t *transaction) Delete(k kv.Key) error {
 	return t.kvMemBuf.Delete(k)
 }
 
-// SetOption implements the kv.Transaction interface.
-func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
-
-// DelOption implements the kv.Transaction interface.
-func (t *transaction) DelOption(kv.Option) {}
-
 // SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
 
