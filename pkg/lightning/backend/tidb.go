@@ -34,6 +34,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
 )
@@ -494,7 +495,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 		// init auto id column for each table
 		for _, tbl := range tables {
 			tblName := common.UniqueTable(schemaName, tbl.Name.O)
-			autoIDInfos, err := FetchTableAutoIDInfos(tx, tblName)
+			autoIDInfos, err := FetchTableAutoIDInfos(ctx, tx, tblName)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -552,18 +553,14 @@ func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNam
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
 
-type QueryExecutor interface {
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-}
-
 type TableAutoIDInfo struct {
 	Column string
 	NextID int64
 	Type   string
 }
 
-func FetchTableAutoIDInfos(exec QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
-	rows, e := exec.Query(fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tableName))
+func FetchTableAutoIDInfos(ctx context.Context, exec glue.QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
+	rows, e := exec.QueryContext(ctx, fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tableName))
 	if e != nil {
 		return nil, errors.Trace(e)
 	}

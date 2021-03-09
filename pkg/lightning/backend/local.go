@@ -1878,7 +1878,6 @@ func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
 			return err
 		}
 	}
-
 	// if write failed only because of unorderedness, we immediately ingest the memcache.
 	immWriter, err := newSSTWriter(w.genSSTPath())
 	if err != nil {
