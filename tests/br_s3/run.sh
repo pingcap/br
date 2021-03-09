@@ -31,7 +31,7 @@ mkdir -p "$TEST_DIR/$DB"
 s3_pid=""
 start_s3() {
     bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
-    pid=$!
+    s3_pid=$!
     i=0
     while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
         i=$(($i+1))
@@ -41,7 +41,6 @@ start_s3() {
         fi
         sleep 2
     done
-    export s3_pid=$pid
 }
 
 start_s3
@@ -68,9 +67,18 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+  ( run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+      --ratelimit 1 \
       --log-file $BACKUP_LOG || \
-      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 )
+      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
+  br_pid=$!
+
+  sleep 3
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait $br_pid
+
   cat $BACKUP_LOG
   BR_LOG_TO_TERM=1
 
@@ -88,11 +96,20 @@ for p in $(seq 2); do
   RESTORE_LOG="restore.log"
   rm -f $RESTORE_LOG
   unset BR_LOG_TO_TERM
-  run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+  ( run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+      --ratelimit 1 \
       --log-file $RESTORE_LOG || \
-      ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 )
+      ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
+  br_pid=$!
+  # Make a S3 outage.
+  sleep 4
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait $br_pid
   cat $RESTORE_LOG
   BR_LOG_TO_TERM=1
+
 
   if grep -i $MINIO_SECRET_KEY $RESTORE_LOG; then
       echo "Secret key logged in log. Please remove them."

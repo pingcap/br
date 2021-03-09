@@ -4,6 +4,7 @@ package utils
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"go.uber.org/multierr"
@@ -44,4 +45,14 @@ func WithRetry(
 		}
 	}
 	return allErrors // nolint:wrapcheck
+}
+
+// MessageIsRetryableS3Error checks whether the message returning from TiKV is retryable ExternalStorageError.
+//
+func MessageIsRetryableS3Error(msg string) bool {
+	msgLower := strings.ToLower(msg)
+	return (strings.Contains(msgLower, "failed to put object") || strings.Contains(msgLower, "failed to get object")) /* If failed to read/write to S3... */ &&
+		// ...Because of s3 stop or not start...
+		(strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "connection refused"))
+	// ...those conditions would be retryable.
 }

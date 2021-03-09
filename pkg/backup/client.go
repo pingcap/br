@@ -779,7 +779,7 @@ func OnBackupResponse(
 		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
 		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
-		if messageIsRetryableFailedToWrite(resp.GetError().GetMsg()) {
+		if utils.MessageIsRetryableS3Error(resp.GetError().GetMsg()) {
 			log.Warn("backup occur s3 storage error.", zap.String("error", resp.GetError().GetMsg()))
 			return nil, 3000, nil
 		}
