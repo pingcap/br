@@ -33,7 +33,7 @@ bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
 i=0
 while ! curl -o /dev/null -s "http://$S3_ENDPOINT/"; do
     i=$(($i+1))
-    if [ $i -gt 7 ]; then
+    if [ $i -gt 30 ]; then
         echo 'Failed to start minio'
         exit 1
     fi
