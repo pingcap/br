@@ -31,13 +31,13 @@ run_sql "create schema $DB;"
 TABLE="t1"
 INCREMENTAL_TABLE="t1inc"
 
-run_sql "create table $DB.$TABLE (a int primary key clustered, b int unique);"
+run_sql "create table $DB.$TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
 
 # backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
-run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key clustered, b int unique);"
+run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key, b int unique);"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
 
 # drop pk
@@ -61,7 +61,7 @@ run_sql "create schema $DB;"
 
 # test max-index-length issue https://github.com/pingcap/br/issues/217
 TABLE="t2"
-run_sql "create table $DB.$TABLE (a varchar(3072) primary key clustered);"
+run_sql "create table $DB.$TABLE (a varchar(3072) primary key);"
 run_sql "insert into $DB.$TABLE values ('42');"
 
 # backup
@@ -109,7 +109,7 @@ run_sql "drop schema $DB;"
 # test auto random issue https://github.com/pingcap/br/issues/241
 TABLE="t4"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE(a bigint key auto_random(5) clustered);"
+run_sql "create table $DB.$TABLE(a bigint key auto_random(5));"
 run_sql "insert into $DB.$TABLE values (),(),(),(),();"
 
 # Table backup
