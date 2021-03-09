@@ -226,9 +226,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		sp.BackupTS = cfg.LastBackupTS
 	}
 
-	log.Info("current backup safePoint job",
-		zap.Object("safePoint", sp))
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	log.Info("current backup safePoint job", zap.Object("safePoint", sp))
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
