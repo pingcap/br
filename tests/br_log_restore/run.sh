@@ -69,18 +69,18 @@ done
 
 # test drop & create schema/table, finally only db2 has one row
 run_sql "create schema ${DB}_DDL1;"
-run_sql "create table ${DB}_DDL1.t1 (a int primary key, b varchar(10));"
+run_sql "create table ${DB}_DDL1.t1 (a int primary key, b varchar(10), unique key uk(a));"
 run_sql "insert into ${DB}_DDL1.t1 values (1, 'x');"
 
 run_sql "drop schema ${DB}_DDL1;"
 run_sql "create schema ${DB}_DDL1;"
 run_sql "create schema ${DB}_DDL2;"
 
-run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10));"
+run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10), unique key uk(a));"
 run_sql "insert into ${DB}_DDl2.t2 values (2, 'x');"
 
 run_sql "drop table ${DB}_DDL2.t2;"
-run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10));"
+run_sql "create table ${DB}_DDL2.t2 (a int primary key, b varchar(10), unique key uk(a));"
 run_sql "insert into ${DB}_DDL2.t2 values (3, 'x');"
 run_sql "delete from ${DB}_DDL2.t2 where a = 3;"
 run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
