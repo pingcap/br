@@ -50,7 +50,6 @@ require (
 	golang.org/x/text v0.3.5
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
-	gopkg.in/check.v1 v1.0.0-20200902074654-038fdea0a05b
 	modernc.org/mathutil v1.1.1
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
