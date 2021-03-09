@@ -220,6 +220,10 @@ func NewRestoreControllerWithPauser(
 	if err := verifyCheckpoint(cfg, taskCp); err != nil {
 		return nil, errors.Trace(err)
 	}
+	// reuse task id to reuse task meta correctly.
+	if taskCp != nil {
+		cfg.TaskID = taskCp.TaskId
+	}
 
 	var backend kv.Backend
 	switch cfg.TikvImporter.Backend {
