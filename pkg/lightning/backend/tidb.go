@@ -87,7 +87,7 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) Backend {
 
 func (row tidbRow) ClassifyAndAppend(data *Rows, checksum *verification.KVChecksum, _ *Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
-	// We cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
+	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
 	//nolint:gocritic
 	*data = append(rows, row)
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
@@ -547,10 +547,10 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 			// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
 			//nolint:sqlclosecheck
 			if err := rows.Close(); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 			if rows.Err() != nil {
-				return rows.Err()
+				return errors.Trace(rows.Err())
 			}
 		}
 		return nil

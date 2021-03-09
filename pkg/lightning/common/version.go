@@ -25,13 +25,15 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 )
 
+const None = "None"
+
 // Version information.
 var (
-	ReleaseVersion = "None"
-	BuildTS        = "None"
-	GitHash        = "None"
-	GitBranch      = "None"
-	GoVersion      = "None"
+	ReleaseVersion = None
+	BuildTS        = None
+	GitHash        = None
+	GitBranch      = None
+	GoVersion      = None
 )
 
 // GetRawInfo do what its name tells

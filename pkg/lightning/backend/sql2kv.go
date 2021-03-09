@@ -338,12 +338,12 @@ func (kvcodec *tableKVEncoder) Encode(
 		if isAutoRandom && isPk {
 			incrementalBits := autoRandomIncrementBits(col, int(kvcodec.tbl.Meta().AutoRandomBits))
 			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType); err != nil {
-				return nil, err
+				return nil, errors.Trace(err)
 			}
 		}
 		if isAutoIncCol {
 			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType); err != nil {
-				return nil, err
+				return nil, errors.Trace(err)
 			}
 		}
 	}
@@ -360,7 +360,7 @@ func (kvcodec *tableKVEncoder) Encode(
 		}
 		record = append(record, value)
 		if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType); err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 	}
 

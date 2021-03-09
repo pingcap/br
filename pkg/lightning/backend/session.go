@@ -19,10 +19,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/lightning/log"
-
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
@@ -30,6 +26,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+
+	"go.uber.org/zap"
 )
 
 // invalidIterator is a trimmed down Iterator type which is invalid.
