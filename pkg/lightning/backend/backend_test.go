@@ -2,6 +2,7 @@ package backend_test
 
 import (
 	"context"
+	"gopkg.in/check.v1"
 	"time"
 
 	"github.com/golang/mock/gomock"
@@ -273,7 +274,8 @@ func (s *backendSuite) TestImportFailedRecovered(c *C) {
 	c.Assert(err, IsNil)
 }
 
-func (s *backendSuite) TestClose(c gomock.TestReporter) {
+//nolint:interfacer // change test case signature causes check panicking.
+func (s *backendSuite) TestClose(c *check.C) {
 	s.setUpTest(c)
 	defer s.tearDownTest()
 
