@@ -73,6 +73,10 @@ func (mb *kvMemBuf) SetWithFlags(k kv.Key, v []byte, ops ...kv.FlagsOp) error {
 	return mb.Set(k, v)
 }
 
+func (mb *kvMemBuf) DeleteWithFlags(k kv.Key, ops ...kv.FlagsOp) error {
+	return mb.Delete(k)
+}
+
 func (mb *kvMemBuf) Delete(k kv.Key) error {
 	mb.kvPairs = append(mb.kvPairs, Pair{
 		Key:      k.Clone(),
