@@ -44,7 +44,7 @@ run_sql "TRUNCATE TABLE ${DB}.${TABLE};"
 
 # incremental backup
 echo "incremental backup start..."
-last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | tail -n1)
+last_backup_ts=$(run_br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | grep -oE "^[0-9]+")
 run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
 
 run_sql "DROP DATABASE $DB;"
@@ -65,8 +65,6 @@ run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB/inc" --pd
 if $fail; then
     echo "TEST: [$TEST_NAME] incremental restore fail on database $DB"
     exit 1
-else
-    echo "TEST: [$TEST_NAME] successed!"
 fi
 
 run_sql "DROP DATABASE $DB;"

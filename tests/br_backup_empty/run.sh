@@ -51,4 +51,3 @@ run_br --pd $PD_ADDR restore full -s "local://$TEST_DIR/empty_table" --ratelimit
 run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"
 
 run_sql "DROP DATABASE $DB"
-echo "TEST: [$TEST_NAME] successed!"

@@ -113,8 +113,9 @@ func NewLogRestoreClient(
 		}
 	}
 
-	splitClient := NewSplitClient(restoreClient.GetPDClient(), restoreClient.GetTLSConfig())
-	importClient := NewImportClient(splitClient, restoreClient.tlsConf, restoreClient.keepaliveConf)
+	tlsConf := restoreClient.GetTLSConfig()
+	splitClient := NewSplitClient(restoreClient.GetPDClient(), tlsConf)
+	importClient := NewImportClient(splitClient, tlsConf, restoreClient.keepaliveConf)
 
 	cfg := concurrencyCfg{
 		Concurrency:       concurrency,
