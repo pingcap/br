@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/tablecodec"
@@ -40,7 +40,7 @@ func (s *testRestoreUtilSuite) TestParseQuoteName(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
-	file := &backup.File{
+	file := &backuppb.File{
 		Name:     "file_write.sst",
 		StartKey: []byte("t1a"),
 		EndKey:   []byte("t1ccc"),
@@ -59,7 +59,7 @@ func (s *testRestoreUtilSuite) TestGetSSTMetaFromFile(c *C) {
 }
 
 func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
-	filesOfTable1 := []*backup.File{
+	filesOfTable1 := []*backuppb.File{
 		{
 			Name:     "table1-1.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
@@ -76,7 +76,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 			EndKey:   tablecodec.EncodeTablePrefix(1),
 		},
 	}
-	filesOfTable2 := []*backup.File{
+	filesOfTable2 := []*backuppb.File{
 		{
 			Name:     "table2-1.sst",
 			StartKey: tablecodec.EncodeTablePrefix(2),
@@ -105,7 +105,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 
 	// Empty start/end key is not allowed.
 	err := restore.ValidateFileRewriteRule(
-		&backup.File{
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: []byte(""),
 			EndKey:   []byte(""),
@@ -116,7 +116,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 
 	// Range is not overlap, no rule found.
 	err = restore.ValidateFileRewriteRule(
-		&backup.File{
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(0),
 			EndKey:   tablecodec.EncodeTablePrefix(1),
@@ -127,7 +127,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 
 	// No rule for end key.
 	err = restore.ValidateFileRewriteRule(
-		&backup.File{
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
@@ -142,7 +142,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
 	err = restore.ValidateFileRewriteRule(
-		&backup.File{
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
@@ -157,7 +157,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
 	err = restore.ValidateFileRewriteRule(
-		&backup.File{
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
