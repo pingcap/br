@@ -617,5 +617,5 @@ func FetchPDVersion(ctx context.Context, tls *common.TLS, pdAddr string) (*semve
 		return nil, errors.Trace(err)
 	}
 
-	return semver.NewVersion(rawVersion)
+	return parseVersion([]byte(rawVersion)), nil
 }
