@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -269,13 +269,13 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 }
 
 // GetBackupClient get or create a backup client.
-func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error) {
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
 
 	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
 		// Find a cached backup client.
-		return backup.NewBackupClient(conn), nil
+		return backuppb.NewBackupClient(conn), nil
 	}
 
 	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
@@ -284,11 +284,11 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 	}
 	// Cache the conn.
 	mgr.grpcClis.clis[storeID] = conn
-	return backup.NewBackupClient(conn), nil
+	return backuppb.NewBackupClient(conn), nil
 }
 
 // ResetBackupClient reset the connection for backup client.
-func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error) {
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
 
@@ -319,7 +319,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return backup.NewBackupClient(conn), nil
+	return backuppb.NewBackupClient(conn), nil
 }
 
 // GetStorage returns a kv storage.

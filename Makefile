@@ -211,6 +211,10 @@ static: prepare tools
 	grep -Rn --include="*.go" --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" \
 		$$($(PACKAGE_DIRECTORIES) | grep -vE "tests|lightning") | \
 		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
+	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
+	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
+	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' | \
+		grep -vE "backuppb" | $(CHECKER)
 
 lint: prepare tools
 	@echo "linting"

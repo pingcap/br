@@ -9,7 +9,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
@@ -229,7 +229,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// restore checksum will check safe point with its start ts, see details at
 	// https://github.com/pingcap/tidb/blob/180c02127105bed73712050594da6ead4d70a85f/store/tikv/kv.go#L186-L190
 	// so, we should keep the safe point unchangeable. to avoid GC life time is shorter than transaction duration.
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -405,7 +408,7 @@ func dropToBlackhole(
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database) {
+) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {

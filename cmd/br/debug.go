@@ -13,7 +13,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -41,6 +41,7 @@ func NewDebugCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			build.LogInfo(build.BR)
+			utils.LogEnvVariables()
 			task.LogArguments(c)
 			return nil
 		},
@@ -179,7 +180,7 @@ func newBackupMetaValidateCommand() *cobra.Command {
 				log.Error("load tables failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			files := make([]*backup.File, 0)
+			files := make([]*backuppb.File, 0)
 			tables := make([]*utils.Table, 0)
 			for _, db := range dbs {
 				for _, table := range db.Tables {
@@ -331,7 +332,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			backupMetaJSON := &backup.BackupMeta{}
+			backupMetaJSON := &backuppb.BackupMeta{}
 			err = json.Unmarshal(metaData, backupMetaJSON)
 			if err != nil {
 				return errors.Trace(err)
