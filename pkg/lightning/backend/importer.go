@@ -321,7 +321,6 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion,
 }
 
 func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	// TODO: unify pdutil.FetchPDVersion with PdController.GetClusterVersion.
 	version, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)

@@ -611,11 +611,18 @@ func (p *PdController) Close() {
 
 // FetchPDVersion get pd version
 func FetchPDVersion(ctx context.Context, tls *common.TLS, pdAddr string) (*semver.Version, error) {
-	var rawVersion string
-	err := tls.WithHost(pdAddr).GetJSON(ctx, "/pd/api/v1/config/cluster-version", &rawVersion)
+	// An example of PD version API.
+	// curl http://pd_address/pd/api/v1/version
+	// {
+	//   "version": "v4.0.0-rc.2-451-g760fb650"
+	// }
+	var rawVersion struct {
+		Version string `json:"version"`
+	}
+	err := tls.WithHost(pdAddr).GetJSON(ctx, "/pd/api/v1/version", &rawVersion)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	return parseVersion([]byte(rawVersion)), nil
+	return parseVersion([]byte(rawVersion.Version)), nil
 }

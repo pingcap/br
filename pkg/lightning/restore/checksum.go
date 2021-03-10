@@ -62,7 +62,6 @@ func newChecksumManager(ctx context.Context, rc *RestoreController) (ChecksumMan
 	}
 
 	pdAddr := rc.cfg.TiDB.PdAddr
-	// TODO: unify pdutil.FetchPDVersion with PdController.GetClusterVersion.
 	pdVersion, err := pdutil.FetchPDVersion(ctx, rc.tls, pdAddr)
 	if err != nil {
 		return nil, errors.Trace(err)
