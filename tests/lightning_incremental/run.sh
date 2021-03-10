@@ -49,8 +49,8 @@ for backend in importer local; do
       check_contains "group_concat(v): a,b,c"
     done
 
-    run_sql "SELECT sum(u) from incr.uk_auto_inc;"
-    check_contains "sum(u): 6"
+    run_sql "SELECT sum(pk) from incr.uk_auto_inc;"
+    check_contains "sum(pk): 6"
 
     # incrementally import all data in data1
     run_lightning --backend $backend -d "tests/$TEST_NAME/data1"
@@ -76,6 +76,6 @@ for backend in importer local; do
       check_contains "group_concat(v): a,b,c,d,e,f"
     done
 
-    run_sql "SELECT sum(u) from incr.uk_auto_inc;"
-    check_contains "sum(u): 21"
+    run_sql "SELECT sum(pk) from incr.uk_auto_inc;"
+    check_contains "sum(pk): 21"
 done

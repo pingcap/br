@@ -1,4 +1,4 @@
 CREATE TABLE `uk_auto_inc` (
-  `u` int PRIMARY KEY,
-  `id` bigint UNIQUE KEY AUTO_INCREMENT,
+  `pk` int PRIMARY KEY,
+  `id` bigint UNIQUE KEY AUTO_INCREMENT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;
