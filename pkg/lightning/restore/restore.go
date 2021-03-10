@@ -29,6 +29,7 @@ import (
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
@@ -1301,7 +1302,7 @@ func (t *TableRestore) restoreTable(
 
 		// "show table next_row_id" is only available after v4.0.0
 		if version.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB &&
-			(common.TableHasAutoRowID(t.tableInfo.Core) || t.tableInfo.Core.GetAutoIncrementColInfo() != nil) {
+			(common.TableHasAutoRowID(t.tableInfo.Core) || t.tableInfo.Core.GetAutoIncrementColInfo() != nil || t.tableInfo.Core.ContainsAutoRandomBits()) {
 			// first, insert a new-line into meta table
 			if err = metaMgr.InitTableMeta(ctx); err != nil {
 				return false, err
@@ -2784,14 +2785,22 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 				continue
 			}
 
-			if metaLightningID == m.taskID && status >= metaStatusRowIDAllocated {
-				if rowIDMax-rowIDBase != rawRowIDMax {
-					return errors.Errorf("verify allocator base failed. local: '%d', meta: '%d'", rawRowIDMax, rowIDMax-rowIDBase)
+			if metaLightningID == m.taskID {
+				if status >= metaStatusRowIDAllocated {
+					if rowIDMax-rowIDBase != rawRowIDMax {
+						return errors.Errorf("verify allocator base failed. local: '%d', meta: '%d'", rawRowIDMax, rowIDMax-rowIDBase)
+					}
+					newRowIDBase = rowIDBase
+					newRowIDMax = rowIDMax
+					curStatus = status
+					break
 				}
-				newRowIDBase = rowIDBase
-				newRowIDMax = rowIDMax
-				curStatus = status
-				break
+				continue
+			}
+
+			// other tasks has finished this logic, we needn't do again.
+			if status >= metaStatusRowIDAllocated {
+				newStatus = metaStatusRestoreStarted
 			}
 
 			if rowIDMax > maxRowIDMax {
@@ -2802,20 +2811,36 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 		// no enough info are available, fetch row_id max for table
 		if curStatus == metaStatusInitial {
 			if maxRowIDMax == 0 {
+				// NOTE: currently, if a table contains auto_incremental unique key and _tidb_rowid,
+				// the `show table next_row_id` will returns the unique key field only.
+				var autoIDField string
+				for _, col := range tr.tableInfo.Core.Columns {
+					if mysql.HasAutoIncrementFlag(col.Flag) {
+						autoIDField = col.Name.L
+						break
+					}
+				}
+				if len(autoIDField) == 0 && common.TableHasAutoRowID(tr.tableInfo.Core) {
+					autoIDField = model.ExtraHandleName.L
+				}
+				if len(autoIDField) == 0 {
+					return errors.Errorf("table %s contains auto increment id or _tidb_rowid, but target field not found", tr.tableName)
+				}
+
 				autoIDInfos, err := kv.FetchTableAutoIDInfos(ctx, tx, m.tr.tableName)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				if len(autoIDInfos) == 1 {
-					maxRowIDMax = autoIDInfos[0].NextID - 1
-					// if table does not contain data, we can skip do pre-checksum
-					if maxRowIDMax == 0 {
-						newStatus = metaStatusRestoreStarted
+				found := false
+				for _, info := range autoIDInfos {
+					if strings.ToLower(info.Column) == autoIDField {
+						maxRowIDMax = info.NextID - 1
+						found = true
+						break
 					}
-				} else if len(autoIDInfos) == 0 {
-					return errors.New("can't fetch previous auto id base")
-				} else {
-					return errors.New("not supported: more than one auto id allocator found")
+				}
+				if !found {
+					return errors.Errorf("can't fetch previous auto id base for table %s field '%s'", tr.tableName, autoIDField)
 				}
 			}
 			newRowIDBase = maxRowIDMax
@@ -2829,8 +2854,8 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 	})
 
 	var checksum *verify.KVChecksum
-	// need to do checksum and update checksum meta
-	if newStatus < metaStatusRestoreStarted {
+	// need to do checksum and update checksum meta since we are the first one.
+	if curStatus < metaStatusRestoreStarted && newStatus < metaStatusRestoreStarted {
 		// table contains data but haven't do checksum yet
 		if newRowIDBase > 0 && baseTotalKvs == 0 {
 			baseChecksum, err := DoChecksum(ctx, tr.tableInfo)
