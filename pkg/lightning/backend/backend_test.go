@@ -11,7 +11,7 @@ import (
 	"github.com/pingcap/parser/mysql"
 
 	kv "github.com/pingcap/br/pkg/lightning/backend"
-	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/lightning/mock"
 )
 
 type backendSuite struct {
