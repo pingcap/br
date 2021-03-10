@@ -8,16 +8,16 @@ import (
 	"os/signal"
 	"syscall"
 
+	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
+
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/lightning/common"
 )
 
 const startPProfSignal = syscall.SIGUSR1
 
 // StartDynamicPProfListener starts the listener that will enable pprof when received `startPProfSignal`.
-func StartDynamicPProfListener(tls *common.TLS) {
+func StartDynamicPProfListener(tls *tidbutils.TLS) {
 	signalChan := make(chan os.Signal, 1)
 	signal.Notify(signalChan, startPProfSignal)
 	go func() {

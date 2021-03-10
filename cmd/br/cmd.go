@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap/br/pkg/lightning/common"
+	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -168,7 +168,7 @@ func startPProf(cmd *cobra.Command) error {
 		return errors.Trace(err)
 	}
 	// Host isn't used here.
-	tls, err := common.NewTLS(ca, cert, key, "localhost")
+	tls, err := tidbutils.NewTLS(ca, cert, key, "localhost", nil)
 	if err != nil {
 		return errors.Trace(err)
 	}

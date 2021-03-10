@@ -9,11 +9,11 @@ import (
 	"os"
 	"sync"
 
+	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
+
 	berrors "github.com/pingcap/br/pkg/errors"
 
 	"github.com/pingcap/errors"
-
-	"github.com/pingcap/br/pkg/lightning/common"
 
 	// #nosec
 	// register HTTP handler for /debug/pprof
@@ -53,7 +53,7 @@ func listen(statusAddr string) (net.Listener, error) {
 }
 
 // StartPProfListener forks a new goroutine listening on specified port and provide pprof info.
-func StartPProfListener(statusAddr string, wrapper *common.TLS) error {
+func StartPProfListener(statusAddr string, wrapper *tidbutils.TLS) error {
 	listener, err := listen(statusAddr)
 	if err != nil {
 		return err
