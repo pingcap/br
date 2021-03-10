@@ -1383,7 +1383,7 @@ func (t *TableRestore) restoreEngine(
 	engineID int32,
 	cp *EngineCheckpoint,
 ) (*kv.ClosedEngine, error) {
-	if cp.Status >= CheckpointStatusClosed {
+	if cp.Status >= CheckpointStatusAllWritten {
 		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, t.tableName, engineID)
 		// If any error occurred, recycle worker immediately
 		if err != nil {
