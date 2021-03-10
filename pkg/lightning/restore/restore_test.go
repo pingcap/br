@@ -780,6 +780,26 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	c.Assert(err, ErrorMatches, "fake import error.*")
 }
 
+func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	mockBackend := mock.NewMockBackend(controller)
+	backend := kv.MakeBackend(mockBackend)
+
+	ctx := context.Background()
+
+	mockBackend.EXPECT().
+		CheckRequirements(ctx).
+		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
+	rc := &RestoreController{
+		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
+		backend: backend,
+	}
+
+	err := rc.checkRequirements(ctx)
+	c.Assert(err, ErrorMatches, "fake check requirement error.*")
+}
+
 var _ = Suite(&chunkRestoreSuite{})
 
 type chunkRestoreSuite struct {
