@@ -74,19 +74,19 @@ const (
 const (
 	// CreateBRIESubJobTable stores the per-table sub jobs information used by TiDB Lightning
 	CreateBRIESubJobTable = `CREATE TABLE IF NOT EXISTS mysql.brie_sub_tasks (
-		id 					BIGINT(20) UNSIGNED,
+		task_id 			BIGINT(20) UNSIGNED,
 		table_id 			BIGINT(64) NOT NULL,
 		table_name 			VARCHAR(64) NOT NULL,
 		row_id_base 		BIGINT(20) NOT NULL DEFAULT 0,
 		row_id_max 			BIGINT(20) NOT NULL DEFAULT 0,
-		base_total_kvs 		BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
-		base_total_bytes 	BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
-		base_checksum 		BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+		total_kvs_base 		BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+		total_bytes_base 	BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+		checksum_base 		BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		total_kvs 			BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		total_bytes 		BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		checksum 			BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		status 				VARCHAR(32) NOT NULL,
-		PRIMARY KEY (table_id, id)
+		PRIMARY KEY (table_id, task_id)
 	);`
 )
 
@@ -2853,7 +2853,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 }
 
 func (m *tableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *verify.KVChecksum) error {
-	query := fmt.Sprintf("update mysql.brie_sub_tasks set kv_kvs_base = %d, kv_bytes_base = %d, checksum_base = %d, status = '%s' where table_id = %d and task_id = %d",
+	query := fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs_base = %d, total_bytes_base = %d, checksum_base = %d, status = '%s' where table_id = %d and task_id = %d",
 		checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), m.tr.tableInfo.ID, m.taskID)
 
 	return m.session.Exec(ctx, "update base checksum", query)
@@ -2929,7 +2929,7 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 			return rows.Err()
 		}
 
-		query = fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs = %d, total_bytes = %d, checksum = %d, status = '%s' where table_id = %d and id = %d",
+		query = fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs = %d, total_bytes = %d, checksum = %d, status = '%s' where table_id = %d and task_id = %d",
 			checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
 
 		_, err = tx.ExecContext(ctx, query)
@@ -2948,6 +2948,6 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 }
 
 func (m *tableMetaMgr) FinishTable(ctx context.Context) error {
-	return m.session.Exec(ctx, "clean up metas", "DELETE FROM mysql.brie_sub_tasks where table_id = ? and id = ? and (status = 'checksuming' or status = 'checksum_skipped')",
+	return m.session.Exec(ctx, "clean up metas", "DELETE FROM mysql.brie_sub_tasks where table_id = ? and task_id = ? and (status = 'checksuming' or status = 'checksum_skipped')",
 		m.tr.tableInfo.ID, m.taskID)
 }
