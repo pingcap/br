@@ -11,7 +11,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -37,7 +37,7 @@ type GCSBackendOptions struct {
 	CredentialsFile string `json:"credentials-file" toml:"credentials-file"`
 }
 
-func (options *GCSBackendOptions) apply(gcs *backup.GCS) error {
+func (options *GCSBackendOptions) apply(gcs *backuppb.GCS) error {
 	gcs.Endpoint = options.Endpoint
 	gcs.StorageClass = options.StorageClass
 	gcs.PredefinedAcl = options.PredefinedACL
@@ -85,7 +85,7 @@ func (options *GCSBackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 }
 
 type gcsStorage struct {
-	gcs    *backup.GCS
+	gcs    *backuppb.GCS
 	bucket *storage.BucketHandle
 }
 
@@ -170,7 +170,7 @@ func (s *gcsStorage) Create(ctx context.Context, name string) (ExternalFileWrite
 	return newFlushStorageWriter(wc, &emptyFlusher{}, wc), nil
 }
 
-func newGCSStorage(ctx context.Context, gcs *backup.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
+func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
 	if gcs.CredentialsBlob == "" {
 		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
