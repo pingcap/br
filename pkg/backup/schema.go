@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -32,21 +32,21 @@ const (
 // Schemas is task for backuping schemas.
 type Schemas struct {
 	// name -> schema
-	schemas        map[string]backup.Schema
-	backupSchemaCh chan backup.Schema
+	schemas        map[string]backuppb.Schema
+	backupSchemaCh chan backuppb.Schema
 	errCh          chan error
 }
 
 func newBackupSchemas() *Schemas {
 	return &Schemas{
-		schemas:        make(map[string]backup.Schema),
-		backupSchemaCh: make(chan backup.Schema),
+		schemas:        make(map[string]backuppb.Schema),
+		backupSchemaCh: make(chan backuppb.Schema),
 		errCh:          make(chan error),
 	}
 }
 
 func (pending *Schemas) pushPending(
-	schema backup.Schema,
+	schema backuppb.Schema,
 	dbName, tableName string,
 ) {
 	name := fmt.Sprintf("%s.%s",
@@ -109,8 +109,8 @@ func (pending *Schemas) Start(
 }
 
 // FinishTableChecksum waits until all schemas' checksums are verified.
-func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
-	schemas := make([]*backup.Schema, 0, len(pending.schemas))
+func (pending *Schemas) FinishTableChecksum() ([]*backuppb.Schema, error) {
+	schemas := make([]*backuppb.Schema, 0, len(pending.schemas))
 	for {
 		select {
 		case s, ok := <-pending.backupSchemaCh:
@@ -126,8 +126,8 @@ func (pending *Schemas) FinishTableChecksum() ([]*backup.Schema, error) {
 
 // CopyMeta copies schema metadata directly from pending backupSchemas, without calculating checksum.
 // use this when user skip the checksum generating.
-func (pending *Schemas) CopyMeta() []*backup.Schema {
-	schemas := make([]*backup.Schema, 0, len(pending.schemas))
+func (pending *Schemas) CopyMeta() []*backuppb.Schema {
+	schemas := make([]*backuppb.Schema, 0, len(pending.schemas))
 	for _, v := range pending.schemas {
 		schema := v
 		schemas = append(schemas, &schema)
