@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
 
@@ -46,7 +46,7 @@ type MergeRangesStat struct {
 // By merging small ranges, it speeds up restoring a backup that contains many
 // small ranges (regions) as it reduces split region and scatter region.
 func MergeFileRanges(
-	files []*kvproto.File, splitSizeBytes, splitKeyCount uint64,
+	files []*backuppb.File, splitSizeBytes, splitKeyCount uint64,
 ) ([]rtree.Range, *MergeRangesStat, error) {
 	if len(files) == 0 {
 		return []rtree.Range{}, &MergeRangesStat{}, nil
@@ -57,7 +57,7 @@ func MergeFileRanges(
 	writeCFFile := 0
 	defaultCFFile := 0
 
-	filesMap := make(map[string][]*kvproto.File)
+	filesMap := make(map[string][]*backuppb.File)
 	for _, file := range files {
 		filesMap[string(file.StartKey)] = append(filesMap[string(file.StartKey)], file)
 

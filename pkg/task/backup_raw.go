@@ -8,7 +8,7 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -186,7 +186,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
-	req := kvproto.BackupRequest{
+	req := backuppb.BackupRequest{
 		ClusterId:        client.GetClusterID(),
 		StartVersion:     0,
 		EndVersion:       0,
@@ -205,7 +205,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh.Close()
 
 	// Checksum
-	rawRanges := []*kvproto.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
+	rawRanges := []*backuppb.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
 	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil, clusterVersion, brVersion)
 	if err != nil {
 		return errors.Trace(err)
