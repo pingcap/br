@@ -2867,7 +2867,6 @@ func (m *tableMetaMgr) updateTableStatus(ctx context.Context, status metaStatus)
 }
 
 func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum *verify.KVChecksum) (bool, *verify.KVChecksum, error) {
-
 	var (
 		baseTotalKvs, baseTotalBytes, baseChecksum uint64
 		taskKvs, taskBytes, taskChecksum           uint64
@@ -2930,8 +2929,8 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 			return rows.Err()
 		}
 
-		query = fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs = %d, total_bytes = %d, checksum = %d where table_id = %d and id = %d",
-			checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), m.tr.tableInfo.ID, m.taskID)
+		query = fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs = %d, total_bytes = %d, checksum = %d, status = '%s' where table_id = %d and id = %d",
+			checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
 
 		_, err = tx.ExecContext(ctx, query)
 		return errors.Trace(err)
