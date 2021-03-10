@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -73,6 +74,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 			log.ZapRedactBinary("maxKey", maxKey),
 			zap.Int("retry", i),
 		)
+		err = nil
 		if i > 0 {
 			select {
 			case <-time.After(waitTime):
@@ -133,16 +135,14 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 			keys   [][]byte
 		}
 
-		var wg sync.WaitGroup
 		var syncLock sync.Mutex
-		var splitError error
-		size := utils.MinInt(len(splitKeyMap), runtime.NumCPU())
-		splitCtx, cancel := context.WithCancel(ctx)
+		// TODO, make this size configurable
+		size := utils.MinInt(len(splitKeyMap), runtime.GOMAXPROCS(0))
 		ch := make(chan *splitInfo, size)
-		wg.Add(size)
+		eg, splitCtx := errgroup.WithContext(ctx)
+
 		for i := 0; i < size; i++ {
-			go func() {
-				defer wg.Done()
+			eg.Go(func() error {
 				for sp := range ch {
 					var newRegions []*split.RegionInfo
 					var err1 error
@@ -172,20 +172,17 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 										log.ZapRedactBinary("endKey", region.Region.EndKey),
 										log.ZapRedactBinary("key", codec.EncodeBytes([]byte{}, key)))
 								}
-								syncLock.Lock()
-								splitError = multierr.Append(splitError, err1)
-								syncLock.Unlock()
-								cancel()
-								return
+								return err1
 							} else if common.IsContextCanceledError(err1) {
 								// do not retry on conext.Canceled error
-								return
+								return err1
 							}
 							log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", j+1),
 								zap.Uint64("region_id", region.Region.Id))
 
 							syncLock.Lock()
 							retryKeys = append(retryKeys, keys[start:]...)
+							// set global error so if we exceed retry limit, the function will return this error
 							if !common.IsContextCanceledError(err1) {
 								err = multierr.Append(err, err1)
 							}
@@ -208,8 +205,10 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 						}
 					}
 				}
-			}()
+				return nil
+			})
 		}
+	sendLoop:
 		for regionID, keys := range splitKeyMap {
 			select {
 			case ch <- &splitInfo{region: regionMap[regionID], keys: keys}:
@@ -219,14 +218,14 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 				return ctx.Err()
 			case <-splitCtx.Done():
 				// met critical error, stop process
-				close(ch)
+				break sendLoop
 			}
 		}
 		close(ch)
-		wg.Wait()
-		if splitError != nil {
+		if splitError := eg.Wait(); splitError != nil {
 			return splitError
 		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
