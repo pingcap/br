@@ -15,7 +15,7 @@ syntax = "proto3";
 
 import "github.com/gogo/protobuf/gogoproto/gogo.proto";
 
-option go_package = "checkpoints";
+option go_package = "checkpointspb";
 option (gogoproto.goproto_getters_all) = false;
 
 message CheckpointsModel {

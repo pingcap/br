@@ -32,21 +32,15 @@ export S3_ENDPOINT=127.0.0.1:9900
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
 bin/minio server --address $S3_ENDPOINT "$DBPATH" &
-MINIO_PID=$!
 i=0
 while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
     i=$(($i+1))
-    if [ $i -gt 7 ]; then
+    if [ $i -gt 30 ]; then
         echo 'Failed to start minio'
         exit 1
     fi
     sleep 2
 done
-
-stop_minio() {
-    kill -2 $MINIO_PID
-}
-trap stop_minio EXIT
 
 BUCKET=test-bucket
 DATA_PATH=$DBPATH/$BUCKET
