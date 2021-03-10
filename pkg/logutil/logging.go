@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"go.uber.org/zap"
@@ -42,7 +42,7 @@ func AbbreviatedArray(
 	return zap.Array(key, AbbreviatedArrayMarshaler(marshalFunc(elements)))
 }
 
-type zapFileMarshaler struct{ *backup.File }
+type zapFileMarshaler struct{ *backuppb.File }
 
 func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	enc.AddString("name", file.GetName())
@@ -58,7 +58,7 @@ func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return nil
 }
 
-type zapFilesMarshaler []*backup.File
+type zapFilesMarshaler []*backuppb.File
 
 func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	total := len(fs)
@@ -84,12 +84,12 @@ func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) erro
 }
 
 // File make the zap fields for a file.
-func File(file *backup.File) zap.Field {
+func File(file *backuppb.File) zap.Field {
 	return zap.Object("file", zapFileMarshaler{file})
 }
 
 // Files make the zap field for a set of file.
-func Files(fs []*backup.File) zap.Field {
+func Files(fs []*backuppb.File) zap.Field {
 	return zap.Object("files", zapFilesMarshaler(fs))
 }
 
