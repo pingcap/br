@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -53,7 +54,7 @@ const (
 type S3Storage struct {
 	session *session.Session
 	svc     s3iface.S3API
-	options *backup.S3
+	options *backuppb.S3
 }
 
 // S3Uploader does multi-part upload to s3.
@@ -115,8 +116,8 @@ type S3BackendOptions struct {
 	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
 }
 
-// Apply apply s3 options on backup.S3.
-func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
+// Apply apply s3 options on backuppb.S3.
+func (options *S3BackendOptions) Apply(s3 *backuppb.S3) error {
 	if options.Region == "" {
 		options.Region = "us-east-1"
 	}
@@ -208,7 +209,7 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // NewS3StorageForTest creates a new S3Storage for testing only.
-func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
+func NewS3StorageForTest(svc s3iface.S3API, options *backuppb.S3) *S3Storage {
 	return &S3Storage{
 		session: nil,
 		svc:     svc,
@@ -220,7 +221,7 @@ func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
 //
 // Deprecated: Create the storage via `New()` instead of using this.
 func NewS3Storage( // revive:disable-line:flag-parameter
-	backend *backup.S3,
+	backend *backuppb.S3,
 	sendCredential bool,
 ) (*S3Storage, error) {
 	return newS3Storage(backend, &ExternalStorageOptions{
@@ -229,7 +230,7 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	})
 }
 
-func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
+func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
 		WithMaxRetries(maxRetries).
@@ -279,8 +280,10 @@ func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage,
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 		}
 	}
+	if len(qs.Prefix) > 0 && !strings.HasSuffix(qs.Prefix, "/") {
+		qs.Prefix += "/"
+	}
 
-	qs.Prefix += "/"
 	return &S3Storage{
 		session: ses,
 		svc:     c,
@@ -338,7 +341,9 @@ func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) 
 
 	result, err := rs.svc.GetObjectWithContext(ctx, input)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotatef(err,
+			"failed to read s3 file, file info: input.bucket='%s', input.key='%s'",
+			*input.Bucket, *input.Key)
 	}
 	defer result.Body.Close()
 	data, err := ioutil.ReadAll(result.Body)
@@ -378,28 +383,20 @@ func (rs *S3Storage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
-
-	// NOTE: leave prefix empty if subDir is not set. Else, s3 will return empty result!
-	prefix := ""
-	if len(opt.SubDir) > 0 {
-		prefix = rs.options.Prefix + opt.SubDir
-		if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
-			prefix += "/"
-		}
+	prefix := path.Join(rs.options.Prefix, opt.SubDir)
+	if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
 	}
-
 	maxKeys := int64(1000)
 	if opt.ListCount > 0 {
 		maxKeys = opt.ListCount
 	}
-
 	req := &s3.ListObjectsInput{
 		Bucket:  aws.String(rs.options.Bucket),
+		Prefix:  aws.String(prefix),
 		MaxKeys: aws.Int64(maxKeys),
 	}
-	if len(prefix) > 0 {
-		req.Prefix = aws.String(prefix)
-	}
+
 	for {
 		// FIXME: We can't use ListObjectsV2, it is not universally supported.
 		// (Ceph RGW supported ListObjectsV2 since v15.1.0, released 2020 Jan 30th)

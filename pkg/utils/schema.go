@@ -3,15 +3,17 @@
 package utils
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
+
+	"github.com/pingcap/br/pkg/logutil"
 )
 
 const (
@@ -32,7 +34,7 @@ type Table struct {
 	Crc64Xor        uint64
 	TotalKvs        uint64
 	TotalBytes      uint64
-	Files           []*backup.File
+	Files           []*backuppb.File
 	TiFlashReplicas int
 	Stats           *handle.JSONTable
 }
@@ -66,7 +68,15 @@ func (db *Database) GetTable(name string) *Table {
 }
 
 // LoadBackupTables loads schemas from BackupMeta.
-func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
+func LoadBackupTables(meta *backuppb.BackupMeta) (map[string]*Database, error) {
+	filesMap := make(map[int64][]*backuppb.File, len(meta.Schemas))
+	for _, file := range meta.Files {
+		tableID := tablecodec.DecodeTableID(file.GetStartKey())
+		if tableID == 0 {
+			log.Panic("tableID must not equal to 0", logutil.File(file))
+		}
+		filesMap[tableID] = append(filesMap[tableID], file)
+	}
 	databases := make(map[string]*Database)
 	for _, schema := range meta.Schemas {
 		// Parse the database schema.
@@ -99,26 +109,22 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 				return nil, errors.Trace(err)
 			}
 		}
-		partitions := make(map[int64]bool)
+		partitions := make(map[int64]struct{})
 		if tableInfo.Partition != nil {
 			for _, p := range tableInfo.Partition.Definitions {
-				partitions[p.ID] = true
+				partitions[p.ID] = struct{}{}
 			}
 		}
 		// Find the files belong to the table
-		tableFiles := make([]*backup.File, 0)
-		for _, file := range meta.Files {
-			// If the file do not contains any table data, skip it.
-			if !bytes.HasPrefix(file.GetStartKey(), tablecodec.TablePrefix()) &&
-				!bytes.HasPrefix(file.GetEndKey(), tablecodec.TablePrefix()) {
-				continue
-			}
-			startTableID := tablecodec.DecodeTableID(file.GetStartKey())
-			// If the file contains a part of the data of the table, append it to the slice.
-			if ok := partitions[startTableID]; ok || startTableID == tableInfo.ID {
-				tableFiles = append(tableFiles, file)
-			}
+		tableFiles := make([]*backuppb.File, 0)
+		if files, exists := filesMap[tableInfo.ID]; exists {
+			tableFiles = append(tableFiles, files...)
 		}
+		// If the file contains a part of the data of the table, append it to the slice.
+		for partitionID := range partitions {
+			tableFiles = append(tableFiles, filesMap[partitionID]...)
+		}
+
 		table := &Table{
 			DB:              dbInfo,
 			Info:            tableInfo,
@@ -136,7 +142,7 @@ func LoadBackupTables(meta *backup.BackupMeta) (map[string]*Database, error) {
 }
 
 // ArchiveSize returns the total size of the backup archive.
-func ArchiveSize(meta *backup.BackupMeta) uint64 {
+func ArchiveSize(meta *backuppb.BackupMeta) uint64 {
 	total := uint64(meta.Size())
 	for _, file := range meta.Files {
 		total += file.Size_

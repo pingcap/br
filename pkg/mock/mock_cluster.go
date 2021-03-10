@@ -1,5 +1,7 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
+//+build br_test
+
 package mock
 
 import (
@@ -22,8 +24,9 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/session"
-	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/store/mockstore"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/mockstore/cluster"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/pkg/tempurl"
 	"go.uber.org/zap"
@@ -34,8 +37,7 @@ var pprofOnce sync.Once
 // Cluster is mock tidb cluster, includes tikv and pd.
 type Cluster struct {
 	*server.Server
-	*mocktikv.Cluster
-	mocktikv.MVCCStore
+	cluster.Cluster
 	kv.Storage
 	*server.TiDBDriver
 	*domain.Domain
@@ -57,13 +59,13 @@ func NewCluster() (*Cluster, error) {
 		}()
 	})
 
-	mvccStore := mocktikv.MustNewMVCCStore()
-	client, cluster, pdClient, err := mocktikv.NewTiKVAndPDClient("")
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	mocktikv.BootstrapWithSingleStore(cluster)
-	storage, err := tikv.NewTestTiKVStore(client, pdClient, nil, nil, 0)
+	var mockCluster cluster.Cluster
+	storage, err := mockstore.NewMockStore(
+		mockstore.WithClusterInspector(func(c cluster.Cluster) {
+			mockstore.BootstrapWithSingleStore(c)
+			mockCluster = c
+		}),
+	)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -74,11 +76,10 @@ func NewCluster() (*Cluster, error) {
 		return nil, errors.Trace(err)
 	}
 	return &Cluster{
-		Cluster:   cluster,
-		MVCCStore: mvccStore,
-		Storage:   storage,
-		Domain:    dom,
-		PDClient:  pdClient,
+		Storage:  storage,
+		Cluster:  mockCluster,
+		Domain:   dom,
+		PDClient: storage.(tikv.Storage).GetRegionCache().PDClient(),
 	}, nil
 }
 

@@ -1,0 +1,7 @@
+[checkpoint]
+enable = true
+driver = "file"
+dsn = "/tmp/cp_error_destroy.pb"
+
+[tidb]
+sql-mode = 'STRICT_ALL_TABLES'

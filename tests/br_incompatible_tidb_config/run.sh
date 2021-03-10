@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
+set -eux
 
 cur=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 source $cur/../_utils/run_services
@@ -22,7 +22,7 @@ DB="$TEST_NAME"
 
 # prepare database
 echo "Restart cluster with alter-primary-key = true, max-index-length=12288"
-start_services "$cur"
+start_services --tidb-cfg $cur/config/tidb-alter-primary-key.toml
 
 run_sql "drop schema if exists $DB;"
 run_sql "create schema $DB;"
@@ -77,13 +77,8 @@ run_sql "drop schema $DB;"
 # invalid config allow-auto-random is unavailable when alter-primary-key is enabled
 
 # enable column attribute `auto_random` to be defined on the primary key column.
-cat > $cur/config/tidb.toml << EOF
-[experimental]
-allow-auto-random = true
-EOF
-
 echo "Restart cluster with allow-auto-random=true"
-start_services "$cur"
+start_services --tidb-cfg $cur/config/tidb-allow-auto-random.toml
 
 # test auto random issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
@@ -99,7 +94,7 @@ run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AU
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL
-last_backup_ts=$(br validate decode --field="end-version" -s "local://$TEST_DIR/$DB$TABLE" | tail -n1)
+last_backup_ts=$(run_br validate decode --field="end-version" -s "local://$TEST_DIR/$DB$TABLE" | grep -oE "^[0-9]+")
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$INCREMENTAL_TABLE" --lastbackupts $last_backup_ts
 
 run_sql "drop schema $DB;"

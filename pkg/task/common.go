@@ -14,11 +14,10 @@ import (
 	gcs "cloud.google.com/go/storage"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
-	"github.com/pingcap/tidb/store/tikv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	pd "github.com/tikv/pd/client"
@@ -202,19 +201,25 @@ func DefineFilterFlags(command *cobra.Command) {
 // ParseFromFlags parses the TLS config from the flag set.
 func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	tls.CA, err = flags.GetString(flagCA)
+	tls.CA, tls.Cert, tls.Key, err = ParseTLSTripleFromFlags(flags)
+	return err
+}
+
+// ParseTLSTripleFromFlags parses the (ca, cert, key) triple from flags.
+func ParseTLSTripleFromFlags(flags *pflag.FlagSet) (ca, cert, key string, err error) {
+	ca, err = flags.GetString(flagCA)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Cert, err = flags.GetString(flagCert)
+	cert, err = flags.GetString(flagCert)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Key, err = flags.GetString(flagKey)
+	key, err = flags.GetString(flagKey)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	return nil
+	return
 }
 
 func (cfg *Config) normalizePDURLs() error {
@@ -374,7 +379,7 @@ func NewMgr(ctx context.Context,
 
 	// Is it necessary to remove `StoreBehavior`?
 	return conn.NewMgr(ctx, g,
-		pdAddress, store.(tikv.Storage),
+		pdAddress, store,
 		tlsConf, securityOption, keepalive,
 		conn.SkipTiFlash, checkRequirements)
 }
@@ -383,7 +388,7 @@ func NewMgr(ctx context.Context,
 func GetStorage(
 	ctx context.Context,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, error) {
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
@@ -400,7 +405,7 @@ func ReadBackupMeta(
 	ctx context.Context,
 	fileName string,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, *backuppb.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
@@ -428,7 +433,7 @@ func ReadBackupMeta(
 			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 		}
 	}
-	backupMeta := &backup.BackupMeta{}
+	backupMeta := &backuppb.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}

@@ -16,6 +16,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/pingcap/br/pkg/conn"
@@ -82,7 +84,8 @@ type Ingester struct {
 	// commit ts appends to key in tikv
 	TS uint64
 
-	conns gRPCConns
+	tlsConf *tls.Config
+	conns   gRPCConns
 
 	splitCli   SplitClient
 	WorkerPool *utils.WorkerPool
@@ -92,9 +95,12 @@ type Ingester struct {
 }
 
 // NewIngester creates Ingester.
-func NewIngester(splitCli SplitClient, cfg concurrencyCfg, commitTS uint64) *Ingester {
+func NewIngester(
+	splitCli SplitClient, cfg concurrencyCfg, commitTS uint64, tlsConf *tls.Config,
+) *Ingester {
 	workerPool := utils.NewWorkerPool(cfg.IngestConcurrency, "ingest worker")
 	return &Ingester{
+		tlsConf: tlsConf,
 		conns: gRPCConns{
 			tcpConcurrency: cfg.TCPConcurrency,
 			conns:          make(map[uint64]*conn.Pool),
@@ -113,10 +119,9 @@ func (i *Ingester) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientCo
 		return nil, errors.Trace(err)
 	}
 	opt := grpc.WithInsecure()
-	// FIXME support tls here
-	// if i.tls.TLSConfig() != nil {
-	// 	opt = grpc.WithTransportCredentials(credentials.NewTLS(i.tls.TLSConfig()))
-	// }
+	if i.tlsConf != nil {
+		opt = grpc.WithTransportCredentials(credentials.NewTLS(i.tlsConf))
+	}
 	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
 
 	bfConf := backoff.DefaultConfig
