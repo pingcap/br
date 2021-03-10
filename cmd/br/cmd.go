@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pingcap/br/pkg/lightning/common"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/logutil"
@@ -150,25 +152,31 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 
-		// Initialize the pprof server.
-		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
-		if e != nil {
-			err = e
-			return
-		}
-		tlsConfig := task.TLSConfig{}
-		useTLS := !(tlsConfig.ParseFromFlags(cmd.Flags()) != nil || tlsConfig.Cert == "" || tlsConfig.Key == "")
-		startPProf := func(addr string) { utils.StartPProfListener(addr) }
-		if useTLS {
-			startPProf = func(addr string) { utils.StartPProfListenerTLS(addr, tlsConfig.Cert, tlsConfig.Key) }
-		}
-		if statusAddr != "" {
-			startPProf(statusAddr)
-		} else {
-			utils.StartDynamicPProfListener(startPProf)
-		}
+		err = startPProf(cmd)
 	})
 	return errors.Trace(err)
+}
+
+func startPProf(cmd *cobra.Command) error {
+	// Initialize the pprof server.
+	statusAddr, err := cmd.Flags().GetString(FlagStatusAddr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	ca, cert, key, err := task.ParseTLSTripleFromFlags(cmd.Flags())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tls, err := common.NewTLS(ca, cert, key, "localhost")
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if statusAddr != "" {
+		return utils.StartPProfListener(statusAddr, tls)
+	}
+	utils.StartDynamicPProfListener(tls)
+	return nil
 }
 
 // HasLogFile returns whether we set a log file.
