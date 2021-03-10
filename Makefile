@@ -111,10 +111,11 @@ build_for_integration_test:
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
+test: export ARGS=$$($(PACKAGES))
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags br_test,leak $(ARGS) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
@@ -188,7 +189,7 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
-	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --build-tags br_test --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
