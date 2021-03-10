@@ -111,10 +111,11 @@ build_for_integration_test:
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
+test: export ARGS=$$($(PACKAGES))
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags br_test,leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags br_test,leak $(ARGS) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
