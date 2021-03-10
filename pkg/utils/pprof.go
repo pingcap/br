@@ -9,6 +9,8 @@ import (
 	"os"
 	"sync"
 
+	berrors "github.com/pingcap/br/pkg/errors"
+
 	"github.com/pingcap/errors"
 
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -32,7 +34,7 @@ func listen(statusAddr string) (net.Listener, error) {
 	defer mu.Unlock()
 	if startedPProf != "" {
 		log.Warn("Try to start pprof when it has been started, nothing will happen", zap.String("address", startedPProf))
-		return nil, nil
+		return nil, errors.Annotate(berrors.ErrUnknown, "try to start pprof when it has been started at "+startedPProf)
 	}
 	failpoint.Inject("determined-pprof-port", func(v failpoint.Value) {
 		port := v.(int)
@@ -57,16 +59,14 @@ func StartPProfListener(statusAddr string, wrapper *common.TLS) error {
 		return err
 	}
 
-	if listener != nil {
-		go func() {
-			if e := http.Serve(wrapper.WrapListener(listener), nil); e != nil {
-				log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
-				mu.Lock()
-				startedPProf = ""
-				mu.Unlock()
-				return
-			}
-		}()
-	}
+	go func() {
+		if e := http.Serve(wrapper.WrapListener(listener), nil); e != nil {
+			log.Warn("failed to serve pprof", zap.String("addr", startedPProf), zap.Error(e))
+			mu.Lock()
+			startedPProf = ""
+			mu.Unlock()
+			return
+		}
+	}()
 	return nil
 }

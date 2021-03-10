@@ -167,6 +167,7 @@ func startPProf(cmd *cobra.Command) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+	// Host isn't used here.
 	tls, err := common.NewTLS(ca, cert, key, "localhost")
 	if err != nil {
 		return errors.Trace(err)
