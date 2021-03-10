@@ -62,7 +62,7 @@ for BACKEND in importer local; do
   done
 
   echo "******** Verify checkpoint no-op ********"
-  # cleanup importer data directory to avoid
+  # cleanup importer data directory to avoid open-engine failure in import backend.
   rm -rf $TEST_DIR/importer/*
   do_run_lightning $BACKEND config
 
