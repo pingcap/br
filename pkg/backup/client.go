@@ -181,12 +181,17 @@ func BuildBackupMeta(
 	files []*kvproto.File,
 	rawRanges []*kvproto.RawRange,
 	ddlJobs []*model.Job,
+	clusterVersion string,
+	brVersion string,
 ) (backupMeta kvproto.BackupMeta, err error) {
 	backupMeta.StartVersion = req.StartVersion
 	backupMeta.EndVersion = req.EndVersion
 	backupMeta.IsRawKv = req.IsRawKv
 	backupMeta.RawRanges = rawRanges
 	backupMeta.Files = files
+	backupMeta.ClusterId = req.ClusterId
+	backupMeta.ClusterVersion = clusterVersion
+	backupMeta.BrVersion = brVersion
 	backupMeta.Ddls, err = json.Marshal(ddlJobs)
 	if err != nil {
 		err = errors.Trace(err)
@@ -205,6 +210,11 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *kvproto.Backup
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
+}
+
+// GetClusterID returns the cluster ID of the tidb cluster to backup.
+func (bc *Client) GetClusterID() uint64 {
+	return bc.clusterID
 }
 
 // BuildTableRanges returns the key ranges encompassing the entire table,
@@ -513,7 +523,6 @@ func (bc *Client) BackupRange(
 		return nil, errors.Trace(err)
 	}
 
-	req.ClusterId = bc.clusterID
 	req.StartKey = startKey
 	req.EndKey = endKey
 	req.StorageBackend = bc.backend
