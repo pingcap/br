@@ -109,7 +109,7 @@ run_sql "drop schema $DB;"
 # test auto random issue https://github.com/pingcap/br/issues/241
 TABLE="t4"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE(a bigint key auto_random(5));"
+run_sql "create table $DB.$TABLE(a bigint key primary key clustered auto_random(5));"
 run_sql "insert into $DB.$TABLE values (),(),(),(),();"
 
 # Table backup
