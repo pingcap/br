@@ -1258,7 +1258,11 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 	// when kill lightning after saving index engine checkpoint status before saving
 	// table checkpoint status.
 	var closedIndexEngine *kv.ClosedEngine
-	if indexEngineCp.Status < CheckpointStatusImported && cp.Status < CheckpointStatusIndexImported {
+	var restoreErr error
+	// if index-engine checkpoint is lower than `CheckpointStatusClosed`, there must be
+	// data-engines that need to be restore or import. Otherwise, all data-engines should
+	// be finished already.
+	if indexEngineCp.Status < CheckpointStatusClosed {
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
@@ -1332,23 +1336,21 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 
 		wg.Wait()
 
-		err = engineErr.Get()
-		logTask.End(zap.ErrorLevel, err)
-		if err != nil {
-			return errors.Trace(err)
+		restoreErr = engineErr.Get()
+		logTask.End(zap.ErrorLevel, restoreErr)
+		if restoreErr != nil {
+			return errors.Trace(restoreErr)
 		}
 
+		closedIndexEngine, restoreErr = indexEngine.Close(ctx)
+		rc.saveStatusCheckpoint(t.tableName, indexEngineID, err, CheckpointStatusClosed)
+	} else if indexEngineCp.Status == CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
-		if indexEngineCp.Status == CheckpointStatusClosed {
-			closedIndexEngine, err = rc.backend.UnsafeCloseEngine(ctx, t.tableName, indexEngineID)
-		} else {
-			closedIndexEngine, err = indexEngine.Close(ctx)
-			rc.saveStatusCheckpoint(t.tableName, indexEngineID, err, CheckpointStatusClosed)
-		}
-		if err != nil {
-			return errors.Trace(err)
-		}
+		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, t.tableName, indexEngineID)
+	}
+	if restoreErr != nil {
+		return errors.Trace(restoreErr)
 	}
 
 	if cp.Status < CheckpointStatusIndexImported {
@@ -1384,7 +1386,8 @@ func (t *TableRestore) restoreEngine(
 	engineID int32,
 	cp *EngineCheckpoint,
 ) (*kv.ClosedEngine, error) {
-	if cp.Status >= CheckpointStatusClosed {
+	// all data has finished written, we can close the engine directly.
+	if cp.Status >= CheckpointStatusAllWritten {
 		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, t.tableName, engineID)
 		// If any error occurred, recycle worker immediately
 		if err != nil {
