@@ -102,7 +102,7 @@ for p in $(seq 2); do
       ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
   br_pid=$!
   # Make a S3 outage.
-  sleep 4
+  sleep 3
   kill -9 $s3_pid
   sleep 15
   start_s3
