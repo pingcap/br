@@ -12,6 +12,8 @@ import (
 	"time"
 
 	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -20,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/gluetidb"
+	lglog "github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
@@ -113,7 +116,13 @@ func Init(cmd *cobra.Command) (err error) {
 			// cmd.PrintErr prints to stderr, but PrintErrf prints to stdout.
 			cmd.PrintErr(fmt.Sprintf("Detail BR log in %s \n", conf.File.Filename))
 		}
-		lg, p, e := log.InitLogger(conf)
+		// FilterCore requires zap.AddCaller.
+		conf.DisableCaller = false
+		filterTiDBLog := zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+			// Filter logs from TiDB.
+			return lglog.NewFilterCore(core, "github.com/pingcap/tidb/")
+		})
+		lg, p, e := log.InitLogger(conf, filterTiDBLog)
 		if e != nil {
 			err = e
 			return
