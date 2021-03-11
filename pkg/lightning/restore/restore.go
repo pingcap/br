@@ -33,7 +33,6 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
-	pd "github.com/tikv/pd/client"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
@@ -248,17 +247,13 @@ func NewRestoreControllerWithPauser(
 
 	var ts uint64
 	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
-		addrs := strings.Split(cfg.TiDB.PdAddr, ",")
-		pdClient, err := pd.NewClientWithContext(
-			ctx, addrs, tls.ToPDSecurityOption(),
-			pd.WithCustomTimeoutOption(10*time.Second),
-		)
+		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		defer pdClient.Close()
+		defer pdController.Close()
 
-		physical, logical, err := pdClient.GetTS(ctx)
+		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
