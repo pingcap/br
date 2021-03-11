@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -93,7 +93,7 @@ func GetRewriteRules(
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)].
 func GetSSTMetaFromFile(
 	id []byte,
-	file *backup.File,
+	file *backuppb.File,
 	region *metapb.Region,
 	regionRule *import_sstpb.RewriteRule,
 ) import_sstpb.SSTMeta {
@@ -162,7 +162,7 @@ func MakeDBPool(size uint, dbFactory func() (*DB, error)) ([]*DB, error) {
 }
 
 // EstimateRangeSize estimates the total range count by file.
-func EstimateRangeSize(files []*backup.File) int {
+func EstimateRangeSize(files []*backuppb.File) int {
 	result := 0
 	for _, f := range files {
 		if strings.HasSuffix(f.GetName(), "_write.sst") {
@@ -174,7 +174,7 @@ func EstimateRangeSize(files []*backup.File) int {
 
 // ValidateFileRanges checks and returns the ranges of the files.
 func ValidateFileRanges(
-	files []*backup.File,
+	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 ) ([]rtree.Range, error) {
 	ranges := make([]rtree.Range, 0, len(files))
@@ -196,8 +196,8 @@ func ValidateFileRanges(
 
 // MapTableToFiles makes a map that mapping table ID to its backup files.
 // aware that one file can and only can hold one table.
-func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
-	result := map[int64][]*backup.File{}
+func MapTableToFiles(files []*backuppb.File) map[int64][]*backuppb.File {
+	result := map[int64][]*backuppb.File{}
 	for _, file := range files {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
@@ -222,7 +222,7 @@ func MapTableToFiles(files []*backup.File) map[int64][]*backup.File {
 func GoValidateFileRanges(
 	ctx context.Context,
 	tableStream <-chan CreatedTable,
-	fileOfTable map[int64][]*backup.File,
+	fileOfTable map[int64][]*backuppb.File,
 	errCh chan<- error,
 ) <-chan TableWithRange {
 	// Could we have a smaller outCh size?
@@ -272,7 +272,7 @@ func GoValidateFileRanges(
 }
 
 // validateAndGetFileRange validates a file, if success, return the key range of this file.
-func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Range, error) {
+func validateAndGetFileRange(file *backuppb.File, rules *RewriteRules) (rtree.Range, error) {
 	err := ValidateFileRewriteRule(file, rules)
 	if err != nil {
 		return rtree.Range{}, errors.Trace(err)
@@ -294,7 +294,7 @@ func validateAndGetFileRange(file *backup.File, rules *RewriteRules) (rtree.Rang
 // Panic if range is overlapped or no range for files.
 // nolint:staticcheck
 func AttachFilesToRanges(
-	files []*backup.File,
+	files []*backuppb.File,
 	ranges []rtree.Range,
 ) []rtree.Range {
 	rangeTree := rtree.NewRangeTree()
@@ -324,7 +324,7 @@ func AttachFilesToRanges(
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file.
-func ValidateFileRewriteRule(file *backup.File, rewriteRules *RewriteRules) error {
+func ValidateFileRewriteRule(file *backuppb.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
 	if rewriteRules != nil && startRule == nil {
@@ -436,7 +436,7 @@ func SplitRanges(
 	})
 }
 
-func rewriteFileKeys(file *backup.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
+func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	var rule *import_sstpb.RewriteRule

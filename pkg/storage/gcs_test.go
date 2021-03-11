@@ -9,7 +9,7 @@ import (
 
 	"github.com/fsouza/fake-gcs-server/fakestorage"
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 )
 
 func (r *testStorageSuite) TestGCS(c *C) {
@@ -23,7 +23,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	bucketName := "testbucket"
 	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
 
-	gcs := &backup.GCS{
+	gcs := &backuppb.GCS{
 		Bucket:          bucketName,
 		Prefix:          "a/b/",
 		StorageClass:    "NEARLINE",
@@ -74,7 +74,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
 
 	{
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
 			StorageClass:    "NEARLINE",
@@ -91,7 +91,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
 			StorageClass:    "NEARLINE",
@@ -120,7 +120,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 		c.Assert(err, IsNil)
 
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
 			StorageClass:    "NEARLINE",
@@ -149,7 +149,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 		defer os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
 		c.Assert(err, IsNil)
 
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
 			StorageClass:    "NEARLINE",
@@ -168,7 +168,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 
 	{
 		os.Unsetenv("GOOGLE_APPLICATION_CREDENTIALS")
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b/",
 			StorageClass:    "NEARLINE",
@@ -184,7 +184,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		gcs := &backup.GCS{
+		gcs := &backuppb.GCS{
 			Bucket:          bucketName,
 			Prefix:          "a/b",
 			StorageClass:    "NEARLINE",
