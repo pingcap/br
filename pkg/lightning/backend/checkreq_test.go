@@ -100,13 +100,9 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 }`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
-<<<<<<< HEAD
-	version = "5.0.0"
-=======
 	version = `{
-    "version": "v6.0.0"
+    "version": "v5.0.0"
 }`
->>>>>>> 9348911... *: unify version and set max compatible via NextMajorVersion (#798)
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
 	version = `{

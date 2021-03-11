@@ -87,16 +87,6 @@ const (
 )
 
 var (
-<<<<<<< HEAD
-	// Local backend is compatible with TiDB [4.0.0, 5.0.0).
-	localMinTiDBVersion = *semver.New("4.0.0")
-	localMinTiKVVersion = *semver.New("4.0.0")
-	localMinPDVersion   = *semver.New("4.0.0")
-	// TODO: bump max versions based on the version define in Makefile.
-	localMaxTiDBVersion = *semver.New("5.0.0")
-	localMaxTiKVVersion = *semver.New("5.0.0")
-	localMaxPDVersion   = *semver.New("5.0.0")
-=======
 	// Local backend is compatible with TiDB [4.0.0, NextMajorVersion).
 	localMinTiDBVersion = *semver.New("4.0.0")
 	localMinTiKVVersion = *semver.New("4.0.0")
@@ -104,7 +94,6 @@ var (
 	localMaxTiDBVersion = version.NextMajorVersion()
 	localMaxTiKVVersion = version.NextMajorVersion()
 	localMaxPDVersion   = version.NextMajorVersion()
->>>>>>> 9348911... *: unify version and set max compatible via NextMajorVersion (#798)
 )
 
 var (
