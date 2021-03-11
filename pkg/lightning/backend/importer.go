@@ -112,10 +112,10 @@ func (*importer) ShouldPostProcess() bool {
 }
 
 // isIgnorableOpenCloseEngineError checks if the error from
-// OpenEngine/CloseEngine can be safely ignored.
+// CloseEngine can be safely ignored.
 func isIgnorableOpenCloseEngineError(err error) bool {
-	// We allow "FileExists" error. This happens when the engine has been opened
-	// and closed before. This error typically arise when resuming from a
+	// We allow "FileExists" error. This happens when the engine has been
+	// closed before. This error typically arise when resuming from a
 	// checkpoint with a partially-imported engine.
 	//
 	// If the error is legit in a no-checkpoints settings, the later WriteEngine
@@ -129,10 +129,7 @@ func (importer *importer) OpenEngine(ctx context.Context, engineUUID uuid.UUID) 
 	}
 
 	_, err := importer.cli.OpenEngine(ctx, req)
-	if !isIgnorableOpenCloseEngineError(err) {
-		return errors.Trace(err)
-	}
-	return nil
+	return errors.Trace(err)
 }
 
 func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -216,7 +213,11 @@ func (importer *importer) WriteRowsToImporter(
 	logger := log.With(zap.Stringer("engineUUID", engineUUID))
 
 	defer func() {
-		if _, closeErr := wstream.CloseAndRecv(); closeErr != nil {
+		resp, closeErr := wstream.CloseAndRecv()
+		if closeErr == nil && resp != nil && resp.Error != nil {
+			closeErr = errors.Errorf("Engine '%s' not found", resp.Error.EngineNotFound.Uuid)
+		}
+		if closeErr != nil {
 			if finalErr == nil {
 				finalErr = errors.Trace(closeErr)
 			} else {
