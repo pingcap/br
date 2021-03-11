@@ -90,6 +90,7 @@ func NewRestoreCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 			utils.LogBRInfo()
+			utils.LogEnvVariables()
 			task.LogArguments(c)
 			session.DisableStats4Test()
 
