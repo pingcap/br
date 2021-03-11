@@ -42,7 +42,7 @@ pid=$!
 export GO_FAILPOINTS=""
 sleep 15
 if ps -q $pid ; then
-    echo "After failed 15 seconds, our BR doesn't gracefully shutdown..."
+    echo "After failed 15 seconds, BR doesn't gracefully shutdown..."
     exit 1
 fi
 
