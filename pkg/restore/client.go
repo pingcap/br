@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -60,7 +60,7 @@ type Client struct {
 
 	databases  map[string]*utils.Database
 	ddlJobs    []*model.Job
-	backupMeta *backup.BackupMeta
+	backupMeta *backuppb.BackupMeta
 	// TODO Remove this field or replace it with a []*DB,
 	// since https://github.com/pingcap/br/pull/377 needs more DBs to speed up DDL execution.
 	// And for now, we must inject a pool of DBs to `Client.GoCreateTables`, otherwise there would be a race condition.
@@ -79,7 +79,7 @@ type Client struct {
 	restoreStores []uint64
 
 	storage            storage.ExternalStorage
-	backend            *backup.StorageBackend
+	backend            *backuppb.StorageBackend
 	switchModeInterval time.Duration
 	switchCh           chan struct{}
 
@@ -131,7 +131,7 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 }
 
 // SetStorage set ExternalStorage for client.
-func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) error {
 	var err error
 	rc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
@@ -166,7 +166,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.StorageBackend) error {
+func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
 	if !backupMeta.IsRawKv {
 		databases, err := utils.LoadBackupTables(backupMeta)
 		if err != nil {
@@ -197,7 +197,7 @@ func (rc *Client) IsRawKvMode() bool {
 }
 
 // GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
-func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backuppb.File, error) {
 	if !rc.IsRawKvMode() {
 		return nil, errors.Annotate(berrors.ErrRestoreModeMismatch, "the backup data is not in raw kv mode")
 	}
@@ -222,7 +222,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
-		files := make([]*backup.File, 0)
+		files := make([]*backuppb.File, 0)
 
 		for _, file := range rc.backupMeta.Files {
 			if file.Cf != cf {
@@ -528,7 +528,7 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
 	ctx context.Context,
-	files []*backup.File,
+	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
 ) (err error) {
@@ -575,7 +575,7 @@ func (rc *Client) RestoreFiles(
 
 // RestoreRaw tries to restore raw keys in the specified range.
 func (rc *Client) RestoreRaw(
-	ctx context.Context, startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress,
+	ctx context.Context, startKey []byte, endKey []byte, files []*backuppb.File, updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {

@@ -17,7 +17,7 @@ import (
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
 	"github.com/pingcap/br/pkg/mock"
 	. "github.com/pingcap/br/pkg/storage"
@@ -44,7 +44,7 @@ func (s *s3Suite) setUpTest(c gomock.TestReporter) {
 	s.s3 = mock.NewMockS3API(s.controller)
 	s.storage = NewS3StorageForTest(
 		s.s3,
-		&backup.S3{
+		&backuppb.S3{
 			Region:       "us-west-2",
 			Bucket:       "bucket",
 			Prefix:       "prefix/",
@@ -129,7 +129,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 		name    string
 		options S3BackendOptions
 		setEnv  bool
-		s3      *backup.S3
+		s3      *backuppb.S3
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
@@ -150,7 +150,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				Region:   "",
 				Endpoint: "",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region: "us-east-1",
 				Bucket: "bucket",
 				Prefix: "prefix",
@@ -161,7 +161,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 			options: S3BackendOptions{
 				Region: "us-west-2",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region: "us-west-2",
 				Bucket: "bucket",
 				Prefix: "prefix",
@@ -172,7 +172,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "https://s3.us-west-2",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "us-east-1",
 				Endpoint: "https://s3.us-west-2",
 				Bucket:   "bucket",
@@ -184,7 +184,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 			options: S3BackendOptions{
 				Endpoint: "http://s3.us-west-2",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "us-east-1",
 				Endpoint: "http://s3.us-west-2",
 				Bucket:   "bucket",
@@ -198,7 +198,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				ForcePathStyle: true,
 				Provider:       "ceph",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:         "us-west-2",
 				ForcePathStyle: true,
 				Bucket:         "bucket",
@@ -212,7 +212,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				ForcePathStyle: true,
 				Provider:       "alibaba",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:         "us-west-2",
 				ForcePathStyle: false,
 				Bucket:         "bucket",
@@ -226,7 +226,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				ForcePathStyle: true,
 				Provider:       "netease",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:         "us-west-2",
 				ForcePathStyle: false,
 				Bucket:         "bucket",
@@ -240,7 +240,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				ForcePathStyle:        true,
 				UseAccelerateEndpoint: true,
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:         "us-west-2",
 				ForcePathStyle: false,
 				Bucket:         "bucket",
@@ -254,7 +254,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 				AccessKey:       "ab",
 				SecretAccessKey: "cd",
 			},
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:          "us-west-2",
 				AccessKey:       "ab",
 				SecretAccessKey: "cd",
@@ -272,7 +272,7 @@ func (s *s3Suite) TestApplyUpdate(c *C) {
 func (s *s3Suite) TestS3Storage(c *C) {
 	type testcase struct {
 		name           string
-		s3             *backup.S3
+		s3             *backuppb.S3
 		errReturn      bool
 		hackCheck      bool
 		sendCredential bool
@@ -280,8 +280,8 @@ func (s *s3Suite) TestS3Storage(c *C) {
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
 		ctx := aws.BackgroundContext()
-		s3 := &backup.StorageBackend{
-			Backend: &backup.StorageBackend_S3{
+		s3 := &backuppb.StorageBackend{
+			Backend: &backuppb.StorageBackend_S3{
 				S3: test.s3,
 			},
 		}
@@ -303,7 +303,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 	tests := []testcase{
 		{
 			name: "no region and endpoint",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "",
 				Endpoint: "",
 				Bucket:   "bucket",
@@ -314,7 +314,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no region",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "",
 				Endpoint: "http://10.1.2.3",
 				Bucket:   "bucket",
@@ -325,7 +325,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no endpoint",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "us-west-2",
 				Endpoint: "",
 				Bucket:   "bucket",
@@ -336,7 +336,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no region",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "",
 				Endpoint: "http://10.1.2.3",
 				Bucket:   "bucket",
@@ -348,7 +348,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "normal region",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:   "us-west-2",
 				Endpoint: "",
 				Bucket:   "bucket",
@@ -360,7 +360,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "keys configured explicitly",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:          "us-west-2",
 				AccessKey:       "ab",
 				SecretAccessKey: "cd",
@@ -373,7 +373,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no access key",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:          "us-west-2",
 				SecretAccessKey: "cd",
 				Bucket:          "bucket",
@@ -385,7 +385,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no secret access key",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:    "us-west-2",
 				AccessKey: "ab",
 				Bucket:    "bucket",
@@ -397,7 +397,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		},
 		{
 			name: "no secret access key",
-			s3: &backup.S3{
+			s3: &backuppb.S3{
 				Region:    "us-west-2",
 				AccessKey: "ab",
 				Bucket:    "bucket",
@@ -857,7 +857,7 @@ func (s *s3SuiteCustom) TestWalkDirWithEmptyPrefix(c *C) {
 	s3API := mock.NewMockS3API(controller)
 	storage := NewS3StorageForTest(
 		s3API,
-		&backup.S3{
+		&backuppb.S3{
 			Region:       "us-west-2",
 			Bucket:       "bucket",
 			Prefix:       "",
