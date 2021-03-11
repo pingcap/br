@@ -32,6 +32,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -39,6 +41,7 @@ const (
 )
 
 var (
+<<<<<<< HEAD
 	// Importer backend is compatible with TiDB [2.1.0, 5.0.0).
 	requiredMinTiDBVersion = *semver.New("2.1.0")
 	requiredMinPDVersion   = *semver.New("2.1.0")
@@ -47,6 +50,15 @@ var (
 	requiredMaxTiDBVersion = *semver.New("5.0.0")
 	requiredMaxPDVersion   = *semver.New("5.0.0")
 	requiredMaxTiKVVersion = *semver.New("5.0.0")
+=======
+	// Importer backend is compatible with TiDB [2.1.0, NextMajorVersion).
+	requiredMinTiDBVersion = *semver.New("2.1.0")
+	requiredMinPDVersion   = *semver.New("2.1.0")
+	requiredMinTiKVVersion = *semver.New("2.1.0")
+	requiredMaxTiDBVersion = version.NextMajorVersion()
+	requiredMaxPDVersion   = version.NextMajorVersion()
+	requiredMaxTiKVVersion = version.NextMajorVersion()
+>>>>>>> 9348911... *: unify version and set max compatible via NextMajorVersion (#798)
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is
@@ -300,7 +312,7 @@ func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredMinVers
 }
 
 func checkTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.ExtractTiDBVersion(versionStr)
+	version, err := version.ExtractTiDBVersion(versionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -321,7 +333,7 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion,
 }
 
 func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.FetchPDVersion(ctx, tls, pdAddr)
+	version, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}

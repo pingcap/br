@@ -61,6 +61,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/worker"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -86,6 +87,7 @@ const (
 )
 
 var (
+<<<<<<< HEAD
 	// Local backend is compatible with TiDB [4.0.0, 5.0.0).
 	localMinTiDBVersion = *semver.New("4.0.0")
 	localMinTiKVVersion = *semver.New("4.0.0")
@@ -94,6 +96,15 @@ var (
 	localMaxTiDBVersion = *semver.New("5.0.0")
 	localMaxTiKVVersion = *semver.New("5.0.0")
 	localMaxPDVersion   = *semver.New("5.0.0")
+=======
+	// Local backend is compatible with TiDB [4.0.0, NextMajorVersion).
+	localMinTiDBVersion = *semver.New("4.0.0")
+	localMinTiKVVersion = *semver.New("4.0.0")
+	localMinPDVersion   = *semver.New("4.0.0")
+	localMaxTiDBVersion = version.NextMajorVersion()
+	localMaxTiKVVersion = version.NextMajorVersion()
+	localMaxPDVersion   = version.NextMajorVersion()
+>>>>>>> 9348911... *: unify version and set max compatible via NextMajorVersion (#798)
 )
 
 var (
