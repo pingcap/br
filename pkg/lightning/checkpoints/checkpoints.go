@@ -31,11 +31,13 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
+	"github.com/pingcap/br/pkg/lightning/checkpoints/checkpointspb"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type CheckpointStatus uint8
@@ -631,7 +633,7 @@ func (cpdb *MySQLCheckpointsDB) Initialize(ctx context.Context, cfg *config.Conf
 		defer taskStmt.Close()
 		_, err = taskStmt.ExecContext(ctx, cfg.TaskID, cfg.Mydumper.SourceDir, cfg.TikvImporter.Backend,
 			cfg.TikvImporter.Addr, cfg.TiDB.Host, cfg.TiDB.Port, cfg.TiDB.PdAddr, cfg.TikvImporter.SortedKVDir,
-			common.ReleaseVersion)
+			build.ReleaseVersion)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -901,16 +903,16 @@ func (cpdb *MySQLCheckpointsDB) Update(checkpointDiffs map[string]*TableCheckpoi
 
 type FileCheckpointsDB struct {
 	lock        sync.Mutex // we need to ensure only a thread can access to `checkpoints` at a time
-	checkpoints CheckpointsModel
+	checkpoints checkpointspb.CheckpointsModel
 	path        string
 }
 
 func NewFileCheckpointsDB(path string) *FileCheckpointsDB {
 	cpdb := &FileCheckpointsDB{
 		path: path,
-		checkpoints: CheckpointsModel{
-			TaskCheckpoint: &TaskCheckpointModel{},
-			Checkpoints:    map[string]*TableCheckpointModel{},
+		checkpoints: checkpointspb.CheckpointsModel{
+			TaskCheckpoint: &checkpointspb.TaskCheckpointModel{},
+			Checkpoints:    map[string]*checkpointspb.TableCheckpointModel{},
 		},
 	}
 	// ignore all errors -- file maybe not created yet (and it is fine).
@@ -923,15 +925,15 @@ func NewFileCheckpointsDB(path string) *FileCheckpointsDB {
 		// FIXME: patch for empty map may need initialize manually, because currently
 		// FIXME: a map of zero size -> marshall -> unmarshall -> become nil, see checkpoint_test.go
 		if cpdb.checkpoints.Checkpoints == nil {
-			cpdb.checkpoints.Checkpoints = map[string]*TableCheckpointModel{}
+			cpdb.checkpoints.Checkpoints = map[string]*checkpointspb.TableCheckpointModel{}
 		}
 		for _, table := range cpdb.checkpoints.Checkpoints {
 			if table.Engines == nil {
-				table.Engines = map[int32]*EngineCheckpointModel{}
+				table.Engines = map[int32]*checkpointspb.EngineCheckpointModel{}
 			}
 			for _, engine := range table.Engines {
 				if engine.Chunks == nil {
-					engine.Chunks = map[string]*ChunkCheckpointModel{}
+					engine.Chunks = map[string]*checkpointspb.ChunkCheckpointModel{}
 				}
 			}
 		}
@@ -959,7 +961,7 @@ func (cpdb *FileCheckpointsDB) Initialize(ctx context.Context, cfg *config.Confi
 	cpdb.lock.Lock()
 	defer cpdb.lock.Unlock()
 
-	cpdb.checkpoints.TaskCheckpoint = &TaskCheckpointModel{
+	cpdb.checkpoints.TaskCheckpoint = &checkpointspb.TaskCheckpointModel{
 		TaskId:       cfg.TaskID,
 		SourceDir:    cfg.Mydumper.SourceDir,
 		Backend:      cfg.TikvImporter.Backend,
@@ -968,20 +970,20 @@ func (cpdb *FileCheckpointsDB) Initialize(ctx context.Context, cfg *config.Confi
 		TidbPort:     int32(cfg.TiDB.Port),
 		PdAddr:       cfg.TiDB.PdAddr,
 		SortedKvDir:  cfg.TikvImporter.SortedKVDir,
-		LightningVer: common.ReleaseVersion,
+		LightningVer: build.ReleaseVersion,
 	}
 
 	if cpdb.checkpoints.Checkpoints == nil {
-		cpdb.checkpoints.Checkpoints = make(map[string]*TableCheckpointModel)
+		cpdb.checkpoints.Checkpoints = make(map[string]*checkpointspb.TableCheckpointModel)
 	}
 
 	for _, db := range dbInfo {
 		for _, table := range db.Tables {
 			tableName := common.UniqueTable(db.Name, table.Name)
 			if _, ok := cpdb.checkpoints.Checkpoints[tableName]; !ok {
-				cpdb.checkpoints.Checkpoints[tableName] = &TableCheckpointModel{
+				cpdb.checkpoints.Checkpoints[tableName] = &checkpointspb.TableCheckpointModel{
 					Status:  uint32(CheckpointStatusLoaded),
-					Engines: map[int32]*EngineCheckpointModel{},
+					Engines: map[int32]*checkpointspb.EngineCheckpointModel{},
 					TableID: table.ID,
 				}
 			}
@@ -1025,7 +1027,7 @@ func (cpdb *FileCheckpointsDB) Get(_ context.Context, tableName string) (*TableC
 
 	tableModel, ok := cpdb.checkpoints.Checkpoints[tableName]
 	if !ok {
-		tableModel = &TableCheckpointModel{}
+		tableModel = &checkpointspb.TableCheckpointModel{}
 	}
 
 	cp := &TableCheckpoint{
@@ -1086,15 +1088,15 @@ func (cpdb *FileCheckpointsDB) InsertEngineCheckpoints(_ context.Context, tableN
 
 	tableModel := cpdb.checkpoints.Checkpoints[tableName]
 	for engineID, engine := range checkpoints {
-		engineModel := &EngineCheckpointModel{
+		engineModel := &checkpointspb.EngineCheckpointModel{
 			Status: uint32(CheckpointStatusLoaded),
-			Chunks: make(map[string]*ChunkCheckpointModel),
+			Chunks: make(map[string]*checkpointspb.ChunkCheckpointModel),
 		}
 		for _, value := range engine.Chunks {
 			key := value.Key.String()
 			chunk, ok := engineModel.Chunks[key]
 			if !ok {
-				chunk = &ChunkCheckpointModel{
+				chunk = &checkpointspb.ChunkCheckpointModel{
 					Path:   value.Key.Path,
 					Offset: value.Key.Offset,
 				}

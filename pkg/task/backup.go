@@ -10,7 +10,7 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -45,8 +45,8 @@ const (
 
 // CompressionConfig is the configuration for sst file compression.
 type CompressionConfig struct {
-	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
-	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
+	CompressionType  backuppb.CompressionType `json:"compression-type" toml:"compression-type"`
+	CompressionLevel int32                    `json:"compression-level" toml:"compression-level"`
 }
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -175,8 +175,8 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 		cfg.GCTTL = utils.DefaultBRGCSafePointTTL
 	}
 	// Use zstd as default
-	if cfg.CompressionType == kvproto.CompressionType_UNKNOWN {
-		cfg.CompressionType = kvproto.CompressionType_ZSTD
+	if cfg.CompressionType == backuppb.CompressionType_UNKNOWN {
+		cfg.CompressionType = backuppb.CompressionType_ZSTD
 	}
 }
 
@@ -232,9 +232,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		sp.BackupTS = cfg.LastBackupTS
 	}
 
-	log.Info("current backup safePoint job",
-		zap.Object("safePoint", sp))
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	log.Info("current backup safePoint job", zap.Object("safePoint", sp))
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
@@ -255,13 +257,19 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	req := kvproto.BackupRequest{
+	req := backuppb.BackupRequest{
+		ClusterId:        client.GetClusterID(),
 		StartVersion:     cfg.LastBackupTS,
 		EndVersion:       backupTS,
 		RateLimit:        cfg.RateLimit,
 		Concurrency:      defaultBackupConcurrency,
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
+	}
+	brVersion := g.GetVersion()
+	clusterVersion, err := mgr.GetClusterVersion(ctx)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
@@ -271,7 +279,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	// nothing to backup
 	if ranges == nil {
-		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil)
+		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
 		if err2 != nil {
 			return errors.Trace(err2)
 		}
@@ -323,7 +331,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs)
+	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -372,7 +380,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 // checkChecksums checks the checksum of the client, once failed,
 // returning a error with message: "mismatched checksum".
-func checkChecksums(backupMeta *kvproto.BackupMeta) error {
+func checkChecksums(backupMeta *backuppb.BackupMeta) error {
 	checksums, err := backup.CollectChecksums(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -408,17 +416,17 @@ func parseTSString(ts string) (uint64, error) {
 	return variable.GoTimeToTS(t1), nil
 }
 
-func parseCompressionType(s string) (kvproto.CompressionType, error) {
-	var ct kvproto.CompressionType
+func parseCompressionType(s string) (backuppb.CompressionType, error) {
+	var ct backuppb.CompressionType
 	switch s {
 	case "lz4":
-		ct = kvproto.CompressionType_LZ4
+		ct = backuppb.CompressionType_LZ4
 	case "snappy":
-		ct = kvproto.CompressionType_SNAPPY
+		ct = backuppb.CompressionType_SNAPPY
 	case "zstd":
-		ct = kvproto.CompressionType_ZSTD
+		ct = backuppb.CompressionType_ZSTD
 	default:
-		return kvproto.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
+		return backuppb.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
 	}
 	return ct, nil
 }
