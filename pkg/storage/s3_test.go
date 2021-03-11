@@ -555,7 +555,9 @@ func (s *s3Suite) TestReadError(c *C) {
 		Return(nil, expectedErr)
 
 	_, err := s.storage.Read(ctx, "file-missing")
-	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
+
+	c.Assert(err, ErrorMatches, "failed to read s3 file, file info: "+
+		"input.bucket='bucket', input.key='prefix/file-missing': "+expectedErr.Error())
 }
 
 // TestFileExistsError checks that a HeadObject error is propagated.
