@@ -778,6 +778,13 @@ func OnBackupResponse(
 		log.Error("backup occur cluster ID error", zap.Reflect("error", v), zap.Uint64("storeID", storeID))
 		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
+		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
+		if utils.MessageIsRetryableS3Error(resp.GetError().GetMsg()) {
+			log.Warn("backup occur s3 storage error", zap.String("error", resp.GetError().GetMsg()))
+			// back off 3000ms, for S3 is 99.99% available (i.e. the max outage time would less than 52.56mins per year),
+			// this time would be probably enough for s3 to resume.
+			return nil, 3000, nil
+		}
 		log.Error("backup occur unknown error", zap.String("error", resp.Error.GetMsg()), zap.Uint64("storeID", storeID))
 		return nil, 0, errors.Annotatef(berrors.ErrKVUnknown, "%v on storeID: %d", resp.Error, storeID)
 	}
@@ -879,7 +886,13 @@ backupLoop:
 		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
 				log.Debug("failpoint reset-retryable-error injected.")
-				err = status.Errorf(codes.Unavailable, "Unavailable error")
+				err = status.Error(codes.Unavailable, "Unavailable error")
+			}
+		})
+		failpoint.Inject("reset-not-retryable-error", func(val failpoint.Value) {
+			if val.(bool) {
+				log.Debug("failpoint reset-not-retryable-error injected.")
+				err = status.Error(codes.Unknown, "Your server was haunted hence doesn't work, meow :3")
 			}
 		})
 		if err != nil {
@@ -1031,5 +1044,5 @@ func CollectChecksums(backupMeta *backuppb.BackupMeta) ([]Checksum, error) {
 
 // isRetryableError represents whether we should retry reset grpc connection.
 func isRetryableError(err error) bool {
-	return status.Code(err) == codes.Unavailable || status.Code(err) == codes.Canceled
+	return status.Code(err) == codes.Unavailable
 }
