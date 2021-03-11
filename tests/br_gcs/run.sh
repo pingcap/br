@@ -19,10 +19,11 @@ TABLE="usertable"
 DB_COUNT=3
 
 GCS_HOST="localhost"
-GCS_PORT=21808
+GCS_PORT=$(shuf -i 21808-31808 -n1) # Generate a random port.
 BUCKET="test"
 
 # we need set public-host for download file, or it will return 404 when using client to read.
+lsof -i :$GCS_PORT | awk 'NR > 1 {system("pwdx " $2)}' # Try to find port conflicting.
 bin/fake-gcs-server -scheme http -host $GCS_HOST -port $GCS_PORT -backend memory -public-host $GCS_HOST:$GCS_PORT &
 i=0
 while ! curl -o /dev/null -v -s "http://$GCS_HOST:$GCS_PORT/"; do
