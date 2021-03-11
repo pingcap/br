@@ -81,9 +81,9 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 	ctx := context.Background()
 
 	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		c.Assert(req.URL.Path, Equals, "/pd/api/v1/config/cluster-version")
+		c.Assert(req.URL.Path, Equals, "/pd/api/v1/version")
 		w.WriteHeader(http.StatusOK)
-		err := json.NewEncoder(w).Encode(version)
+		_, err := w.Write([]byte(version))
 		c.Assert(err, IsNil)
 	}))
 	mockURL, err := url.Parse(mockServer.URL)
@@ -91,19 +91,34 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 
 	tls := common.NewTLSFromMockServer(mockServer)
 
-	version = "4.0.0"
+	version = `{
+    "version": "v4.0.0-rc.2-451-g760fb650"
+}`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), IsNil)
 
-	version = "9999.0.0"
+	version = `{
+    "version": "v4.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), IsNil)
+
+	version = `{
+    "version": "v9999.0.0"
+}`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
-	version = "6.0.0"
+	version = `{
+    "version": "v6.0.0"
+}`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
-	version = "6.0.0-beta"
+	version = `{
+    "version": "v6.0.0-beta"
+}`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
-	version = "1.0.0"
+	version = `{
+    "version": "v1.0.0"
+}`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too old.*")
 }
 

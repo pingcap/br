@@ -32,6 +32,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -39,14 +41,13 @@ const (
 )
 
 var (
-	// Importer backend is compatible with TiDB [2.1.0, 6.0.0).
+	// Importer backend is compatible with TiDB [2.1.0, NextMajorVersion).
 	requiredMinTiDBVersion = *semver.New("2.1.0")
 	requiredMinPDVersion   = *semver.New("2.1.0")
 	requiredMinTiKVVersion = *semver.New("2.1.0")
-	// TODO: bump max versions based on the version define in Makefile.
-	requiredMaxTiDBVersion = *semver.New("6.0.0")
-	requiredMaxPDVersion   = *semver.New("6.0.0")
-	requiredMaxTiKVVersion = *semver.New("6.0.0")
+	requiredMaxTiDBVersion = version.NextMajorVersion()
+	requiredMaxPDVersion   = version.NextMajorVersion()
+	requiredMaxTiKVVersion = version.NextMajorVersion()
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is
@@ -112,10 +113,10 @@ func (*importer) ShouldPostProcess() bool {
 }
 
 // isIgnorableOpenCloseEngineError checks if the error from
-// OpenEngine/CloseEngine can be safely ignored.
+// CloseEngine can be safely ignored.
 func isIgnorableOpenCloseEngineError(err error) bool {
-	// We allow "FileExists" error. This happens when the engine has been opened
-	// and closed before. This error typically arise when resuming from a
+	// We allow "FileExists" error. This happens when the engine has been
+	// closed before. This error typically arise when resuming from a
 	// checkpoint with a partially-imported engine.
 	//
 	// If the error is legit in a no-checkpoints settings, the later WriteEngine
@@ -129,10 +130,7 @@ func (importer *importer) OpenEngine(ctx context.Context, engineUUID uuid.UUID) 
 	}
 
 	_, err := importer.cli.OpenEngine(ctx, req)
-	if !isIgnorableOpenCloseEngineError(err) {
-		return errors.Trace(err)
-	}
-	return nil
+	return errors.Trace(err)
 }
 
 func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -216,7 +214,11 @@ func (importer *importer) WriteRowsToImporter(
 	logger := log.With(zap.Stringer("engineUUID", engineUUID))
 
 	defer func() {
-		if _, closeErr := wstream.CloseAndRecv(); closeErr != nil {
+		resp, closeErr := wstream.CloseAndRecv()
+		if closeErr == nil && resp != nil && resp.Error != nil {
+			closeErr = errors.Errorf("Engine '%s' not found", resp.Error.EngineNotFound.Uuid)
+		}
+		if closeErr != nil {
 			if finalErr == nil {
 				finalErr = errors.Trace(closeErr)
 			} else {
@@ -299,7 +301,7 @@ func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredMinVers
 }
 
 func checkTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.ExtractTiDBVersion(versionStr)
+	version, err := version.ExtractTiDBVersion(versionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -320,7 +322,7 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion,
 }
 
 func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.FetchPDVersion(ctx, tls, pdAddr)
+	version, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}

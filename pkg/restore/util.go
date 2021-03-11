@@ -12,7 +12,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // mysql driver
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -91,7 +91,7 @@ func GetRewriteRules(
 // The range of the returned sst meta is [regionRule.NewKeyPrefix, append(regionRule.NewKeyPrefix, 0xff)].
 func GetSSTMetaFromFile(
 	id []byte,
-	file *kvproto.File,
+	file *backuppb.File,
 	region *metapb.Region,
 	regionRule *import_sstpb.RewriteRule,
 ) import_sstpb.SSTMeta {
@@ -160,7 +160,7 @@ func MakeDBPool(size uint, dbFactory func() (*DB, error)) ([]*DB, error) {
 }
 
 // EstimateRangeSize estimates the total range count by file.
-func EstimateRangeSize(files []*kvproto.File) int {
+func EstimateRangeSize(files []*backuppb.File) int {
 	result := 0
 	for _, f := range files {
 		if strings.HasSuffix(f.GetName(), "_write.sst") {
@@ -172,8 +172,8 @@ func EstimateRangeSize(files []*kvproto.File) int {
 
 // MapTableToFiles makes a map that mapping table ID to its backup files.
 // aware that one file can and only can hold one table.
-func MapTableToFiles(files []*kvproto.File) map[int64][]*kvproto.File {
-	result := map[int64][]*kvproto.File{}
+func MapTableToFiles(files []*backuppb.File) map[int64][]*backuppb.File {
+	result := map[int64][]*backuppb.File{}
 	for _, file := range files {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		tableEndID := tablecodec.DecodeTableID(file.GetEndKey())
@@ -199,7 +199,7 @@ func MapTableToFiles(files []*kvproto.File) map[int64][]*kvproto.File {
 func GoValidateFileRanges(
 	ctx context.Context,
 	tableStream <-chan CreatedTable,
-	fileOfTable map[int64][]*kvproto.File,
+	fileOfTable map[int64][]*backuppb.File,
 	splitSizeBytes, splitKeyCount uint64,
 	errCh chan<- error,
 ) <-chan TableWithRange {
@@ -272,7 +272,7 @@ func GoValidateFileRanges(
 }
 
 // ValidateFileRewriteRule uses rewrite rules to validate the ranges of a file.
-func ValidateFileRewriteRule(file *kvproto.File, rewriteRules *RewriteRules) error {
+func ValidateFileRewriteRule(file *backuppb.File, rewriteRules *RewriteRules) error {
 	// Check if the start key has a matched rewrite key
 	_, startRule := rewriteRawKey(file.GetStartKey(), rewriteRules)
 	if rewriteRules != nil && startRule == nil {
@@ -394,7 +394,7 @@ func SplitRanges(
 	})
 }
 
-func rewriteFileKeys(file *kvproto.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
+func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
 	startID := tablecodec.DecodeTableID(file.GetStartKey())
 	endID := tablecodec.DecodeTableID(file.GetEndKey())
 	var rule *import_sstpb.RewriteRule
