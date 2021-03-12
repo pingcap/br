@@ -34,6 +34,19 @@ export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/reset-retryable-error=1*r
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-limit" --concurrency 4
 export GO_FAILPOINTS=""
 
+# backup full and let TiKV returns an unknown error, to test whether we can gracefully stop.
+echo "backup with unretryable error start..."
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/reset-not-retryable-error=1*return(true)"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-no-retryable" --concurrency 4 &
+pid=$!
+export GO_FAILPOINTS=""
+sleep 15
+if ps -q $pid ; then
+    echo "After failed 15 seconds, BR doesn't gracefully shutdown..."
+    exit 1
+fi
+
+
 # backup full
 echo "backup with lz4 start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --concurrency 4 --compression lz4
