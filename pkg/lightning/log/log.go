@@ -82,8 +82,8 @@ func InitLogger(cfg *Config, tidbLoglevel string) error {
 		DisableCaller: false, // FilterCore requires zap.AddCaller.
 	}
 	filterTiDBLog := zap.WrapCore(func(core zapcore.Core) zapcore.Core {
-		// Filter logs from TiDB.
-		return NewFilterCore(core, "github.com/pingcap/tidb/")
+		// Filter logs from TiDB and PD.
+		return NewFilterCore(core, "github.com/pingcap/tidb/", "github.com/tikv/pd/")
 	})
 	if len(cfg.File) > 0 {
 		logCfg.File = pclog.FileLogConfig{
