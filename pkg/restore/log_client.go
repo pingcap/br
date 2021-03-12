@@ -318,7 +318,6 @@ func (l *LogClient) GetNameIDMap() map[string][]int64 {
 		schema, table := ParseQuoteName(name)
 
 		if !l.tableFilter.MatchTable(schema, table) {
-			log.Info("yuqi")
 			log.Info("filter tables", zap.String("schema", schema),
 				zap.String("table", table), zap.Int64("tableID", tableID))
 			continue
