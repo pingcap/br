@@ -31,13 +31,13 @@ run_sql "create schema $DB;"
 TABLE="t1"
 INCREMENTAL_TABLE="t1inc"
 
-run_sql "create table $DB.$TABLE (a int primary key /*T![clustered_index] NONCLUSTERED */, b int unique);"
+run_sql "create table $DB.$TABLE (a int primary key nonclustered, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
 
 # backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
-run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key /*T![clustered_index] NONCLUSTERED */, b int unique);"
+run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key nonclustered, b int unique);"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
 
 # drop pk
@@ -78,14 +78,14 @@ TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
 run_sql "create schema $DB;"
 run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T![auto_rand] AUTO_RANDOM(5) */,
-PRIMARY KEY (a) /*T![clustered_index] CLUSTERED */)"
+PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$TABLE values ('42');"
 
 # Full backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
 run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T![auto_rand] AUTO_RANDOM(5) */,
-PRIMARY KEY (a) /*T![clustered_index] CLUSTERED */)"
+PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL
@@ -104,7 +104,7 @@ run_sql "drop schema $DB;"
 # test auto random issue https://github.com/pingcap/br/issues/241
 TABLE="t4"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE(a bigint key /*T![clustered_index] CLUSTERED */ auto_random(5));"
+run_sql "create table $DB.$TABLE(a bigint key clustered auto_random(5));"
 run_sql "insert into $DB.$TABLE values (),(),(),(),();"
 
 # Table backup
