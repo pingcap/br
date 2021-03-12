@@ -28,6 +28,7 @@ import (
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/httputil"
+	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -606,4 +607,22 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo UndoFunc, err
 func (p *PdController) Close() {
 	p.pdClient.Close()
 	close(p.schedulerPauseCh)
+}
+
+// FetchPDVersion get pd version
+func FetchPDVersion(ctx context.Context, tls *common.TLS, pdAddr string) (*semver.Version, error) {
+	// An example of PD version API.
+	// curl http://pd_address/pd/api/v1/version
+	// {
+	//   "version": "v4.0.0-rc.2-451-g760fb650"
+	// }
+	var rawVersion struct {
+		Version string `json:"version"`
+	}
+	err := tls.WithHost(pdAddr).GetJSON(ctx, "/pd/api/v1/version", &rawVersion)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return parseVersion([]byte(rawVersion.Version)), nil
 }

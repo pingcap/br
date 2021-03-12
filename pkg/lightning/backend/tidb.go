@@ -37,6 +37,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version"
 )
 
 var extraHandleTableColumn = &table.Column{
@@ -428,7 +429,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 		if err = tx.QueryRowContext(ctx, "SELECT version()").Scan(&versionStr); err != nil {
 			return err
 		}
-		tidbVersion, err := common.ExtractTiDBVersion(versionStr)
+		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
 		if err != nil {
 			return err
 		}

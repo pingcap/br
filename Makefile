@@ -19,16 +19,10 @@ else ifneq ($(shell git status --porcelain),)
 	VERSION := $(VERSION)-dirty
 endif
 
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-# TODO: unify LDFLAGS
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.ReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GoVersion=$(shell go version)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitHash=$(shell git rev-parse HEAD)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
 LIGHTNING_BIN     := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl
@@ -111,17 +105,18 @@ build_for_integration_test:
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
+test: export ARGS=$$($(PACKAGES))
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags br_test,leak $(ARGS) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
 	mkdir -p "$(TEST_DIR)"
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
+	$(GOTEST) -tags br_test -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
 		$$($(COVERED_PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
@@ -188,7 +183,7 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
-	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --build-tags br_test --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
@@ -217,6 +212,10 @@ static: prepare tools
 	grep -Rn --include="*.go" --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" \
 		$$($(PACKAGE_DIRECTORIES) | grep -vE "tests|lightning") | \
 		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
+	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
+	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
+	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' | \
+		grep -vE "backuppb" | $(CHECKER)
 
 lint: prepare tools
 	@echo "linting"
