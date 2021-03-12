@@ -141,7 +141,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		ch := make(chan *splitInfo, size)
 		eg, splitCtx := errgroup.WithContext(ctx)
 
-		for i := 0; i < size; i++ {
+		for splitWorker := 0; splitWorker < size; splitWorker++ {
 			eg.Go(func() error {
 				for sp := range ch {
 					var newRegions []*split.RegionInfo
@@ -224,12 +224,6 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		close(ch)
 		if splitError := eg.Wait(); splitError != nil {
 			return splitError
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
 		}
 
 		if len(retryKeys) == 0 {
