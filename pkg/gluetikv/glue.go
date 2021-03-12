@@ -14,6 +14,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 // Glue is an implementation of glue.Glue that accesses only TiKV without TiDB.
@@ -58,5 +59,5 @@ func (Glue) Record(name string, val uint64) {
 
 // GetVersion implements glue.Glue.
 func (Glue) GetVersion() string {
-	return "BR\n" + utils.BRInfo()
+	return "BR\n" + build.Info()
 }

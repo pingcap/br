@@ -29,6 +29,7 @@ import (
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
@@ -50,6 +51,7 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 const (
@@ -163,6 +165,9 @@ type RestoreController struct {
 
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
+
+	// commit ts for local and importer backend
+	ts uint64
 }
 
 func NewRestoreController(
@@ -241,6 +246,21 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
 	}
 
+	var ts uint64
+	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
+		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		defer pdController.Close()
+
+		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ts = oracle.ComposeTS(physical, logical)
+	}
+
 	rc := &RestoreController{
 		cfg:           cfg,
 		dbMetas:       dbMetas,
@@ -261,6 +281,7 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store: s,
+		ts:    ts,
 	}
 
 	return rc, nil
@@ -617,14 +638,14 @@ func verifyCheckpoint(cfg *config.Config, taskCp *TaskCheckpoint) error {
 	}
 
 	if cfg.App.CheckRequirements {
-		if common.ReleaseVersion != taskCp.LightningVer {
+		if build.ReleaseVersion != taskCp.LightningVer {
 			var displayVer string
 			if len(taskCp.LightningVer) != 0 {
 				displayVer = fmt.Sprintf("at '%s'", taskCp.LightningVer)
 			} else {
 				displayVer = "before v4.0.6/v3.0.19"
 			}
-			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", common.ReleaseVersion, displayVer, retryUsage)
+			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", build.ReleaseVersion, displayVer, retryUsage)
 		}
 
 		errorFmt := "config '%s' value '%s' different from checkpoint value '%s'. You may set 'check-requirements = false' to skip this check or " + retryUsage
@@ -1265,7 +1286,7 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID)
+		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID, rc.ts)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1414,7 +1435,7 @@ func (t *TableRestore) restoreEngine(
 
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
-	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID)
+	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID, rc.ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

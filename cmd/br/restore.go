@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 func runRestoreCommand(command *cobra.Command, cmdName string) error {
@@ -66,7 +67,7 @@ func NewRestoreCommand() *cobra.Command {
 			if err := Init(c); err != nil {
 				return errors.Trace(err)
 			}
-			utils.LogBRInfo()
+			build.LogInfo(build.BR)
 			utils.LogEnvVariables()
 			task.LogArguments(c)
 			session.DisableStats4Test()

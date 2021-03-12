@@ -195,19 +195,25 @@ func DefineFilterFlags(command *cobra.Command) {
 // ParseFromFlags parses the TLS config from the flag set.
 func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	tls.CA, err = flags.GetString(flagCA)
+	tls.CA, tls.Cert, tls.Key, err = ParseTLSTripleFromFlags(flags)
+	return err
+}
+
+// ParseTLSTripleFromFlags parses the (ca, cert, key) triple from flags.
+func ParseTLSTripleFromFlags(flags *pflag.FlagSet) (ca, cert, key string, err error) {
+	ca, err = flags.GetString(flagCA)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Cert, err = flags.GetString(flagCert)
+	cert, err = flags.GetString(flagCert)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Key, err = flags.GetString(flagKey)
+	key, err = flags.GetString(flagKey)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	return nil
+	return
 }
 
 func (cfg *Config) normalizePDURLs() error {

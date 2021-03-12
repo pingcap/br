@@ -26,7 +26,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -82,7 +82,7 @@ func GetAllTiKVStores(
 	j := 0
 	for _, store := range stores {
 		isTiFlash := false
-		if utils.IsTiFlash(store) {
+		if version.IsTiFlash(store) {
 			if storeBehavior == SkipTiFlash {
 				continue
 			} else if storeBehavior == ErrorOnTiFlash {
@@ -118,7 +118,7 @@ func NewMgr(
 		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
-		err = utils.CheckClusterVersion(ctx, controller.GetPDClient())
+		err = version.CheckClusterVersion(ctx, controller.GetPDClient())
 		if err != nil {
 			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
 				"if you believe it's OK, use --check-requirements=false to skip.")
