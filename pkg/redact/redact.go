@@ -32,5 +32,9 @@ func Key(key []byte) string {
 	if NeedRedact() {
 		return "?"
 	}
+	if len(key) == 0 {
+		// TiKV treats zero length keys as infinate(i.e. unbounded).
+		return "inf"
+	}
 	return strings.ToUpper(hex.EncodeToString(key))
 }
