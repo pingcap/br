@@ -91,9 +91,14 @@ type LogClient struct {
 	dropTSMap sync.Map
 }
 
-// GetMeta is for test
+// GetMeta is only for test
 func (l *LogClient) GetMeta() *LogMeta {
 	return l.meta
+}
+
+// setMeta is only for test
+func (l *LogClient) SetMeta(meta *LogMeta) {
+	l.meta = meta
 }
 
 // NewLogRestoreClient returns a new LogRestoreClient.
@@ -313,6 +318,7 @@ func (l *LogClient) GetNameIDMap() map[string][]int64 {
 		schema, table := ParseQuoteName(name)
 
 		if !l.tableFilter.MatchTable(schema, table) {
+			log.Info("yuqi")
 			log.Info("filter tables", zap.String("schema", schema),
 				zap.String("table", table), zap.Int64("tableID", tableID))
 			continue
@@ -320,7 +326,7 @@ func (l *LogClient) GetNameIDMap() map[string][]int64 {
 
 		ids, ok := nameIdsMap[name]
 		if !ok {
-			ids = make([]int64, 0, len(l.meta.Names))
+			ids = make([]int64, 0)
 		}
 		ids = append(ids, tableID)
 		nameIdsMap[name] = ids

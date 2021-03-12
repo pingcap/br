@@ -100,16 +100,25 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 func (s *testLogRestoreSuite) TestCollectRowChangeFiles(c *C) {
 	meta := s.client.GetMeta()
 
-	schemaAndTable := "`db1`.`t1`"
+	if nil == meta {
+		meta = &restore.LogMeta{Names: make(map[int64]string)}
+		s.client.SetMeta(meta)
+	}
+
+	if meta.Names == nil {
+		meta.Names = make(map[int64]string)
+	}
+
+	schemaAndTable := "`test`.`t1`"
 	// t1 with three table id
 	meta.Names[1] = schemaAndTable
 	meta.Names[2] = schemaAndTable
-	meta.Names[23] = schemaAndTable
+	meta.Names[3] = schemaAndTable
 
 	maps := s.client.GetNameIDMap()
 	ids, err := maps[schemaAndTable]
 
-	c.Assert(err, IsNil)
+	c.Assert(err, IsTrue)
 
 	c.Assert(ids, HasLen, 3)
 	c.Assert(contains(ids, 1), IsTrue)
