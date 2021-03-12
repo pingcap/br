@@ -29,6 +29,7 @@ import (
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
@@ -163,6 +164,9 @@ type RestoreController struct {
 
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
+
+	// commit ts for local and importer backend
+	ts uint64
 }
 
 func NewRestoreController(
@@ -241,6 +245,21 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
 	}
 
+	var ts uint64
+	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
+		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		defer pdController.Close()
+
+		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ts = oracle.ComposeTS(physical, logical)
+	}
+
 	rc := &RestoreController{
 		cfg:           cfg,
 		dbMetas:       dbMetas,
@@ -261,6 +280,7 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store: s,
+		ts:    ts,
 	}
 
 	return rc, nil
@@ -1265,7 +1285,7 @@ func (t *TableRestore) restoreEngines(ctx context.Context, rc *RestoreController
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID)
+		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID, rc.ts)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1414,7 +1434,7 @@ func (t *TableRestore) restoreEngine(
 
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
-	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID)
+	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID, rc.ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
