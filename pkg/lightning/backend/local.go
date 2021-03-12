@@ -1779,7 +1779,8 @@ type LocalWriter struct {
 	writer            *sstWriter
 }
 
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
+// TODO: temporarily replace this async append rows with the former write-batch approach before addressing the performance issue.
+func (w *LocalWriter) AppendRowsAsync(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
 	kvs := rows.(kvPairs)
 	if len(kvs) == 0 {
 		return nil
@@ -1790,6 +1791,29 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	w.kvsChan <- kvs
 	w.local.Ts = ts
 	return nil
+}
+
+// TODO: replace the implementation back with `AppendRowsAsync` after addressing the performance issue.
+func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
+	kvs := rows.(kvPairs)
+	if len(kvs) == 0 {
+		return nil
+	}
+	size := 0
+	wb := w.local.db.NewBatch()
+	for _, kv := range kvs {
+		if err := wb.Set(kv.Key, kv.Val, pebble.NoSync); err != nil {
+			return errors.Trace(err)
+		}
+		size += len(kv.Key) + len(kv.Val)
+	}
+	err := wb.Commit(pebble.NoSync)
+	if err == nil {
+		w.local.Length.Add(int64(len(kvs)))
+		w.local.TotalSize.Add(int64(size))
+		w.local.Ts = ts
+	}
+	return errors.Trace(err)
 }
 
 func (w *LocalWriter) Close() error {

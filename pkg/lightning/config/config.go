@@ -373,9 +373,10 @@ func NewConfig() *Config {
 			ChecksumTableConcurrency:   defaultChecksumTableConcurrency,
 		},
 		Cron: Cron{
-			SwitchMode:     Duration{Duration: 5 * time.Minute},
-			LogProgress:    Duration{Duration: 5 * time.Minute},
-			CheckDiskQuota: Duration{Duration: 1 * time.Minute},
+			SwitchMode:  Duration{Duration: 5 * time.Minute},
+			LogProgress: Duration{Duration: 5 * time.Minute},
+			// TODO: uncomment this after disk-quota is fully implemented.
+			// CheckDiskQuota: Duration{Duration: 1 * time.Minute},
 		},
 		Mydumper: MydumperRuntime{
 			ReadBlockSize: ReadBlockSize,
