@@ -1771,7 +1771,10 @@ type LocalWriter struct {
 	memtableSizeLimit int64
 	writeBatch        kvMemCache
 	writer            *sstWriter
-	isDirty           atomic.Bool
+	// dirtyState records if there are KV pairs not yet fully written back into
+	// Pebble. The last bit indicates if either `writer` or `writeBatch`
+	// contains some data. The remaining is the length of `kvsChan`.
+	dirtyState atomic.Uint32
 }
 
 func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
@@ -1782,14 +1785,14 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	if err := w.writeErr.Get(); err != nil {
 		return err
 	}
-	w.isDirty.Store(true)
+	w.markDirtyPre()
 	w.kvsChan <- kvs
 	w.local.Ts = ts
 	return nil
 }
 
 func (w *LocalWriter) IsSynchronized() bool {
-	return !w.isDirty.Load()
+	return w.dirtyState.Load() == 0
 }
 
 func (w *LocalWriter) Close() error {
@@ -1818,6 +1821,49 @@ func (w *LocalWriter) genSSTPath() string {
 	return filepath.Join(w.sstDir, uuid.New().String()+".sst")
 }
 
+// markDirtyPre marks the local writer as "dirty" atomically before 1 kvs will
+// be sent to kvsChan.
+func (w *LocalWriter) markDirtyPre() {
+	w.dirtyState.Add(2)
+}
+
+// markDirtyPost marks the local writer as "dirty" atomically after 1 kvs has
+// been retrieved from kvsChan and placed inside writeBatch.
+func (w *LocalWriter) markDirtyPost() {
+	for {
+		oldState := w.dirtyState.Load()
+		// | 1 => writeBatch is now filled
+		// - 2 => the kvs has been processed.
+		if w.dirtyState.CAS(oldState, (oldState|1)-2) {
+			break
+		}
+	}
+}
+
+// markCleanFlush marks the local writer as "cleaned by flush" atomically, i.e.
+// indicating both writeBatch and writer are flushed into Pebble. The final
+// state can still be non-zero because of queueing KVs.
+func (w *LocalWriter) markCleanFlush() {
+	for {
+		oldState := w.dirtyState.Load()
+		if w.dirtyState.CAS(oldState, oldState&^1) {
+			break
+		}
+	}
+}
+
+// markCleanQueue marks the local writer as no longer accepting any KVs, i.e.
+// the queue length is now zero. The final state can still be non-zero because
+// of KVs in writeBatch and writer not yet flushed into Pebble.
+func (w *LocalWriter) markCleanQueue() {
+	for {
+		oldState := w.dirtyState.Load()
+		if w.dirtyState.CAS(oldState, oldState&1) {
+			break
+		}
+	}
+}
+
 func (w *LocalWriter) writeRowsLoop() {
 	defer func() {
 		if w.writer != nil {
@@ -1836,11 +1882,13 @@ outside:
 		select {
 		case kvs, ok := <-w.kvsChan:
 			if !ok {
+				w.markCleanQueue()
 				break outside
 			}
 
-			w.isDirty.Store(true)
 			w.writeBatch.append(kvs)
+			w.markDirtyPost()
+
 			if w.writeBatch.totalSize > w.memtableSizeLimit {
 				if w.writer == nil {
 					w.writer, err = newSSTWriter(w.genSSTPath())
@@ -1861,8 +1909,8 @@ outside:
 			if w.writer != nil {
 				err = w.writer.ingestInto(w.local, localIngestDescriptionFlushed)
 				if err == nil {
-					w.isDirty.Store(false)
 					err = w.writer.reopen()
+					w.markCleanFlush()
 				}
 			}
 
@@ -1883,7 +1931,7 @@ outside:
 			w.writeErr.Set(err)
 		}
 	}
-	w.isDirty.Store(false)
+	w.markCleanFlush()
 }
 
 func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
