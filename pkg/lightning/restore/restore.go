@@ -53,6 +53,7 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 	"github.com/pingcap/br/pkg/version/build"
 )
 
@@ -1304,7 +1305,7 @@ func (t *TableRestore) restoreTable(
 			return false, errors.Trace(err)
 		}
 
-		version, err := common.ExtractTiDBVersion(versionStr)
+		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
 		if err != nil {
 			return false, errors.Trace(err)
 		}
@@ -1322,7 +1323,7 @@ func (t *TableRestore) restoreTable(
 		}
 
 		// "show table next_row_id" is only available after v4.0.0
-		if version.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB &&
+		if tidbVersion.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB &&
 			(common.TableHasAutoRowID(t.tableInfo.Core) || t.tableInfo.Core.GetAutoIncrementColInfo() != nil || t.tableInfo.Core.ContainsAutoRandomBits()) {
 			// first, insert a new-line into meta table
 			if err = metaMgr.InitTableMeta(ctx); err != nil {
