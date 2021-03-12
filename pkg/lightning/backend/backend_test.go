@@ -9,6 +9,7 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 
 	kv "github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/mock"
@@ -18,6 +19,7 @@ type backendSuite struct {
 	controller  *gomock.Controller
 	mockBackend *mock.MockBackend
 	backend     kv.Backend
+	ts          uint64
 }
 
 var _ = Suite(&backendSuite{})
@@ -29,6 +31,7 @@ func (s *backendSuite) setUpTest(c *C) {
 	s.controller = gomock.NewController(c)
 	s.mockBackend = mock.NewMockBackend(s.controller)
 	s.backend = kv.MakeBackend(s.mockBackend)
+	s.ts = oracle.ComposeTS(time.Now().Unix()*1000, 0)
 }
 
 func (s *backendSuite) tearDownTest() {
@@ -58,7 +61,7 @@ func (s *backendSuite) TestOpenCloseImportCleanUpEngine(c *C) {
 		Return(nil).
 		After(importCall)
 
-	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
 	closedEngine, err := engine.Close(ctx)
 	c.Assert(err, IsNil)
@@ -134,7 +137,7 @@ func (s *backendSuite) TestWriteEngine(c *C) {
 		AppendRows(ctx, "`db`.`table`", []string{"c1", "c2"}, gomock.Any(), rows2).
 		Return(nil)
 
-	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
 	err = engine.WriteRows(ctx, []string{"c1", "c2"}, rows1)
 	c.Assert(err, IsNil)
@@ -155,7 +158,7 @@ func (s *backendSuite) TestWriteToEngineWithNothing(c *C) {
 	writer.EXPECT().Close().Return(nil)
 	s.mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), int64(kv.LocalMemoryTableSize)).Return(writer, nil)
 
-	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
 	err = engine.WriteRows(ctx, nil, emptyRows)
 	c.Assert(err, IsNil)
@@ -170,7 +173,7 @@ func (s *backendSuite) TestOpenEngineFailed(c *C) {
 	s.mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).
 		Return(errors.New("fake unrecoverable open error"))
 
-	_, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	_, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, ErrorMatches, "fake unrecoverable open error")
 }
 
@@ -189,7 +192,7 @@ func (s *backendSuite) TestWriteEngineFailed(c *C) {
 		Return(errors.Annotate(context.Canceled, "fake unrecoverable write error"))
 	mockWriter.EXPECT().Close().Return(nil)
 
-	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
 	err = engine.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, "fake unrecoverable write error.*")
@@ -210,7 +213,7 @@ func (s *backendSuite) TestWriteBatchSendFailedWithRetry(c *C) {
 		MinTimes(1)
 	mockWriter.EXPECT().Close().Return(nil).MinTimes(1)
 
-	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
 	err = engine.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, ".*fake recoverable write batch error")

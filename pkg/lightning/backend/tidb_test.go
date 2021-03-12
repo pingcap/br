@@ -79,7 +79,7 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	engine, err := s.backend.OpenEngine(ctx, "`foo`.`bar`", 1)
+	engine, err := s.backend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := s.backend.MakeEmptyRows()
@@ -126,7 +126,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	logger := log.L()
 
 	ignoreBackend := kv.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup)
-	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1)
+	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := ignoreBackend.MakeEmptyRows()
@@ -164,7 +164,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	logger := log.L()
 
 	ignoreBackend := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
-	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1)
+	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := ignoreBackend.MakeEmptyRows()
