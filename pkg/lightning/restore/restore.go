@@ -50,6 +50,7 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 const (
@@ -617,14 +618,14 @@ func verifyCheckpoint(cfg *config.Config, taskCp *TaskCheckpoint) error {
 	}
 
 	if cfg.App.CheckRequirements {
-		if common.ReleaseVersion != taskCp.LightningVer {
+		if build.ReleaseVersion != taskCp.LightningVer {
 			var displayVer string
 			if len(taskCp.LightningVer) != 0 {
 				displayVer = fmt.Sprintf("at '%s'", taskCp.LightningVer)
 			} else {
 				displayVer = "before v4.0.6/v3.0.19"
 			}
-			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", common.ReleaseVersion, displayVer, retryUsage)
+			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", build.ReleaseVersion, displayVer, retryUsage)
 		}
 
 		errorFmt := "config '%s' value '%s' different from checkpoint value '%s'. You may set 'check-requirements = false' to skip this check or " + retryUsage
