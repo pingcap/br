@@ -267,7 +267,11 @@ func newTiKVChecksumManager(client kv.Client, pdClient pd.Client, distSQLScanCon
 }
 
 func (e *tikvChecksumManager) checksumDB(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error) {
-	executor, err := checksum.NewExecutorBuilder(tableInfo.Core, oracle.ComposeTS(time.Now().Unix()*1000, 0)).
+	physicalTS, logicalTS, err := e.manager.pdClient.GetTS(ctx)
+	if err != nil {
+		return nil, errors.Annotate(err, "fetch tso from pd failed")
+	}
+	executor, err := checksum.NewExecutorBuilder(tableInfo.Core, oracle.ComposeTS(physicalTS, logicalTS)).
 		SetConcurrency(e.distSQLScanConcurrency).
 		Build()
 	if err != nil {
