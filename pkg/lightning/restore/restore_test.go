@@ -47,6 +47,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var _ = Suite(&restoreSuite{})
@@ -126,9 +127,9 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 	defer cpdb.Close()
 	ctx := context.Background()
 
-	actualReleaseVersion := common.ReleaseVersion
+	actualReleaseVersion := build.ReleaseVersion
 	defer func() {
-		common.ReleaseVersion = actualReleaseVersion
+		build.ReleaseVersion = actualReleaseVersion
 	}()
 
 	taskCp, err := cpdb.TaskCheckpoint(ctx)
@@ -170,7 +171,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 			cfg.TiDB.PdAddr = "127.0.0.1:3379"
 		},
 		"version": func(cfg *config.Config) {
-			common.ReleaseVersion = "some newer version"
+			build.ReleaseVersion = "some newer version"
 		},
 	}
 
@@ -182,7 +183,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		fn(cfg)
 		err := verifyCheckpoint(cfg, taskCp)
 		if conf == "version" {
-			common.ReleaseVersion = actualReleaseVersion
+			build.ReleaseVersion = actualReleaseVersion
 			c.Assert(err, ErrorMatches, "lightning version is 'some newer version', but checkpoint was created at '"+actualReleaseVersion+"'.*")
 		} else {
 			c.Assert(err, ErrorMatches, fmt.Sprintf("config '%s' value '.*' different from checkpoint value .*", conf))
@@ -777,6 +778,26 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	c.Assert(err, IsNil)
 	err = s.tr.importKV(ctx, closedEngine, rc, 1)
 	c.Assert(err, ErrorMatches, "fake import error.*")
+}
+
+func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	mockBackend := mock.NewMockBackend(controller)
+	backend := kv.MakeBackend(mockBackend)
+
+	ctx := context.Background()
+
+	mockBackend.EXPECT().
+		CheckRequirements(ctx).
+		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
+	rc := &RestoreController{
+		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
+		backend: backend,
+	}
+
+	err := rc.checkRequirements(ctx)
+	c.Assert(err, ErrorMatches, "fake check requirement error.*")
 }
 
 var _ = Suite(&chunkRestoreSuite{})

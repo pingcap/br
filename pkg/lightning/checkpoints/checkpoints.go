@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type CheckpointStatus uint8
@@ -631,7 +632,7 @@ func (cpdb *MySQLCheckpointsDB) Initialize(ctx context.Context, cfg *config.Conf
 		defer taskStmt.Close()
 		_, err = taskStmt.ExecContext(ctx, cfg.TaskID, cfg.Mydumper.SourceDir, cfg.TikvImporter.Backend,
 			cfg.TikvImporter.Addr, cfg.TiDB.Host, cfg.TiDB.Port, cfg.TiDB.PdAddr, cfg.TikvImporter.SortedKVDir,
-			common.ReleaseVersion)
+			build.ReleaseVersion)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -968,7 +969,7 @@ func (cpdb *FileCheckpointsDB) Initialize(ctx context.Context, cfg *config.Confi
 		TidbPort:     int32(cfg.TiDB.Port),
 		PdAddr:       cfg.TiDB.PdAddr,
 		SortedKvDir:  cfg.TikvImporter.SortedKVDir,
-		LightningVer: common.ReleaseVersion,
+		LightningVer: build.ReleaseVersion,
 	}
 
 	if cpdb.checkpoints.Checkpoints == nil {
