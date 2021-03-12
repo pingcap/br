@@ -32,6 +32,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -39,14 +41,13 @@ const (
 )
 
 var (
-	// Importer backend is compatible with TiDB [2.1.0, 6.0.0).
+	// Importer backend is compatible with TiDB [2.1.0, NextMajorVersion).
 	requiredMinTiDBVersion = *semver.New("2.1.0")
 	requiredMinPDVersion   = *semver.New("2.1.0")
 	requiredMinTiKVVersion = *semver.New("2.1.0")
-	// TODO: bump max versions based on the version define in Makefile.
-	requiredMaxTiDBVersion = *semver.New("6.0.0")
-	requiredMaxPDVersion   = *semver.New("6.0.0")
-	requiredMaxTiKVVersion = *semver.New("6.0.0")
+	requiredMaxTiDBVersion = version.NextMajorVersion()
+	requiredMaxPDVersion   = version.NextMajorVersion()
+	requiredMaxTiKVVersion = version.NextMajorVersion()
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is
@@ -300,7 +301,7 @@ func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredMinVers
 }
 
 func checkTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.ExtractTiDBVersion(versionStr)
+	version, err := version.ExtractTiDBVersion(versionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -321,7 +322,7 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion,
 }
 
 func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	version, err := common.FetchPDVersion(ctx, tls, pdAddr)
+	version, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -356,12 +357,15 @@ func checkVersion(component string, actual, requiredMinVersion, requiredMaxVersi
 			actual,
 		)
 	}
-	if actual.Compare(requiredMaxVersion) >= 0 {
+	// Compare the major version number to make sure beta version does not pass
+	// the check. This is because beta version may contains incompatible
+	// changes.
+	if actual.Major >= requiredMaxVersion.Major {
 		return errors.Errorf(
-			"%s version too new, expected to be within [%s, %s), found '%s'",
+			"%s version too new, major version expected to be within [%s, %d.0.0), found '%s'",
 			component,
 			requiredMinVersion,
-			requiredMaxVersion,
+			requiredMaxVersion.Major,
 			actual,
 		)
 	}
