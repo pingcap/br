@@ -1852,18 +1852,6 @@ func (w *LocalWriter) markCleanFlush() {
 	}
 }
 
-// markCleanQueue marks the local writer as no longer accepting any KVs, i.e.
-// the queue length is now zero. The final state can still be non-zero because
-// of KVs in writeBatch and writer not yet flushed into Pebble.
-func (w *LocalWriter) markCleanQueue() {
-	for {
-		oldState := w.dirtyState.Load()
-		if w.dirtyState.CAS(oldState, oldState&1) {
-			break
-		}
-	}
-}
-
 func (w *LocalWriter) writeRowsLoop() {
 	defer func() {
 		if w.writer != nil {
@@ -1882,7 +1870,6 @@ outside:
 		select {
 		case kvs, ok := <-w.kvsChan:
 			if !ok {
-				w.markCleanQueue()
 				break outside
 			}
 
@@ -1910,7 +1897,6 @@ outside:
 				err = w.writer.ingestInto(w.local, localIngestDescriptionFlushed)
 				if err == nil {
 					err = w.writer.reopen()
-					w.markCleanFlush()
 				}
 			}
 
@@ -1919,6 +1905,7 @@ outside:
 				w.writeErr.Set(err)
 				return
 			}
+			w.markCleanFlush()
 		}
 	}
 
@@ -1931,9 +1918,14 @@ outside:
 			w.writeErr.Set(err)
 		}
 	}
-	w.markCleanFlush()
+	w.dirtyState.Store(0)
 }
 
+// writeKVsOrIngest tries to move the entire content of the writeBatch into the
+// SST writer. If that failed because the writeBatch is not sorted after the
+// existing data in the SST writer, this method tries to ingest its content
+// directly into the underlying engine instead. In any case, the LocalWriter
+// itself will still be dirty.
 func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
 	if w.writer != nil {
 		if err := w.writer.writeKVs(&w.writeBatch); err != errorUnorderedSSTInsertion {
