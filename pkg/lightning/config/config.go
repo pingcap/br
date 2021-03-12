@@ -614,9 +614,6 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 			}
 			cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
 		}
-		if cfg.TikvImporter.DiskQuota < cfg.TikvImporter.LocalWriterMemCacheSize {
-			cfg.TikvImporter.LocalWriterMemCacheSize = cfg.TikvImporter.DiskQuota
-		}
 	}
 
 	if cfg.TikvImporter.Backend == BackendTiDB {
