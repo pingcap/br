@@ -1396,11 +1396,6 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	indexWriter, err := indexEngine.LocalWriter(ctx)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
 	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID)
@@ -1448,6 +1443,10 @@ func (t *TableRestore) restoreEngine(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		indexWriter, err := indexEngine.LocalWriter(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 		go func(w *worker.Worker, cr *chunkRestore) {
 			// Restore a chunk.
 			defer func() {
@@ -1461,6 +1460,9 @@ func (t *TableRestore) restoreEngine(
 				err = dataWriter.Close()
 			}
 			if err == nil {
+				err = indexWriter.Close()
+			}
+			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
@@ -1471,9 +1473,6 @@ func (t *TableRestore) restoreEngine(
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
