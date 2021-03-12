@@ -40,6 +40,9 @@ func (s *checkReqSuite) TestCheckVersion(c *C) {
 
 	err = checkVersion("TiNB", *semver.New("3.1.0"), *semver.New("2.3.5"), *semver.New("3.0.0"))
 	c.Assert(err, ErrorMatches, "TiNB version too new.*")
+
+	err = checkVersion("TiNB", *semver.New("3.0.0-beta"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too new.*")
 }
 
 func (s *checkReqSuite) TestCheckTiDBVersion(c *C) {
@@ -64,6 +67,9 @@ func (s *checkReqSuite) TestCheckTiDBVersion(c *C) {
 	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
 
 	version = "5.7.25-TiDB-v5.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0-beta"
 	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
 
 	version = "5.7.25-TiDB-v1.0.0"
@@ -102,6 +108,11 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 
 	version = `{
     "version": "v5.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
+
+	version = `{
+    "version": "v6.0.0-beta"
 }`
 	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
 
@@ -149,5 +160,8 @@ func (s *checkReqSuite) TestCheckTiKVVersion(c *C) {
 	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv1\.test:20160\) version too old.*`)
 
 	versions = []string{"5.0.0"}
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
+
+	versions = []string{"6.0.0-beta"}
 	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
 }
