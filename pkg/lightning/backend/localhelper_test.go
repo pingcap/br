@@ -16,7 +16,11 @@ package backend
 import (
 	"bytes"
 	"context"
+	"math"
+	"math/rand"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -143,52 +147,72 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	if c.hook != nil {
 		regionInfo, keys = c.hook.BeforeSplitRegion(ctx, regionInfo, keys)
 	}
+	if len(keys) == 0 {
+		return nil, nil, errors.New("no valid key")
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, nil, ctx.Err()
+	default:
+	}
 
 	c.splitCount++
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	newRegions := make([]*restore.RegionInfo, 0)
-	var region *restore.RegionInfo
-	for _, key := range keys {
-		var target *restore.RegionInfo
-		splitKey := codec.EncodeBytes([]byte{}, key)
-		for _, region := range c.regions {
-			if region.ContainsInterior(splitKey) {
-				target = region
-			}
-		}
-		if target == nil {
+	target, ok := c.regions[regionInfo.Region.Id]
+	if !ok {
+		return nil, nil, errors.New("region not found")
+	}
+	if target.Region.RegionEpoch.Version != regionInfo.Region.RegionEpoch.Version ||
+		target.Region.RegionEpoch.ConfVer != regionInfo.Region.RegionEpoch.ConfVer {
+		return regionInfo, nil, errors.New("epoch not match")
+	}
+	splitKeys := make([][]byte, 0, len(keys))
+	for _, k := range keys {
+		splitKey := codec.EncodeBytes([]byte{}, k)
+		splitKeys = append(splitKeys, splitKey)
+	}
+	sort.Slice(splitKeys, func(i, j int) bool {
+		return bytes.Compare(splitKeys[i], splitKeys[j]) < 0
+	})
+
+	startKey := target.Region.StartKey
+	for _, key := range splitKeys {
+		if bytes.Compare(key, startKey) <= 0 || bytes.Compare(key, target.Region.EndKey) >= 0 {
 			continue
-		}
-		if target.Region.RegionEpoch.Version != regionInfo.Region.RegionEpoch.Version ||
-			target.Region.RegionEpoch.ConfVer != regionInfo.Region.RegionEpoch.ConfVer {
-			return regionInfo, nil, errors.New("epoch not match")
 		}
 		newRegion := &restore.RegionInfo{
 			Region: &metapb.Region{
 				Peers:    target.Region.Peers,
 				Id:       c.nextRegionID,
-				StartKey: target.Region.StartKey,
-				EndKey:   splitKey,
+				StartKey: startKey,
+				EndKey:   key,
 			},
 		}
 		c.regions[c.nextRegionID] = newRegion
 		c.regionsInfo.SetRegion(core.NewRegionInfo(newRegion.Region, newRegion.Leader))
 		c.nextRegionID++
-		target.Region.StartKey = splitKey
-		c.regions[target.Region.Id] = target
-		region = target
+		startKey = key
 		newRegions = append(newRegions, newRegion)
 	}
-	if region != nil {
-		c.regionsInfo.SetRegion(core.NewRegionInfo(region.Region, region.Leader))
-	}
-	var err error
-	if c.hook != nil {
-		newRegions, err = c.hook.AfterSplitRegion(ctx, region, keys, newRegions, nil)
+	if !bytes.Equal(target.Region.StartKey, startKey) {
+		target.Region.StartKey = startKey
+		c.regions[target.Region.Id] = target
+		c.regionsInfo.SetRegion(core.NewRegionInfo(target.Region, target.Leader))
 	}
 
-	return region, newRegions, err
+	if len(newRegions) == 0 {
+		return target, nil, errors.New("no valid key")
+	}
+
+	var err error
+	if c.hook != nil {
+		newRegions, err = c.hook.AfterSplitRegion(ctx, target, keys, newRegions, nil)
+	}
+
+	return target, newRegions, err
 }
 
 func (c *testClient) BatchSplitRegions(
@@ -295,7 +319,6 @@ func initTestClient(keys [][]byte, hook clientHook) *testClient {
 }
 
 func checkRegionRanges(c *C, regions []*restore.RegionInfo, keys [][]byte) {
-	// c.Assert(len(regions)+1, Equals, len(keys))
 	for i, r := range regions {
 		_, regionStart, _ := codec.DecodeBytes(r.Region.StartKey, []byte{})
 		_, regionEnd, _ := codec.DecodeBytes(r.Region.EndKey, []byte{})
@@ -314,6 +337,8 @@ type clientHook interface {
 type noopHook struct{}
 
 func (h *noopHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+	delayTime := rand.Int31n(10) + 1
+	time.Sleep(time.Duration(delayTime) * time.Millisecond)
 	return regionInfo, keys
 }
 
@@ -329,7 +354,7 @@ func (h *noopHook) AfterScanRegions(res []*restore.RegionInfo, err error) ([]*re
 	return res, err
 }
 
-func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, hook clientHook, errPat string) {
+func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, hook clientHook, errPat string) {
 	oldLimit := maxBatchSplitKeys
 	oldSplitBackoffTime := splitRegionBaseBackOffTime
 	maxBatchSplitKeys = 4
@@ -344,7 +369,6 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, hook clientHook, errPa
 	local := &local{
 		splitCli: client,
 	}
-	ctx := context.Background()
 
 	// current region ranges: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )
 	rangeStart := codec.EncodeBytes([]byte{}, []byte("b"))
@@ -397,7 +421,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, hook clientHook, errPa
 }
 
 func (s *localSuite) TestBatchSplitRegionByRanges(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, nil, "")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "")
 }
 
 type scanRegionEmptyHook struct {
@@ -415,7 +439,7 @@ func (h *scanRegionEmptyHook) AfterScanRegions(res []*restore.RegionInfo, err er
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesScanFailed(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, &scanRegionEmptyHook{}, "paginate scan region returns empty result")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &scanRegionEmptyHook{}, "paginate scan region returns empty result")
 }
 
 type splitRegionEpochNotMatchHook struct {
@@ -423,6 +447,7 @@ type splitRegionEpochNotMatchHook struct {
 }
 
 func (h *splitRegionEpochNotMatchHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
 	regionInfo = cloneRegion(regionInfo)
 	// decrease the region epoch, so split region will fail
 	regionInfo.Region.RegionEpoch.Version--
@@ -430,5 +455,209 @@ func (h *splitRegionEpochNotMatchHook) BeforeSplitRegion(ctx context.Context, re
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*")
 }
+<<<<<<< HEAD
+=======
+
+// return epoch not match error in every other call
+type splitRegionEpochNotMatchHookRandom struct {
+	noopHook
+	cnt int32
+}
+
+func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
+	cnt := atomic.AddInt32(&h.cnt, 1)
+	if cnt%2 != 0 {
+		return regionInfo, keys
+	}
+	regionInfo = cloneRegion(regionInfo)
+	// decrease the region epoch, so split region will fail
+	regionInfo.Region.RegionEpoch.Version--
+	return regionInfo, keys
+}
+
+func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHookRandom{}, "")
+}
+
+type splitRegionNoValidKeyHook struct {
+	noopHook
+	returnErrTimes int32
+	errorCnt       int32
+}
+
+func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
+	if atomic.AddInt32(&h.errorCnt, 1) <= h.returnErrTimes {
+		// clean keys to trigger "no valid keys" error
+		keys = keys[:0]
+	}
+	return regionInfo, keys
+}
+
+func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
+}
+
+func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*")
+}
+
+type reportAfterSplitHook struct {
+	noopHook
+	ch chan<- struct{}
+}
+
+func (h *reportAfterSplitHook) AfterSplitRegion(ctx context.Context, region *restore.RegionInfo, keys [][]byte, resultRegions []*restore.RegionInfo, err error) ([]*restore.RegionInfo, error) {
+	h.ch <- struct{}{}
+	return resultRegions, err
+}
+
+func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := make(chan struct{})
+	// cancel ctx after the first region split success.
+	go func() {
+		i := 0
+		for range ch {
+			if i == 0 {
+				cancel()
+			}
+			i++
+		}
+	}()
+
+	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
+	close(ch)
+}
+
+func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clientHook) {
+	oldLimit := maxBatchSplitKeys
+	oldSplitBackoffTime := splitRegionBaseBackOffTime
+	maxBatchSplitKeys = 10
+	splitRegionBaseBackOffTime = time.Millisecond
+	defer func() {
+		maxBatchSplitKeys = oldLimit
+		splitRegionBaseBackOffTime = oldSplitBackoffTime
+	}()
+
+	stmtCtx := new(stmtctx.StatementContext)
+
+	tableId := int64(1)
+	tableStartKey := tablecodec.EncodeTablePrefix(tableId)
+	tableEndKey := tablecodec.EncodeTablePrefix(tableId + 1)
+	keys := [][]byte{[]byte(""), tableStartKey}
+	// pre split 2 regions
+	for i := int64(0); i < 2; i++ {
+		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(i))
+		c.Assert(err, IsNil)
+		h, err := kv.NewCommonHandle(keyBytes)
+		c.Assert(err, IsNil)
+		key := tablecodec.EncodeRowKeyWithHandle(tableId, h)
+		keys = append(keys, key)
+	}
+	keys = append(keys, tableEndKey, []byte(""))
+	client := initTestClient(keys, hook)
+	local := &local{
+		splitCli: client,
+	}
+	ctx := context.Background()
+
+	// we batch generate a batch of row keys for table 1 with common handle
+	rangeKeys := make([][]byte, 0, 20+1)
+	for i := int64(0); i < 2; i++ {
+		for j := int64(0); j < 10; j++ {
+			keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(i), types.NewIntDatum(j*10000))
+			c.Assert(err, IsNil)
+			h, err := kv.NewCommonHandle(keyBytes)
+			c.Assert(err, IsNil)
+			key := tablecodec.EncodeRowKeyWithHandle(tableId, h)
+			rangeKeys = append(rangeKeys, key)
+		}
+	}
+
+	start := rangeKeys[0]
+	ranges := make([]Range, 0, len(rangeKeys)-1)
+	for _, e := range rangeKeys[1:] {
+		ranges = append(ranges, Range{start: start, end: e})
+		start = e
+	}
+
+	err := local.SplitAndScatterRegionByRanges(ctx, ranges, true)
+	c.Assert(err, IsNil)
+
+	startKey := codec.EncodeBytes([]byte{}, rangeKeys[0])
+	endKey := codec.EncodeBytes([]byte{}, rangeKeys[len(rangeKeys)-1])
+	// check split ranges
+	regions, err := paginateScanRegion(ctx, client, startKey, endKey, 5)
+	c.Assert(err, IsNil)
+	c.Assert(len(regions), Equals, len(ranges)+1)
+
+	checkKeys := append([][]byte{}, rangeKeys[:10]...)
+	checkKeys = append(checkKeys, keys[3])
+	checkKeys = append(checkKeys, rangeKeys[10:]...)
+	checkRegionRanges(c, regions, checkKeys)
+}
+
+func (s *localSuite) TestBatchSplitByRangesWithClusteredIndex(c *C) {
+	s.doTestBatchSplitByRangesWithClusteredIndex(c, nil)
+}
+
+func (s *localSuite) TestBatchSplitByRangesWithClusteredIndexEpochNotMatch(c *C) {
+	s.doTestBatchSplitByRangesWithClusteredIndex(c, &splitRegionEpochNotMatchHookRandom{})
+}
+
+func (s *localSuite) TestNeedSplit(c *C) {
+	tableId := int64(1)
+	peers := make([]*metapb.Peer, 1)
+	peers[0] = &metapb.Peer{
+		Id:      1,
+		StoreId: 1,
+	}
+	keys := []int64{10, 100, 500, 1000, 999999, -1}
+	start := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(0))
+	regionStart := codec.EncodeBytes([]byte{}, start)
+	regions := make([]*restore.RegionInfo, 0)
+	for _, end := range keys {
+		var regionEndKey []byte
+		if end >= 0 {
+			endKey := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(end))
+			regionEndKey = codec.EncodeBytes([]byte{}, endKey)
+		}
+		region := &restore.RegionInfo{
+			Region: &metapb.Region{
+				Id:          1,
+				Peers:       peers,
+				StartKey:    regionStart,
+				EndKey:      regionEndKey,
+				RegionEpoch: &metapb.RegionEpoch{ConfVer: 1, Version: 1},
+			},
+		}
+		regions = append(regions, region)
+		regionStart = regionEndKey
+	}
+
+	checkMap := map[int64]int{
+		0:         -1,
+		5:         0,
+		99:        1,
+		100:       -1,
+		512:       3,
+		8888:      4,
+		999999:    -1,
+		100000000: 5,
+	}
+
+	for hdl, idx := range checkMap {
+		checkKey := tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(hdl))
+		res := needSplit(checkKey, regions)
+		if idx < 0 {
+			c.Assert(res, IsNil)
+		} else {
+			c.Assert(res, DeepEquals, regions[idx])
+		}
+	}
+}
+>>>>>>> 09e9943... lightning/backend: run batch split region in parallel for local backend (#761)
