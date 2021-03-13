@@ -171,19 +171,19 @@ func (mr *MockBackendMockRecorder) ImportEngine(arg0, arg1 interface{}) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImportEngine", reflect.TypeOf((*MockBackend)(nil).ImportEngine), arg0, arg1)
 }
 
-// LocalWriter mocks base method.
-func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 uuid.UUID, arg2 int64) (backend.EngineWriter, error) {
+// LocalWriter mocks base method
+func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 uuid.UUID) (backend.EngineWriter, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LocalWriter", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "LocalWriter", arg0, arg1)
 	ret0, _ := ret[0].(backend.EngineWriter)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// LocalWriter indicates an expected call of LocalWriter.
-func (mr *MockBackendMockRecorder) LocalWriter(arg0, arg1, arg2 interface{}) *gomock.Call {
+// LocalWriter indicates an expected call of LocalWriter
+func (mr *MockBackendMockRecorder) LocalWriter(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalWriter", reflect.TypeOf((*MockBackend)(nil).LocalWriter), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalWriter", reflect.TypeOf((*MockBackend)(nil).LocalWriter), arg0, arg1)
 }
 
 // MakeEmptyRows mocks base method.

@@ -109,7 +109,11 @@ func (s *importerSuite) TestWriteRows(c *C) {
 		Return(nil, nil).
 		After(batchSendCall)
 
-	err := s.engine.WriteRows(s.ctx, nil, s.kvPairs)
+	writer, err := s.engine.LocalWriter(s.ctx)
+	c.Assert(err, IsNil)
+	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
+	c.Assert(err, IsNil)
+	err = writer.Close()
 	c.Assert(err, IsNil)
 }
 
@@ -130,7 +134,9 @@ func (s *importerSuite) TestWriteHeadSendFailed(c *C) {
 		Return(nil, errors.Annotate(context.Canceled, "fake unrecoverable close stream error")).
 		After(headSendCall)
 
-	err := s.engine.WriteRows(s.ctx, nil, s.kvPairs)
+	writer, err := s.engine.LocalWriter(s.ctx)
+	c.Assert(err, IsNil)
+	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, ErrorMatches, "fake unrecoverable write head error.*")
 }
 
@@ -158,7 +164,9 @@ func (s *importerSuite) TestWriteBatchSendFailed(c *C) {
 		Return(nil, errors.Annotate(context.Canceled, "fake unrecoverable close stream error")).
 		After(batchSendCall)
 
-	err := s.engine.WriteRows(s.ctx, nil, s.kvPairs)
+	writer, err := s.engine.LocalWriter(s.ctx)
+	c.Assert(err, IsNil)
+	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, ErrorMatches, "fake unrecoverable write batch error.*")
 }
 
@@ -186,7 +194,9 @@ func (s *importerSuite) TestWriteCloseFailed(c *C) {
 		Return(nil, errors.Annotate(context.Canceled, "fake unrecoverable close stream error")).
 		After(batchSendCall)
 
-	err := s.engine.WriteRows(s.ctx, nil, s.kvPairs)
+	writer, err := s.engine.LocalWriter(s.ctx)
+	c.Assert(err, IsNil)
+	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, ErrorMatches, "fake unrecoverable close stream error.*")
 }
 
