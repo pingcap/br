@@ -666,7 +666,9 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 			topNTotalSize += tableTotalSizes[i]
 		}
 
-		estimateMaxFiles := uint64(topNTotalSize/backend.LocalMemoryTableSize) * 2
+		// region-concurrency: number of LocalWriters writing SST files.
+		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
+		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
 		if err := backend.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}
