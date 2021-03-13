@@ -311,7 +311,7 @@ func (l *LogClient) NeedRestoreRowChange(fileName string) (bool, error) {
 	return false, nil
 }
 
-// SetMeta return the tablename to table ids map
+// GetNameIDMap return the tablename to table ids map
 func (l *LogClient) GetNameIDMap() map[string][]int64 {
 	nameIdsMap := make(map[string][]int64)
 
