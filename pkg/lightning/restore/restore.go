@@ -24,11 +24,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
@@ -164,6 +166,9 @@ type RestoreController struct {
 
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
+
+	// commit ts for local and importer backend
+	ts uint64
 }
 
 func NewRestoreController(
@@ -228,8 +233,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, int64(cfg.TikvImporter.RegionSplitSize),
-			cfg.TikvImporter.SortedKVDir, cfg.TikvImporter.RangeConcurrency, cfg.TikvImporter.SendKVPairs,
+		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -240,6 +244,21 @@ func NewRestoreControllerWithPauser(
 		}
 	default:
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
+	}
+
+	var ts uint64
+	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
+		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		defer pdController.Close()
+
+		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ts = oracle.ComposeTS(physical, logical)
 	}
 
 	rc := &RestoreController{
@@ -262,6 +281,7 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store: s,
+		ts:    ts,
 	}
 
 	return rc, nil
@@ -1269,7 +1289,7 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID)
+		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID, rc.ts)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1406,26 +1426,9 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
-	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
-	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
-	// Thus, the disk size occupied by these writers are up to
-	// (region-concurrency + index-concurrency) * 512 MiB.
-	// This number should not exceed the disk quota.
-	// Therefore, we need to reduce that "512 MiB" to respect the disk quota:
-	localWriterMaxCacheSize := int64(rc.cfg.TikvImporter.DiskQuota) // int64(rc.cfg.App.IndexConcurrency+rc.cfg.App.RegionConcurrency)
-	if localWriterMaxCacheSize > config.LocalMemoryTableSize {
-		localWriterMaxCacheSize = config.LocalMemoryTableSize
-	}
-
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
-	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID)
+	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID, rc.ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1466,7 +1469,11 @@ func (t *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+		dataWriter, err := dataEngine.LocalWriter(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		indexWriter, err := indexEngine.LocalWriter(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -1483,6 +1490,9 @@ func (t *TableRestore) restoreEngine(
 				err = dataWriter.Close()
 			}
 			if err == nil {
+				err = indexWriter.Close()
+			}
+			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
@@ -1494,9 +1504,6 @@ func (t *TableRestore) restoreEngine(
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
@@ -2232,8 +2239,8 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 ////////////////////////////////////////////////////////////////
 
 var (
-	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
-	minDeliverBytes uint64 = 65536 // 64 KB. batch at least this amount of bytes to reduce number of messages
+	maxKVQueueSize         = 128            // Cache at most this number of rows before blocking the encode loop
+	minDeliverBytes uint64 = 96 * units.KiB // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
 )
 
 type deliveredKVs struct {
@@ -2278,7 +2285,7 @@ func (cr *chunkRestore) deliverLoop(
 		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
-		for dataChecksum.SumSize() < minDeliverBytes {
+		for dataChecksum.SumSize()+indexChecksum.SumSize() < minDeliverBytes {
 			select {
 			case kvPacket = <-kvsCh:
 				if len(kvPacket) == 0 {
