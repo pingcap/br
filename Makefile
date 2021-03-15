@@ -19,16 +19,10 @@ else ifneq ($(shell git status --porcelain),)
 	VERSION := $(VERSION)-dirty
 endif
 
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRBuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/utils.BRGitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-# TODO: unify LDFLAGS
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.ReleaseVersion=$(VERSION)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitHash=$(shell git rev-parse HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
-LDFLAGS += -X "$(BR_PKG)/pkg/lightning/common.GoVersion=$(shell go version)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitHash=$(shell git rev-parse HEAD)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
 
 LIGHTNING_BIN     := bin/tidb-lightning
 LIGHTNING_CTL_BIN := bin/tidb-lightning-ctl
@@ -111,17 +105,18 @@ build_for_integration_test:
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
+test: export ARGS=$$($(PACKAGES))
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags br_test,leak $(ARGS) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
 	mkdir -p "$(TEST_DIR)"
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
+	$(GOTEST) -tags br_test -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
 		$$($(COVERED_PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
@@ -190,7 +185,7 @@ static: prepare tools
 	@#              gosec - too many false positive
 	@#          errorlint - pingcap/errors is incompatible with std errors.
 	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
-	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --build-tags br_test --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \

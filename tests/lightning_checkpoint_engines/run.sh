@@ -56,15 +56,14 @@ for BACKEND in importer local; do
 
   # Data engine part
   export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/SlowDownImport=sleep(500);github.com/pingcap/br/pkg/lightning/restore/FailIfStatusBecomes=return(120);github.com/pingcap/br/pkg/lightning/restore/FailIfIndexEngineImported=return(140)'
-  set +e
   for i in $(seq "$ENGINE_COUNT"); do
       echo "******** Importing Table Now (step $i/$ENGINE_COUNT) ********"
-      do_run_lightning $BACKEND config 2> /dev/null
-      [ $? -ne 0 ] || exit 1
+      ! do_run_lightning $BACKEND config 2> /dev/null
   done
-  set -e
 
   echo "******** Verify checkpoint no-op ********"
+  # cleanup importer data directory to avoid open-engine failure in import backend.
+  rm -rf $TEST_DIR/importer/*
   do_run_lightning $BACKEND config
 
   run_sql 'SELECT count(*), sum(c) FROM cpeng.a'
@@ -80,6 +79,7 @@ for BACKEND in importer local; do
   run_sql 'DROP DATABASE cpeng;'
   run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint;'
   rm -rf $TEST_DIR/lightning_checkpoint_engines.sorted
+  rm -rf $TEST_DIR/imported/*
 
   set +e
   for i in $(seq "$ENGINE_COUNT"); do

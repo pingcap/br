@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type Session interface {
@@ -144,7 +145,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 			types.NewIntDatum(int64(cfg.TiDB.Port)),
 			types.NewStringDatum(cfg.TiDB.PdAddr),
 			types.NewStringDatum(cfg.TikvImporter.SortedKVDir),
-			types.NewStringDatum(common.ReleaseVersion),
+			types.NewStringDatum(build.ReleaseVersion),
 		})
 		if err != nil {
 			return errors.Trace(err)

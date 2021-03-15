@@ -27,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-units"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/failpoint"
 
@@ -438,6 +439,7 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	cfg.App.CheckRequirements = true
 	cfg.App.TableConcurrency = 4
 	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.EngineMemCacheSize = 512 * units.MiB
 
 	dbMetas := []*mydump.MDDatabaseMeta{
 		{

@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version"
 )
 
 var extraHandleTableColumn = &table.Column{
@@ -433,7 +434,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 		if err = tx.QueryRowContext(ctx, "SELECT version()").Scan(&versionStr); err != nil {
 			return err
 		}
-		tidbVersion, err := common.ExtractTiDBVersion(versionStr)
+		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
 		if err != nil {
 			return err
 		}
@@ -574,7 +575,7 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
-func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error) {
+func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	return &TiDBWriter{be: be, engineUUID: engineUUID}, nil
 }
 

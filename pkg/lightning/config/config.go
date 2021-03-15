@@ -70,19 +70,6 @@ const (
 	defaultBuildStatsConcurrency      = 20
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
-)
-
-const (
-	LocalMemoryTableSize = 512 * units.MiB
-
-	// autoDiskQuotaLocalReservedSize is the estimated size a local-backend
-	// engine may gain after calling Flush(). This is currently defined by its
-	// max MemTable size (512 MiB). It is used to compensate for the soft limit
-	// of the disk quota against the hard limit of the disk free space.
-	//
-	// With a maximum of 8 engines, this should contribute 4.0 GiB to the
-	// reserved size.
-	autoDiskQuotaLocalReservedSize uint64 = LocalMemoryTableSize
 
 	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
 	// millisecond per write thread the local backend may gain on all engines.
@@ -92,6 +79,8 @@ const (
 	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
 	// contribute 2.3 GiB to the reserved size.
 	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
+	defaultEngineMemCacheSize              = 512 * units.MiB
+	defaultLocalWriterMemCacheSize         = 128 * units.MiB
 )
 
 var (
@@ -286,6 +275,9 @@ type TikvImporter struct {
 	SortedKVDir      string   `toml:"sorted-kv-dir" json:"sorted-kv-dir"`
 	DiskQuota        ByteSize `toml:"disk-quota" json:"disk-quota"`
 	RangeConcurrency int      `toml:"range-concurrency" json:"range-concurrency"`
+
+	EngineMemCacheSize      ByteSize `toml:"engine-mem-cache-size" json:"engine-mem-cache-size"`
+	LocalWriterMemCacheSize ByteSize `toml:"local-writer-mem-cache-size" json:"local-writer-mem-cache-size"`
 }
 
 type Checkpoint struct {
@@ -547,6 +539,14 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		return errors.Errorf("invalid config: unsupported `tikv-importer.backend` (%s)", cfg.TikvImporter.Backend)
 	}
 
+	// TODO calculate these from the machine's free memory.
+	if cfg.TikvImporter.EngineMemCacheSize == 0 {
+		cfg.TikvImporter.EngineMemCacheSize = defaultEngineMemCacheSize
+	}
+	if cfg.TikvImporter.LocalWriterMemCacheSize == 0 {
+		cfg.TikvImporter.LocalWriterMemCacheSize = defaultLocalWriterMemCacheSize
+	}
+
 	if cfg.TikvImporter.Backend == BackendLocal {
 		if err := cfg.CheckAndAdjustForLocalBackend(); err != nil {
 			return err
@@ -620,7 +620,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 	if cfg.TikvImporter.DiskQuota == 0 {
 		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
 		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
-		reservedSize := enginesCount*autoDiskQuotaLocalReservedSize + writeAmount*autoDiskQuotaLocalReservedSpeed
+		reservedSize := enginesCount*uint64(cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
 
 		storageSize, err := common.GetStorageSize(storageSizeDir)
 		if err != nil {

@@ -48,6 +48,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type Lightning struct {
@@ -216,9 +217,8 @@ func (l *Lightning) RunServer() error {
 var taskCfgRecorderKey struct{}
 
 func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.Glue) (err error) {
-	common.PrintInfo("lightning", func() {
-		log.L().Info("cfg", zap.Stringer("cfg", taskCfg))
-	})
+	build.LogInfo(build.Lightning)
+	log.L().Info("cfg", zap.Stringer("cfg", taskCfg))
 
 	utils.LogEnvVariables()
 
@@ -673,7 +673,9 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 			topNTotalSize += tableTotalSizes[i]
 		}
 
-		estimateMaxFiles := uint64(topNTotalSize/backend.LocalMemoryTableSize) * 2
+		// region-concurrency: number of LocalWriters writing SST files.
+		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
+		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
 		if err := backend.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}

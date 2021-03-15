@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var _ = Suite(&restoreSuite{})
@@ -125,9 +126,9 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 	defer cpdb.Close()
 	ctx := context.Background()
 
-	actualReleaseVersion := common.ReleaseVersion
+	actualReleaseVersion := build.ReleaseVersion
 	defer func() {
-		common.ReleaseVersion = actualReleaseVersion
+		build.ReleaseVersion = actualReleaseVersion
 	}()
 
 	taskCp, err := cpdb.TaskCheckpoint(ctx)
@@ -169,7 +170,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 			cfg.TiDB.PdAddr = "127.0.0.1:3379"
 		},
 		"version": func(cfg *config.Config) {
-			common.ReleaseVersion = "some newer version"
+			build.ReleaseVersion = "some newer version"
 		},
 	}
 
@@ -181,7 +182,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		fn(cfg)
 		err := verifyCheckpoint(cfg, taskCp)
 		if conf == "version" {
-			common.ReleaseVersion = actualReleaseVersion
+			build.ReleaseVersion = actualReleaseVersion
 			c.Assert(err, ErrorMatches, "lightning version is 'some newer version', but checkpoint was created at '"+actualReleaseVersion+"'.*")
 		} else {
 			c.Assert(err, ErrorMatches, fmt.Sprintf("config '%s' value '.*' different from checkpoint value .*", conf))
@@ -805,6 +806,26 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	c.Assert(err, ErrorMatches, "fake import error.*")
 }
 
+func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	mockBackend := mock.NewMockBackend(controller)
+	backend := kv.MakeBackend(mockBackend)
+
+	ctx := context.Background()
+
+	mockBackend.EXPECT().
+		CheckRequirements(ctx).
+		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
+	rc := &Controller{
+		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
+		backend: backend,
+	}
+
+	err := rc.checkRequirements(ctx)
+	c.Assert(err, ErrorMatches, "fake check requirement error.*")
+}
+
 var _ = Suite(&chunkRestoreSuite{})
 
 type chunkRestoreSuite struct {
@@ -861,18 +882,18 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), int64(2048)).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0)
+	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx, 2048)
+	dataWriter, err := dataEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1)
+	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx, 2048)
+	indexWriter, err := indexEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
 
 	// Deliver nothing.
@@ -901,16 +922,16 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), int64(2048)).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0)
+	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1)
+	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
 
-	dataWriter, err := dataEngine.LocalWriter(ctx, 2048)
+	dataWriter, err := dataEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx, 2048)
+	indexWriter, err := indexEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
 
 	// Set up the expected API calls to the data engine...
@@ -1118,13 +1139,13 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0)
+	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1)
+	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx, 2048)
+	dataWriter, err := dataEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx, 2048)
+	indexWriter, err := indexEngine.LocalWriter(ctx)
 	c.Assert(err, IsNil)
 
 	// Expected API sequence

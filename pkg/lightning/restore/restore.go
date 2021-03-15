@@ -24,11 +24,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
@@ -50,6 +52,7 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 const (
@@ -73,12 +76,11 @@ const (
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
 var DeliverPauser = common.NewPauser()
 
-//nolint:gochecknoinits // TODO: refactor
-func init() {
-	// used in integration tests
+func getMinDeliverBytes() uint64 {
 	failpoint.Inject("SetMinDeliverBytes", func(v failpoint.Value) {
-		minDeliverBytes = uint64(v.(int))
+		failpoint.Return(uint64(v.(int)))
 	})
+	return 96 * units.KiB
 }
 
 type saveCp struct {
@@ -163,6 +165,9 @@ type Controller struct {
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
 	compactState   int32
+
+	// commit ts for local and importer backend
+	ts uint64
 }
 
 func NewRestoreController(
@@ -227,8 +232,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, int64(cfg.TikvImporter.RegionSplitSize),
-			cfg.TikvImporter.SortedKVDir, cfg.TikvImporter.RangeConcurrency, cfg.TikvImporter.SendKVPairs,
+		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -239,6 +243,21 @@ func NewRestoreControllerWithPauser(
 		}
 	default:
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
+	}
+
+	var ts uint64
+	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
+		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		defer pdController.Close()
+
+		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		ts = oracle.ComposeTS(physical, logical)
 	}
 
 	rc := &Controller{
@@ -261,6 +280,7 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store: s,
+		ts:    ts,
 	}
 
 	return rc, nil
@@ -617,14 +637,14 @@ func verifyCheckpoint(cfg *config.Config, taskCp *checkpoints.TaskCheckpoint) er
 	}
 
 	if cfg.App.CheckRequirements {
-		if common.ReleaseVersion != taskCp.LightningVer {
+		if build.ReleaseVersion != taskCp.LightningVer {
 			var displayVer string
 			if len(taskCp.LightningVer) != 0 {
 				displayVer = fmt.Sprintf("at '%s'", taskCp.LightningVer)
 			} else {
 				displayVer = "before v4.0.6/v3.0.19"
 			}
-			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", common.ReleaseVersion, displayVer, retryUsage)
+			return errors.Errorf("lightning version is '%s', but checkpoint was created %s, please %s", build.ReleaseVersion, displayVer, retryUsage)
 		}
 
 		errorFmt := "config '%s' value '%s' different from checkpoint value '%s'. You may set 'check-requirements = false' to skip this check or " + retryUsage
@@ -1171,7 +1191,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			err = ctx.Err()
 		}
 		logTask.End(zap.ErrorLevel, err)
-		return errors.Trace(err)
+		return err
 	default:
 	}
 
@@ -1253,11 +1273,14 @@ func (tr *TableRestore) restoreTable(
 	return tr.postProcess(ctx, rc, cp, false /* force-analyze */)
 }
 
-func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
+func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
 	indexEngineCp := cp.Engines[indexEngineID]
 	if indexEngineCp == nil {
 		return errors.Errorf("table %v index engine checkpoint not found", tr.tableName)
 	}
+
+	ctx, cancel := context.WithCancel(pCtx)
+	defer cancel()
 
 	// The table checkpoint status set to `CheckpointStatusIndexImported` only if
 	// both all data engines and the index engine had been imported to TiKV.
@@ -1267,11 +1290,15 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 	// when kill lightning after saving index engine checkpoint status before saving
 	// table checkpoint status.
 	var closedIndexEngine *kv.ClosedEngine
-	if indexEngineCp.Status < checkpoints.CheckpointStatusImported && cp.Status < checkpoints.CheckpointStatusIndexImported {
+	var restoreErr error
+	// if index-engine checkpoint is lower than `CheckpointStatusClosed`, there must be
+	// data-engines that need to be restore or import. Otherwise, all data-engines should
+	// be finished already.
+	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		indexEngine, err := rc.backend.OpenEngine(ctx, tr.tableName, indexEngineID)
+		indexEngine, err := rc.backend.OpenEngine(ctx, tr.tableName, indexEngineID, rc.ts)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1287,6 +1314,11 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 		logTask := tr.logger.Begin(zap.InfoLevel, "import whole table")
 		var wg sync.WaitGroup
 		var engineErr common.OnceError
+		setError := func(err error) {
+			engineErr.Set(err)
+			// cancel this context to fail fast
+			cancel()
+		}
 
 		for engineID, engine := range cp.Engines {
 			select {
@@ -1322,7 +1354,7 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 					engineLogTask.End(zap.ErrorLevel, err)
 					rc.tableWorkers.Recycle(w)
 					if err != nil {
-						engineErr.Set(err)
+						setError(err)
 						return
 					}
 
@@ -1333,7 +1365,7 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 					dataWorker := rc.closedEngineLimit.Apply()
 					defer rc.closedEngineLimit.Recycle(dataWorker)
 					if err := tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp); err != nil {
-						engineErr.Set(err)
+						setError(err)
 					}
 				}(restoreWorker, engineID, engine)
 			}
@@ -1341,23 +1373,21 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 
 		wg.Wait()
 
-		err = engineErr.Get()
-		logTask.End(zap.ErrorLevel, err)
-		if err != nil {
-			return errors.Trace(err)
+		restoreErr = engineErr.Get()
+		logTask.End(zap.ErrorLevel, restoreErr)
+		if restoreErr != nil {
+			return errors.Trace(restoreErr)
 		}
 
+		closedIndexEngine, restoreErr = indexEngine.Close(ctx)
+		rc.saveStatusCheckpoint(tr.tableName, indexEngineID, err, checkpoints.CheckpointStatusClosed)
+	} else if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
-		if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
-			closedIndexEngine, err = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
-		} else {
-			closedIndexEngine, err = indexEngine.Close(ctx)
-			rc.saveStatusCheckpoint(tr.tableName, indexEngineID, err, checkpoints.CheckpointStatusClosed)
-		}
-		if err != nil {
-			return errors.Trace(err)
-		}
+		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
+	}
+	if restoreErr != nil {
+		return errors.Trace(restoreErr)
 	}
 
 	if cp.Status < checkpoints.CheckpointStatusIndexImported {
@@ -1387,13 +1417,16 @@ func (tr *TableRestore) restoreEngines(ctx context.Context, rc *Controller, cp *
 }
 
 func (tr *TableRestore) restoreEngine(
-	ctx context.Context,
+	pCtx context.Context,
 	rc *Controller,
 	indexEngine *kv.OpenedEngine,
 	engineID int32,
 	cp *checkpoints.EngineCheckpoint,
 ) (*kv.ClosedEngine, error) {
-	if cp.Status >= checkpoints.CheckpointStatusClosed {
+	ctx, cancel := context.WithCancel(pCtx)
+	defer cancel()
+	// all data has finished written, we can close the engine directly.
+	if cp.Status >= checkpoints.CheckpointStatusAllWritten {
 		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, tr.tableName, engineID)
 		// If any error occurred, recycle worker immediately
 		if err != nil {
@@ -1402,26 +1435,9 @@ func (tr *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
-	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
-	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
-	// Thus, the disk size occupied by these writers are up to
-	// (region-concurrency + index-concurrency) * 512 MiB.
-	// This number should not exceed the disk quota.
-	// Therefore, we need to reduce that "512 MiB" to respect the disk quota:
-	localWriterMaxCacheSize := int64(rc.cfg.TikvImporter.DiskQuota) // int64(rc.cfg.App.IndexConcurrency+rc.cfg.App.RegionConcurrency)
-	if localWriterMaxCacheSize > config.LocalMemoryTableSize {
-		localWriterMaxCacheSize = config.LocalMemoryTableSize
-	}
-
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
-	dataEngine, err := rc.backend.OpenEngine(ctx, tr.tableName, engineID)
+	dataEngine, err := rc.backend.OpenEngine(ctx, tr.tableName, engineID, rc.ts)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1462,7 +1478,11 @@ func (tr *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+		dataWriter, err := dataEngine.LocalWriter(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		indexWriter, err := indexEngine.LocalWriter(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -1479,19 +1499,20 @@ func (tr *TableRestore) restoreEngine(
 				err = dataWriter.Close()
 			}
 			if err == nil {
+				err = indexWriter.Close()
+			}
+			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFailed).Add(remainChunkCnt)
 				chunkErr.Set(err)
+				cancel()
 			}
 		}(restoreWorker, cr)
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
@@ -2226,8 +2247,8 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 }
 
 var (
-	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
-	minDeliverBytes uint64 = 65536 // 64 KB. batch at least this amount of bytes to reduce number of messages
+	maxKVQueueSize         = 128                  // Cache at most this number of rows before blocking the encode loop
+	minDeliverBytes uint64 = getMinDeliverBytes() // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
 )
 
 type deliveredKVs struct {
@@ -2273,7 +2294,7 @@ func (cr *chunkRestore) deliverLoop(
 		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
-		for dataChecksum.SumSize() < minDeliverBytes {
+		for dataChecksum.SumSize()+indexChecksum.SumSize() < minDeliverBytes {
 			select {
 			case kvPacket = <-kvsCh:
 				if len(kvPacket) == 0 {
@@ -2298,7 +2319,7 @@ func (cr *chunkRestore) deliverLoop(
 			saveCheckpoint(rc, t, engineID, cr.chunk)
 		}
 
-		func() {
+		err = func() error {
 			rc.diskQuotaLock.RLock()
 			defer rc.diskQuotaLock.RUnlock()
 
@@ -2307,11 +2328,11 @@ func (cr *chunkRestore) deliverLoop(
 
 			if err = dataEngine.WriteRows(ctx, columns, dataKVs); err != nil {
 				deliverLogger.Error("write to data engine failed", log.ShortError(err))
-				return
+				return errors.Trace(err)
 			}
 			if err = indexEngine.WriteRows(ctx, columns, indexKVs); err != nil {
 				deliverLogger.Error("write to index engine failed", log.ShortError(err))
-				return
+				return errors.Trace(err)
 			}
 
 			deliverDur := time.Since(start)
@@ -2321,7 +2342,11 @@ func (cr *chunkRestore) deliverLoop(
 			metric.BlockDeliverBytesHistogram.WithLabelValues(metric.BlockDeliverKindIndex).Observe(float64(indexChecksum.SumSize()))
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindData).Observe(float64(dataChecksum.SumKVS()))
 			metric.BlockDeliverKVPairsHistogram.WithLabelValues(metric.BlockDeliverKindIndex).Observe(float64(indexChecksum.SumKVS()))
+			return nil
 		}()
+		if err != nil {
+			return
+		}
 
 		// Update the table, and save a checkpoint.
 		// (the write to the importer is effective immediately, thus update these here)
