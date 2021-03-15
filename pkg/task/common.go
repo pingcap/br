@@ -185,7 +185,9 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 		"Set whether to enable opentracing during the backup/restore process")
 
 	flags.BoolP(flagNoCreds, "", false, "Don't load credentials")
+	_ = flags.MarkHidden(flagNoCreds)
 	flags.BoolP(flagSkipCheckPath, "", false, "Skip path verification")
+	_ = flags.MarkHidden(flagSkipCheckPath)
 
 	storage.DefineFlags(flags)
 }
