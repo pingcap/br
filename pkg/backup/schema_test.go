@@ -60,7 +60,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	testFilter, err := filter.Parse([]string{"test.t1"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64, false)
+		s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -68,7 +68,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	fooFilter, err := filter.Parse([]string{"foo.t1"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, fooFilter, math.MaxUint64, false)
+		s.mock.Storage, fooFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -76,7 +76,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	noFilter, err := filter.Parse([]string{"*.*"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64, false)
+		s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas, IsNil)
 
@@ -86,12 +86,13 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t1 values (10);")
 
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, testFilter, math.MaxUint64, false)
+		s.mock.Storage, testFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 	updateCh := new(simpleProgress)
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, updateCh)
-	schemas, err := backupSchemas.FinishTableChecksum()
+	skipChecksum := false
+	schemas, err := backupSchemas.BackupSchemas(
+		context.Background(), s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(updateCh.get(), Equals, int64(1))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 1)
@@ -106,12 +107,12 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	tk.MustExec("insert into t2 values (11);")
 
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
-		s.mock.Domain, s.mock.Storage, noFilter, math.MaxUint64, false)
+		s.mock.Storage, noFilter, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	updateCh.reset()
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, updateCh)
-	schemas, err = backupSchemas.FinishTableChecksum()
+	schemas, err = backupSchemas.BackupSchemas(
+		context.Background(), s.mock.Storage, nil, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(updateCh.get(), Equals, int64(2))
 	c.Assert(err, IsNil)
 	c.Assert(len(schemas), Equals, 2)
@@ -143,13 +144,14 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	f, err := filter.Parse([]string{"test.t3"})
 	c.Assert(err, IsNil)
 
-	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(s.mock.Domain, s.mock.Storage, f, math.MaxUint64, false)
+	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(s.mock.Storage, f, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 
+	skipChecksum := false
 	updateCh := new(simpleProgress)
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, updateCh)
-	schemas, err := backupSchemas.FinishTableChecksum()
+	schemas, err := backupSchemas.BackupSchemas(
+		context.Background(), s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 
 	// the stats should be empty, but other than that everything should be backed up.
 	c.Assert(err, IsNil)
@@ -163,13 +165,14 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	// recover the statistics.
 	tk.MustExec("analyze table t3;")
 
-	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(s.mock.Domain, s.mock.Storage, f, math.MaxUint64, false)
+	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(s.mock.Storage, f, math.MaxUint64)
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 1)
 
 	updateCh.reset()
-	backupSchemas.Start(context.Background(), s.mock.Storage, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, updateCh)
-	schemas2, err := backupSchemas.FinishTableChecksum()
+	statsHandle := s.mock.Domain.StatsHandle()
+	schemas2, err := backupSchemas.BackupSchemas(
+		context.Background(), s.mock.Storage, statsHandle, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 
 	// the stats should now be filled, and other than that the result should be equivalent to the first backup.
 	c.Assert(err, IsNil)
