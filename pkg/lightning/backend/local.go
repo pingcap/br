@@ -29,6 +29,7 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/coreos/go-semver/semver"
+	"github.com/docker/go-units"
 	"github.com/google/btree"
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
@@ -72,15 +73,23 @@ const (
 	gRPCKeepAliveTimeout = 3 * time.Second
 	gRPCBackOffMaxDelay  = 3 * time.Second
 
-	LocalMemoryTableSize = config.LocalMemoryTableSize
-
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
 	regionMaxKeyCount = 1_440_000
 
 	propRangeIndex = "tikv.range_index"
 
-	defaultPropSizeIndexDistance = 4 * 1024 * 1024 // 4MB
+	defaultPropSizeIndexDistance = 4 * units.MiB
 	defaultPropKeysIndexDistance = 40 * 1024
+
+	// defaultLocalWriterKVsChannelCap is the capacity of the
+	// LocalWriter.kvsChan field, which acts as the buffer between local writer
+	// and deliverLoop. Each entry in the channel can be observed from metrics
+	//
+	//		2 * sum(lightning_block_deliver_bytes_sum) / sum(lightning_block_deliver_bytes_count)
+	//
+	// which has a minimum size of 64 KB and a maximum size depending on the KV
+	// encoding of each row. It can be as high as 1 MiB.
+	defaultLocalWriterKVsChannelCap = 16
 
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
@@ -344,6 +353,9 @@ type local struct {
 
 	tcpConcurrency int
 	maxOpenFiles   int
+
+	engineMemCacheSize      int
+	localWriterMemCacheSize int64
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -410,14 +422,14 @@ func NewLocalBackend(
 	ctx context.Context,
 	tls *common.TLS,
 	pdAddr string,
-	regionSplitSize int64,
-	localFile string,
-	rangeConcurrency int,
-	sendKVPairs int,
+	cfg *config.TikvImporter,
 	enableCheckpoint bool,
 	g glue.Glue,
 	maxOpenFiles int,
 ) (Backend, error) {
+	localFile := cfg.SortedKVDir
+	rangeConcurrency := cfg.RangeConcurrency
+
 	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
 	if err != nil {
 		return MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
@@ -450,14 +462,17 @@ func NewLocalBackend(
 		g:        g,
 
 		localStoreDir:   localFile,
-		regionSplitSize: regionSplitSize,
+		regionSplitSize: int64(cfg.RegionSplitSize),
 
 		rangeConcurrency:  worker.NewPool(ctx, rangeConcurrency, "range"),
 		ingestConcurrency: worker.NewPool(ctx, rangeConcurrency*2, "ingest"),
 		tcpConcurrency:    rangeConcurrency,
-		batchWriteKVPairs: sendKVPairs,
+		batchWriteKVPairs: cfg.SendKVPairs,
 		checkpointEnabled: enableCheckpoint,
 		maxOpenFiles:      utils.MaxInt(maxOpenFiles, openFilesLowerThreshold),
+
+		engineMemCacheSize:      int(cfg.EngineMemCacheSize),
+		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
 	return MakeBackend(local), nil
@@ -599,7 +614,7 @@ func (local *local) ShouldPostProcess() bool {
 
 func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.DB, error) {
 	opt := &pebble.Options{
-		MemTableSize: LocalMemoryTableSize,
+		MemTableSize: local.engineMemCacheSize,
 		// the default threshold value may cause write stall.
 		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
@@ -1117,6 +1132,9 @@ WriteAndIngest:
 			rg, err = local.writeAndIngestPairs(ctx, engineFile, region, pairStart, end)
 			local.ingestConcurrency.Recycle(w)
 			if err != nil {
+				if common.IsContextCanceledError(err) {
+					return err
+				}
 				_, regionStart, _ := codec.DecodeBytes(region.Region.StartKey, []byte{})
 				// if we have at least succeeded one region, retry without increasing the retry count
 				if bytes.Compare(regionStart, pairStart) > 0 {
@@ -1161,7 +1179,9 @@ loopWrite:
 		var metas []*sst.SSTMeta
 		metas, remainRange, rangeStats, err = local.WriteToTiKV(ctx, engineFile, region, start, end)
 		if err != nil {
-			log.L().Warn("write to tikv failed", log.ShortError(err))
+			if !common.IsContextCanceledError(err) {
+				log.L().Warn("write to tikv failed", log.ShortError(err))
+			}
 			return nil, err
 		}
 
@@ -1199,7 +1219,7 @@ loopWrite:
 					resp, err = local.Ingest(ctx, meta, region)
 				}
 				if err != nil {
-					if errors.Cause(err) == context.Canceled {
+					if common.IsContextCanceledError(err) {
 						return nil, err
 					}
 					log.L().Warn("ingest failed", log.ShortError(err), log.ZapRedactReflect("meta", meta),
@@ -1210,6 +1230,9 @@ loopWrite:
 				var retryTy retryType
 				var newRegion *split.RegionInfo
 				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+				if common.IsContextCanceledError(err) {
+					return nil, err
+				}
 				if err == nil {
 					// ingest next meta
 					break
@@ -1452,19 +1475,19 @@ func (local *local) NewEncoder(tbl table.Table, options *SessionOptions) (Encode
 	return NewTableKVEncoder(tbl, options)
 }
 
-func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error) {
+func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	e, ok := local.engines.Load(engineUUID)
 	if !ok {
 		return nil, errors.Errorf("could not find engine for %s", engineUUID.String())
 	}
 	engineFile := e.(*LocalFile)
-	return openLocalWriter(engineFile, local.localStoreDir, maxCacheSize), nil
+	return openLocalWriter(engineFile, local.localStoreDir, local.localWriterMemCacheSize), nil
 }
 
 func openLocalWriter(f *LocalFile, sstDir string, memtableSizeLimit int64) *LocalWriter {
 	w := &LocalWriter{
 		sstDir:            sstDir,
-		kvsChan:           make(chan []common.KvPair, 1024),
+		kvsChan:           make(chan []common.KvPair, defaultLocalWriterKVsChannelCap),
 		flushCh:           make(chan chan error),
 		consumeCh:         make(chan struct{}, 1),
 		local:             f,
