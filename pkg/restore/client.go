@@ -221,7 +221,7 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
 			return nil, errors.Annotatef(berrors.ErrRestoreRangeMismatch,
-				"the given range to restore (%s, %s) is not fully covered by the range that was backed up(%s, %s)",
+				"the given range to restore [%s, %s) is not fully covered by the range that was backed up [%s, %s)",
 				redact.Key(startKey), redact.Key(endKey), redact.Key(rawRange.StartKey), redact.Key(rawRange.EndKey),
 			)
 		}
