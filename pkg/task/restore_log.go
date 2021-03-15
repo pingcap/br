@@ -117,7 +117,12 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 	}
 	defer client.Close()
 
-	if err = client.SetStorage(ctx, u, false); err != nil {
+	opts := storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
+	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
 
