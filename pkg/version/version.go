@@ -151,12 +151,15 @@ func CheckVersion(component string, actual, requiredMinVersion, requiredMaxVersi
 			actual,
 		)
 	}
-	if actual.Compare(requiredMaxVersion) >= 0 {
+	// Compare the major version number to make sure beta version does not pass
+	// the check. This is because beta version may contains incompatible
+	// changes.
+	if actual.Major >= requiredMaxVersion.Major {
 		return errors.Annotatef(berrors.ErrVersionMismatch,
-			"%s version too new, expected to be within [%s, %s), found '%s'",
+			"%s version too new, expected to be within [%s, %d.0.0), found '%s'",
 			component,
 			requiredMinVersion,
-			requiredMaxVersion,
+			requiredMaxVersion.Major,
 			actual,
 		)
 	}
@@ -186,4 +189,12 @@ func ExtractTiDBVersion(version string) (*semver.Version, error) {
 	rawVersion := strings.Join(versions[2:end], "-")
 	rawVersion = strings.TrimPrefix(rawVersion, "v")
 	return semver.NewVersion(rawVersion)
+}
+
+func CheckTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	version, err := ExtractTiDBVersion(versionStr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return CheckVersion("TiDB", *version, requiredMinVersion, requiredMaxVersion)
 }

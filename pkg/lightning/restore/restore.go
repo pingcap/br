@@ -38,7 +38,11 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/importer"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
+	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	. "github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -46,6 +50,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
@@ -146,7 +151,7 @@ type RestoreController struct {
 	ioWorkers       *worker.Pool
 	checksumWorks   *worker.Pool
 	pauser          *common.Pauser
-	backend         kv.Backend
+	backend         backend.Backend
 	tidbGlue        glue.Glue
 	postProcessLock sync.Mutex // a simple way to ensure post-processing is not concurrent without using complicated goroutines
 	alterTableLock  sync.Mutex
@@ -207,11 +212,11 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.Trace(err)
 	}
 
-	var backend kv.Backend
+	var backend backend.Backend
 	switch cfg.TikvImporter.Backend {
 	case config.BackendImporter:
 		var err error
-		backend, err = kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+		backend, err = importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 		if err != nil {
 			return nil, errors.Annotate(err, "open importer backend failed")
 		}
@@ -220,10 +225,10 @@ func NewRestoreControllerWithPauser(
 		if err != nil {
 			return nil, errors.Annotate(err, "open tidb backend failed")
 		}
-		backend = kv.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
+		backend = tidb.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
 	case config.BackendLocal:
 		var rLimit uint64
-		rLimit, err = kv.GetSystemRLimit()
+		rLimit, err = local.GetSystemRLimit()
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +238,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
+		backend, err = local.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -685,8 +690,8 @@ func verifyLocalFile(ctx context.Context, cpdb CheckpointsDB, dir string) error 
 	}
 	for tableName, engineIDs := range targetTables {
 		for _, engineID := range engineIDs {
-			_, eID := kv.MakeUUID(tableName, engineID)
-			file := kv.LocalFile{Uuid: eID}
+			_, eID := backend.MakeUUID(tableName, engineID)
+			file := local.LocalFile{Uuid: eID}
 			err := file.Exist(dir)
 			if err != nil {
 				log.L().Error("can't find local file",
@@ -1280,7 +1285,7 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 	// but `indexEngineCp.Status == CheckpointStatusImported` could happen
 	// when kill lightning after saving index engine checkpoint status before saving
 	// table checkpoint status.
-	var closedIndexEngine *kv.ClosedEngine
+	var closedIndexEngine *backend.ClosedEngine
 	var restoreErr error
 	// if index-engine checkpoint is lower than `CheckpointStatusClosed`, there must be
 	// data-engines that need to be restore or import. Otherwise, all data-engines should
@@ -1410,10 +1415,10 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 func (t *TableRestore) restoreEngine(
 	pCtx context.Context,
 	rc *RestoreController,
-	indexEngine *kv.OpenedEngine,
+	indexEngine *backend.OpenedEngine,
 	engineID int32,
 	cp *EngineCheckpoint,
-) (*kv.ClosedEngine, error) {
+) (*backend.ClosedEngine, error) {
 	ctx, cancel := context.WithCancel(pCtx)
 	defer cancel()
 	// all data has finished written, we can close the engine directly.
@@ -1574,7 +1579,7 @@ func (t *TableRestore) restoreEngine(
 
 func (t *TableRestore) importEngine(
 	ctx context.Context,
-	closedEngine *kv.ClosedEngine,
+	closedEngine *backend.ClosedEngine,
 	rc *RestoreController,
 	engineID int32,
 	cp *EngineCheckpoint,
@@ -1743,12 +1748,12 @@ func (rc *RestoreController) fullCompact(ctx context.Context) error {
 
 func (rc *RestoreController) doCompact(ctx context.Context, level int32) error {
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls,
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			return kv.Compact(c, tls, store.Address, level)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.Compact(c, tls, store.Address, level)
 		},
 	)
 }
@@ -1767,21 +1772,21 @@ func (rc *RestoreController) switchTiKVMode(ctx context.Context, mode sstpb.Swit
 	// since we're running it periodically, so we exclude disconnected stores.
 	// But it is essential all stores be switched back to Normal mode to allow
 	// normal operation.
-	var minState kv.StoreState
+	var minState tikv.StoreState
 	if mode == sstpb.SwitchMode_Import {
-		minState = kv.StoreStateOffline
+		minState = tikv.StoreStateOffline
 	} else {
-		minState = kv.StoreStateDisconnected
+		minState = tikv.StoreStateDisconnected
 	}
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
 	// we ignore switch mode failure since it is not fatal.
 	// no need log the error, it is done in kv.SwitchMode already.
-	_ = kv.ForAllStores(
+	_ = tikv.ForAllStores(
 		ctx,
 		tls,
 		minState,
-		func(c context.Context, store *kv.Store) error {
-			return kv.SwitchMode(c, tls, store.Address, mode)
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.SwitchMode(c, tls, store.Address, mode)
 		},
 	)
 }
@@ -2183,7 +2188,7 @@ func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
 
 func (tr *TableRestore) importKV(
 	ctx context.Context,
-	closedEngine *kv.ClosedEngine,
+	closedEngine *backend.ClosedEngine,
 	rc *RestoreController,
 	engineID int32,
 ) error {
@@ -2260,7 +2265,7 @@ func (cr *chunkRestore) deliverLoop(
 	kvsCh <-chan []deliveredKVs,
 	t *TableRestore,
 	engineID int32,
-	dataEngine, indexEngine *kv.LocalEngineWriter,
+	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *RestoreController,
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
@@ -2504,7 +2509,7 @@ func (cr *chunkRestore) restore(
 	ctx context.Context,
 	t *TableRestore,
 	engineID int32,
-	dataEngine, indexEngine *kv.LocalEngineWriter,
+	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *RestoreController,
 ) error {
 	// Create the encoder.

@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -53,12 +53,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
@@ -66,8 +69,10 @@ import (
 )
 
 const (
-	dialTimeout  = 5 * time.Second
-	bigValueSize = 1 << 16 // 64K
+	dialTimeout             = 5 * time.Second
+	bigValueSize            = 1 << 16 // 64K
+	maxRetryTimes           = 3
+	defaultRetryBackoffTime = 3 * time.Second
 
 	gRPCKeepAliveTime    = 10 * time.Second
 	gRPCKeepAliveTimeout = 3 * time.Second
@@ -205,7 +210,7 @@ func (e *LocalFile) isLocked() bool {
 	return e.isImportingAtomic.Load() != 0
 }
 
-func (e *LocalFile) getEngineFileSize() EngineFileSize {
+func (e *LocalFile) getEngineFileSize() backend.EngineFileSize {
 	metrics := e.db.Metrics()
 	total := metrics.Total()
 	var memSize int64
@@ -218,7 +223,7 @@ func (e *LocalFile) getEngineFileSize() EngineFileSize {
 		return true
 	})
 
-	return EngineFileSize{
+	return backend.EngineFileSize{
 		UUID:        e.Uuid,
 		DiskSize:    total.Size,
 		MemSize:     memSize,
@@ -426,13 +431,13 @@ func NewLocalBackend(
 	enableCheckpoint bool,
 	g glue.Glue,
 	maxOpenFiles int,
-) (Backend, error) {
+) (backend.Backend, error) {
 	localFile := cfg.SortedKVDir
 	rangeConcurrency := cfg.RangeConcurrency
 
 	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
 	if err != nil {
-		return MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
+		return backend.MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
 	}
 	splitCli := split.NewSplitClient(pdCli, tls.TLSConfig())
 
@@ -440,7 +445,7 @@ func NewLocalBackend(
 	if enableCheckpoint {
 		if info, err := os.Stat(localFile); err != nil {
 			if !os.IsNotExist(err) {
-				return MakeBackend(nil), err
+				return backend.MakeBackend(nil), err
 			}
 		} else if info.IsDir() {
 			shouldCreate = false
@@ -450,7 +455,7 @@ func NewLocalBackend(
 	if shouldCreate {
 		err = os.Mkdir(localFile, 0o700)
 		if err != nil {
-			return MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
+			return backend.MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
 		}
 	}
 
@@ -475,7 +480,7 @@ func NewLocalBackend(
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
-	return MakeBackend(local), nil
+	return backend.MakeBackend(local), nil
 }
 
 // lock locks a local file and returns the LocalFile instance if it exists.
@@ -1454,28 +1459,41 @@ func (local *local) CheckRequirements(ctx context.Context) error {
 	if err := checkTiDBVersionBySQL(ctx, local.g, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
 		return err
 	}
-	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
+	if err := tikv.CheckPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
 		return err
 	}
-	if err := checkTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
+	if err := tikv.CheckTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
 		return err
 	}
 	return nil
 }
 
+func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	versionStr, err := g.GetSQLExecutor().ObtainStringWithLog(
+		ctx,
+		"SELECT version();",
+		"check TiDB version",
+		log.L())
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return version.CheckTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
+}
+
 func (local *local) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
-	return fetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
+	return tikv.FetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
 }
 
-func (local *local) MakeEmptyRows() Rows {
-	return kvPairs(nil)
+func (local *local) MakeEmptyRows() kv.Rows {
+	return kv.MakeRowsFromKvPairs(nil)
 }
 
-func (local *local) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, error) {
-	return NewTableKVEncoder(tbl, options)
+func (local *local) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error) {
+	return kv.NewTableKVEncoder(tbl, options)
 }
 
-func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
+func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
 	e, ok := local.engines.Load(engineUUID)
 	if !ok {
 		return nil, errors.Errorf("could not find engine for %s", engineUUID.String())
@@ -1774,7 +1792,7 @@ func (s *sizeProperties) iter(f func(p *rangeProperty) bool) {
 	})
 }
 
-func (local *local) EngineFileSizes() (res []EngineFileSize) {
+func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*LocalFile)
 		res = append(res, engine.getEngineFileSize())
@@ -1796,8 +1814,8 @@ type LocalWriter struct {
 	writer            *sstWriter
 }
 
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
-	kvs := rows.(kvPairs)
+func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
 	}
