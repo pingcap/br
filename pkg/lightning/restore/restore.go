@@ -2843,6 +2843,9 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 					if mysql.HasAutoIncrementFlag(col.Flag) {
 						autoIDField = col.Name.L
 						break
+					} else if mysql.HasPriKeyFlag(col.Flag) && tr.tableInfo.Core.AutoRandomBits > 0 {
+						autoIDField = col.Name.L
+						break
 					}
 				}
 				if len(autoIDField) == 0 && common.TableHasAutoRowID(tr.tableInfo.Core) {
@@ -2998,6 +3001,6 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 }
 
 func (m *tableMetaMgr) FinishTable(ctx context.Context) error {
-	return m.session.Exec(ctx, "clean up metas", "DELETE FROM mysql.brie_sub_tasks where table_id = ? and task_id = ? and (status = 'checksuming' or status = 'checksum_skipped')",
-		m.tr.tableInfo.ID, m.taskID)
+	return m.session.Exec(ctx, "clean up metas", "DELETE FROM mysql.brie_sub_tasks where table_id = ? and (status = 'checksuming' or status = 'checksum_skipped')",
+		m.tr.tableInfo.ID)
 }
