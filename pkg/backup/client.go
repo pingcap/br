@@ -914,102 +914,12 @@ backupLoop:
 	return nil
 }
 
-// ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func ChecksumMatches(backupMeta *backuppb.BackupMeta, local []Checksum) error {
-	if len(local) != len(backupMeta.Schemas) {
-		return errors.Annotatef(berrors.ErrBackupChecksumMismatch,
-			"checksum mismatch, checksum len %d, schema len %d", len(local), len(backupMeta.Schemas))
-	}
-
-	for i, schema := range backupMeta.Schemas {
-		localChecksum := local[i]
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse db info")
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
-		}
-		if localChecksum.Crc64Xor != schema.Crc64Xor ||
-			localChecksum.TotalBytes != schema.TotalBytes ||
-			localChecksum.TotalKvs != schema.TotalKvs {
-			log.Error("checksum mismatch",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tblInfo.Name),
-				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
-				zap.Uint64("calculated crc64", localChecksum.Crc64Xor),
-				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
-				zap.Uint64("calculated total kvs", localChecksum.TotalKvs),
-				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
-				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
-			// TODO enhance error
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
-		}
-		log.Info("checksum success",
-			zap.String("database", dbInfo.Name.L),
-			zap.String("table", tblInfo.Name.L))
-	}
-	return nil
-}
-
 // collectFileInfo collects ungrouped file summary information, like kv count and size.
 func collectFileInfo(files []*backuppb.File) {
 	for _, file := range files {
 		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 	}
-}
-
-// CollectChecksums check data integrity by xor all(sst_checksum) per table
-// it returns the checksum of all local files.
-func CollectChecksums(backupMeta *backuppb.BackupMeta) ([]Checksum, error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("backup fast checksum", elapsed)
-	}()
-
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	checksums := make([]Checksum, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err = json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-
-		checksum := uint64(0)
-		totalKvs := uint64(0)
-		totalBytes := uint64(0)
-		for _, file := range tbl.Files {
-			checksum ^= file.Crc64Xor
-			totalKvs += file.TotalKvs
-			totalBytes += file.TotalBytes
-		}
-
-		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
-		localChecksum := Checksum{
-			Crc64Xor:   checksum,
-			TotalKvs:   totalKvs,
-			TotalBytes: totalBytes,
-		}
-		checksums = append(checksums, localChecksum)
-	}
-
-	return checksums, nil
 }
 
 // isRetryableError represents whether we should retry reset grpc connection.

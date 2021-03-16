@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -67,6 +68,7 @@ func (ss *Schemas) addSchema(
 // BackupSchemas backups table info, including checksum and stats.
 func (ss *Schemas) BackupSchemas(
 	ctx context.Context,
+	metabuilder *metautil.MetaWriter,
 	store kv.Storage,
 	statsHandle *handle.Handle,
 	backupTS uint64,
@@ -74,7 +76,7 @@ func (ss *Schemas) BackupSchemas(
 	copConcurrency uint,
 	skipChecksum bool,
 	updateCh glue.Progress,
-) ([]*backuppb.Schema, error) {
+) error {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Schemas.BackupSchemas", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
@@ -123,26 +125,25 @@ func (ss *Schemas) BackupSchemas(
 		})
 	}
 	if err := errg.Wait(); err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
 	summary.CollectDuration("backup checksum", time.Since(startAll))
 
-	schemas := make([]*backuppb.Schema, 0, len(ss.schemas))
 	for name, schema := range ss.schemas {
 		dbBytes, err := json.Marshal(schema.dbInfo)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return errors.Trace(err)
 		}
 		tableBytes, err := json.Marshal(schema.tableInfo)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return errors.Trace(err)
 		}
 		var statsBytes []byte
 		if schema.stats != nil {
 			statsBytes, err = json.Marshal(schema.stats)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return errors.Trace(err)
 			}
 		}
 		s := &backuppb.Schema{
@@ -156,9 +157,11 @@ func (ss *Schemas) BackupSchemas(
 		// Delete scheme ASAP to help GC.
 		delete(ss.schemas, name)
 
-		schemas = append(schemas, s)
+		if err := metabuilder.WriteSchemas(ctx, s); err != nil {
+			return errors.Trace(err)
+		}
 	}
-	return schemas, nil
+	return metabuilder.FlushSchemas(ctx)
 }
 
 // Len returns the number of schemas.

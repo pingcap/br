@@ -4,10 +4,12 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -22,8 +24,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/checksum"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -225,6 +229,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
+	storage, err := storage.New(ctx, u, &opts)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	err = client.SetLockFile(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -290,16 +298,24 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// Metafile size should be less than 64MB.
+	metawriter := metautil.NewMetaWriter(storage, 64*units.MiB)
+
 	// nothing to backup
 	if ranges == nil {
-		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
-		if err2 != nil {
-			return errors.Trace(err2)
-		}
+		metawriter.Update(func(m *backuppb.BackupMeta) {
+			m.StartVersion = req.StartVersion
+			m.EndVersion = req.EndVersion
+			m.IsRawKv = req.IsRawKv
+			m.ClusterId = req.ClusterId
+			m.ClusterVersion = clusterVersion
+			m.BrVersion = brVersion
+		})
 		pdAddress := strings.Join(cfg.PD, ",")
 		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
 			zap.String("PD address", pdAddress))
-		return client.SaveBackupMeta(ctx, &backupMeta)
+		return metawriter.Flush(ctx)
 	}
 
 	ddlJobs := make([]*model.Job, 0)
@@ -344,10 +360,20 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
+	ddls, err := json.Marshal(ddlJobs)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	metawriter.Update(func(m *backuppb.BackupMeta) {
+		m.StartVersion = req.StartVersion
+		m.EndVersion = req.EndVersion
+		m.IsRawKv = req.IsRawKv
+		m.Files = files
+		m.ClusterId = req.ClusterId
+		m.ClusterVersion = clusterVersion
+		m.BrVersion = brVersion
+		m.Ddls = ddls
+	})
 
 	skipChecksum := !cfg.Checksum || isIncrementalBackup
 	checksumProgress := int64(schemas.Len())
@@ -363,44 +389,30 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
-	backupMeta.Schemas, err = schemas.BackupSchemas(
-		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+	err = schemas.BackupSchemas(
+		ctx, metawriter, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Checksum has finished, close checksum progress.
 	updateCh.Close()
+
+	err = metawriter.Flush(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
 	if !skipChecksum {
 		// Check if checksum from files matches checksum from coprocessor.
-		err = checkChecksums(&backupMeta)
+		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), storage)
 		if err != nil {
 			return errors.Trace(err)
 		}
 	}
 
-	err = client.SaveBackupMeta(ctx, &backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	g.Record("Size", utils.ArchiveSize(&backupMeta))
+	g.Record("Size", metawriter.ArchiveSize())
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
-	return nil
-}
-
-// checkChecksums checks the checksum of the client, once failed,
-// returning a error with message: "mismatched checksum".
-func checkChecksums(backupMeta *backuppb.BackupMeta) error {
-	checksums, err := backup.CollectChecksums(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = backup.ChecksumMatches(backupMeta, checksums)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	return nil
 }
 

@@ -11,6 +11,7 @@ var (
 	ErrUnknown         = errors.Normalize("internal error", errors.RFCCodeText("BR:Common:ErrUnknown"))
 	ErrInvalidArgument = errors.Normalize("invalid argument", errors.RFCCodeText("BR:Common:ErrInvalidArgument"))
 	ErrVersionMismatch = errors.Normalize("version mismatch", errors.RFCCodeText("BR:Common:ErrVersionMismatch"))
+	ErrInvalidMetaFile = errors.Normalize("invalid metafile", errors.RFCCodeText("BR:Common:ErrInvalidMetaFile"))
 
 	ErrPDUpdateFailed    = errors.Normalize("failed to update PD", errors.RFCCodeText("BR:PD:ErrPDUpdateFailed"))
 	ErrPDLeaderNotFound  = errors.Normalize("PD leader not found", errors.RFCCodeText("BR:PD:ErrPDLeaderNotFound"))
