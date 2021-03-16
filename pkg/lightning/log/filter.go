@@ -30,8 +30,10 @@ func NewFilterCore(core zapcore.Core, filteredPackages ...string) *FilterCore {
 
 // With adds structured context to the Core.
 func (f *FilterCore) With(fields []zapcore.Field) zapcore.Core {
-	f.Core = f.Core.With(fields)
-	return f
+	return &FilterCore{
+		Core:    f.Core.With(fields),
+		filters: f.filters,
+	}
 }
 
 // Check overrides wrapper core.Check and adds itself to zapcore.CheckedEntry.
