@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tmysql "github.com/go-sql-driver/mysql"
 	"github.com/pingcap/errors"

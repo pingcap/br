@@ -1230,36 +1230,27 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 	}
 
 	close(postProcessTaskChan)
+	// TODO: support Lightning via SQL
+	db, err := rc.tidbGlue.GetDB()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	// otherwise, we should run all tasks in the post-process task chan
 	for i := 0; i < rc.cfg.App.TableConcurrency; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for task := range postProcessTaskChan {
-				// TODO: support Lightning via SQL
-				db, err := rc.tidbGlue.GetDB()
-				if err != nil {
-					restoreErr.Set(err)
-					continue
-				}
-				conn, err := db.Conn(ctx)
-				if err != nil {
-					restoreErr.Set(err)
-					continue
-				}
-
 				metaMgr := &tableMetaMgr{
-					session: common.SQLWithRetry{
-						DB:     conn,
-						Logger: task.tr.logger,
-					},
-					taskID: rc.cfg.TaskID,
-					tr:     task.tr,
+					session: db,
+					taskID:  rc.cfg.TaskID,
+					tr:      task.tr,
 				}
 				// force all the remain post-process tasks to be executed
 				_, err = task.tr.postProcess(ctx2, rc, task.cp, true, metaMgr)
 				restoreErr.Set(err)
 			}
-			wg.Done()
 		}()
 	}
 	wg.Wait()
@@ -1287,18 +1278,11 @@ func (t *TableRestore) restoreTable(
 	if err != nil {
 		return false, errors.Trace(err)
 	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
 
 	metaMgr := &tableMetaMgr{
-		session: common.SQLWithRetry{
-			DB:     conn,
-			Logger: t.logger,
-		},
-		taskID: rc.cfg.TaskID,
-		tr:     t,
+		session: db,
+		taskID:  rc.cfg.TaskID,
+		tr:      t,
 	}
 
 	// no need to do anything if the chunks are already populated
@@ -2726,16 +2710,20 @@ func (cr *chunkRestore) restore(
 }
 
 type tableMetaMgr struct {
-	session common.SQLWithRetry
+	session *sql.DB
 	taskID  int64
 	tr      *TableRestore
 }
 
 func (m *tableMetaMgr) InitTableMeta(ctx context.Context) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
 	// avoid override existing metadata if the meta is already inserted.
 	stmt := `INSERT IGNORE INTO mysql.brie_sub_tasks (task_id, table_id, table_name, status) values (?, ?, ?, ?)`
 	task := m.tr.logger.Begin(zap.DebugLevel, "init table meta")
-	err := m.session.Exec(ctx, "init table meta", stmt, m.taskID, m.tr.tableInfo.ID, m.tr.tableName, metaStatusInitial.String())
+	err := exec.Exec(ctx, "init table meta", stmt, m.taskID, m.tr.tableInfo.ID, m.tr.tableName, metaStatusInitial.String())
 	task.End(zap.ErrorLevel, err)
 	return errors.Trace(err)
 }
@@ -2793,20 +2781,30 @@ func parseMetaStatus(s string) (metaStatus, error) {
 }
 
 func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, rawRowIDMax int64) (*verify.KVChecksum, int64, error) {
+	conn, err := m.session.Conn(ctx)
+	if err != nil {
+		return nil, 0, errors.Trace(err)
+	}
+	defer conn.Close()
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
 	var newRowIDBase, newRowIDMax int64
 	curStatus := metaStatusInitial
 	newStatus := metaStatusRowIDAllocated
 	var baseTotalKvs, baseTotalBytes, baseChecksum uint64
-	err := m.session.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
+	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
 	if err != nil {
 		return nil, 0, errors.Annotate(err, "enable pessimistic transaction failed")
 	}
-	err = m.session.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
+	err = exec.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
 		query := fmt.Sprintf("SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
 		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
 		if err != nil {
 			return errors.Trace(err)
 		}
+		defer rows.Close()
 		var (
 			metaLightningID, rowIDBase, rowIDMax, maxRowIDMax int64
 			statusValue                                       string
@@ -2892,7 +2890,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 			if newRowIDBase == 0 && newStatus < metaStatusRestoreStarted {
 				newStatus = metaStatusRestoreStarted
 			}
-			query = "update mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ?, where table_id = ? and task_id = ?"
+			query = "update mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?"
 			res, err := tx.ExecContext(ctx, query, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, metaLightningID)
 			if err != nil {
 				return errors.Trace(err)
@@ -2940,20 +2938,41 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 }
 
 func (m *tableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *verify.KVChecksum) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
 	query := fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs_base = %d, total_bytes_base = %d, checksum_base = %d, status = '%s' where table_id = %d and task_id = %d",
 		checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), m.tr.tableInfo.ID, m.taskID)
 
-	return m.session.Exec(ctx, "update base checksum", query)
+	return exec.Exec(ctx, "update base checksum", query)
 }
 
 func (m *tableMetaMgr) updateTableStatus(ctx context.Context, status metaStatus) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
 	query := fmt.Sprintf("update mysql.brie_sub_tasks set status = '%s' where table_id = %d and task_id = %d",
 		status.String(), m.tr.tableInfo.ID, m.taskID)
 
-	return m.session.Exec(ctx, "update meta status", query)
+	return exec.Exec(ctx, "update meta status", query)
 }
 
 func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum *verify.KVChecksum) (bool, *verify.KVChecksum, error) {
+	conn, err := m.session.Conn(ctx)
+	if err != nil {
+		return false, nil, errors.Trace(err)
+	}
+	defer conn.Close()
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
+	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
+	if err != nil {
+		return false, nil, errors.Annotate(err, "enable pessimistic transaction failed")
+	}
 	var (
 		baseTotalKvs, baseTotalBytes, baseChecksum uint64
 		taskKvs, taskBytes, taskChecksum           uint64
@@ -2961,12 +2980,13 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 	)
 	newStatus := metaStatusChecksuming
 	needChecksum := true
-	err := m.session.Transact(ctx, "checksum pre-check", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, total_kvs_base, total_bytes_base, checksum_base, total_kvs, total_bytes, checksum, status from mysql.brie_sub_tasks WHERE table_id = ?")
+	err = exec.Transact(ctx, "checksum pre-check", func(ctx context.Context, tx *sql.Tx) error {
+		query := fmt.Sprintf("SELECT task_id, total_kvs_base, total_bytes_base, checksum_base, total_kvs, total_bytes, checksum, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
 		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
 		if err != nil {
 			return errors.Trace(err)
 		}
+		defer rows.Close()
 		var (
 			taskID      int64
 			statusValue string
@@ -3017,7 +3037,6 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 		}
 
 		query = "update mysql.brie_sub_tasks set total_kvs = ?, total_bytes = ?, checksum = ?, status = ? where table_id = ? and task_id = ?"
-
 		_, err = tx.ExecContext(ctx, query, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
 		return errors.Trace(err)
 	})
@@ -3034,6 +3053,10 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 }
 
 func (m *tableMetaMgr) FinishTable(ctx context.Context) error {
-	return m.session.Exec(ctx, "clean up metas", "DELETE FROM mysql.brie_sub_tasks where table_id = ? and (status = 'checksuming' or status = 'checksum_skipped')",
-		m.tr.tableInfo.ID)
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: m.tr.logger,
+	}
+	query := "DELETE FROM mysql.brie_sub_tasks where table_id = ? and (status = 'checksuming' or status = 'checksum_skipped')"
+	return exec.Exec(ctx, "clean up metas", query, m.tr.tableInfo.ID)
 }

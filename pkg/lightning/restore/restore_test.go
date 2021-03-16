@@ -16,7 +16,6 @@ package restore
 import (
 	"context"
 	"fmt"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"path/filepath"
 	"sort"
@@ -35,6 +34,7 @@ import (
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/ddl"
 	tmock "github.com/pingcap/tidb/util/mock"
+	"go.uber.org/zap"
 
 	kv "github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -1317,8 +1317,6 @@ func (s *restoreSuite) TestAllocTableRowIDs(c *C) {
 
 	db, m, err := sqlmock.New()
 	c.Assert(err, IsNil)
-	conn, err := db.Conn(ctx)
-	c.Assert(err, IsNil)
 
 	node, err := p.ParseOneStmt("CREATE TABLE `t1` (`c1` varchar(5) NOT NULL)", "utf8mb4", "utf8mb4_bin")
 	c.Assert(err, IsNil)
@@ -1344,12 +1342,9 @@ func (s *restoreSuite) TestAllocTableRowIDs(c *C) {
 	}
 
 	mgr := &tableMetaMgr{
-		session: common.SQLWithRetry{
-			DB:     conn,
-			Logger: logger,
-		},
-		taskID: 1,
-		tr:     tr,
+		session: db,
+		taskID:  1,
+		tr:      tr,
 	}
 
 	m.ExpectExec("SET SESSION tidb_txn_mode = 'pessimistic';").
@@ -1363,7 +1358,7 @@ func (s *restoreSuite) TestAllocTableRowIDs(c *C) {
 	m.ExpectQuery("SHOW TABLE `test`.`t1` NEXT_ROW_ID").
 		WillReturnRows(sqlmock.NewRows([]string{"DB_NAME", "TABLE_NAME", "COLUMN_NAME", "NEXT_GLOBAL_ROW_ID", "ID_TYPE"}).
 			AddRow("test", "t1", "_tidb_rowid", int64(1), "AUTO_INCREMENT"))
-	m.ExpectExec("\\Qupdate mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ?, where table_id = ? and task_id = ?\\E").
+	m.ExpectExec("\\Qupdate mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?\\E").
 		WithArgs(int64(0), int64(10), "restore", int64(1), int64(1)).
 		WillReturnResult(sqlmock.NewResult(int64(0), int64(1)))
 	m.ExpectCommit()
