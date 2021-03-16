@@ -10,7 +10,7 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 BR_PKG := github.com/pingcap/br
 
 VERSION := v5.0.0-master
-release_version_regex := ^v5\.[0-9]\.[0-9].*$$
+release_version_regex := ^v5\..*$$
 release_branch_regex := ^release-[0-9]\.[0-9].*$$
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, try to use tag version.
