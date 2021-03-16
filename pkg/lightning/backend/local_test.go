@@ -24,6 +24,7 @@ import (
 	"sort"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/docker/go-units"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -234,7 +235,7 @@ func (s *localSuite) TestRangePropertiesWithPebble(c *C) {
 	sizeDistance := uint64(500)
 	keysDistance := uint64(20)
 	opt := &pebble.Options{
-		MemTableSize:             LocalMemoryTableSize,
+		MemTableSize:             512 * units.MiB,
 		MaxConcurrentCompactions: 16,
 		L0CompactionThreshold:    math.MaxInt32, // set to max try to disable compaction
 		L0StopWritesThreshold:    math.MaxInt32, // set to max try to disable compaction

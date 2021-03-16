@@ -270,7 +270,8 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
-		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
+		var f filter.Filter
+		f, err = filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
 		if err != nil {
 			return errors.Trace(err)
 		}
