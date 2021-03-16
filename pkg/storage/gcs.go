@@ -172,24 +172,28 @@ func (s *gcsStorage) Create(ctx context.Context, name string) (ExternalFileWrite
 
 func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorageOptions) (*gcsStorage, error) {
 	var clientOps []option.ClientOption
-	if gcs.CredentialsBlob == "" {
-		creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
-		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
-		}
-		if opts.SendCredentials {
-			if len(creds.JSON) > 0 {
-				gcs.CredentialsBlob = string(creds.JSON)
-			} else {
-				return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
-					"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
-			}
-		}
-		if creds != nil {
-			clientOps = append(clientOps, option.WithCredentials(creds))
-		}
+	if opts.NoCredentials {
+		clientOps = append(clientOps, option.WithoutAuthentication())
 	} else {
-		clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
+		if gcs.CredentialsBlob == "" {
+			creds, err := google.FindDefaultCredentials(ctx, storage.ScopeReadWrite)
+			if err != nil {
+				return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "%v Or you should provide '--gcs.credentials_file'", err)
+			}
+			if opts.SendCredentials {
+				if len(creds.JSON) > 0 {
+					gcs.CredentialsBlob = string(creds.JSON)
+				} else {
+					return nil, errors.Annotate(berrors.ErrStorageInvalidConfig,
+						"You should provide '--gcs.credentials_file' when '--send-credentials-to-tikv' is true")
+				}
+			}
+			if creds != nil {
+				clientOps = append(clientOps, option.WithCredentials(creds))
+			}
+		} else {
+			clientOps = append(clientOps, option.WithCredentialsJSON([]byte(gcs.GetCredentialsBlob())))
+		}
 	}
 
 	if gcs.Endpoint != "" {
@@ -225,7 +229,7 @@ func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorage
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, errors.Annotatef(err, "gcs://%s/%s", gcs.Bucket, gcs.Prefix)
 		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
