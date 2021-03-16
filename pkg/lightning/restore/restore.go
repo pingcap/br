@@ -76,11 +76,11 @@ const (
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
 var DeliverPauser = common.NewPauser()
 
-func getMinDeliverBytes() uint64 {
+// nolint:gochecknoinits // TODO: refactor
+func init() {
 	failpoint.Inject("SetMinDeliverBytes", func(v failpoint.Value) {
-		failpoint.Return(uint64(v.(int)))
+		minDeliverBytes = uint64(v.(int))
 	})
-	return 96 * units.KiB
 }
 
 type saveCp struct {
@@ -2247,8 +2247,8 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 }
 
 var (
-	maxKVQueueSize         = 128                  // Cache at most this number of rows before blocking the encode loop
-	minDeliverBytes uint64 = getMinDeliverBytes() // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
+	maxKVQueueSize         = 128            // Cache at most this number of rows before blocking the encode loop
+	minDeliverBytes uint64 = 96 * units.KiB // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
 )
 
 type deliveredKVs struct {
