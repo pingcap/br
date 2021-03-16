@@ -2773,6 +2773,8 @@ func parseMetaStatus(s string) (metaStatus, error) {
 		return metaStatusRestoreFinished, nil
 	case "checksuming":
 		return metaStatusChecksuming, nil
+	case "checksum_skipped":
+		return metaStatusChecksumSkipped, nil
 	case "finish":
 		return metaStatusFinished, nil
 	default:
@@ -2891,17 +2893,11 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 				newStatus = metaStatusRestoreStarted
 			}
 			query = "update mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?"
-			res, err := tx.ExecContext(ctx, query, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, metaLightningID)
+			_, err := tx.ExecContext(ctx, query, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, metaLightningID)
 			if err != nil {
 				return errors.Trace(err)
 			}
-			rowCnt, err := res.RowsAffected()
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if rowCnt != 1 {
-				return errors.New("exec query failed")
-			}
+
 			curStatus = newStatus
 		}
 		return nil
@@ -2942,10 +2938,10 @@ func (m *tableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *ve
 		DB:     m.session,
 		Logger: m.tr.logger,
 	}
-	query := fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs_base = %d, total_bytes_base = %d, checksum_base = %d, status = '%s' where table_id = %d and task_id = %d",
-		checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), m.tr.tableInfo.ID, m.taskID)
+	query := "update mysql.brie_sub_tasks set total_kvs_base = ?, total_bytes_base = ?, checksum_base = ?, status = ? where table_id = ? and task_id = ?"
 
-	return exec.Exec(ctx, "update base checksum", query)
+	return exec.Exec(ctx, "update base checksum", query, checksum.SumKVS(),
+		checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), m.tr.tableInfo.ID, m.taskID)
 }
 
 func (m *tableMetaMgr) updateTableStatus(ctx context.Context, status metaStatus) error {
@@ -2984,9 +2980,14 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 		query := fmt.Sprintf("SELECT task_id, total_kvs_base, total_bytes_base, checksum_base, total_kvs, total_bytes, checksum, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
 		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
 		if err != nil {
-			return errors.Trace(err)
+			return errors.Annotate(err, "fetch task meta failed")
 		}
-		defer rows.Close()
+		closed := false
+		defer func() {
+			if !closed {
+				rows.Close()
+			}
+		}()
 		var (
 			taskID      int64
 			statusValue string
@@ -3031,14 +3032,12 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 			totalKvs += taskKvs
 			totalChecksum ^= taskChecksum
 		}
-
-		if rows.Err() != nil {
-			return rows.Err()
-		}
+		rows.Close()
+		closed = true
 
 		query = "update mysql.brie_sub_tasks set total_kvs = ?, total_bytes = ?, checksum = ?, status = ? where table_id = ? and task_id = ?"
-		_, err = tx.ExecContext(ctx, query, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
-		return errors.Trace(err)
+		_, err = tx.ExecContext(ctx, query, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus.String(), m.tr.tableInfo.ID, m.taskID)
+		return errors.Annotate(err, "update local checksum failed")
 	})
 	if err != nil {
 		return false, nil, err
