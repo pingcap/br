@@ -111,8 +111,8 @@ func (ss *Schemas) BackupSchemas(
 					zap.Duration("take", time.Since(start)))
 			}
 			if statsHandle != nil {
-				jsonTable, err := statsHandle.DumpStatsToJSONBySnapshot(
-					schema.dbInfo.Name.String(), schema.tableInfo, backupTS)
+				jsonTable, err := statsHandle.DumpStatsToJSON(
+					schema.dbInfo.Name.String(), schema.tableInfo, nil)
 				if err != nil {
 					logger.Error("dump table stats failed", logutil.ShortError(err))
 				}
