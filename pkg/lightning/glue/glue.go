@@ -189,12 +189,3 @@ const (
 	RecordEstimatedChunk = "EstimatedChunk"
 	RecordFinishedChunk  = "FinishedChunk"
 )
-
-type QueryExecutor interface {
-	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
-}
-
-type DBExecutor interface {
-	QueryExecutor
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-}

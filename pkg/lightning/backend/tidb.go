@@ -34,7 +34,6 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
-	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/version"
@@ -560,7 +559,7 @@ type TableAutoIDInfo struct {
 	Type   string
 }
 
-func FetchTableAutoIDInfos(ctx context.Context, exec glue.QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
+func FetchTableAutoIDInfos(ctx context.Context, exec common.QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
 	rows, e := exec.QueryContext(ctx, fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tableName))
 	if e != nil {
 		return nil, errors.Trace(e)

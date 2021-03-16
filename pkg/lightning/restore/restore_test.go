@@ -16,6 +16,7 @@ package restore
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"path/filepath"
 	"sort"
@@ -1306,4 +1307,69 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
+}
+
+func (s *restoreSuite) TestAllocTableRowIDs(c *C) {
+	p := parser.New()
+	se := tmock.NewContext()
+
+	ctx := context.Background()
+
+	db, m, err := sqlmock.New()
+	c.Assert(err, IsNil)
+	conn, err := db.Conn(ctx)
+	c.Assert(err, IsNil)
+
+	node, err := p.ParseOneStmt("CREATE TABLE `t1` (`c1` varchar(5) NOT NULL)", "utf8mb4", "utf8mb4_bin")
+	c.Assert(err, IsNil)
+	tableInfo, err := ddl.MockTableInfo(se, node.(*ast.CreateTableStmt), int64(1))
+	c.Assert(err, IsNil)
+	tableInfo.State = model.StatePublic
+
+	schema := "test"
+	tb := "t1"
+	ti := &TidbTableInfo{
+		ID:   tableInfo.ID,
+		DB:   schema,
+		Name: tb,
+		Core: tableInfo,
+	}
+
+	tableName := common.UniqueTable(schema, tb)
+	logger := log.With(zap.String("table", tableName))
+	tr := &TableRestore{
+		tableName: tableName,
+		tableInfo: ti,
+		logger:    logger,
+	}
+
+	mgr := &tableMetaMgr{
+		session: common.SQLWithRetry{
+			DB:     conn,
+			Logger: logger,
+		},
+		taskID: 1,
+		tr:     tr,
+	}
+
+	m.ExpectExec("SET SESSION tidb_txn_mode = 'pessimistic';").
+		WillReturnResult(sqlmock.NewResult(int64(0), int64(0)))
+
+	m.ExpectBegin()
+	m.ExpectQuery("\\QSELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE\\E").
+		WithArgs(int64(1)).
+		WillReturnRows(sqlmock.NewRows([]string{"task_id", "row_id_base", "row_id_max", "total_kvs_base", "total_bytes_base", "checksum_base", "status"}).
+			AddRow("1", int64(0), int64(0), uint64(0), uint64(0), uint64(0), "initialized"))
+	m.ExpectQuery("SHOW TABLE `test`.`t1` NEXT_ROW_ID").
+		WillReturnRows(sqlmock.NewRows([]string{"DB_NAME", "TABLE_NAME", "COLUMN_NAME", "NEXT_GLOBAL_ROW_ID", "ID_TYPE"}).
+			AddRow("test", "t1", "_tidb_rowid", int64(1), "AUTO_INCREMENT"))
+	m.ExpectExec("\\Qupdate mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ?, where table_id = ? and task_id = ?\\E").
+		WithArgs(int64(0), int64(10), "restore", int64(1), int64(1)).
+		WillReturnResult(sqlmock.NewResult(int64(0), int64(1)))
+	m.ExpectCommit()
+	ck, rowIDBase, err := mgr.AllocTableRowIDs(ctx, tr, 10)
+	c.Assert(err, IsNil)
+	c.Assert(rowIDBase, Equals, int64(0))
+	c.Assert(ck, IsNil)
+
 }

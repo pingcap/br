@@ -1241,10 +1241,15 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 					restoreErr.Set(err)
 					continue
 				}
+				conn, err := db.Conn(ctx)
+				if err != nil {
+					restoreErr.Set(err)
+					continue
+				}
 
 				metaMgr := &tableMetaMgr{
 					session: common.SQLWithRetry{
-						DB:     db,
+						DB:     conn,
 						Logger: task.tr.logger,
 					},
 					taskID: rc.cfg.TaskID,
@@ -1282,10 +1287,14 @@ func (t *TableRestore) restoreTable(
 	if err != nil {
 		return false, errors.Trace(err)
 	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
 
 	metaMgr := &tableMetaMgr{
 		session: common.SQLWithRetry{
-			DB:     db,
+			DB:     conn,
 			Logger: t.logger,
 		},
 		taskID: rc.cfg.TaskID,
@@ -2788,8 +2797,12 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 	curStatus := metaStatusInitial
 	newStatus := metaStatusRowIDAllocated
 	var baseTotalKvs, baseTotalBytes, baseChecksum uint64
-	err := m.session.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ?")
+	err := m.session.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
+	if err != nil {
+		return nil, 0, errors.Annotate(err, "enable pessimistic transaction failed")
+	}
+	err = m.session.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
+		query := fmt.Sprintf("SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
 		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
 		if err != nil {
 			return errors.Trace(err)
@@ -2813,13 +2826,13 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 			}
 
 			if metaLightningID == m.taskID {
+				curStatus = status
 				if status >= metaStatusRowIDAllocated {
 					if rowIDMax-rowIDBase != rawRowIDMax {
 						return errors.Errorf("verify allocator base failed. local: '%d', meta: '%d'", rawRowIDMax, rowIDMax-rowIDBase)
 					}
 					newRowIDBase = rowIDBase
 					newRowIDMax = rowIDMax
-					curStatus = status
 					break
 				}
 				continue
@@ -2875,17 +2888,33 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 			}
 			newRowIDBase = maxRowIDMax
 			newRowIDMax = newRowIDBase + rawRowIDMax
-			query = fmt.Sprintf("update mysql.brie_sub_tasks set row_id_base = %d, row_id_max = %d, status = '%s', where table_id = %d and task_id = %d",
-				newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, metaLightningID)
-			_, err = tx.ExecContext(ctx, query)
-			return errors.Trace(err)
+			// table contains no data, can skip checksum
+			if newRowIDBase == 0 && newStatus < metaStatusRestoreStarted {
+				newStatus = metaStatusRestoreStarted
+			}
+			query = "update mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ?, where table_id = ? and task_id = ?"
+			res, err := tx.ExecContext(ctx, query, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, metaLightningID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			rowCnt, err := res.RowsAffected()
+			if err != nil {
+				return errors.Trace(err)
+			}
+			if rowCnt != 1 {
+				return errors.New("exec query failed")
+			}
+			curStatus = newStatus
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, 0, errors.Trace(err)
+	}
 
 	var checksum *verify.KVChecksum
 	// need to do checksum and update checksum meta since we are the first one.
-	if curStatus < metaStatusRestoreStarted && newStatus < metaStatusRestoreStarted {
+	if curStatus < metaStatusRestoreStarted {
 		// table contains data but haven't do checksum yet
 		if newRowIDBase > 0 && baseTotalKvs == 0 {
 			baseChecksum, err := DoChecksum(ctx, tr.tableInfo)
@@ -2902,6 +2931,9 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 			}
 
 			tr.logger.Info("checksum before restore table", zap.Object("checksum", checksum))
+		}
+		if err = m.updateTableStatus(ctx, metaStatusRestoreStarted); err != nil {
+			return nil, 0, errors.Trace(err)
 		}
 	}
 	return checksum, newRowIDBase, nil
@@ -2984,10 +3016,9 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 			return rows.Err()
 		}
 
-		query = fmt.Sprintf("update mysql.brie_sub_tasks set total_kvs = %d, total_bytes = %d, checksum = %d, status = '%s' where table_id = %d and task_id = %d",
-			checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
+		query = "update mysql.brie_sub_tasks set total_kvs = ?, total_bytes = ?, checksum = ?, status = ? where table_id = ? and task_id = ?"
 
-		_, err = tx.ExecContext(ctx, query)
+		_, err = tx.ExecContext(ctx, query, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus, m.tr.tableInfo.ID, m.taskID)
 		return errors.Trace(err)
 	})
 	if err != nil {
