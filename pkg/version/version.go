@@ -191,6 +191,7 @@ func ExtractTiDBVersion(version string) (*semver.Version, error) {
 	return semver.NewVersion(rawVersion)
 }
 
+// CheckTiDBVersion is equals to ExtractTiDBVersion followed by CheckVersion.
 func CheckTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	version, err := ExtractTiDBVersion(versionStr)
 	if err != nil {
