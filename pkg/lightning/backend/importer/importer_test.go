@@ -11,10 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend_test
+package importer
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -22,10 +25,10 @@ import (
 	"github.com/google/uuid"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-
 	kvpb "github.com/pingcap/kvproto/pkg/import_kvpb"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/mock"
 )
@@ -36,7 +39,7 @@ type importerSuite struct {
 	mockWriter *mock.MockImportKV_WriteEngineClient
 	ctx        context.Context
 	engineUUID []byte
-	engine     *kv.OpenedEngine
+	engine     *backend.OpenedEngine
 	kvPairs    kv.Rows
 }
 
@@ -51,7 +54,7 @@ func (s *importerSuite) setUpTest(c *C) {
 	s.controller = gomock.NewController(c)
 	s.mockClient = mock.NewMockImportKVClient(s.controller)
 	s.mockWriter = mock.NewMockImportKV_WriteEngineClient(s.controller)
-	importer := kv.NewMockImporter(s.mockClient, testPDAddr)
+	importer := NewMockImporter(s.mockClient, testPDAddr)
 
 	s.ctx = context.Background()
 	engineUUID := uuid.MustParse("7e3f3a3c-67ce-506d-af34-417ec138fbcb")
@@ -255,4 +258,35 @@ func BenchmarkMutationPool(b *testing.B) {
 	}
 
 	_ = g
+}
+
+func (s *importerSuite) TestCheckTiDBVersion(c *C) {
+	var version string
+	ctx := context.Background()
+
+	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		c.Assert(req.URL.Path, Equals, "/status")
+		w.WriteHeader(http.StatusOK)
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"version": version,
+		})
+		c.Assert(err, IsNil)
+	}))
+
+	tls := common.NewTLSFromMockServer(mockServer)
+
+	version = "5.7.25-TiDB-v4.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), IsNil)
+
+	version = "5.7.25-TiDB-v9999.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0-beta"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v1.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too old.*")
 }

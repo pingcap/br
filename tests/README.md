@@ -18,15 +18,13 @@ You can also run unit tests directly via `go test` like:
 ```sh
 make failpoint-enable
 
-go test -tags br_test github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn
-#       ^~~~~~~~~~~~~
+go test github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn
 
 make failpoint-disable
 ```
 
 but note that:
 
-* the build-tag `br_test` must be enabled (this workarounds the lack of test-dependencies in go.mod)
 * failpoints must be toggled manually
 
 # Integration tests

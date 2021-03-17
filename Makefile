@@ -10,10 +10,13 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 BR_PKG := github.com/pingcap/br
 
 VERSION := v5.0.0-master
+release_version_regex := ^v5\..*$$
 release_branch_regex := ^release-[0-9]\.[0-9].*$$
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, use tag version.
-	VERSION := $(shell git describe --tags --dirty)
+	# If we are in release branch, try to use tag version.
+	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
+		VERSION := $(shell git describe --tags --dirty)
+	endif
 else ifneq ($(shell git status --porcelain),)
 	# Add -dirty if the working tree is dirty for non release branch.
 	VERSION := $(VERSION)-dirty
@@ -109,14 +112,14 @@ test: export ARGS=$$($(PACKAGES))
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) $(RACEFLAG) -tags br_test,leak $(ARGS) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) $(RACEFLAG) -tags leak $(ARGS) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 testcover: tools
 	mkdir -p "$(TEST_DIR)"
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) -tags br_test -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
+	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
 		$$($(COVERED_PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
@@ -185,7 +188,7 @@ static: prepare tools
 	@#              gosec - too many false positive
 	@#          errorlint - pingcap/errors is incompatible with std errors.
 	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
-	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --build-tags br_test --deadline 120s \
+	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
 		--disable gofmt \
