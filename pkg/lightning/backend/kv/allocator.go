@@ -11,7 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+// TODO combine with the pkg/kv package outside.
+
+package kv
 
 import (
 	"sync/atomic"
