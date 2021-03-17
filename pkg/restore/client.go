@@ -41,6 +41,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -132,9 +133,9 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 }
 
 // SetStorage set ExternalStorage for client.
-func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) error {
+func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, opts *storage.ExternalStorageOptions) error {
 	var err error
-	rc.storage, err = storage.Create(ctx, backend, sendCreds)
+	rc.storage, err = storage.New(ctx, backend, opts)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -219,7 +220,10 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
-			return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "the given range to restore is not fully covered by the range that was backed up")
+			return nil, errors.Annotatef(berrors.ErrRestoreRangeMismatch,
+				"the given range to restore [%s, %s) is not fully covered by the range that was backed up [%s, %s)",
+				redact.Key(startKey), redact.Key(endKey), redact.Key(rawRange.StartKey), redact.Key(rawRange.EndKey),
+			)
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
