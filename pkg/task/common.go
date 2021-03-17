@@ -35,6 +35,8 @@ import (
 const (
 	// flagSendCreds specify whether to send credentials to tikv
 	flagSendCreds = "send-credentials-to-tikv"
+	// No credentials specifies that cloud credentials should not be loaded
+	flagNoCreds = "no-credentials"
 	// flagStorage is the name of storage flag.
 	flagStorage = "storage"
 	// flagPD is the name of PD url flag.
@@ -65,6 +67,7 @@ const (
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
 	// flagEnableOpenTracing is whether to enable opentracing
 	flagEnableOpenTracing = "enable-opentracing"
+	flagSkipCheckPath     = "skip-check-path"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -117,16 +120,22 @@ type Config struct {
 	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
 	// should be removed after TiDB upgrades the BR dependency.
 	CaseSensitive bool
+
+	// NoCreds means don't try to load cloud credentials
+	NoCreds bool `json:"no-credentials" toml:"no-credentials"`
+
+	CheckRequirements bool `json:"check-requirements" toml:"check-requirements"`
+	// EnableOpenTracing is whether to enable opentracing
+	EnableOpenTracing bool `json:"enable-opentracing" toml:"enable-opentracing"`
+	// SkipCheckPath skips verifying the path
+	SkipCheckPath bool `json:"skip-check-path" toml:"skip-check-path"`
 	// Filter should not be used, use TableFilter instead.
 	//
 	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter       filter.Filter `json:"-" toml:"-"`
-	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
-	// EnableOpenTracing is whether to enable opentracing
-	EnableOpenTracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
+	TableFilter        filter.Filter `json:"-" toml:"-"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -174,6 +183,11 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Bool(flagEnableOpenTracing, false,
 		"Set whether to enable opentracing during the backup/restore process")
+
+	flags.BoolP(flagNoCreds, "", false, "Don't load credentials")
+	_ = flags.MarkHidden(flagNoCreds)
+	flags.BoolP(flagSkipCheckPath, "", false, "Skip path verification")
+	_ = flags.MarkHidden(flagSkipCheckPath)
 
 	storage.DefineFlags(flags)
 }
@@ -236,34 +250,30 @@ func (cfg *Config) normalizePDURLs() error {
 // ParseFromFlags parses the config from the flag set.
 func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	cfg.Storage, err = flags.GetString(flagStorage)
-	if err != nil {
+	if cfg.Storage, err = flags.GetString(flagStorage); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.SendCreds, err = flags.GetBool(flagSendCreds)
-	if err != nil {
+	if cfg.SendCreds, err = flags.GetBool(flagSendCreds); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
-	if err != nil {
+	if cfg.NoCreds, err = flags.GetBool(flagNoCreds); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.Checksum, err = flags.GetBool(flagChecksum)
-	if err != nil {
+	if cfg.Concurrency, err = flags.GetUint32(flagConcurrency); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency)
-	if err != nil {
+	if cfg.Checksum, err = flags.GetBool(flagChecksum); err != nil {
+		return errors.Trace(err)
+	}
+	if cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency); err != nil {
 		return errors.Trace(err)
 	}
 
 	var rateLimit, rateLimitUnit uint64
-	rateLimit, err = flags.GetUint64(flagRateLimit)
-	if err != nil {
+	if rateLimit, err = flags.GetUint64(flagRateLimit); err != nil {
 		return errors.Trace(err)
 	}
-	rateLimitUnit, err = flags.GetUint64(flagRateLimitUnit)
-	if err != nil {
+	if rateLimitUnit, err = flags.GetUint64(flagRateLimitUnit); err != nil {
 		return errors.Trace(err)
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
@@ -343,6 +353,9 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if len(cfg.PD) == 0 {
 		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
 	}
+	if cfg.SkipCheckPath, err = flags.GetBool(flagSkipCheckPath); err != nil {
+		return errors.Trace(err)
+	}
 	return cfg.normalizePDURLs()
 }
 
@@ -394,11 +407,19 @@ func GetStorage(
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	s, err := storage.Create(ctx, u, cfg.SendCreds)
+	s, err := storage.New(ctx, u, storageOpts(cfg))
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "create storage failed")
 	}
 	return u, s, nil
+}
+
+func storageOpts(cfg *Config) *storage.ExternalStorageOptions {
+	return &storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
 }
 
 // ReadBackupMeta reads the backupmeta file from the storage.
@@ -419,7 +440,7 @@ func ReadBackupMeta(
 			newPrefix, file := path.Split(oldPrefix)
 			newFileName := file + fileName
 			u.GetGcs().Prefix = newPrefix
-			s, err = storage.Create(ctx, u, cfg.SendCreds)
+			s, err = storage.New(ctx, u, storageOpts(cfg))
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
