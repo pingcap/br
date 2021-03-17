@@ -227,7 +227,7 @@ func mockTableInfo(c *C, createSql string) *model.TableInfo {
 }
 
 func (s *kvSuite) TestDefaultAutoRandoms(c *C) {
-	tblInfo := mockTableInfo(c, "create table t (id bigint unsigned NOT NULL auto_random primary key, a varchar(100));")
+	tblInfo := mockTableInfo(c, "create table t (id bigint unsigned NOT NULL auto_random primary key clustered, a varchar(100));")
 	// seems parser can't parse auto_random properly.
 	tblInfo.AutoRandomBits = 5
 	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
