@@ -58,7 +58,7 @@ run_sql 'DROP DATABASE cpeng;'
 rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
 
 set +e
-export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/FailBeforeDataEngineImported=return'
+export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/FailIfStatusBecomes=return(90);'
 for i in $(seq "$ENGINE_COUNT"); do
     echo "******** Importing Table Now (step $i/$ENGINE_COUNT) ********"
     run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
