@@ -111,7 +111,11 @@ run_sql "DROP DATABASE $DB;"
 # restore full
 echo "restore start..."
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/pdutil/PDEnabledPauseConfig=return(true)"
+<<<<<<< HEAD
 run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG
+=======
+run_br restore full -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --log-file $LOG || { cat $LOG; exit 1; }
+>>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
 export GO_FAILPOINTS=""
 
 pause_count=$(cat $LOG | grep "pause configs successful"| wc -l | xargs)

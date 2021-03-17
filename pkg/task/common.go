@@ -340,7 +340,9 @@ func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	keepalive keepalive.ClientParameters,
-	checkRequirements bool) (*conn.Mgr, error) {
+	checkRequirements bool,
+	needDomain bool,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -368,10 +370,17 @@ func NewMgr(ctx context.Context,
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
+<<<<<<< HEAD
 	return conn.NewMgr(ctx, g,
 		pdAddress, store.(tikv.Storage),
 		tlsConf, securityOption, keepalive,
 		conn.SkipTiFlash, checkRequirements)
+=======
+	return conn.NewMgr(
+		ctx, g, pdAddress, store, tlsConf, securityOption, keepalive, conn.SkipTiFlash,
+		checkRequirements, needDomain,
+	)
+>>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
 }
 
 // GetStorage gets the storage backend from the config.
