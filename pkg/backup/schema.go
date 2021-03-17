@@ -84,8 +84,7 @@ func (ss *Schemas) BackupSchemas(
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()
-	for n, s := range ss.schemas {
-		name := n
+	for _, s := range ss.schemas {
 		schema := s
 		workerPool.ApplyOnErrorGroup(errg, func() error {
 			logger := log.With(
