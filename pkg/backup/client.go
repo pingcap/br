@@ -151,9 +151,9 @@ func (bc *Client) GetGCTTL() int64 {
 }
 
 // SetStorage set ExternalStorage for client.
-func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) error {
+func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, opts *storage.ExternalStorageOptions) error {
 	var err error
-	bc.storage, err = storage.Create(ctx, backend, sendCreds)
+	bc.storage, err = storage.New(ctx, backend, opts)
 	if err != nil {
 		return errors.Trace(err)
 	}

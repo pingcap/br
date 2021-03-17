@@ -133,9 +133,9 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 }
 
 // SetStorage set ExternalStorage for client.
-func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) error {
+func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, opts *storage.ExternalStorageOptions) error {
 	var err error
-	rc.storage, err = storage.Create(ctx, backend, sendCreds)
+	rc.storage, err = storage.New(ctx, backend, opts)
 	if err != nil {
 		return errors.Trace(err)
 	}
