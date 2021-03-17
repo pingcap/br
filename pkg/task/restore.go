@@ -97,19 +97,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-<<<<<<< HEAD
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
-=======
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("task.RunRestore", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
 	// Restore needs domain to do DDL.
 	needDomain := true
 	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
->>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
 	if err != nil {
 		return errors.Trace(err)
 	}

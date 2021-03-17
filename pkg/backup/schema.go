@@ -73,17 +73,7 @@ func (ss *Schemas) BackupSchemas(
 	copConcurrency uint,
 	skipChecksum bool,
 	updateCh glue.Progress,
-<<<<<<< HEAD
-) {
-=======
 ) ([]*backuppb.Schema, error) {
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Schemas.BackupSchemas", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
->>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()

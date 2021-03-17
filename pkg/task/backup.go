@@ -275,12 +275,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-<<<<<<< HEAD
-	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
-=======
-	ranges, schemas, err := backup.BuildBackupRangeAndSchema(mgr.GetStorage(), cfg.TableFilter, backupTS)
->>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
+	ranges, schemas, err := backup.BuildBackupRangeAndSchema(mgr.GetTiKV(), cfg.TableFilter, backupTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -307,7 +302,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetStorage(), cfg.LastBackupTS, backupTS)
+		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetTiKV(), cfg.LastBackupTS, backupTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -343,34 +338,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-<<<<<<< HEAD
-	// Checksum from server, and then fulfill the backup metadata.
-	if cfg.Checksum && !isIncrementalBackup {
-		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
-		updateCh = g.StartProgress(
-			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-		backupSchemas.Start(
-			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
-		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// Checksum has finished
-		updateCh.Close()
-		// collect file information.
-		err = checkChecksums(&backupMeta)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	} else {
-		// Just... copy schemas from origin.
-		backupMeta.Schemas = backupSchemas.CopyMeta()
-=======
 	skipChecksum := !cfg.Checksum || isIncrementalBackup
 	checksumProgress := int64(schemas.Len())
 	if skipChecksum {
 		checksumProgress = 1
->>>>>>> de96669... *: skip creating Domain for backup without stats (#876)
 		if isIncrementalBackup {
 			// Since we don't support checksum for incremental data, fast checksum should be skipped.
 			log.Info("Skip fast checksum in incremental backup")
@@ -382,7 +353,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
 	backupMeta.Schemas, err = schemas.BackupSchemas(
-		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+		ctx, mgr.GetTiKV(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}

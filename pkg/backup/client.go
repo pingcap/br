@@ -259,7 +259,10 @@ func BuildBackupRangeAndSchema(
 	tableFilter filter.Filter,
 	backupTS uint64,
 ) ([]rtree.Range, *Schemas, error) {
-	snapshot := storage.GetSnapshot(kv.NewVersion(backupTS))
+	snapshot, err := storage.GetSnapshot(kv.NewVersion(backupTS))
+	if err != nil {
+		return nil, nil, errors.Trace(err)
+	}
 	m := meta.NewSnapshotMeta(snapshot)
 
 	ranges := make([]rtree.Range, 0)
@@ -363,9 +366,15 @@ func BuildBackupRangeAndSchema(
 
 // GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
 func GetBackupDDLJobs(store kv.Storage, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
-	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
+	snapshot, err := store.GetSnapshot(kv.NewVersion(backupTS))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	snapMeta := meta.NewSnapshotMeta(snapshot)
-	lastSnapshot := store.GetSnapshot(kv.NewVersion(lastBackupTS))
+	lastSnapshot, err := store.GetSnapshot(kv.NewVersion(lastBackupTS))
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	lastSnapMeta := meta.NewSnapshotMeta(lastSnapshot)
 	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
 	if err != nil {
