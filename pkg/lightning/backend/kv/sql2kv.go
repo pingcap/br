@@ -283,6 +283,7 @@ func MakeRowFromKvPairs(pairs []common.KvPair) Row {
 // KvPairsFromRows converts a Rows instance constructed from MakeRowsFromKvPairs
 // back into a slice of KvPair. This method panics if the Rows is not
 // constructed in such way.
+// nolint:golint // kv.KvPairsFromRows sounds good.
 func KvPairsFromRows(rows Rows) []common.KvPair {
 	return []common.KvPair(rows.(kvPairs))
 }

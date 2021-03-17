@@ -214,7 +214,7 @@ func (e *File) getEngineFileSize() backend.EngineFileSize {
 	total := metrics.Total()
 	var memSize int64
 	e.localWriters.Range(func(k, v interface{}) bool {
-		w := k.(*LocalWriter)
+		w := k.(*Writer)
 		memSize += w.writeBatch.totalSize
 		if w.writer != nil {
 			total.Size += int64(w.writer.writer.EstimatedSize())
@@ -259,7 +259,7 @@ func (e *File) flushLocalWriters(parentCtx context.Context) error {
 	eg, ctx := errgroup.WithContext(parentCtx)
 	e.localWriters.Range(func(k, v interface{}) bool {
 		eg.Go(func() error {
-			w := k.(*LocalWriter)
+			w := k.(*Writer)
 			replyErrCh := make(chan error, 1)
 			w.flushChMutex.RLock()
 			if w.flushCh != nil {
@@ -1494,8 +1494,8 @@ func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (back
 	return openLocalWriter(engineFile, local.localStoreDir, local.localWriterMemCacheSize), nil
 }
 
-func openLocalWriter(f *File, sstDir string, memtableSizeLimit int64) *LocalWriter {
-	w := &LocalWriter{
+func openLocalWriter(f *File, sstDir string, memtableSizeLimit int64) *Writer {
+	w := &Writer{
 		sstDir:            sstDir,
 		kvsChan:           make(chan []common.KvPair, defaultLocalWriterKVsChannelCap),
 		flushCh:           make(chan chan error),
@@ -1793,7 +1793,7 @@ func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	return
 }
 
-type LocalWriter struct {
+type Writer struct {
 	writeErr          common.OnceError
 	local             *File
 	consumeCh         chan struct{}
@@ -1806,7 +1806,7 @@ type LocalWriter struct {
 	writer            *sstWriter
 }
 
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
 	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
@@ -1819,7 +1819,7 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	return nil
 }
 
-func (w *LocalWriter) Close() error {
+func (w *Writer) Close() error {
 	w.local.localWriters.Delete(w)
 	close(w.kvsChan)
 
@@ -1841,11 +1841,11 @@ func (w *LocalWriter) Close() error {
 	}
 }
 
-func (w *LocalWriter) genSSTPath() string {
+func (w *Writer) genSSTPath() string {
 	return filepath.Join(w.sstDir, uuid.New().String()+".sst")
 }
 
-func (w *LocalWriter) writeRowsLoop() {
+func (w *Writer) writeRowsLoop() {
 	defer func() {
 		if w.writer != nil {
 			w.writer.cleanUp()
@@ -1910,7 +1910,7 @@ outside:
 	}
 }
 
-func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
+func (w *Writer) writeKVsOrIngest(desc localIngestDescription) error {
 	if w.writer != nil {
 		if err := w.writer.writeKVs(&w.writeBatch); err != errorUnorderedSSTInsertion {
 			return err

@@ -583,18 +583,18 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 }
 
 func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
-	return &TiDBWriter{be: be, engineUUID: engineUUID}, nil
+	return &Writer{be: be, engineUUID: engineUUID}, nil
 }
 
-type TiDBWriter struct {
+type Writer struct {
 	be         *tidbBackend
 	engineUUID uuid.UUID
 }
 
-func (w *TiDBWriter) Close() error {
+func (w *Writer) Close() error {
 	return nil
 }
 
-func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
