@@ -2694,14 +2694,18 @@ func (cr *chunkRestore) restore(
 	}
 
 	select {
-	case deliverResult := <-deliverCompleteCh:
-		logTask.End(zap.ErrorLevel, deliverResult.err,
-			zap.Duration("readDur", readTotalDur),
-			zap.Duration("encodeDur", encodeTotalDur),
-			zap.Duration("deliverDur", deliverResult.totalDur),
-			zap.Object("checksum", &cr.chunk.Checksum),
-		)
-		return errors.Trace(deliverResult.err)
+	case deliverResult, ok := <-deliverCompleteCh:
+		if ok {
+			logTask.End(zap.ErrorLevel, deliverResult.err,
+				zap.Duration("readDur", readTotalDur),
+				zap.Duration("encodeDur", encodeTotalDur),
+				zap.Duration("deliverDur", deliverResult.totalDur),
+				zap.Object("checksum", &cr.chunk.Checksum),
+			)
+			return errors.Trace(deliverResult.err)
+		}
+		// else, this must cause by ctx cancel
+		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
