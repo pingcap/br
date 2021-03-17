@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package kv
 
 import (
 	"errors"
@@ -42,7 +42,7 @@ func (s *kvSuite) TestMarshal(c *C) {
 	minNotNull := types.Datum{}
 	minNotNull.SetMinNotNull()
 	encoder := zapcore.NewMapObjectEncoder()
-	err := encoder.AddArray("test", rowArrayMarshaler{types.NewStringDatum("1"), nullDatum, minNotNull, types.MaxValueDatum()})
+	err := encoder.AddArray("test", RowArrayMarshaler{types.NewStringDatum("1"), nullDatum, minNotNull, types.MaxValueDatum()})
 	c.Assert(err, IsNil)
 	c.Assert(encoder.Fields["test"], DeepEquals, []interface{}{
 		map[string]interface{}{"kind": "string", "val": "1"},
@@ -53,7 +53,7 @@ func (s *kvSuite) TestMarshal(c *C) {
 
 	invalid := types.Datum{}
 	invalid.SetInterface(1)
-	err = encoder.AddArray("bad-test", rowArrayMarshaler{minNotNull, invalid})
+	err = encoder.AddArray("bad-test", RowArrayMarshaler{minNotNull, invalid})
 	c.Assert(err, ErrorMatches, "cannot convert.*")
 	c.Assert(encoder.Fields["bad-test"], DeepEquals, []interface{}{
 		map[string]interface{}{"kind": "min", "val": "-inf"},

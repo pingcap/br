@@ -2,6 +2,7 @@ package backend_test
 
 import (
 	"context"
+	"testing"
 	"time"
 
 	"github.com/golang/mock/gomock"
@@ -11,18 +12,28 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 
+<<<<<<< HEAD
 	kv "github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/mock"
+=======
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/mock"
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 )
 
 type backendSuite struct {
 	controller  *gomock.Controller
 	mockBackend *mock.MockBackend
-	backend     kv.Backend
+	backend     backend.Backend
 	ts          uint64
 }
 
 var _ = Suite(&backendSuite{})
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 // FIXME: Cannot use the real SetUpTest/TearDownTest to set up the mock
 // otherwise the mock error will be ignored.
@@ -30,7 +41,7 @@ var _ = Suite(&backendSuite{})
 func (s *backendSuite) setUpTest(c *C) {
 	s.controller = gomock.NewController(c)
 	s.mockBackend = mock.NewMockBackend(s.controller)
-	s.backend = kv.MakeBackend(s.mockBackend)
+	s.backend = backend.MakeBackend(s.mockBackend)
 	s.ts = oracle.ComposeTS(time.Now().Unix()*1000, 0)
 }
 
@@ -334,7 +345,7 @@ func (s *backendSuite) TestCheckDiskQuota(c *C) {
 	uuid7 := uuid.MustParse("77777777-7777-7777-7777-777777777777")
 	uuid9 := uuid.MustParse("99999999-9999-9999-9999-999999999999")
 
-	fileSizes := []kv.EngineFileSize{
+	fileSizes := []backend.EngineFileSize{
 		{
 			UUID:        uuid1,
 			DiskSize:    1000,

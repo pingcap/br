@@ -3,6 +3,37 @@ This folder contains all tests which relies on external processes such as TiDB.
 Unit tests (the `*_test.go` files inside the source directory) should *never* rely on external
 programs.
 
+<<<<<<< HEAD
+=======
+Run `make test` to execute all unit tests.
+
+To run a specific test, pass `ARGS` into `make test` like
+
+```sh
+make test ARGS='github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn'
+#               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#                which package to test            more extra test flags
+```
+
+You can also run unit tests directly via `go test` like:
+
+```sh
+make failpoint-enable
+
+go test github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn
+
+make failpoint-disable
+```
+
+but note that:
+
+* failpoints must be toggled manually
+
+# Integration tests
+
+This folder contains all tests which relies on external processes such as TiDB.
+
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 ## Preparations
 
 1. The following 9 executables must be copied or linked into these locations:

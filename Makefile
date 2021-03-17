@@ -108,14 +108,23 @@ build_for_integration_test:
 test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
+<<<<<<< HEAD
 	$(GOTEST) $(RACEFLAG) -tags leak $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+=======
+	$(GOTEST) $(RACEFLAG) -tags leak $(ARGS) || ( make failpoint-disable && exit 1 )
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 	@make failpoint-disable
 
 testcover: tools
 	mkdir -p "$(TEST_DIR)"
 	$(PREPARE_MOD)
 	@make failpoint-enable
+<<<<<<< HEAD
 	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+=======
+	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
+		$$($(COVERED_PACKAGES)) || ( make failpoint-disable && exit 1 )
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 	@make failpoint-disable
 
 integration_test: bins build build_for_integration_test

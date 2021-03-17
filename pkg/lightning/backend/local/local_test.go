@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"testing"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/docker/go-units"
@@ -29,9 +30,16 @@ import (
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+<<<<<<< HEAD:pkg/lightning/backend/local_test.go
+=======
+	tidbkv "github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/sessionctx/stmtctx"
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/local/local_test.go
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/hack"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/restore"
 )
@@ -39,6 +47,10 @@ import (
 type localSuite struct{}
 
 var _ = Suite(&localSuite{})
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 func (s *localSuite) TestNextKey(c *C) {
 	c.Assert(nextKey([]byte{}), DeepEquals, []byte{})
@@ -64,8 +76,36 @@ func (s *localSuite) TestNextKey(c *C) {
 	// test recode key
 	// key with int handle
 	for _, handleId := range []int64{1, 255, math.MaxInt32} {
+<<<<<<< HEAD:pkg/lightning/backend/local_test.go
 		key := tablecodec.EncodeRowKeyWithHandle(1, handleId)
 		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, handleId+1)))
+=======
+		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId))
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId+1))))
+	}
+
+	testDatums := [][]types.Datum{
+		{types.NewIntDatum(1), types.NewIntDatum(2)},
+		{types.NewIntDatum(255), types.NewIntDatum(256)},
+		{types.NewIntDatum(math.MaxInt32), types.NewIntDatum(math.MaxInt32 + 1)},
+		{types.NewStringDatum("test"), types.NewStringDatum("test\000")},
+		{types.NewStringDatum("test\255"), types.NewStringDatum("test\255\000")},
+	}
+
+	stmtCtx := new(stmtctx.StatementContext)
+	for _, datums := range testDatums {
+		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[0])
+		c.Assert(err, IsNil)
+		h, err := tidbkv.NewCommonHandle(keyBytes)
+		c.Assert(err, IsNil)
+		key := tablecodec.EncodeRowKeyWithHandle(1, h)
+		nextKeyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[1])
+		c.Assert(err, IsNil)
+		nextHdl, err := tidbkv.NewCommonHandle(nextKeyBytes)
+		c.Assert(err, IsNil)
+		expectNextKey := []byte(tablecodec.EncodeRowKeyWithHandle(1, nextHdl))
+		c.Assert(nextKey(key), DeepEquals, expectNextKey)
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/local/local_test.go
 	}
 
 	// dIAAAAAAAAD/PV9pgAAAAAD/AAABA4AAAAD/AAAAAQOAAAD/AAAAAAEAAAD8
@@ -285,13 +325,12 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
-	_, engineUUID := MakeUUID("ww", 0)
-	f := LocalFile{localFileMeta: meta, db: db, Uuid: engineUUID}
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
-	// kvs := make(kvPairs, 1000)
-	var kvs kvPairs
+	var kvs []common.KvPair
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {
 		binary.BigEndian.PutUint64(value[i*8:], uint64(i))
@@ -308,9 +347,9 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		kvs = append(kvs, kv)
 		keys = append(keys, kv.Key)
 	}
-	var rows1 kvPairs
-	var rows2 kvPairs
-	var rows3 kvPairs
+	var rows1 []common.KvPair
+	var rows2 []common.KvPair
+	var rows3 []common.KvPair
 	rows4 := kvs[:12000]
 	if partitialSort {
 		sort.Slice(rows4, func(i, j int) bool {
@@ -329,11 +368,11 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		rows2 = kvs[6000:12000]
 		rows3 = kvs[12000:]
 	}
-	err = w.AppendRows(ctx, "", []string{}, 1, rows1)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows1))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows2)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows2))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows3)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
 	err = w.Close()
 	c.Assert(err, IsNil)

@@ -11,7 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+// TODO combine with the pkg/kv package outside.
+
+package kv
 
 import (
 	"context"
@@ -159,6 +161,11 @@ type SessionOptions struct {
 	SysVars   map[string]string
 	// a seed used for tableKvEncoder's auto random bits value
 	AutoRandomSeed int64
+}
+
+// NewSession creates a new trimmed down Session matching the options.
+func NewSession(options *SessionOptions) sessionctx.Context {
+	return newSession(options)
 }
 
 func newSession(options *SessionOptions) *session {

@@ -103,6 +103,10 @@ run_sql "DROP DATABASE ${DB}_DDL1"
 run_sql "DROP DATABASE ${DB}_DDL2"
 
 # restore full
+<<<<<<< HEAD
+=======
+export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=return("notleader")'
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 echo "restore start..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
     --log-file "restore.log" --log-level "info" --start-ts $start_ts --end-ts $end_ts
@@ -126,6 +130,10 @@ if [ "$row_count" -ne "0" ]; then
     echo "TEST: [$TEST_NAME] fail on ts range test."
 fi
 
+<<<<<<< HEAD
+=======
+export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=return("epochnotmatch")'
+>>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 echo "restore again to restore a=5 record..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
     --log-file "restore.log" --log-level "info" --start-ts $end_ts
