@@ -142,7 +142,7 @@ const (
 	importMutexStateLocalIngest
 )
 
-type LocalFile struct {
+type File struct {
 	localFileMeta
 	db           *pebble.DB
 	Uuid         uuid.UUID
@@ -154,7 +154,7 @@ type LocalFile struct {
 	mutex             sync.Mutex
 }
 
-func (e *LocalFile) Close() error {
+func (e *File) Close() error {
 	log.L().Debug("closing local engine", zap.Stringer("engine", e.Uuid), zap.Stack("stack"))
 	if e.db == nil {
 		return nil
@@ -165,13 +165,13 @@ func (e *LocalFile) Close() error {
 }
 
 // Cleanup remove meta and db files
-func (e *LocalFile) Cleanup(dataDir string) error {
+func (e *File) Cleanup(dataDir string) error {
 	dbPath := filepath.Join(dataDir, e.Uuid.String())
 	return os.RemoveAll(dbPath)
 }
 
 // Exist checks if db folder existing (meta sometimes won't flush before lightning exit)
-func (e *LocalFile) Exist(dataDir string) error {
+func (e *File) Exist(dataDir string) error {
 	dbPath := filepath.Join(dataDir, e.Uuid.String())
 	if _, err := os.Stat(dbPath); err != nil {
 		return err
@@ -179,7 +179,7 @@ func (e *LocalFile) Exist(dataDir string) error {
 	return nil
 }
 
-func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
+func (e *File) getSizeProperties() (*sizeProperties, error) {
 	sstables, err := e.db.SSTables(pebble.WithProperties())
 	if err != nil {
 		log.L().Warn("get table properties failed", zap.Stringer("engine", e.Uuid), log.ShortError(err))
@@ -206,11 +206,11 @@ func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
 	return sizeProps, nil
 }
 
-func (e *LocalFile) isLocked() bool {
+func (e *File) isLocked() bool {
 	return e.isImportingAtomic.Load() != 0
 }
 
-func (e *LocalFile) getEngineFileSize() backend.EngineFileSize {
+func (e *File) getEngineFileSize() backend.EngineFileSize {
 	metrics := e.db.Metrics()
 	total := metrics.Total()
 	var memSize int64
@@ -232,14 +232,14 @@ func (e *LocalFile) getEngineFileSize() backend.EngineFileSize {
 }
 
 // lock locks the local file for importing.
-func (e *LocalFile) lock(state importMutexState) {
+func (e *File) lock(state importMutexState) {
 	e.mutex.Lock()
 	e.isImportingAtomic.Store(uint32(state))
 }
 
 // lockUnless tries to lock the local file unless it is already locked into the state given by
 // ignoreStateMask. Returns whether the lock is successful.
-func (e *LocalFile) lockUnless(newState, ignoreStateMask importMutexState) bool {
+func (e *File) lockUnless(newState, ignoreStateMask importMutexState) bool {
 	curState := e.isImportingAtomic.Load()
 	if curState&uint32(ignoreStateMask) != 0 {
 		return false
@@ -248,7 +248,7 @@ func (e *LocalFile) lockUnless(newState, ignoreStateMask importMutexState) bool 
 	return true
 }
 
-func (e *LocalFile) unlock() {
+func (e *File) unlock() {
 	if e == nil {
 		return
 	}
@@ -256,7 +256,7 @@ func (e *LocalFile) unlock() {
 	e.mutex.Unlock()
 }
 
-func (e *LocalFile) flushLocalWriters(parentCtx context.Context) error {
+func (e *File) flushLocalWriters(parentCtx context.Context) error {
 	eg, ctx := errgroup.WithContext(parentCtx)
 	e.localWriters.Range(func(k, v interface{}) bool {
 		eg.Go(func() error {
@@ -281,7 +281,7 @@ func (e *LocalFile) flushLocalWriters(parentCtx context.Context) error {
 	return eg.Wait()
 }
 
-func (e *LocalFile) flushEngineWithoutLock(ctx context.Context) error {
+func (e *File) flushEngineWithoutLock(ctx context.Context) error {
 	if err := e.flushLocalWriters(ctx); err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (e *LocalFile) flushEngineWithoutLock(ctx context.Context) error {
 
 // saveEngineMeta saves the metadata about the DB into the DB itself.
 // This method should be followed by a Flush to ensure the data is actually synchronized
-func (e *LocalFile) saveEngineMeta() error {
+func (e *File) saveEngineMeta() error {
 	jsonBytes, err := json.Marshal(&e.localFileMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -311,7 +311,7 @@ func (e *LocalFile) saveEngineMeta() error {
 	return errors.Trace(e.db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false}))
 }
 
-func (e *LocalFile) loadEngineMeta() {
+func (e *File) loadEngineMeta() {
 	jsonBytes, closer, err := e.db.Get(engineMetaKey)
 	if err != nil {
 		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.Uuid), zap.Error(err))
@@ -340,7 +340,7 @@ func (conns *gRPCConns) Close() {
 }
 
 type local struct {
-	engines sync.Map // sync version of map[uuid.UUID]*LocalFile
+	engines sync.Map // sync version of map[uuid.UUID]*File
 
 	conns    gRPCConns
 	splitCli split.SplitClient
@@ -483,10 +483,10 @@ func NewLocalBackend(
 	return backend.MakeBackend(local), nil
 }
 
-// lock locks a local file and returns the LocalFile instance if it exists.
-func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *LocalFile {
+// lock locks a local file and returns the File instance if it exists.
+func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *File {
 	if e, ok := local.engines.Load(engineId); ok {
-		engine := e.(*LocalFile)
+		engine := e.(*File)
 		engine.lock(state)
 		return engine
 	}
@@ -495,10 +495,10 @@ func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *Loca
 
 // lockAllEnginesUnless tries to lock all engines, unless those which are already locked in the
 // state given by ignoreStateMask. Returns the list of locked engines.
-func (local *local) lockAllEnginesUnless(newState, ignoreStateMask importMutexState) []*LocalFile {
-	var allEngines []*LocalFile
+func (local *local) lockAllEnginesUnless(newState, ignoreStateMask importMutexState) []*File {
+	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
-		engine := v.(*LocalFile)
+		engine := v.(*File)
 		if engine.lockUnless(newState, ignoreStateMask) {
 			allEngines = append(allEngines, engine)
 		}
@@ -638,14 +638,14 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 	return pebble.Open(dbPath, opt)
 }
 
-// This method must be called with holding mutex of LocalFile
+// This method must be called with holding mutex of File
 func (local *local) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	db, err := local.openEngineDB(engineUUID, false)
 	if err != nil {
 		return err
 	}
-	e, _ := local.engines.LoadOrStore(engineUUID, &LocalFile{Uuid: engineUUID})
-	engine := e.(*LocalFile)
+	e, _ := local.engines.LoadOrStore(engineUUID, &File{Uuid: engineUUID})
+	engine := e.(*File)
 	engine.db = db
 	engine.loadEngineMeta()
 	return nil
@@ -668,7 +668,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			}
 			return err
 		}
-		engineFile := &LocalFile{
+		engineFile := &File{
 			Uuid: engineUUID,
 			db:   db,
 		}
@@ -676,7 +676,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 		local.engines.Store(engineUUID, engineFile)
 		return nil
 	}
-	engineFile := engine.(*LocalFile)
+	engineFile := engine.(*File)
 	engineFile.lock(importMutexStateFlush)
 	defer engineFile.unlock()
 	return engineFile.flushEngineWithoutLock(ctx)
@@ -703,7 +703,7 @@ type rangeStats struct {
 // tikv will takes the responsibility to do so.
 func (local *local) WriteToTiKV(
 	ctx context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, rangeStats, error) {
@@ -924,7 +924,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	return ranges
 }
 
-func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error) {
+func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	iter := engineFile.db.NewIter(&pebble.IterOptions{LowerBound: normalIterStartKey})
 	defer iter.Close()
 
@@ -1072,7 +1072,7 @@ func (b *bytesBuffer) addBytes(bytes []byte) []byte {
 
 func (local *local) writeAndIngestByRange(
 	ctxt context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	start, end []byte,
 	remainRanges *syncdRanges,
 ) error {
@@ -1172,7 +1172,7 @@ const (
 
 func (local *local) writeAndIngestPairs(
 	ctx context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
 ) (*Range, error) {
@@ -1271,7 +1271,7 @@ loopWrite:
 	return remainRange, errors.Trace(err)
 }
 
-func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *LocalFile, ranges []Range, remainRanges *syncdRanges) error {
+func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File, ranges []Range, remainRanges *syncdRanges) error {
 	if engineFile.Length.Load() == 0 {
 		// engine is empty, this is likes because it's a index engine but the table contains no index
 		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.Uuid))
@@ -1498,11 +1498,11 @@ func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (back
 	if !ok {
 		return nil, errors.Errorf("could not find engine for %s", engineUUID.String())
 	}
-	engineFile := e.(*LocalFile)
+	engineFile := e.(*File)
 	return openLocalWriter(engineFile, local.localStoreDir, local.localWriterMemCacheSize), nil
 }
 
-func openLocalWriter(f *LocalFile, sstDir string, memtableSizeLimit int64) *LocalWriter {
+func openLocalWriter(f *File, sstDir string, memtableSizeLimit int64) *LocalWriter {
 	w := &LocalWriter{
 		sstDir:            sstDir,
 		kvsChan:           make(chan []common.KvPair, defaultLocalWriterKVsChannelCap),
@@ -1794,7 +1794,7 @@ func (s *sizeProperties) iter(f func(p *rangeProperty) bool) {
 
 func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	local.engines.Range(func(k, v interface{}) bool {
-		engine := v.(*LocalFile)
+		engine := v.(*File)
 		res = append(res, engine.getEngineFileSize())
 		return true
 	})
@@ -1803,7 +1803,7 @@ func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 
 type LocalWriter struct {
 	writeErr          common.OnceError
-	local             *LocalFile
+	local             *File
 	consumeCh         chan struct{}
 	kvsChan           chan []common.KvPair
 	flushChMutex      sync.RWMutex
@@ -1991,9 +1991,9 @@ func (sw *sstWriter) writeKVs(m *kvMemCache) error {
 	return nil
 }
 
-// ingestInto finishes the SST file, and ingests itself into the target LocalFile database.
+// ingestInto finishes the SST file, and ingests itself into the target File database.
 // On success, the entire writer will be reset as empty.
-func (sw *sstWriter) ingestInto(e *LocalFile, desc localIngestDescription) error {
+func (sw *sstWriter) ingestInto(e *File, desc localIngestDescription) error {
 	if sw.totalCount > 0 {
 		if err := sw.writer.Close(); err != nil {
 			return errors.Trace(err)

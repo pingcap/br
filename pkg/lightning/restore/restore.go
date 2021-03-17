@@ -691,7 +691,7 @@ func verifyLocalFile(ctx context.Context, cpdb CheckpointsDB, dir string) error 
 	for tableName, engineIDs := range targetTables {
 		for _, engineID := range engineIDs {
 			_, eID := backend.MakeUUID(tableName, engineID)
-			file := local.LocalFile{Uuid: eID}
+			file := local.File{Uuid: eID}
 			err := file.Exist(dir)
 			if err != nil {
 				log.L().Error("can't find local file",
