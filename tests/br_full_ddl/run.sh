@@ -143,6 +143,8 @@ else
   echo "TEST: [$TEST_NAME] fail due to stats are not equal"
   cat $BACKUP_STAT | head -n 1000
   cat $RESOTRE_STAT | head -n 1000
+  echo "backup and restore stats diff:"
+  diff $BACKUP_STAT $RESOTRE_STAT
   exit 1
 fi
 
