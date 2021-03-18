@@ -2881,7 +2881,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, tr *TableRestore, r
 					return errors.Errorf("table %s contains auto increment id or _tidb_rowid, but target field not found", tr.tableName)
 				}
 
-				autoIDInfos, err := kv.FetchTableAutoIDInfos(ctx, tx, m.tr.tableName)
+				autoIDInfos, err := tidb.FetchTableAutoIDInfos(ctx, tx, m.tr.tableName)
 				if err != nil {
 					return errors.Trace(err)
 				}
