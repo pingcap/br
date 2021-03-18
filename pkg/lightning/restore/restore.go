@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -232,8 +233,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, int64(cfg.TikvImporter.RegionSplitSize),
-			cfg.TikvImporter.SortedKVDir, cfg.TikvImporter.RangeConcurrency, cfg.TikvImporter.SendKVPairs,
+		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -1426,23 +1426,6 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
-	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
-	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
-	// Thus, the disk size occupied by these writers are up to
-	// (region-concurrency + index-concurrency) * 512 MiB.
-	// This number should not exceed the disk quota.
-	// Therefore, we need to reduce that "512 MiB" to respect the disk quota:
-	localWriterMaxCacheSize := int64(rc.cfg.TikvImporter.DiskQuota) // int64(rc.cfg.App.IndexConcurrency+rc.cfg.App.RegionConcurrency)
-	if localWriterMaxCacheSize > config.LocalMemoryTableSize {
-		localWriterMaxCacheSize = config.LocalMemoryTableSize
-	}
-
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
 	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID, rc.ts)
@@ -1486,7 +1469,11 @@ func (t *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+		dataWriter, err := dataEngine.LocalWriter(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		indexWriter, err := indexEngine.LocalWriter(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -1503,6 +1490,9 @@ func (t *TableRestore) restoreEngine(
 				err = dataWriter.Close()
 			}
 			if err == nil {
+				err = indexWriter.Close()
+			}
+			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
@@ -1514,9 +1504,6 @@ func (t *TableRestore) restoreEngine(
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
@@ -2252,8 +2239,8 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 ////////////////////////////////////////////////////////////////
 
 var (
-	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
-	minDeliverBytes uint64 = 65536 // 64 KB. batch at least this amount of bytes to reduce number of messages
+	maxKVQueueSize         = 128            // Cache at most this number of rows before blocking the encode loop
+	minDeliverBytes uint64 = 96 * units.KiB // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
 )
 
 type deliveredKVs struct {
@@ -2298,7 +2285,7 @@ func (cr *chunkRestore) deliverLoop(
 		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
-		for dataChecksum.SumSize() < minDeliverBytes {
+		for dataChecksum.SumSize()+indexChecksum.SumSize() < minDeliverBytes {
 			select {
 			case kvPacket = <-kvsCh:
 				if len(kvPacket) == 0 {
@@ -2562,14 +2549,18 @@ func (cr *chunkRestore) restore(
 	}
 
 	select {
-	case deliverResult := <-deliverCompleteCh:
-		logTask.End(zap.ErrorLevel, deliverResult.err,
-			zap.Duration("readDur", readTotalDur),
-			zap.Duration("encodeDur", encodeTotalDur),
-			zap.Duration("deliverDur", deliverResult.totalDur),
-			zap.Object("checksum", &cr.chunk.Checksum),
-		)
-		return errors.Trace(deliverResult.err)
+	case deliverResult, ok := <-deliverCompleteCh:
+		if ok {
+			logTask.End(zap.ErrorLevel, deliverResult.err,
+				zap.Duration("readDur", readTotalDur),
+				zap.Duration("encodeDur", encodeTotalDur),
+				zap.Duration("deliverDur", deliverResult.totalDur),
+				zap.Object("checksum", &cr.chunk.Checksum),
+			)
+			return errors.Trace(deliverResult.err)
+		}
+		// else, this must cause by ctx cancel
+		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}
