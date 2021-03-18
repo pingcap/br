@@ -45,10 +45,20 @@ func (s *testFilterSuite) TestFilter(c *C) {
 	}), zap.AddCaller())
 	logger.Warn("the message", zap.Int("number", 123456), zap.Ints("array", []int{7, 8, 9}))
 	c.Assert(buffer.Stripped(), HasLen, 0)
+
+	// Fields won't trigger filter.
+	logger, buffer = log.MakeTestLogger(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return log.NewFilterCore(c, "github.com/pingcap/check/").With([]zap.Field{zap.String("a", "b")})
+	}), zap.AddCaller())
+	logger.Warn("the message", zap.String("stack", "github.com/pingcap/check/"))
+	c.Assert(
+		buffer.Stripped(), Equals,
+		`{"$lvl":"WARN","$msg":"the message","a":"b","stack":"github.com/pingcap/check/"}`,
+	)
 }
 
-// PASS: filter_test.go:72: testFilterSuite.BenchmarkFilterRegexMatchString 1000000               1163 ns/op
-// PASS: filter_test.go:54: testFilterSuite.BenchmarkFilterStringsContains  10000000               159 ns/op
+// PASS: filter_test.go:82: testFilterSuite.BenchmarkFilterRegexMatchString 1000000               1163 ns/op
+// PASS: filter_test.go:64: testFilterSuite.BenchmarkFilterStringsContains  10000000               159 ns/op
 //
 // Run `go test github.com/pingcap/br/pkg/lightning/log -check.b -test.v` to get benchmark result.
 func (s *testFilterSuite) BenchmarkFilterStringsContains(c *C) {
