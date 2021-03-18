@@ -77,15 +77,13 @@ run_sql "drop schema $DB;"
 TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T![auto_rand] AUTO_RANDOM(5) */,
-PRIMARY KEY (a) clustered)"
+run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$TABLE values ('42');"
 
 # Full backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
-run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T![auto_rand] AUTO_RANDOM(5) */,
-PRIMARY KEY (a) clustered)"
+run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL

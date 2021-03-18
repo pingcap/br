@@ -162,7 +162,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Restore needs domain to do DDL.
+	needDomain := true
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -180,7 +182,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+	opts := storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
+	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
 	client.SetRateLimit(cfg.RateLimit)
