@@ -17,11 +17,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
-<<<<<<< HEAD
-=======
 	"github.com/docker/go-units"
-	"github.com/opentracing/opentracing-go"
->>>>>>> 5e9e051... *: use docker/go-units (#892)
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
