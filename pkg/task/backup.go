@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -85,10 +86,9 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 
 	// Disable stats by default. because of
 	// 1. DumpStatsToJson is not stable
-	// 2. It increases memory usage may cause BR OOM
+	// 2. It increases memory usage and might cause BR OOM.
 	// TODO: we need a better way to backup/restore stats.
-	flags.Bool(flagIgnoreStats, true,
-		"ignore backup stats, used for test")
+	flags.Bool(flagIgnoreStats, true, "ignore backup stats, used for test")
 	// This flag is used for test. we should backup stats all the time.
 	_ = flags.MarkHidden(flagIgnoreStats)
 }
@@ -192,11 +192,20 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return errors.Trace(err)
 	}
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	skipStats := cfg.IgnoreStats
+	// For backup, Domain is not needed if user ignores stats.
+	// Domain loads all table info into memory. By skipping Domain, we save
+	// lots of memory (about 500MB for 40K 40 fields YCSB tables).
+	needDomain := !skipStats
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	defer mgr.Close()
+	var statsHandle *handle.Handle
+	if !skipStats {
+		statsHandle = mgr.GetDomain().StatsHandle()
+	}
 
 	client, err := backup.NewBackupClient(ctx, mgr)
 	if err != nil {
@@ -266,8 +275,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetTiKV(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
+	ranges, schemas, err := backup.BuildBackupRangeAndSchema(mgr.GetTiKV(), cfg.TableFilter, backupTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -294,7 +302,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
+		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetTiKV(), cfg.LastBackupTS, backupTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -330,33 +338,32 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	// Checksum from server, and then fulfill the backup metadata.
-	if cfg.Checksum && !isIncrementalBackup {
-		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
-		updateCh = g.StartProgress(
-			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-		backupSchemas.Start(
-			ctx, mgr.GetTiKV(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
-		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// Checksum has finished
-		updateCh.Close()
-		// collect file information.
-		err = checkChecksums(&backupMeta)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	} else {
-		// Just... copy schemas from origin.
-		backupMeta.Schemas = backupSchemas.CopyMeta()
+	skipChecksum := !cfg.Checksum || isIncrementalBackup
+	checksumProgress := int64(schemas.Len())
+	if skipChecksum {
+		checksumProgress = 1
 		if isIncrementalBackup {
 			// Since we don't support checksum for incremental data, fast checksum should be skipped.
 			log.Info("Skip fast checksum in incremental backup")
 		} else {
 			// When user specified not to calculate checksum, don't calculate checksum.
-			log.Info("Skip fast checksum because user requirement.")
+			log.Info("Skip fast checksum")
+		}
+	}
+	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
+	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
+	backupMeta.Schemas, err = schemas.BackupSchemas(
+		ctx, mgr.GetTiKV(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// Checksum has finished, close checksum progress.
+	updateCh.Close()
+	if !skipChecksum {
+		// Check if checksum from files matches checksum from coprocessor.
+		err = checkChecksums(&backupMeta)
+		if err != nil {
+			return errors.Trace(err)
 		}
 	}
 
