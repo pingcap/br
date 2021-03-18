@@ -351,7 +351,9 @@ func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	keepalive keepalive.ClientParameters,
-	checkRequirements bool) (*conn.Mgr, error) {
+	checkRequirements bool,
+	needDomain bool,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -379,10 +381,10 @@ func NewMgr(ctx context.Context,
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
-	return conn.NewMgr(ctx, g,
-		pdAddress, store,
-		tlsConf, securityOption, keepalive,
-		conn.SkipTiFlash, checkRequirements)
+	return conn.NewMgr(
+		ctx, g, pdAddress, store, tlsConf, securityOption, keepalive, conn.SkipTiFlash,
+		checkRequirements, needDomain,
+	)
 }
 
 // GetStorage gets the storage backend from the config.
