@@ -13,7 +13,7 @@
 
 // +build !windows
 
-package backend
+package local
 
 import (
 	"syscall"

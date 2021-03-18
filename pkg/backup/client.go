@@ -22,7 +22,6 @@ import (
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
-	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
@@ -266,38 +265,42 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 // KV ranges are separated by Table IDs.
 // Also, KV ranges are separated by Index IDs in the same table.
 func BuildBackupRangeAndSchema(
-	dom *domain.Domain,
 	storage kv.Storage,
 	tableFilter filter.Filter,
 	backupTS uint64,
-	ignoreStats bool,
 ) ([]rtree.Range, *Schemas, error) {
-	info, err := dom.GetSnapshotInfoSchema(backupTS)
+	snapshot := storage.GetSnapshot(kv.NewVersion(backupTS))
+	m := meta.NewSnapshotMeta(snapshot)
+
+	ranges := make([]rtree.Range, 0)
+	backupSchemas := newBackupSchemas()
+	dbs, err := m.ListDatabases()
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
 
-	h := dom.StatsHandle()
-
-	ranges := make([]rtree.Range, 0)
-	backupSchemas := newBackupSchemas()
-	for _, dbInfo := range info.AllSchemas() {
+	for _, dbInfo := range dbs {
 		// skip system databases
 		if util.IsMemOrSysDB(dbInfo.Name.L) {
 			continue
 		}
 
-		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
 		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
-		if len(dbInfo.Tables) == 0 {
+		tables, err := m.ListTables(dbInfo.ID)
+		if err != nil {
+			return nil, nil, errors.Trace(err)
+		}
+
+		if len(tables) == 0 {
 			log.Warn("It's not necessary for backing up empty database",
 				zap.Stringer("db", dbInfo.Name))
 			continue
 		}
-		for _, tableInfo := range dbInfo.Tables {
+
+		for _, tableInfo := range tables {
 			if !tableFilter.MatchTable(dbInfo.Name.O, tableInfo.Name.O) {
 				// Skip tables other than the given table.
 				continue
@@ -346,36 +349,7 @@ func BuildBackupRangeAndSchema(
 			}
 			tableInfo.Indices = tableInfo.Indices[:n]
 
-			if dbData == nil {
-				dbData, err = json.Marshal(dbInfo)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-			}
-			tableData, err := json.Marshal(tableInfo)
-			if err != nil {
-				return nil, nil, errors.Trace(err)
-			}
-
-			var stats []byte
-			if !ignoreStats {
-				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
-				if err != nil {
-					logger.Error("dump table stats failed", logutil.ShortError(err))
-				} else {
-					stats, err = json.Marshal(jsonTable)
-					if err != nil {
-						logger.Error("dump table stats failed (cannot serialize)", logutil.ShortError(err))
-					}
-				}
-			}
-
-			schema := backuppb.Schema{
-				Db:    dbData,
-				Table: tableData,
-				Stats: stats,
-			}
-			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
+			backupSchemas.addSchema(dbInfo, tableInfo)
 
 			tableRanges, err := BuildTableRanges(tableInfo)
 			if err != nil {
@@ -398,15 +372,11 @@ func BuildBackupRangeAndSchema(
 }
 
 // GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
-func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
-	snapMeta, err := dom.GetSnapshotMeta(backupTS)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	lastSnapMeta, err := dom.GetSnapshotMeta(lastBackupTS)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
+func GetBackupDDLJobs(store kv.Storage, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
+	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
+	snapMeta := meta.NewSnapshotMeta(snapshot)
+	lastSnapshot := store.GetSnapshot(kv.NewVersion(lastBackupTS))
+	lastSnapMeta := meta.NewSnapshotMeta(lastSnapshot)
 	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
 	if err != nil {
 		return nil, errors.Trace(err)

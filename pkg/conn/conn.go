@@ -163,6 +163,9 @@ func GetAllTiKVStores(
 }
 
 // NewMgr creates a new Mgr.
+//
+// Domain is optional for Backup, set `needDomain` to false to disable
+// initializing Domain.
 func NewMgr(
 	ctx context.Context,
 	g glue.Glue,
@@ -173,6 +176,7 @@ func NewMgr(
 	keepalive keepalive.ClientParameters,
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
+	needDomain bool,
 ) (*Mgr, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("conn.NewMgr", opentracing.ChildOf(span.Context()))
@@ -219,9 +223,12 @@ func NewMgr(
 		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
 	}
 
-	dom, err := g.GetDomain(storage)
-	if err != nil {
-		return nil, errors.Trace(err)
+	var dom *domain.Domain
+	if needDomain {
+		dom, err = g.GetDomain(storage)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
 
 	mgr := &Mgr{
