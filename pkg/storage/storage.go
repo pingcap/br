@@ -101,6 +101,9 @@ type ExternalStorageOptions struct {
 	// downstream via external key managers, e.g. on K8s or cloud provider.
 	SendCredentials bool
 
+	// NoCredentials means that no cloud credentials are supplied to BR
+	NoCredentials bool
+
 	// SkipCheckPath marks whether to skip checking path's existence.
 	//
 	// This should only be set to true in testing, to avoid interacting with the
