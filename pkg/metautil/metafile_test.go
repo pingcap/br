@@ -8,10 +8,9 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	mockstorage "github.com/pingcap/br/pkg/mock/storage"
 	. "github.com/pingcap/check"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
-
-	"github.com/pingcap/br/pkg/mock"
 )
 
 type metaSuit struct{}
@@ -30,29 +29,35 @@ func checksum(m *backuppb.MetaFile) []byte {
 }
 
 func (m *metaSuit) TestWalkMetaFileEmpty(c *C) {
-	empty := &backuppb.MetaFile{}
-	ch := make(chan *backuppb.MetaFile, 1)
-	err := WalkLeafMetaFile(context.Background(), nil, empty, ch)
+	files := []*backuppb.MetaFile{}
+	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
+	err := WalkLeafMetaFile(context.Background(), nil, nil, collect)
 	c.Assert(err, IsNil)
-	c.Assert(ch, HasLen, 1)
-	c.Assert(<-ch, Equals, empty)
+	c.Assert(files, HasLen, 0)
+
+	empty := &backuppb.MetaFile{}
+	err = WalkLeafMetaFile(context.Background(), nil, empty, collect)
+	c.Assert(err, IsNil)
+	c.Assert(files, HasLen, 1)
+	c.Assert(files[0], Equals, empty)
 }
 
 func (m *metaSuit) TestWalkMetaFileLeaf(c *C) {
 	leaf := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
 		&backuppb.Schema{Db: []byte("db"), Table: []byte("table")},
 	}}
-	ch := make(chan *backuppb.MetaFile, 1)
-	err := WalkLeafMetaFile(context.Background(), nil, leaf, ch)
+	files := []*backuppb.MetaFile{}
+	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
+	err := WalkLeafMetaFile(context.Background(), nil, leaf, collect)
 	c.Assert(err, IsNil)
-	c.Assert(ch, HasLen, 1)
-	c.Assert(<-ch, Equals, leaf)
+	c.Assert(files, HasLen, 1)
+	c.Assert(files[0], Equals, leaf)
 }
 
 func (m *metaSuit) TestWalkMetaFileInvalid(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
-	mockStorage := mock.NewMockExternalStorage(controller)
+	mockStorage := mockstorage.NewMockExternalStorage(controller)
 
 	ctx := context.Background()
 	leaf := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
@@ -64,19 +69,18 @@ func (m *metaSuit) TestWalkMetaFileInvalid(c *C) {
 		&backuppb.File{Name: "leaf", Sha256: []byte{}},
 	}}
 
-	ch := make(chan *backuppb.MetaFile)
-	err := WalkLeafMetaFile(ctx, mockStorage, root, ch)
+	collect := func(m *backuppb.MetaFile) { panic("unreachable") }
+	err := WalkLeafMetaFile(ctx, mockStorage, root, collect)
 	c.Assert(err, ErrorMatches, ".*ErrInvalidMetaFile.*")
 }
 
 func (m *metaSuit) TestWalkMetaFile(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
-	mockStorage := mock.NewMockExternalStorage(controller)
+	mockStorage := mockstorage.NewMockExternalStorage(controller)
 
 	ctx := context.Background()
 	expect := make([]*backuppb.MetaFile, 0, 6)
-	got := make([]*backuppb.MetaFile, 0, 6)
 	leaf31S1 := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
 		&backuppb.Schema{Db: []byte("db31S1"), Table: []byte("table31S1")},
 	}}
@@ -118,16 +122,13 @@ func (m *metaSuit) TestWalkMetaFile(c *C) {
 		&backuppb.File{Name: "leaf23S1", Sha256: checksum(leaf23S1)},
 	}}
 
-	ch := make(chan *backuppb.MetaFile, 60)
-	err := WalkLeafMetaFile(ctx, mockStorage, root, ch)
+	files := []*backuppb.MetaFile{}
+	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
+	err := WalkLeafMetaFile(ctx, mockStorage, root, collect)
 	c.Assert(err, IsNil)
-	close(ch)
-	for mf := range ch {
-		got = append(got, mf)
-	}
 
-	c.Assert(got, HasLen, len(expect))
+	c.Assert(files, HasLen, len(expect))
 	for i := range expect {
-		c.Assert(got[i], DeepEquals, expect[i])
+		c.Assert(files[i], DeepEquals, expect[i])
 	}
 }

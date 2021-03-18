@@ -40,10 +40,14 @@ func FastChecksum(
 
 	for {
 		var tbl *metautil.Table
+		var ok bool
 		select {
 		case <-ctx.Done():
 			return errors.Trace(ctx.Err())
-		case tbl = <-ch:
+		case tbl, ok = <-ch:
+			if !ok {
+				return nil
+			}
 		}
 		checksum := uint64(0)
 		totalKvs := uint64(0)
@@ -72,5 +76,4 @@ func FastChecksum(
 		log.Info("checksum success",
 			zap.Stringer("db", tbl.DB.Name), zap.Stringer("table", tbl.Info.Name))
 	}
-	return nil
 }
