@@ -178,7 +178,7 @@ func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
 //   use a default glue later.
 // - for lightning as a library, taskCtx could be a meaningful context that get canceled outside, and glue could be a
 //   caller implemented glue.
-func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue, replaceLogger *zap.Logger) error {
+func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue) error {
 	if err := taskCfg.Adjust(taskCtx); err != nil {
 		return err
 	}
@@ -188,9 +188,6 @@ func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glu
 		taskCfg.TaskID = int64(val.(int))
 	})
 
-	if replaceLogger != nil {
-		log.SetAppLogger(replaceLogger)
-	}
 	return l.run(taskCtx, taskCfg, glue)
 }
 
