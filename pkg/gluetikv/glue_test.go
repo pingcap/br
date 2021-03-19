@@ -16,5 +16,5 @@ func TestT(t *testing.T) {
 
 func (r *testGlue) TestGetVersion(c *C) {
 	g := Glue{}
-	c.Assert(g.GetVersion(), Matches, "BR(.|\n)*Release Version(.|\n)*Git Commit Hash(.|\n)*")
+	c.Assert(g.GetVersion(), Matches, `BR\nv[0-9]+\.[0-9]+\.[0-9]+[\-0-9a-za]*`)
 }

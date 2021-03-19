@@ -59,5 +59,5 @@ func (Glue) Record(name string, val uint64) {
 
 // GetVersion implements glue.Glue.
 func (Glue) GetVersion() string {
-	return "BR\n" + build.Info()
+	return "BR\n" + build.ReleaseVersion
 }
