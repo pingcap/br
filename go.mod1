@@ -20,25 +20,16 @@ require (
 	github.com/golang/mock v1.4.4
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
-<<<<<<< HEAD
 	github.com/joho/sqltocsv v0.0.0-20190824231449-5650f27fd5b6
 	github.com/mattn/go-runewidth v0.0.10 // indirect
-=======
-	github.com/joho/sqltocsv v0.0.0-20210208114054-cb2c3a95fb99
->>>>>>> 0b223bc... br: remove alter-primary-key configuration (#853)
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
 	github.com/pingcap/kvproto v0.0.0-20210308063835-39b884695fb8
 	github.com/pingcap/log v0.0.0-20201112100606-8f1e84a3abc8
-<<<<<<< HEAD
 	github.com/pingcap/parser v0.0.0-20210310110710-c7333a4927e6
-	github.com/pingcap/tidb v1.1.0-beta.0.20210316114335-5ef1cc88f2da
-=======
-	github.com/pingcap/parser v0.0.0-20210311132237-9841cb715606
-	github.com/pingcap/tidb v1.1.0-beta.0.20210318132835-915dde1f93df
->>>>>>> 0b223bc... br: remove alter-primary-key configuration (#853)
+	github.com/pingcap/tidb v1.1.0-beta.0.20210318114336-c8226913d30e
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
 	github.com/pingcap/tipb v0.0.0-20210309080453-72c4feaa6da7
 	github.com/prometheus/client_golang v1.5.1
@@ -63,13 +54,9 @@ require (
 	golang.org/x/text v0.3.5
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
-<<<<<<< HEAD
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
 	modernc.org/mathutil v1.1.1
-=======
-	modernc.org/mathutil v1.2.2
->>>>>>> 0b223bc... br: remove alter-primary-key configuration (#853)
 	sourcegraph.com/sourcegraph/appdash v0.0.0-20190731080439-ebfcffb1b5c0
 )
 
