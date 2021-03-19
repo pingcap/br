@@ -244,6 +244,10 @@ func (c *testPDClient) currentSafePoint() uint64 {
 	return 0
 }
 
+func (c *testPDClient) GetTS(ctx context.Context) (int64, int64, error) {
+	return time.Now().Unix(), 0, nil
+}
+
 func (c *testPDClient) UpdateServiceGCSafePoint(ctx context.Context, serviceID string, ttl int64, safePoint uint64) (uint64, error) {
 	if !strings.HasPrefix(serviceID, "lightning") {
 		panic("service ID must start with 'lightning'")
