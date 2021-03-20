@@ -267,7 +267,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 		g = glue.NewExternalTiDBGlue(db, taskCfg.TiDB.SQLMode)
 	}
 
-	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, &storage.BackendOptions{})
+	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, nil)
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
