@@ -133,7 +133,9 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, IsNil)
 	local := s.GetLocal()
 	c.Assert(local, NotNil)
-	c.Assert(local.GetPath(), Equals, "/test")
+	expectedLocalPath, err := filepath.Abs("/test")
+	c.Assert(err, IsNil)
+	c.Assert(local.GetPath(), Equals, expectedLocalPath)
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
