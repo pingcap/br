@@ -16,7 +16,6 @@
 set -eu
 DB="$TEST_NAME"
 
-old_conf=$(run_sql "show config where name = 'alter-primary-key'" | awk '/Value/{print $2}')
 run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
@@ -55,9 +54,5 @@ fi
 echo "testing DDL query..."
 run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE TABLE'
 run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE DATABASE'
-
-# test whether we have changed the cluster config.
-new_conf=$(run_sql "show config where name = 'alter-primary-key'" | awk '/Value/{print $2}')
-test "$old_conf" = "$new_conf"
 
 run_sql "DROP DATABASE $DB;"
