@@ -25,8 +25,11 @@ export MINIO_BROWSER=off
 export AWS_ACCESS_KEY_ID=$MINIO_ACCESS_KEY
 export AWS_SECRET_ACCESS_KEY=$MINIO_SECRET_KEY
 export S3_ENDPOINT=127.0.0.1:24927
+
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
+sig_file="$TEST_DIR/sig_file_$RANDOM"
+rm -f "$sig_file"
 
 s3_pid=""
 start_s3() {
@@ -44,11 +47,8 @@ start_s3() {
 }
 
 wait_sig() {
-    success=0
-    trap "success=1" USR1
-
-    while (( success != 1 )); do
-      sleep 1
+    until [ -e "$sig_file" ]; do
+        sleep 1
     done
 }
 
@@ -76,7 +76,7 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/s3-outage-during-writing-file=1*return($$)" \
+  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/s3-outage-during-writing-file=1*return(\"$sig_file\")" \
       run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
       --ratelimit 1 \
       --log-file $BACKUP_LOG || \
