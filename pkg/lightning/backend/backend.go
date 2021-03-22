@@ -23,19 +23,17 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
-	"github.com/pingcap/br/pkg/lightning/verification"
 )
 
 const (
-	maxRetryTimes = 3 // tikv-importer has done retry internally. so we don't retry many times.
+	importMaxRetryTimes = 3 // tikv-importer has done retry internally. so we don't retry many times.
 )
 
 /*
@@ -103,7 +101,7 @@ type AbstractBackend interface {
 	Close()
 
 	// MakeEmptyRows creates an empty collection of encoded rows.
-	MakeEmptyRows() Rows
+	MakeEmptyRows() kv.Rows
 
 	// RetryImportDelay returns the duration to sleep when retrying an import
 	RetryImportDelay() time.Duration
@@ -113,7 +111,7 @@ type AbstractBackend interface {
 	ShouldPostProcess() bool
 
 	// NewEncoder creates an encoder of a TiDB table.
-	NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, error)
+	NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error)
 
 	OpenEngine(ctx context.Context, engineUUID uuid.UUID) error
 
@@ -163,16 +161,7 @@ type AbstractBackend interface {
 	ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-	LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error)
-}
-
-func fetchRemoteTableModelsFromTLS(ctx context.Context, tls *common.TLS, schema string) ([]*model.TableInfo, error) {
-	var tables []*model.TableInfo
-	err := tls.GetJSON(ctx, "/schema/"+schema, &tables)
-	if err != nil {
-		return nil, errors.Annotatef(err, "cannot read schema '%s' from remote", schema)
-	}
-	return tables, nil
+	LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error)
 }
 
 // Backend is the delivery target for Lightning
@@ -222,11 +211,11 @@ func (be Backend) Close() {
 	be.abstract.Close()
 }
 
-func (be Backend) MakeEmptyRows() Rows {
+func (be Backend) MakeEmptyRows() kv.Rows {
 	return be.abstract.MakeEmptyRows()
 }
 
-func (be Backend) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, error) {
+func (be Backend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error) {
 	return be.abstract.NewEncoder(tbl, options)
 }
 
@@ -298,7 +287,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 }
 
 // OpenEngine opens an engine with the given table name and engine ID.
-func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32) (*OpenedEngine, error) {
+func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)
 	logger := makeLogger(tag, engineUUID)
 
@@ -327,7 +316,7 @@ func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int
 			uuid:    engineUUID,
 		},
 		tableName: tableName,
-		ts:        oracle.ComposeTS(time.Now().Unix()*1000, 0),
+		ts:        ts,
 	}, nil
 }
 
@@ -345,21 +334,8 @@ func (engine *OpenedEngine) Flush(ctx context.Context) error {
 	return engine.backend.FlushEngine(ctx, engine.uuid)
 }
 
-// WriteRows writes a collection of encoded rows into the engine.
-func (engine *OpenedEngine) WriteRows(ctx context.Context, columnNames []string, rows Rows) error {
-	writer, err := engine.backend.LocalWriter(ctx, engine.uuid, LocalMemoryTableSize)
-	if err != nil {
-		return err
-	}
-	if err = writer.AppendRows(ctx, engine.tableName, columnNames, engine.ts, rows); err != nil {
-		writer.Close()
-		return err
-	}
-	return writer.Close()
-}
-
-func (engine *OpenedEngine) LocalWriter(ctx context.Context, maxCacheSize int64) (*LocalEngineWriter, error) {
-	w, err := engine.backend.LocalWriter(ctx, engine.uuid, maxCacheSize)
+func (engine *OpenedEngine) LocalWriter(ctx context.Context) (*LocalEngineWriter, error) {
+	w, err := engine.backend.LocalWriter(ctx, engine.uuid)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +343,7 @@ func (engine *OpenedEngine) LocalWriter(ctx context.Context, maxCacheSize int64)
 }
 
 // WriteRows writes a collection of encoded rows into the engine.
-func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string, rows Rows) error {
+func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string, rows kv.Rows) error {
 	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
 }
 
@@ -412,7 +388,7 @@ func (en engine) unsafeClose(ctx context.Context) (*ClosedEngine, error) {
 func (engine *ClosedEngine) Import(ctx context.Context) error {
 	var err error
 
-	for i := 0; i < maxRetryTimes; i++ {
+	for i := 0; i < importMaxRetryTimes; i++ {
 		task := engine.logger.With(zap.Int("retryCnt", i)).Begin(zap.InfoLevel, "import")
 		err = engine.backend.ImportEngine(ctx, engine.uuid)
 		if !common.IsRetryableError(err) {
@@ -423,7 +399,7 @@ func (engine *ClosedEngine) Import(ctx context.Context) error {
 		time.Sleep(engine.backend.RetryImportDelay())
 	}
 
-	return errors.Annotatef(err, "[%s] import reach max retry %d and still failed", engine.uuid, maxRetryTimes)
+	return errors.Annotatef(err, "[%s] import reach max retry %d and still failed", engine.uuid, importMaxRetryTimes)
 }
 
 // Cleanup deletes the intermediate data from target.
@@ -438,53 +414,13 @@ func (engine *ClosedEngine) Logger() log.Logger {
 	return engine.logger
 }
 
-// Encoder encodes a row of SQL values into some opaque type which can be
-// consumed by OpenEngine.WriteEncoded.
-type Encoder interface {
-	// Close the encoder.
-	Close()
-
-	// Encode encodes a row of SQL values into a backend-friendly format.
-	Encode(
-		logger log.Logger,
-		row []types.Datum,
-		rowID int64,
-		columnPermutation []int,
-	) (Row, error)
-}
-
-// Row represents a single encoded row.
-type Row interface {
-	// ClassifyAndAppend separates the data-like and index-like parts of the
-	// encoded row, and appends these parts into the existing buffers and
-	// checksums.
-	ClassifyAndAppend(
-		data *Rows,
-		dataChecksum *verification.KVChecksum,
-		indices *Rows,
-		indexChecksum *verification.KVChecksum,
-	)
-}
-
-// Rows represents a collection of encoded rows.
-type Rows interface {
-	// SplitIntoChunks splits the rows into multiple consecutive parts, each
-	// part having total byte size less than `splitSize`. The meaning of "byte
-	// size" should be consistent with the value used in `Row.ClassifyAndAppend`.
-	SplitIntoChunks(splitSize int) []Rows
-
-	// Clear returns a new collection with empty content. It may share the
-	// capacity with the current instance. The typical usage is `x = x.Clear()`.
-	Clear() Rows
-}
-
 type EngineWriter interface {
 	AppendRows(
 		ctx context.Context,
 		tableName string,
 		columnNames []string,
 		commitTS uint64,
-		rows Rows,
+		rows kv.Rows,
 	) error
 	Close() error
 }
