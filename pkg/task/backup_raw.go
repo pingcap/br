@@ -78,7 +78,7 @@ func (cfg *RawKvConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 
-	if bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
+	if len(cfg.StartKey) > 0 && len(cfg.EndKey) > 0 && bytes.Compare(cfg.StartKey, cfg.EndKey) >= 0 {
 		return errors.Annotate(berrors.ErrBackupInvalidRange, "endKey must be greater than startKey")
 	}
 	cfg.CF, err = flags.GetString(flagTiKVColumnFamily)
@@ -135,7 +135,9 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Backup raw does not need domain.
+	needDomain := false
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -145,7 +147,12 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+	opts := storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
+	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
 

@@ -21,8 +21,8 @@ source $cur/../_utils/run_services
 DB="$TEST_NAME"
 
 # prepare database
-echo "Restart cluster with alter-primary-key = true, max-index-length=12288"
-start_services --tidb-cfg $cur/config/tidb-alter-primary-key.toml
+echo "Restart cluster with max-index-length=12288"
+start_services --tidb-cfg $cur/config/tidb-max-index-length.toml
 
 run_sql "drop schema if exists $DB;"
 run_sql "create schema $DB;"
@@ -31,13 +31,13 @@ run_sql "create schema $DB;"
 TABLE="t1"
 INCREMENTAL_TABLE="t1inc"
 
-run_sql "create table $DB.$TABLE (a int primary key, b int unique);"
+run_sql "create table $DB.$TABLE (a int primary key nonclustered, b int unique);"
 run_sql "insert into $DB.$TABLE values (42, 42);"
 
 # backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
-run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key, b int unique);"
+run_sql "create table $DB.$INCREMENTAL_TABLE (a int primary key nonclustered, b int unique);"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values (42, 42);"
 
 # drop pk
@@ -73,24 +73,17 @@ run_br --pd $PD_ADDR restore db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
 run_sql "drop schema $DB;"
 
-# we need set auto_random to true and remove alter-primary-key otherwise we will get error
-# invalid config allow-auto-random is unavailable when alter-primary-key is enabled
-
-# enable column attribute `auto_random` to be defined on the primary key column.
-echo "Restart cluster with allow-auto-random=true"
-start_services --tidb-cfg $cur/config/tidb-allow-auto-random.toml
-
 # test auto random issue https://github.com/pingcap/br/issues/228
 TABLE="t3"
 INCREMENTAL_TABLE="t3inc"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
+run_sql "create table $DB.$TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$TABLE values ('42');"
 
 # Full backup
 run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB$TABLE"
 
-run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a))"
+run_sql "create table $DB.$INCREMENTAL_TABLE (a bigint(11) NOT NULL /*T!30100 AUTO_RANDOM(5) */, PRIMARY KEY (a) clustered)"
 run_sql "insert into $DB.$INCREMENTAL_TABLE values ('42');"
 
 # incremental backup test for execute DDL
@@ -109,7 +102,7 @@ run_sql "drop schema $DB;"
 # test auto random issue https://github.com/pingcap/br/issues/241
 TABLE="t4"
 run_sql "create schema $DB;"
-run_sql "create table $DB.$TABLE(a bigint key auto_random(5));"
+run_sql "create table $DB.$TABLE(a bigint key clustered auto_random(5));"
 run_sql "insert into $DB.$TABLE values (),(),(),(),();"
 
 # Table backup

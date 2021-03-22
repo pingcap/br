@@ -1,5 +1,5 @@
 create table t (
-    id int not null primary key,
+    id int not null primary key clustered,
 
     -- each stored generated column occupy about 150 KB of data, so we are 750 KB per row.
     -- without disk quota the engine size will be 750 KB * 2000 rows = 1.5 GB ≈ 1.4 GiB.

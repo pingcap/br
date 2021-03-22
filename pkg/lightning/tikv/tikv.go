@@ -11,15 +11,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package tikv
 
 import (
 	"context"
+	"fmt"
 	"regexp"
+	"strings"
 
+	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/debugpb"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -28,6 +32,8 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/version"
 )
 
 // StoreState is the state of a TiKV store. The numerical value is sorted by
@@ -191,4 +197,38 @@ func FetchModeFromMetrics(metrics string) (import_sstpb.SwitchMode, error) {
 	default:
 		return import_sstpb.SwitchMode_Normal, nil
 	}
+}
+
+func FetchRemoteTableModelsFromTLS(ctx context.Context, tls *common.TLS, schema string) ([]*model.TableInfo, error) {
+	var tables []*model.TableInfo
+	err := tls.GetJSON(ctx, "/schema/"+schema, &tables)
+	if err != nil {
+		return nil, errors.Annotatef(err, "cannot read schema '%s' from remote", schema)
+	}
+	return tables, nil
+}
+
+func CheckPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	ver, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return version.CheckVersion("PD", *ver, requiredMinVersion, requiredMaxVersion)
+}
+
+func CheckTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	return ForAllStores(
+		ctx,
+		tls.WithHost(pdAddr),
+		StoreStateDown,
+		func(c context.Context, store *Store) error {
+			component := fmt.Sprintf("TiKV (at %s)", store.Address)
+			ver, err := semver.NewVersion(strings.TrimPrefix(store.Version, "v"))
+			if err != nil {
+				return errors.Annotate(err, component)
+			}
+			return version.CheckVersion(component, *ver, requiredMinVersion, requiredMaxVersion)
+		},
+	)
 }
