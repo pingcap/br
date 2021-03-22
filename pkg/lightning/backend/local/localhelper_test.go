@@ -358,15 +358,44 @@ func (h *noopHook) AfterScanRegions(res []*restore.RegionInfo, err error) ([]*re
 	return res, err
 }
 
-func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, hook clientHook, errPat string) {
+type batchSplitHook interface {
+	setup(c *C) func()
+	check(c *C, cli *testClient)
+}
+
+type defaultHook struct{}
+
+func (d defaultHook) setup(c *C) func() {
 	oldLimit := maxBatchSplitKeys
 	oldSplitBackoffTime := splitRegionBaseBackOffTime
 	maxBatchSplitKeys = 4
 	splitRegionBaseBackOffTime = time.Millisecond
-	defer func() {
+	return func() {
 		maxBatchSplitKeys = oldLimit
 		splitRegionBaseBackOffTime = oldSplitBackoffTime
-	}()
+	}
+}
+
+func (d defaultHook) check(c *C, cli *testClient) {
+	// so with a batch split size of 4, there will be 7 time batch split
+	// 1. region: [aay, bba), keys: [b, ba, bb]
+	// 2. region: [bbh, cca), keys: [bc, bd, be, bf]
+	// 3. region: [bf, cca), keys: [bg, bh, bi, bj]
+	// 4. region: [bj, cca), keys: [bk, bl, bm, bn]
+	// 5. region: [bn, cca), keys: [bo, bp, bq, br]
+	// 6. region: [br, cca), keys: [bs, bt, bu, bv]
+	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
+
+	// since it may encounter error retries, here only check the lower threshold.
+	c.Assert(cli.splitCount >= 7, IsTrue)
+}
+
+func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, hook clientHook, errPat string, splitHook batchSplitHook) {
+	if splitHook == nil {
+		splitHook = defaultHook{}
+	}
+	deferFunc := splitHook.setup(c)
+	defer deferFunc()
 
 	keys := [][]byte{[]byte(""), []byte("aay"), []byte("bba"), []byte("bbh"), []byte("cca"), []byte("")}
 	client := initTestClient(keys, hook)
@@ -399,17 +428,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, h
 		return
 	}
 
-	// so with a batch split size of 4, there will be 7 time batch split
-	// 1. region: [aay, bba), keys: [b, ba, bb]
-	// 2. region: [bbh, cca), keys: [bc, bd, be, bf]
-	// 3. region: [bf, cca), keys: [bg, bh, bi, bj]
-	// 4. region: [bj, cca), keys: [bk, bl, bm, bn]
-	// 5. region: [bn, cca), keys: [bo, bp, bq, br]
-	// 6. region: [br, cca), keys: [bs, bt, bu, bv]
-	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
-
-	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(client.splitCount >= 7, IsTrue)
+	splitHook.check(c, client)
 
 	// check split ranges
 	regions, err = paginateScanRegion(ctx, client, rangeStart, rangeEnd, 5)
@@ -425,7 +444,40 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, h
 }
 
 func (s *localSuite) TestBatchSplitRegionByRanges(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "", nil)
+}
+
+type batchSizeHook struct{}
+
+func (h batchSizeHook) setup(c *C) func() {
+	oldSizeLimit := maxBatchSplitSize
+	oldSplitBackoffTime := splitRegionBaseBackOffTime
+	maxBatchSplitSize = 6
+	splitRegionBaseBackOffTime = time.Millisecond
+	return func() {
+		maxBatchSplitSize = oldSizeLimit
+		splitRegionBaseBackOffTime = oldSplitBackoffTime
+	}
+}
+
+func (h batchSizeHook) check(c *C, cli *testClient) {
+	// so with a batch split key size of 6, there will be 9 time batch split
+	// 1. region: [aay, bba), keys: [b, ba, bb]
+	// 2. region: [bbh, cca), keys: [bc, bd, be]
+	// 3. region: [bf, cca), keys: [bf, bg, bh]
+	// 4. region: [bj, cca), keys: [bi, bj, bk]
+	// 5. region: [bj, cca), keys: [bl, bm, bn]
+	// 6. region: [bn, cca), keys: [bo, bp, bq]
+	// 7. region: [bn, cca), keys: [br, bs, bt]
+	// 9. region: [br, cca), keys: [bu, bv, bw]
+	// 10. region: [bv, cca), keys: [bx, by, bz]
+
+	// since it may encounter error retries, here only check the lower threshold.
+	c.Assert(cli.splitCount, Equals, 9)
+}
+
+func (s *localSuite) TestBatchSplitRegionByRangesKeySizeLimit(c *C) {
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "", batchSizeHook{})
 }
 
 type scanRegionEmptyHook struct {
@@ -443,7 +495,7 @@ func (h *scanRegionEmptyHook) AfterScanRegions(res []*restore.RegionInfo, err er
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesScanFailed(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &scanRegionEmptyHook{}, "paginate scan region returns empty result")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &scanRegionEmptyHook{}, "paginate scan region returns empty result", defaultHook{})
 }
 
 type splitRegionEpochNotMatchHook struct {
@@ -459,7 +511,7 @@ func (h *splitRegionEpochNotMatchHook) BeforeSplitRegion(ctx context.Context, re
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*", defaultHook{})
 }
 
 // return epoch not match error in every other call
@@ -481,7 +533,7 @@ func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Conte
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHookRandom{}, "")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHookRandom{}, "", defaultHook{})
 }
 
 type splitRegionNoValidKeyHook struct {
@@ -500,11 +552,11 @@ func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, region
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*", defaultHook{})
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*")
+	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*", defaultHook{})
 }
 
 type reportAfterSplitHook struct {
@@ -531,7 +583,7 @@ func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
 		}
 	}()
 
-	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
+	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*", defaultHook{})
 	close(ch)
 }
 
