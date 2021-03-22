@@ -43,6 +43,15 @@ start_s3() {
     done
 }
 
+wait_sig() {
+    success=0
+    trap "success=1" USR1
+
+    while (( success != 1 )); do
+      sleep 1
+    done
+}
+
 start_s3
 echo "started s3 with pid = $s3_pid"
 bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
@@ -67,13 +76,18 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  ( run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/s3-outage-during-writing-file=1*return($$)" \
+      run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
       --ratelimit 1 \
       --log-file $BACKUP_LOG || \
       ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
   br_pid=$!
 
   sleep 3
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait_sig
   kill -9 $s3_pid
   sleep 15
   start_s3

@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -217,6 +219,19 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
+	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
+		log.Info("failpoint s3-outage-during-writing-file injected, " +
+			"process will sleep for 3s and notify the shell to kill s3 service.")
+		if pid, ok := v.(int); ok {
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+			} else if err := proc.Signal(syscall.SIGUSR1); err != nil {
+				log.Warn("failed to notify the shell, skipping notify", zap.Error(err))
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
