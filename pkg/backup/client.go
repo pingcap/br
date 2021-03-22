@@ -224,7 +224,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 			file, err := os.Create(sigFile)
 			if err != nil {
 				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
-			} 
+			}
 			if file != nil {
 				file.Close()
 			}
