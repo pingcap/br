@@ -8,12 +8,12 @@ import (
 	context "context"
 	sql "database/sql"
 	gomock "github.com/golang/mock/gomock"
-	parser "github.com/pingcap/parser"
-	model "github.com/pingcap/parser/model"
 	checkpoints "github.com/pingcap/br/pkg/lightning/checkpoints"
 	config "github.com/pingcap/br/pkg/lightning/config"
 	glue "github.com/pingcap/br/pkg/lightning/glue"
 	log "github.com/pingcap/br/pkg/lightning/log"
+	parser "github.com/pingcap/parser"
+	model "github.com/pingcap/parser/model"
 	reflect "reflect"
 )
 

@@ -31,5 +31,5 @@ import (
 	_ "github.com/shurcooL/vfsgen/cmd/vfsgendev"
 
 	// gogo for generating lightning checkpoint
-	_ "github.com/gogo/protobuf"
+	_ "github.com/gogo/protobuf/proto"
 )

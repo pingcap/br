@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 )
 
 func Test(t *testing.T) {
@@ -135,23 +135,23 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
-	url := FormatBackendURL(&backup.StorageBackend{
-		Backend: &backup.StorageBackend_Local{
-			Local: &backup.Local{Path: "/tmp/file"},
+	url := FormatBackendURL(&backuppb.StorageBackend{
+		Backend: &backuppb.StorageBackend_Local{
+			Local: &backuppb.Local{Path: "/tmp/file"},
 		},
 	})
 	c.Assert(url.String(), Equals, "local:///tmp/file")
 
-	url = FormatBackendURL(&backup.StorageBackend{
-		Backend: &backup.StorageBackend_Noop{
-			Noop: &backup.Noop{},
+	url = FormatBackendURL(&backuppb.StorageBackend{
+		Backend: &backuppb.StorageBackend_Noop{
+			Noop: &backuppb.Noop{},
 		},
 	})
 	c.Assert(url.String(), Equals, "noop:///")
 
-	url = FormatBackendURL(&backup.StorageBackend{
-		Backend: &backup.StorageBackend_S3{
-			S3: &backup.S3{
+	url = FormatBackendURL(&backuppb.StorageBackend{
+		Backend: &backuppb.StorageBackend_S3{
+			S3: &backuppb.S3{
 				Bucket:   "bucket",
 				Prefix:   "/some prefix/",
 				Endpoint: "https://s3.example.com/",
@@ -160,9 +160,9 @@ func (r *testStorageSuite) TestFormatBackendURL(c *C) {
 	})
 	c.Assert(url.String(), Equals, "s3://bucket/some%20prefix/")
 
-	url = FormatBackendURL(&backup.StorageBackend{
-		Backend: &backup.StorageBackend_Gcs{
-			Gcs: &backup.GCS{
+	url = FormatBackendURL(&backuppb.StorageBackend{
+		Backend: &backuppb.StorageBackend_Gcs{
+			Gcs: &backuppb.GCS{
 				Bucket:   "bucket",
 				Prefix:   "/some prefix/",
 				Endpoint: "https://gcs.example.com/",

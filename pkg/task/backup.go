@@ -10,12 +10,13 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -45,8 +46,8 @@ const (
 
 // CompressionConfig is the configuration for sst file compression.
 type CompressionConfig struct {
-	CompressionType  kvproto.CompressionType `json:"compression-type" toml:"compression-type"`
-	CompressionLevel int32                   `json:"compression-level" toml:"compression-level"`
+	CompressionType  backuppb.CompressionType `json:"compression-type" toml:"compression-type"`
+	CompressionLevel int32                    `json:"compression-level" toml:"compression-level"`
 }
 
 // BackupConfig is the configuration specific for backup tasks.
@@ -85,10 +86,9 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 
 	// Disable stats by default. because of
 	// 1. DumpStatsToJson is not stable
-	// 2. It increases memory usage may cause BR OOM
+	// 2. It increases memory usage and might cause BR OOM.
 	// TODO: we need a better way to backup/restore stats.
-	flags.Bool(flagIgnoreStats, true,
-		"ignore backup stats, used for test")
+	flags.Bool(flagIgnoreStats, true, "ignore backup stats, used for test")
 	// This flag is used for test. we should backup stats all the time.
 	_ = flags.MarkHidden(flagIgnoreStats)
 }
@@ -175,8 +175,8 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 		cfg.GCTTL = utils.DefaultBRGCSafePointTTL
 	}
 	// Use zstd as default
-	if cfg.CompressionType == kvproto.CompressionType_UNKNOWN {
-		cfg.CompressionType = kvproto.CompressionType_ZSTD
+	if cfg.CompressionType == backuppb.CompressionType_UNKNOWN {
+		cfg.CompressionType = backuppb.CompressionType_ZSTD
 	}
 }
 
@@ -198,17 +198,31 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return errors.Trace(err)
 	}
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	skipStats := cfg.IgnoreStats
+	// For backup, Domain is not needed if user ignores stats.
+	// Domain loads all table info into memory. By skipping Domain, we save
+	// lots of memory (about 500MB for 40K 40 fields YCSB tables).
+	needDomain := !skipStats
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	defer mgr.Close()
+	var statsHandle *handle.Handle
+	if !skipStats {
+		statsHandle = mgr.GetDomain().StatsHandle()
+	}
 
 	client, err := backup.NewBackupClient(ctx, mgr)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+	opts := storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
+	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
 	err = client.SetLockFile(ctx)
@@ -232,9 +246,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		sp.BackupTS = cfg.LastBackupTS
 	}
 
-	log.Info("current backup safePoint job",
-		zap.Object("safePoint", sp))
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	log.Info("current backup safePoint job", zap.Object("safePoint", sp))
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	isIncrementalBackup := cfg.LastBackupTS > 0
 
@@ -255,7 +271,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	req := kvproto.BackupRequest{
+	req := backuppb.BackupRequest{
 		ClusterId:        client.GetClusterID(),
 		StartVersion:     cfg.LastBackupTS,
 		EndVersion:       backupTS,
@@ -270,8 +286,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	ranges, backupSchemas, err := backup.BuildBackupRangeAndSchema(
-		mgr.GetDomain(), mgr.GetStorage(), cfg.TableFilter, backupTS, cfg.IgnoreStats)
+	ranges, schemas, err := backup.BuildBackupRangeAndSchema(mgr.GetStorage(), cfg.TableFilter, backupTS)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -298,7 +313,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetDomain(), cfg.LastBackupTS, backupTS)
+		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetStorage(), cfg.LastBackupTS, backupTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -334,33 +349,32 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	// Checksum from server, and then fulfill the backup metadata.
-	if cfg.Checksum && !isIncrementalBackup {
-		backupSchemasConcurrency := utils.MinInt(backup.DefaultSchemaConcurrency, backupSchemas.Len())
-		updateCh = g.StartProgress(
-			ctx, "Checksum", int64(backupSchemas.Len()), !cfg.LogProgress)
-		backupSchemas.Start(
-			ctx, mgr.GetStorage(), backupTS, uint(backupSchemasConcurrency), cfg.ChecksumConcurrency, updateCh)
-		backupMeta.Schemas, err = backupSchemas.FinishTableChecksum()
-		if err != nil {
-			return errors.Trace(err)
-		}
-		// Checksum has finished
-		updateCh.Close()
-		// collect file information.
-		err = checkChecksums(&backupMeta)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	} else {
-		// Just... copy schemas from origin.
-		backupMeta.Schemas = backupSchemas.CopyMeta()
+	skipChecksum := !cfg.Checksum || isIncrementalBackup
+	checksumProgress := int64(schemas.Len())
+	if skipChecksum {
+		checksumProgress = 1
 		if isIncrementalBackup {
 			// Since we don't support checksum for incremental data, fast checksum should be skipped.
 			log.Info("Skip fast checksum in incremental backup")
 		} else {
 			// When user specified not to calculate checksum, don't calculate checksum.
-			log.Info("Skip fast checksum because user requirement.")
+			log.Info("Skip fast checksum")
+		}
+	}
+	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
+	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
+	backupMeta.Schemas, err = schemas.BackupSchemas(
+		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// Checksum has finished, close checksum progress.
+	updateCh.Close()
+	if !skipChecksum {
+		// Check if checksum from files matches checksum from coprocessor.
+		err = checkChecksums(&backupMeta)
+		if err != nil {
+			return errors.Trace(err)
 		}
 	}
 
@@ -378,7 +392,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 // checkChecksums checks the checksum of the client, once failed,
 // returning a error with message: "mismatched checksum".
-func checkChecksums(backupMeta *kvproto.BackupMeta) error {
+func checkChecksums(backupMeta *backuppb.BackupMeta) error {
 	checksums, err := backup.CollectChecksums(backupMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -414,17 +428,17 @@ func parseTSString(ts string) (uint64, error) {
 	return variable.GoTimeToTS(t1), nil
 }
 
-func parseCompressionType(s string) (kvproto.CompressionType, error) {
-	var ct kvproto.CompressionType
+func parseCompressionType(s string) (backuppb.CompressionType, error) {
+	var ct backuppb.CompressionType
 	switch s {
 	case "lz4":
-		ct = kvproto.CompressionType_LZ4
+		ct = backuppb.CompressionType_LZ4
 	case "snappy":
-		ct = kvproto.CompressionType_SNAPPY
+		ct = backuppb.CompressionType_SNAPPY
 	case "zstd":
-		ct = kvproto.CompressionType_ZSTD
+		ct = backuppb.CompressionType_ZSTD
 	default:
-		return kvproto.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
+		return backuppb.CompressionType_UNKNOWN, errors.Annotatef(berrors.ErrInvalidArgument, "invalid compression type '%s'", s)
 	}
 	return ct, nil
 }

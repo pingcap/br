@@ -21,8 +21,8 @@ const (
 	importSSTMaxWaitInterval = 1 * time.Second
 
 	downloadSSTRetryTimes      = 8
-	downloadSSTWaitInterval    = 10 * time.Millisecond
-	downloadSSTMaxWaitInterval = 1 * time.Second
+	downloadSSTWaitInterval    = 1 * time.Second
+	downloadSSTMaxWaitInterval = 4 * time.Second
 
 	resetTSRetryTime       = 16
 	resetTSWaitInterval    = 50 * time.Millisecond

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	. "github.com/pingcap/check"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -151,12 +151,12 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 		bo                *tikv.Backoffer
 		backupTS          uint64
 		lockResolver      *tikv.LockResolver
-		resp              *kvproto.BackupResponse
+		resp              *backuppb.BackupResponse
 		exceptedBackoffMs int
 		exceptedErr       bool
 	}
-	newBackupRegionErrorResp := func(regionError *errorpb.Error) *kvproto.BackupResponse {
-		return &kvproto.BackupResponse{Error: &kvproto.Error{Detail: &kvproto.Error_RegionError{RegionError: regionError}}}
+	newBackupRegionErrorResp := func(regionError *errorpb.Error) *backuppb.BackupResponse {
+		return &backuppb.BackupResponse{Error: &backuppb.Error{Detail: &backuppb.Error_RegionError{RegionError: regionError}}}
 	}
 
 	cases := []Case{
@@ -184,7 +184,7 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 }
 
 func (r *testBackup) TestBuildBackupMeta(c *C) {
-	req := kvproto.BackupRequest{
+	req := backuppb.BackupRequest{
 		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
 		StartVersion: 0,
 		EndVersion:   0,
