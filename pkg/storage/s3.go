@@ -629,8 +629,6 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader,
 		completeParts: make([]*s3.CompletedPart, 0, 128),
 	}, nil
 }
-<<<<<<< HEAD
-=======
 
 // Create creates multi upload request.
 func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
@@ -664,4 +662,3 @@ func defaultS3Retryer() request.Retryer {
 		},
 	}
 }
->>>>>>> 8f80b8e... storage: Add S3 retry time  (#906)
