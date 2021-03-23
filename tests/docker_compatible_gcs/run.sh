@@ -26,7 +26,8 @@ KEY=$(cat <<- EOF
   "client_email": "test@email.com",
   "token_uri": "http://oauth:5000/oauth/token"
 }
-EOF)
+EOF
+)
 
 # save CREDENTIALS to file
 echo $KEY > "tests/$TEST_NAME/config.json"
