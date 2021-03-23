@@ -209,9 +209,6 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
-<<<<<<< HEAD
-	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
-=======
 	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
 		log.Info("failpoint s3-outage-during-writing-file injected, " +
 			"process will sleep for 3s and notify the shell to kill s3 service.")
@@ -226,8 +223,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 		}
 		time.Sleep(3 * time.Second)
 	})
-	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
->>>>>>> 8f80b8e... storage: Add S3 retry time  (#906)
+	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
 // GetClusterID returns the cluster ID of the tidb cluster to backup.
