@@ -55,15 +55,21 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Bucket, Equals, "bucket2")
 	c.Assert(s3.Prefix, Equals, "prefix")
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
+	c.Assert(s3.ForcePathStyle, IsFalse)
 
+<<<<<<< HEAD
 	s, err = ParseBackend("s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=1&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc", nil) // nolint:lll
+=======
+	// nolint:lll
+	s, err = ParseBackend(`s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=0&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc`, nil)
+>>>>>>> 1e53766... Make Lightning S3 use force-path-style=true by default  (#903)
 	c.Assert(err, IsNil)
 	s3 = s.GetS3()
 	c.Assert(s3, NotNil)
 	c.Assert(s3.Bucket, Equals, "bucket3")
 	c.Assert(s3.Prefix, Equals, "prefix/path")
 	c.Assert(s3.Endpoint, Equals, "https://127.0.0.1:9000")
-	c.Assert(s3.ForcePathStyle, IsTrue)
+	c.Assert(s3.ForcePathStyle, IsFalse)
 	c.Assert(s3.Sse, Equals, "aws:kms")
 	c.Assert(s3.SseKmsKeyId, Equals, "TestKey")
 
@@ -76,6 +82,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Prefix, Equals, "prefix/path")
 	c.Assert(s3.AccessKey, Equals, "NXN7IPIOSAAKDEEOLMAF")
 	c.Assert(s3.SecretAccessKey, Equals, "nREY/7Dt+PaIbYKrKlEEMMF/ExCiJEX=XMLPUANw")
+	c.Assert(s3.ForcePathStyle, IsTrue)
 
 	gcsOpt := &BackendOptions{
 		GCS: GCSBackendOptions{
@@ -130,7 +137,9 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(err, IsNil)
 	local := s.GetLocal()
 	c.Assert(local, NotNil)
-	c.Assert(local.GetPath(), Equals, "/test")
+	expectedLocalPath, err := filepath.Abs("/test")
+	c.Assert(err, IsNil)
+	c.Assert(local.GetPath(), Equals, expectedLocalPath)
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
