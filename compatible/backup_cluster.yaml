@@ -115,11 +115,11 @@ services:
     volumes:
       - /tmp/br/docker/backup_data/gcs:/data/gcs
     command:
-      - -scheme http
-      - -host gcs
-      - -port 20818
-      - -filesystem-root /data/gcs
-      - -public-host gcs:20818
+      - -scheme=http
+      - -host=gcs
+      - -port=20818
+      - -filesystem-root=/data/gcs
+      - -public-host=gcs:20818
 
   # we need a oauth server for gcs test
   oauth:
