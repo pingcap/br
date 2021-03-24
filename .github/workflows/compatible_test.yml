@@ -1,18 +1,24 @@
 name: compatible-test
 
 on:
+  issue_comment:
+    types: [created]
   push:
-    branches: [ master, release-4.0 ]
+    branches: [ release-4.0, release-5.0 ]
   pull_request:
-    branches: [ master, release-4.0 ]
+    branches: [ release-4.0, release-5.0 ]
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
 
     steps:
+    - uses: khan/pull-request-comment-trigger@master
+      id: check
+      with:
+        trigger: '/run-compatible-tests'
+
     - name: Free disk space
       run: |
         sudo rm -rf /usr/local/lib/android
