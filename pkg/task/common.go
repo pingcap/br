@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gcs "cloud.google.com/go/storage"
+	"github.com/docker/go-units"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -29,7 +30,6 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -157,7 +157,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	// It may confuse users , so just hide it.
 	_ = flags.MarkHidden(flagConcurrency)
 
-	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
+	flags.Uint64(flagRateLimitUnit, units.MiB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
 	_ = flags.MarkDeprecated(flagRemoveTiFlash,
 		"TiFlash is fully supported by BR now, removing TiFlash isn't needed any more. This flag would be ignored.")
@@ -351,7 +351,9 @@ func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	keepalive keepalive.ClientParameters,
-	checkRequirements bool) (*conn.Mgr, error) {
+	checkRequirements bool,
+	needDomain bool,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -379,10 +381,10 @@ func NewMgr(ctx context.Context,
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
-	return conn.NewMgr(ctx, g,
-		pdAddress, store,
-		tlsConf, securityOption, keepalive,
-		conn.SkipTiFlash, checkRequirements)
+	return conn.NewMgr(
+		ctx, g, pdAddress, store, tlsConf, securityOption, keepalive, conn.SkipTiFlash,
+		checkRequirements, needDomain,
+	)
 }
 
 // GetStorage gets the storage backend from the config.

@@ -37,7 +37,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -178,7 +178,7 @@ func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
 //   use a default glue later.
 // - for lightning as a library, taskCtx could be a meaningful context that get canceled outside, and glue could be a
 //   caller implemented glue.
-func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue, replaceLogger *zap.Logger) error {
+func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue) error {
 	if err := taskCfg.Adjust(taskCtx); err != nil {
 		return err
 	}
@@ -188,9 +188,6 @@ func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glu
 		taskCfg.TaskID = int64(val.(int))
 	})
 
-	if replaceLogger != nil {
-		log.SetAppLogger(replaceLogger)
-	}
 	return l.run(taskCtx, taskCfg, glue)
 }
 
@@ -274,7 +271,11 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{
+		// we skip check path in favor of delaying the error to when we actually access the file.
+		// on S3, performing "check path" requires the additional "s3:ListBucket" permission.
+		SkipCheckPath: true,
+	})
 	if err != nil {
 		return errors.Annotate(err, "create storage failed")
 	}
@@ -669,7 +670,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 		// region-concurrency: number of LocalWriters writing SST files.
 		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
 		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
-		if err := backend.VerifyRLimit(estimateMaxFiles); err != nil {
+		if err := local.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}
 	}

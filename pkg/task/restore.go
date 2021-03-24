@@ -162,7 +162,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Restore needs domain to do DDL.
+	needDomain := true
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -470,10 +472,6 @@ func enableTiDBConfig() func() {
 		// when upstream and downstream both set this value greater than default(3072)
 		conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 		log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
-
-		// we need set this to true, since all create table DDLs will create with tableInfo
-		// and we can handle alter drop pk/add pk DDLs with no impact
-		conf.AlterPrimaryKey = true
 	})
 	return restoreConfig
 }
