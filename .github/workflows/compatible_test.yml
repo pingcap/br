@@ -6,7 +6,7 @@ on:
   push:
     branches: [ release-4.0, release-5.0 ]
   pull_request:
-    branches: [ release-4.0, release-5.0 ]
+    branches: [ master, release-4.0, release-5.0 ]
 
 jobs:
   build:
@@ -25,6 +25,7 @@ jobs:
         sudo rm -rf /usr/share/dotnet
         docker volume prune -f
         docker image prune -f
+      if: steps.check.outputs.triggered == 'true'
 
     - uses: actions/checkout@v2
 
@@ -36,6 +37,7 @@ jobs:
     - name: Generate Compatible test backup data
       timeout-minutes: 15
       run: sh compatible/prepare_backup.sh
+      if: steps.check.outputs.triggered == 'true'
 
     - name: Start server
       run: |
@@ -43,6 +45,7 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+      if: steps.check.outputs.triggered == 'true'
 
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
