@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1316,7 +1317,19 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 			cancel()
 		}
 
+		type engineCheckpoint struct {
+			engineID   int32
+			checkpoint *EngineCheckpoint
+		}
+		allEngines := make([]engineCheckpoint, 0, len(cp.Engines))
 		for engineID, engine := range cp.Engines {
+			allEngines = append(allEngines, engineCheckpoint{engineID: engineID, checkpoint: engine})
+		}
+		sort.Slice(allEngines, func(i, j int) bool { return allEngines[i].engineID < allEngines[j].engineID })
+
+		for _, ecp := range allEngines {
+			engineID := ecp.engineID
+			engine := ecp.checkpoint
 			select {
 			case <-ctx.Done():
 				// Set engineErr and break this for loop to wait all the sub-routines done before return.
