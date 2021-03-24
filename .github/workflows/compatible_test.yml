@@ -3,10 +3,6 @@ name: compatible-test
 on:
   issue_comment:
     types: [created]
-  push:
-    branches: [ release-4.0, release-5.0 ]
-  pull_request:
-    branches: [ master, release-4.0, release-5.0 ]
 
 jobs:
   build:
