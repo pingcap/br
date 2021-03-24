@@ -38,8 +38,8 @@ done
 bin/oauth &
 
 stop_gcs() {
-    killall -2 fake-gcs-server || true
-    killall -2 oauth || true
+    killall -9 fake-gcs-server || true
+    killall -9 oauth || true
 }
 trap stop_gcs EXIT
 

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -28,14 +29,14 @@ import (
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/httputil"
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/lightning/common"
 )
 
 const (
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schedulerPrefix      = "pd/api/v1/schedulers"
-	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
+	maxMsgSize           = int(128 * units.MiB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
 
@@ -606,4 +607,22 @@ func (p *PdController) RemoveSchedulers(ctx context.Context) (undo UndoFunc, err
 func (p *PdController) Close() {
 	p.pdClient.Close()
 	close(p.schedulerPauseCh)
+}
+
+// FetchPDVersion get pd version
+func FetchPDVersion(ctx context.Context, tls *common.TLS, pdAddr string) (*semver.Version, error) {
+	// An example of PD version API.
+	// curl http://pd_address/pd/api/v1/version
+	// {
+	//   "version": "v4.0.0-rc.2-451-g760fb650"
+	// }
+	var rawVersion struct {
+		Version string `json:"version"`
+	}
+	err := tls.WithHost(pdAddr).GetJSON(ctx, "/pd/api/v1/version", &rawVersion)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return parseVersion([]byte(rawVersion.Version)), nil
 }

@@ -1,7 +1,35 @@
-This folder contains all tests which relies on external processes such as TiDB.
+# Unit tests
 
 Unit tests (the `*_test.go` files inside the source directory) should *never* rely on external
 programs.
+
+Run `make test` to execute all unit tests.
+
+To run a specific test, pass `ARGS` into `make test` like
+
+```sh
+make test ARGS='github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn'
+#               ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#                which package to test            more extra test flags
+```
+
+You can also run unit tests directly via `go test` like:
+
+```sh
+make failpoint-enable
+
+go test github.com/pingcap/br/pkg/cdclog --test.v --check.v --check.f TestColumn
+
+make failpoint-disable
+```
+
+but note that:
+
+* failpoints must be toggled manually
+
+# Integration tests
+
+This folder contains all tests which relies on external processes such as TiDB.
 
 ## Preparations
 
@@ -39,7 +67,6 @@ If you have docker installed, you can skip step 1 and step 2 by running
 
 ## Running
 
-Run `make test` to execute the unit tests.
 Run `make integration_test` to execute the integration tests. This command will
 
 1. Build `br`

@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 )
@@ -101,6 +101,9 @@ type ExternalStorageOptions struct {
 	// downstream via external key managers, e.g. on K8s or cloud provider.
 	SendCredentials bool
 
+	// NoCredentials means that no cloud credentials are supplied to BR
+	NoCredentials bool
+
 	// SkipCheckPath marks whether to skip checking path's existence.
 	//
 	// This should only be set to true in testing, to avoid interacting with the
@@ -119,7 +122,7 @@ type ExternalStorageOptions struct {
 // Create creates ExternalStorage.
 //
 // Please consider using `New` in the future.
-func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) (ExternalStorage, error) {
+func Create(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) (ExternalStorage, error) {
 	return New(ctx, backend, &ExternalStorageOptions{
 		SendCredentials: sendCreds,
 		SkipCheckPath:   false,
@@ -128,9 +131,9 @@ func Create(ctx context.Context, backend *backup.StorageBackend, sendCreds bool)
 }
 
 // New creates an ExternalStorage with options.
-func New(ctx context.Context, backend *backup.StorageBackend, opts *ExternalStorageOptions) (ExternalStorage, error) {
+func New(ctx context.Context, backend *backuppb.StorageBackend, opts *ExternalStorageOptions) (ExternalStorage, error) {
 	switch backend := backend.Backend.(type) {
-	case *backup.StorageBackend_Local:
+	case *backuppb.StorageBackend_Local:
 		if backend.Local == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "local config not found")
 		}
@@ -138,14 +141,14 @@ func New(ctx context.Context, backend *backup.StorageBackend, opts *ExternalStor
 			return &LocalStorage{base: backend.Local.Path}, nil
 		}
 		return NewLocalStorage(backend.Local.Path)
-	case *backup.StorageBackend_S3:
+	case *backuppb.StorageBackend_S3:
 		if backend.S3 == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "s3 config not found")
 		}
 		return newS3Storage(backend.S3, opts)
-	case *backup.StorageBackend_Noop:
+	case *backuppb.StorageBackend_Noop:
 		return newNoopStorage(), nil
-	case *backup.StorageBackend_Gcs:
+	case *backuppb.StorageBackend_Gcs:
 		if backend.Gcs == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "GCS config not found")
 		}

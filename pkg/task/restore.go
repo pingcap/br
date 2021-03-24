@@ -9,7 +9,7 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/config"
 	"github.com/spf13/pflag"
@@ -162,7 +162,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Restore needs domain to do DDL.
+	needDomain := true
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -180,7 +182,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err = client.SetStorage(ctx, u, cfg.SendCreds); err != nil {
+	opts := storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
+	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
 	client.SetRateLimit(cfg.RateLimit)
@@ -229,7 +236,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	// restore checksum will check safe point with its start ts, see details at
 	// https://github.com/pingcap/tidb/blob/180c02127105bed73712050594da6ead4d70a85f/store/tikv/kv.go#L186-L190
 	// so, we should keep the safe point unchangeable. to avoid GC life time is shorter than transaction duration.
-	utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	err = utils.StartServiceSafePointKeeper(ctx, mgr.GetPDClient(), sp)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	var newTS uint64
 	if client.IsIncremental() {
@@ -405,7 +415,7 @@ func dropToBlackhole(
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backup.File, tables []*utils.Table, dbs []*utils.Database) {
+) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
@@ -467,10 +477,6 @@ func enableTiDBConfig() func() {
 		// when upstream and downstream both set this value greater than default(3072)
 		conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 		log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
-
-		// we need set this to true, since all create table DDLs will create with tableInfo
-		// and we can handle alter drop pk/add pk DDLs with no impact
-		conf.AlterPrimaryKey = true
 	})
 	return restoreConfig
 }

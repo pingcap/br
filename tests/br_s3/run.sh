@@ -25,19 +25,35 @@ export MINIO_BROWSER=off
 export AWS_ACCESS_KEY_ID=$MINIO_ACCESS_KEY
 export AWS_SECRET_ACCESS_KEY=$MINIO_SECRET_KEY
 export S3_ENDPOINT=127.0.0.1:24927
+
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
-bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
-i=0
-while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
-    i=$(($i+1))
-    if [ $i -gt 7 ]; then
-        echo 'Failed to start minio'
-        exit 1
-    fi
-    sleep 2
-done
+sig_file="$TEST_DIR/sig_file_$RANDOM"
+rm -f "$sig_file"
 
+s3_pid=""
+start_s3() {
+    bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
+    s3_pid=$!
+    i=0
+    while ! curl -o /dev/null -v -s "http://$S3_ENDPOINT/"; do
+        i=$(($i+1))
+        if [ $i -gt 30 ]; then
+            echo 'Failed to start minio'
+            exit 1
+        fi
+        sleep 2
+    done
+}
+
+wait_sig() {
+    until [ -e "$sig_file" ]; do
+        sleep 1
+    done
+}
+
+start_s3
+echo "started s3 with pid = $s3_pid"
 bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
     host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
@@ -60,9 +76,23 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/s3-outage-during-writing-file=1*return(\"$sig_file\")" \
+      run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
+      --ratelimit 1 \
       --log-file $BACKUP_LOG || \
-      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 )
+      ( cat $BACKUP_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
+  br_pid=$!
+
+  sleep 3
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait_sig
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait $br_pid
+
   cat $BACKUP_LOG
   BR_LOG_TO_TERM=1
 
@@ -80,11 +110,20 @@ for p in $(seq 2); do
   RESTORE_LOG="restore.log"
   rm -f $RESTORE_LOG
   unset BR_LOG_TO_TERM
-  run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+  ( run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
+      --ratelimit 1 \
       --log-file $RESTORE_LOG || \
-      ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 )
+      ( cat $RESTORE_LOG && BR_LOG_TO_TERM=1 && exit 1 ) ) &
+  br_pid=$!
+  # Make a S3 outage.
+  sleep 3
+  kill -9 $s3_pid
+  sleep 15
+  start_s3
+  wait $br_pid
   cat $RESTORE_LOG
   BR_LOG_TO_TERM=1
+
 
   if grep -i $MINIO_SECRET_KEY $RESTORE_LOG; then
       echo "Secret key logged in log. Please remove them."
