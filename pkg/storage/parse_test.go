@@ -57,12 +57,7 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	c.Assert(s3.Endpoint, Equals, "https://s3.example.com/")
 	c.Assert(s3.ForcePathStyle, IsFalse)
 
-<<<<<<< HEAD
-	s, err = ParseBackend("s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=1&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc", nil) // nolint:lll
-=======
-	// nolint:lll
-	s, err = ParseBackend(`s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=0&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc`, nil)
->>>>>>> 1e53766... Make Lightning S3 use force-path-style=true by default  (#903)
+	s, err = ParseBackend(`s3://bucket3/prefix/path?endpoint=https://127.0.0.1:9000&force_path_style=0&SSE=aws:kms&sse-kms-key-id=TestKey&xyz=abc`, nil) // nolint:lll
 	c.Assert(err, IsNil)
 	s3 = s.GetS3()
 	c.Assert(s3, NotNil)
