@@ -25,7 +25,9 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
+	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 )
@@ -40,13 +42,7 @@ const (
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
 	// number of retries to make of operations.
-<<<<<<< HEAD
-	maxRetries = 6
-=======
 	maxRetries = 7
-	// max number of retries when meets error
-	maxErrorRetries = 3
->>>>>>> 8f80b8e... storage: Add S3 retry time  (#906)
 
 	// the maximum number of byte to read for seek.
 	maxSkipOffsetByRead = 1 << 16 // 64KB
@@ -628,16 +624,6 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (Uploader,
 		createOutput:  resp,
 		completeParts: make([]*s3.CompletedPart, 0, 128),
 	}, nil
-}
-
-// Create creates multi upload request.
-func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := rs.CreateUploader(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
-	return uploaderWriter, nil
 }
 
 // retryerWithLog wrappes the client.DefaultRetryer, and logging when retry triggered.
