@@ -26,7 +26,7 @@ export MINIO_SECRET_KEY=brs3secretkey
 export MINIO_BROWSER=off
 export AWS_ACCESS_KEY_ID=$MINIO_ACCESS_KEY
 export AWS_SECRET_ACCESS_KEY=$MINIO_SECRET_KEY
-export S3_ENDPOINT=127.0.0.1:24928
+export S3_ENDPOINT=127.0.0.1:24927
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
 bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &

@@ -37,13 +37,27 @@ cleanup_data() {
 }
 
 stop_services() {
-    for svc in "br" "tidb-server" "tiflash" "TiFlashMain" "tikv-server" "pd-server" "cdc" "minio" "tikv-importer"; do
+    for svc in "br" "tidb-server" "tiflash" "TiFlashMain" "tikv-server" \
+                "pd-server" "cdc" "minio" "tikv-importer" "fake-gcs-server" \
+                "oauth"; do
         killall -v -1 $svc 2>/dev/null || continue
         sleep 1 # give some grace shutdown period
         killall -v -9 $svc &>/dev/null || continue
     done
     sleep 1 # give some time for the OS to reap all processes
-    lsof -n -P -i :2379 -i :4000 -i :10080 -i :20161 -i :20162 -i :20163 -i :20181 -i :20182 -i :20183 -i :17000 -i :8125 || true
+    lsof -n -P \
+        # PD
+        -i :2379 \
+        # TiDB
+        -i :4000 -i :10080 \
+        # TiKV
+        -i :20161 -i :20162 -i :20163 \
+        -i :20181 -i :20182 -i :20183 \
+        # TiFlash
+        -i :17000 -i :8125
+        # fake-gcs-server, oauth and minio
+        -i :21808 -i :5000 -i :24927 \
+        | awk 'NR > 1 {system("pwdx " $2)}' || true
 }
 
 start_services() {
