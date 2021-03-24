@@ -26,6 +26,11 @@ error = '''
 invalid argument
 '''
 
+["BR:Common:ErrInvalidMetaFile"]
+error = '''
+invalid metafile
+'''
+
 ["BR:Common:ErrUnknown"]
 error = '''
 internal error

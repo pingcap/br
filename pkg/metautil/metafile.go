@@ -218,9 +218,76 @@ func receiveBatch(
 	}
 }
 
+type appendOp int
+
+const (
+	appendMetaFile appendOp = 0
+	appendDataFile appendOp = 1
+	appendSchema   appendOp = 2
+)
+
+// appends b to a
+func (op appendOp) appendFile(a *backuppb.MetaFile, b interface{}) {
+	switch op {
+	case appendMetaFile:
+		a.MetaFiles = append(a.MetaFiles, b.(*backuppb.File))
+	case appendDataFile:
+		a.DataFiles = append(a.DataFiles, b.(*backuppb.File))
+	case appendSchema:
+		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
+	}
+}
+
 type sizedMetaFile struct {
-	backuppb.MetaFile
-	size int
+	// A stack like array, we always append to the last node.
+	nodes     []*backuppb.MetaFile
+	size      int
+	sizeLimit int
+
+	filePrefix string
+	fileSeqNum int
+
+	storage storage.ExternalStorage
+}
+
+// flushFile flushes file to external storage and returns a file descriptor (*backuppb.File).
+func (f *sizedMetaFile) flushFile(ctx context.Context, file *backuppb.MetaFile) (*backuppb.File, error) {
+	if file == nil {
+		return nil, errors.Annotate(berrors.ErrInvalidMetaFile, "nil metafile")
+	}
+	content, err := file.Marshal()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	f.fileSeqNum++
+	fname := fmt.Sprintf("%s.%09d", f.filePrefix, f.fileSeqNum)
+	if err = f.storage.WriteFile(ctx, fname, content); err != nil {
+		return nil, errors.Trace(err)
+	}
+	checksum := sha256.Sum256(content)
+	return &backuppb.File{
+		Name:   fname,
+		Sha256: checksum[:],
+		Size_:  uint64(len(content)),
+	}, nil
+}
+
+func (f *sizedMetaFile) findWritableNode() *backuppb.MetaFile {
+	if len(f.root.MetaFiles) != 0 {
+		// Root node still have some space.
+		return f.root
+	}
+	return f.leaf
+}
+
+func (f *sizedMetaFile) Append(ctx context.Context, file *backuppb.MetaFile, op appendOp) {
+	fszie := file.Size()
+	if f.size+fszie >= f.sizeLimit {
+		// rotate root
+		return
+	}
+
+	f.size += fszie
 }
 
 type MetaWriter struct {
@@ -264,7 +331,7 @@ func (writer *MetaWriter) WriteSchemas(ctx context.Context, schemas ...*backuppb
 			// Incoming schema is too large, we need to flush buffered scheams.
 			writer.flushSchemasLocked(ctx)
 		}
-		writer.schemas.Schemas = append(writer.schemas.Schemas, schemas[i])
+		writer.schemas.root.Schemas = append(writer.schemas.root.Schemas, schemas[i])
 		writer.schemas.size += size
 		totalSize += size
 	}
@@ -274,10 +341,10 @@ func (writer *MetaWriter) WriteSchemas(ctx context.Context, schemas ...*backuppb
 }
 
 func (writer *MetaWriter) flushSchemasLocked(ctx context.Context) error {
-	if len(writer.schemas.Schemas) == 0 {
+	if len(writer.schemas.root.Schemas) == 0 {
 		return nil
 	}
-	content, err := writer.schemas.Marshal()
+	content, err := writer.schemas.root.Marshal()
 	if err != nil {
 		return errors.Trace(err)
 	}
