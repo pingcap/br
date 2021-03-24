@@ -17,7 +17,6 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
-old_conf=$(run_sql "show config where name = 'alter-primary-key'")
 
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -88,9 +87,6 @@ for ct in limit lz4 zstd; do
       exit 1
   fi
 done
-
-# test whether we have changed the cluster config.
-test "$old_conf" = "$(run_sql "show config where name = 'alter-primary-key'")"
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"

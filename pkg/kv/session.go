@@ -83,6 +83,10 @@ func (mb *kvMemBuf) Delete(k kv.Key) error {
 	return nil
 }
 
+func (mb *kvMemBuf) DeleteWithFlags(k kv.Key, ops ...kv.FlagsOp) error {
+	return mb.Delete(k)
+}
+
 // Release publish all modifications in the latest staging buffer to upper level.
 func (mb *kvMemBuf) Release(h kv.StagingHandle) {
 }

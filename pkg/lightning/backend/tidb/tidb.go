@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package tidb
 
 import (
 	"context"
@@ -27,11 +27,14 @@ import (
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -40,10 +43,14 @@ import (
 )
 
 var extraHandleTableColumn = &table.Column{
-	ColumnInfo:    extraHandleColumnInfo,
+	ColumnInfo:    kv.ExtraHandleColumnInfo,
 	GeneratedExpr: nil,
 	DefaultExpr:   nil,
 }
+
+const (
+	writeRowsMaxRetryTimes = 3
+)
 
 type tidbRow string
 
@@ -60,7 +67,7 @@ func (row tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 type tidbEncoder struct {
 	mode mysql.SQLMode
 	tbl  table.Table
-	se   *session
+	se   sessionctx.Context
 	// the index of table columns for each data field.
 	// index == len(table.columns) means this field is `_tidb_rowid`
 	columnIdx []int
@@ -76,29 +83,29 @@ type tidbBackend struct {
 //
 // The backend does not take ownership of `db`. Caller should close `db`
 // manually after the backend expired.
-func NewTiDBBackend(db *sql.DB, onDuplicate string) Backend {
+func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	switch onDuplicate {
 	case config.ReplaceOnDup, config.IgnoreOnDup, config.ErrorOnDup:
 	default:
 		log.L().Warn("unsupported action on duplicate, overwrite with `replace`")
 		onDuplicate = config.ReplaceOnDup
 	}
-	return MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
+	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
-func (row tidbRow) ClassifyAndAppend(data *Rows, checksum *verification.KVChecksum, _ *Rows, _ *verification.KVChecksum) {
+func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
 	*data = tidbRows(append(rows, row))
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
 	checksum.Add(&cs)
 }
 
-func (rows tidbRows) SplitIntoChunks(splitSize int) []Rows {
+func (rows tidbRows) SplitIntoChunks(splitSize int) []kv.Rows {
 	if len(rows) == 0 {
 		return nil
 	}
 
-	res := make([]Rows, 0, 1)
+	res := make([]kv.Rows, 0, 1)
 	i := 0
 	cumSize := 0
 
@@ -114,7 +121,7 @@ func (rows tidbRows) SplitIntoChunks(splitSize int) []Rows {
 	return append(res, rows[i:])
 }
 
-func (rows tidbRows) Clear() Rows {
+func (rows tidbRows) Clear() kv.Rows {
 	return rows[:0]
 }
 
@@ -246,7 +253,7 @@ func getColumnByIndex(cols []*table.Column, index int) *table.Column {
 	return cols[index]
 }
 
-func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, columnPermutation []int) (Row, error) {
+func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, columnPermutation []int) (kv.Row, error) {
 	cols := enc.tbl.Cols()
 
 	if len(enc.columnIdx) == 0 {
@@ -267,7 +274,7 @@ func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, co
 	// column permutation with default, thus enc.columnCnt > len(row).
 	if len(row) > enc.columnCnt {
 		logger.Error("column count mismatch", zap.Ints("column_permutation", columnPermutation),
-			zap.Array("data", rowArrayMarshaler(row)))
+			zap.Array("data", kv.RowArrayMarshaler(row)))
 		return nil, errors.Errorf("column count mismatch, expected %d, got %d", enc.columnCnt, len(row))
 	}
 
@@ -280,7 +287,7 @@ func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, co
 		}
 		if err := enc.appendSQL(&encoded, &field, getColumnByIndex(cols, enc.columnIdx[i])); err != nil {
 			logger.Error("tidb encode failed",
-				zap.Array("original", rowArrayMarshaler(row)),
+				zap.Array("original", kv.RowArrayMarshaler(row)),
 				zap.Int("originalCol", i),
 				log.ShortError(err),
 			)
@@ -296,7 +303,7 @@ func (be *tidbBackend) Close() {
 	// TidbManager, so we let the manager to close it.
 }
 
-func (be *tidbBackend) MakeEmptyRows() Rows {
+func (be *tidbBackend) MakeEmptyRows() kv.Rows {
 	return tidbRows(nil)
 }
 
@@ -320,11 +327,11 @@ func (be *tidbBackend) CheckRequirements(ctx context.Context) error {
 	return nil
 }
 
-func (be *tidbBackend) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, error) {
-	se := newSession(options)
+func (be *tidbBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error) {
+	se := kv.NewSession(options)
 	if options.SQLMode.HasStrictMode() {
-		se.vars.SkipUTF8Check = false
-		se.vars.SkipASCIICheck = false
+		se.GetSessionVars().SkipUTF8Check = false
+		se.GetSessionVars().SkipASCIICheck = false
 	}
 
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil
@@ -346,11 +353,11 @@ func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
-func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, _ uint64, rows Rows) error {
+func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, _ uint64, rows kv.Rows) error {
 	var err error
 outside:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
-		for i := 0; i < maxRetryTimes; i++ {
+		for i := 0; i < writeRowsMaxRetryTimes; i++ {
 			err = be.WriteRowsToDB(ctx, tableName, columnNames, r)
 			switch {
 			case err == nil:
@@ -361,12 +368,12 @@ outside:
 				return err
 			}
 		}
-		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, maxRetryTimes)
+		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
 	}
 	return nil
 }
 
-func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r Rows) error {
+func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows) error {
 	rows := r.(tidbRows)
 	if len(rows) == 0 {
 		return nil
@@ -549,7 +556,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 	return
 }
 
-func (be *tidbBackend) EngineFileSizes() []EngineFileSize {
+func (be *tidbBackend) EngineFileSizes() []backend.EngineFileSize {
 	return nil
 }
 
@@ -565,7 +572,7 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
-func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error) {
+func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
 	return &TiDBWriter{be: be, engineUUID: engineUUID}, nil
 }
 
@@ -578,6 +585,6 @@ func (w *TiDBWriter) Close() error {
 	return nil
 }
 
-func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows Rows) error {
+func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
