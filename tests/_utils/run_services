@@ -45,17 +45,18 @@ stop_services() {
         killall -v -9 $svc &>/dev/null || continue
     done
     sleep 1 # give some time for the OS to reap all processes
+    # PD: 2379
+    # TiDB: 4000 10080
+    # TiKV: 20161 20162 20163
+    #       20181 20182 20183
+    # TiFlash: 17000 8125
+    # fake-gcs-server, oauth and minio: 21808 5000 24927
     lsof -n -P \
-        # PD
         -i :2379 \
-        # TiDB
         -i :4000 -i :10080 \
-        # TiKV
         -i :20161 -i :20162 -i :20163 \
         -i :20181 -i :20182 -i :20183 \
-        # TiFlash
         -i :17000 -i :8125
-        # fake-gcs-server, oauth and minio
         -i :21808 -i :5000 -i :24927 \
         | awk 'NR > 1 {system("pwdx " $2)}' || true
 }
