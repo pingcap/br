@@ -14,7 +14,7 @@ import (
 
 func (r *testStorageSuite) TestWithCompressReadWriteFile(c *C) {
 	dir := c.MkDir()
-	backend, err := ParseBackend("local:///"+dir, nil)
+	backend, err := ParseBackend("local://"+filepath.ToSlash(dir), nil)
 	c.Assert(err, IsNil)
 	ctx := context.Background()
 	storage, err := Create(ctx, backend, true)
