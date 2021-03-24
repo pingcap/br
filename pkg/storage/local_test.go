@@ -4,9 +4,9 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	. "github.com/pingcap/check"
 )
@@ -16,6 +16,11 @@ type testLocalSuite struct{}
 var _ = Suite(&testLocalSuite{})
 
 func (r *testStorageSuite) TestWalkDirWithSoftLinkFile(c *C) {
+	if runtime.GOOS == "windows" {
+		// skip the test on windows. typically windows users don't have symlink permission.
+		return
+	}
+
 	dir1 := c.MkDir()
 	name1 := "test.warehouse.0.sql"
 	path1 := filepath.Join(dir1, name1)
@@ -43,7 +48,7 @@ func (r *testStorageSuite) TestWalkDirWithSoftLinkFile(c *C) {
 	err = os.Symlink(path1, filepath.Join(dir2, name1))
 	c.Assert(err, IsNil)
 
-	sb, err := ParseBackend(fmt.Sprintf("file://%s", dir2), &BackendOptions{})
+	sb, err := ParseBackend("file://"+filepath.ToSlash(dir2), &BackendOptions{})
 	c.Assert(err, IsNil)
 
 	store, err := Create(context.TODO(), sb, true)
