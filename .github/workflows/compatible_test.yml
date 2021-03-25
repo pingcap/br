@@ -1,10 +1,6 @@
 name: compatible-test
 
-on:
-  push:
-    types: [ labeled ]
-  pull_request:
-    types: [ labeled ]
+on: [push, pull_request]
 
 jobs:
   build:
