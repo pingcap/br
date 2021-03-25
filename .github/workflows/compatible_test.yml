@@ -1,6 +1,11 @@
 name: compatible-test
 
-on: [ push, pull_request, issue_comment ]
+on:
+  push:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
 jobs:
   build:
     runs-on: ubuntu-latest
