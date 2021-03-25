@@ -2,6 +2,7 @@ name: compatible-test
 
 on:
   push:
+    types: [ labeled ]
   pull_request:
     types: [ labeled ]
 
@@ -16,7 +17,7 @@ jobs:
       uses: shioyang/check-pr-labels-on-push-action@v1.0.3
       with:
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        labels: '["status/need-cmpatible-tests"]'
+        labels: '["status/need-compatible-tests"]'
     - name: See result
         run: echo "${{ steps.build.outputs.result }}"
 
