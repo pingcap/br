@@ -83,6 +83,10 @@ func (mb *kvMemBuf) Delete(k kv.Key) error {
 	return nil
 }
 
+func (mb *kvMemBuf) DeleteWithFlags(k kv.Key, ops ...kv.FlagsOp) error {
+	return mb.Delete(k)
+}
+
 // Release publish all modifications in the latest staging buffer to upper level.
 func (mb *kvMemBuf) Release(h kv.StagingHandle) {
 }
@@ -166,12 +170,6 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 func (t *transaction) Delete(k kv.Key) error {
 	return t.kvMemBuf.Delete(k)
 }
-
-// SetOption implements the kv.Transaction interface.
-func (t *transaction) SetOption(opt kv.Option, val interface{}) {}
-
-// DelOption implements the kv.Transaction interface.
-func (t *transaction) DelOption(kv.Option) {}
 
 // SetAssertion implements the kv.Transaction interface.
 func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}

@@ -12,9 +12,10 @@ import (
 	"time"
 
 	gcs "cloud.google.com/go/storage"
+	"github.com/docker/go-units"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -29,12 +30,13 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
 	// flagSendCreds specify whether to send credentials to tikv
 	flagSendCreds = "send-credentials-to-tikv"
+	// No credentials specifies that cloud credentials should not be loaded
+	flagNoCreds = "no-credentials"
 	// flagStorage is the name of storage flag.
 	flagStorage = "storage"
 	// flagPD is the name of PD url flag.
@@ -65,6 +67,7 @@ const (
 	flagGrpcKeepaliveTimeout = "grpc-keepalive-timeout"
 	// flagEnableOpenTracing is whether to enable opentracing
 	flagEnableOpenTracing = "enable-opentracing"
+	flagSkipCheckPath     = "skip-check-path"
 
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
@@ -117,16 +120,22 @@ type Config struct {
 	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
 	// should be removed after TiDB upgrades the BR dependency.
 	CaseSensitive bool
+
+	// NoCreds means don't try to load cloud credentials
+	NoCreds bool `json:"no-credentials" toml:"no-credentials"`
+
+	CheckRequirements bool `json:"check-requirements" toml:"check-requirements"`
+	// EnableOpenTracing is whether to enable opentracing
+	EnableOpenTracing bool `json:"enable-opentracing" toml:"enable-opentracing"`
+	// SkipCheckPath skips verifying the path
+	SkipCheckPath bool `json:"skip-check-path" toml:"skip-check-path"`
 	// Filter should not be used, use TableFilter instead.
 	//
 	// Deprecated: This field is kept only to satisfy the cyclic dependency with TiDB. This field
 	// should be removed after TiDB upgrades the BR dependency.
 	Filter filter.MySQLReplicationRules
 
-	TableFilter       filter.Filter `json:"-" toml:"-"`
-	CheckRequirements bool          `json:"check-requirements" toml:"check-requirements"`
-	// EnableOpenTracing is whether to enable opentracing
-	EnableOpenTracing  bool          `json:"enable-opentracing" toml:"enable-opentracing"`
+	TableFilter        filter.Filter `json:"-" toml:"-"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
@@ -157,7 +166,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	// It may confuse users , so just hide it.
 	_ = flags.MarkHidden(flagConcurrency)
 
-	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
+	flags.Uint64(flagRateLimitUnit, units.MiB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
 	_ = flags.MarkDeprecated(flagRemoveTiFlash,
 		"TiFlash is fully supported by BR now, removing TiFlash isn't needed any more. This flag would be ignored.")
@@ -174,6 +183,11 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 
 	flags.Bool(flagEnableOpenTracing, false,
 		"Set whether to enable opentracing during the backup/restore process")
+
+	flags.BoolP(flagNoCreds, "", false, "Don't load credentials")
+	_ = flags.MarkHidden(flagNoCreds)
+	flags.BoolP(flagSkipCheckPath, "", false, "Skip path verification")
+	_ = flags.MarkHidden(flagSkipCheckPath)
 
 	storage.DefineFlags(flags)
 }
@@ -201,19 +215,25 @@ func DefineFilterFlags(command *cobra.Command) {
 // ParseFromFlags parses the TLS config from the flag set.
 func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	tls.CA, err = flags.GetString(flagCA)
+	tls.CA, tls.Cert, tls.Key, err = ParseTLSTripleFromFlags(flags)
+	return err
+}
+
+// ParseTLSTripleFromFlags parses the (ca, cert, key) triple from flags.
+func ParseTLSTripleFromFlags(flags *pflag.FlagSet) (ca, cert, key string, err error) {
+	ca, err = flags.GetString(flagCA)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Cert, err = flags.GetString(flagCert)
+	cert, err = flags.GetString(flagCert)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Key, err = flags.GetString(flagKey)
+	key, err = flags.GetString(flagKey)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	return nil
+	return
 }
 
 func (cfg *Config) normalizePDURLs() error {
@@ -230,41 +250,38 @@ func (cfg *Config) normalizePDURLs() error {
 // ParseFromFlags parses the config from the flag set.
 func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	cfg.Storage, err = flags.GetString(flagStorage)
-	if err != nil {
+	if cfg.Storage, err = flags.GetString(flagStorage); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.SendCreds, err = flags.GetBool(flagSendCreds)
-	if err != nil {
+	if cfg.SendCreds, err = flags.GetBool(flagSendCreds); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.Concurrency, err = flags.GetUint32(flagConcurrency)
-	if err != nil {
+	if cfg.NoCreds, err = flags.GetBool(flagNoCreds); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.Checksum, err = flags.GetBool(flagChecksum)
-	if err != nil {
+	if cfg.Concurrency, err = flags.GetUint32(flagConcurrency); err != nil {
 		return errors.Trace(err)
 	}
-	cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency)
-	if err != nil {
+	if cfg.Checksum, err = flags.GetBool(flagChecksum); err != nil {
+		return errors.Trace(err)
+	}
+	if cfg.ChecksumConcurrency, err = flags.GetUint(flagChecksumConcurrency); err != nil {
 		return errors.Trace(err)
 	}
 
 	var rateLimit, rateLimitUnit uint64
-	rateLimit, err = flags.GetUint64(flagRateLimit)
-	if err != nil {
+	if rateLimit, err = flags.GetUint64(flagRateLimit); err != nil {
 		return errors.Trace(err)
 	}
-	rateLimitUnit, err = flags.GetUint64(flagRateLimitUnit)
-	if err != nil {
+	if rateLimitUnit, err = flags.GetUint64(flagRateLimitUnit); err != nil {
 		return errors.Trace(err)
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
-		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
+		var f filter.Filter
+		f, err = filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -336,6 +353,9 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	if len(cfg.PD) == 0 {
 		return errors.Annotate(berrors.ErrInvalidArgument, "must provide at least one PD server address")
 	}
+	if cfg.SkipCheckPath, err = flags.GetBool(flagSkipCheckPath); err != nil {
+		return errors.Trace(err)
+	}
 	return cfg.normalizePDURLs()
 }
 
@@ -344,7 +364,9 @@ func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	keepalive keepalive.ClientParameters,
-	checkRequirements bool) (*conn.Mgr, error) {
+	checkRequirements bool,
+	needDomain bool,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -372,26 +394,34 @@ func NewMgr(ctx context.Context,
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
-	return conn.NewMgr(ctx, g,
-		pdAddress, store,
-		tlsConf, securityOption, keepalive,
-		conn.SkipTiFlash, checkRequirements)
+	return conn.NewMgr(
+		ctx, g, pdAddress, store, tlsConf, securityOption, keepalive, conn.SkipTiFlash,
+		checkRequirements, needDomain,
+	)
 }
 
 // GetStorage gets the storage backend from the config.
 func GetStorage(
 	ctx context.Context,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, error) {
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
-	s, err := storage.Create(ctx, u, cfg.SendCreds)
+	s, err := storage.New(ctx, u, storageOpts(cfg))
 	if err != nil {
 		return nil, nil, errors.Annotate(err, "create storage failed")
 	}
 	return u, s, nil
+}
+
+func storageOpts(cfg *Config) *storage.ExternalStorageOptions {
+	return &storage.ExternalStorageOptions{
+		NoCredentials:   cfg.NoCreds,
+		SendCredentials: cfg.SendCreds,
+		SkipCheckPath:   cfg.SkipCheckPath,
+	}
 }
 
 // ReadBackupMeta reads the backupmeta file from the storage.
@@ -399,7 +429,7 @@ func ReadBackupMeta(
 	ctx context.Context,
 	fileName string,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, *backuppb.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
@@ -412,7 +442,7 @@ func ReadBackupMeta(
 			newPrefix, file := path.Split(oldPrefix)
 			newFileName := file + fileName
 			u.GetGcs().Prefix = newPrefix
-			s, err = storage.Create(ctx, u, cfg.SendCreds)
+			s, err = storage.New(ctx, u, storageOpts(cfg))
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
@@ -427,7 +457,7 @@ func ReadBackupMeta(
 			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 		}
 	}
-	backupMeta := &backup.BackupMeta{}
+	backupMeta := &backuppb.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}
