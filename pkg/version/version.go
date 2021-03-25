@@ -6,15 +6,17 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/pingcap/log"
+	pd "github.com/tikv/pd/client"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/kvproto/pkg/metapb"
 
 	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
-	pd "github.com/tikv/pd/client"
-	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/version/build"
@@ -74,12 +76,12 @@ func IsTiFlash(store *metapb.Store) bool {
 	return false
 }
 
+// VerChecker is a callback for the CheckClusterVersion, decides whether the cluster is suitable to execute restore.
+// See also: CheckVersionForBackup and CheckVersionForBR.
+type VerChecker func(store *metapb.Store, ver *semver.Version) error
+
 // CheckClusterVersion check TiKV version.
-func CheckClusterVersion(ctx context.Context, client pd.Client) error {
-	BRVersion, err := semver.NewVersion(removeVAndHash(build.ReleaseVersion))
-	if err != nil {
-		return errors.Annotatef(berrors.ErrVersionMismatch, "%s: invalid version, please recompile using `git fetch origin --tags && make build`", err)
-	}
+func CheckClusterVersion(ctx context.Context, client pd.Client, checker VerChecker) error {
 	stores, err := client.GetAllStores(ctx, pd.WithExcludeTombstone())
 	if err != nil {
 		return errors.Trace(err)
@@ -99,43 +101,66 @@ func CheckClusterVersion(ctx context.Context, client pd.Client) error {
 		}
 
 		tikvVersionString := removeVAndHash(s.Version)
-		tikvVersion, err := semver.NewVersion(tikvVersionString)
-		if err != nil {
-			return errors.Annotatef(berrors.ErrVersionMismatch, "%s: TiKV node %s version %s is invalid", err, s.Address, tikvVersionString)
+		tikvVersion, getVersionErr := semver.NewVersion(tikvVersionString)
+		if getVersionErr != nil {
+			return errors.Annotatef(berrors.ErrVersionMismatch, "%s: TiKV node %s version %s is invalid", getVersionErr, s.Address, tikvVersionString)
 		}
+		if checkerErr := checker(s, tikvVersion); checkerErr != nil {
+			return checkerErr
+		}
+	}
+	return nil
+}
 
-		if tikvVersion.Compare(*minTiKVVersion) < 0 {
-			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s don't support BR, please upgrade cluster to %s",
-				s.Address, tikvVersionString, build.ReleaseVersion)
+// CheckVersionForBackup checks the version for backup and
+func CheckVersionForBackup(backupVersion *semver.Version) VerChecker {
+	return func(store *metapb.Store, ver *semver.Version) error {
+		if backupVersion.Major != ver.Major {
+			return errors.Annotatef(berrors.ErrVersionMismatch,
+				"backup with cluster version %s cannot be restored at cluster of version %s: major version mismatches",
+				backupVersion, ver)
 		}
+		return nil
+	}
+}
 
-		if tikvVersion.Major != BRVersion.Major {
-			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
-				s.Address, tikvVersionString, build.ReleaseVersion)
-		}
+// CheckVersionForBR checks whether version of the cluster and BR itself is compatible.
+func CheckVersionForBR(s *metapb.Store, tikvVersion *semver.Version) error {
+	BRVersion, err := semver.NewVersion(removeVAndHash(build.ReleaseVersion))
+	if err != nil {
+		return errors.Annotatef(berrors.ErrVersionMismatch, "%s: invalid version, please recompile using `git fetch origin --tags && make build`", err)
+	}
 
-		// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
-		// if BR include #233 and TiKV not include #7241, BR will panic TiKV during restore
-		// These incompatible version is 3.1.0 and 4.0.0-rc.1
-		if tikvVersion.Major == 3 {
-			if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
-				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, tikvVersionString, build.ReleaseVersion)
-			}
-		}
+	if tikvVersion.Compare(*minTiKVVersion) < 0 {
+		return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s don't support BR, please upgrade cluster to %s",
+			s.Address, tikvVersion, build.ReleaseVersion)
+	}
 
-		if tikvVersion.Major == 4 {
-			if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
-				return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
-					s.Address, tikvVersionString, build.ReleaseVersion)
-			}
-		}
+	if tikvVersion.Major != BRVersion.Major {
+		return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s major version mismatch, please use the same version of BR",
+			s.Address, tikvVersion, build.ReleaseVersion)
+	}
 
-		// don't warn if we are the master build, which always have the version v4.0.0-beta.2-*
-		if build.GitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
-			log.Warn(fmt.Sprintf("BR version is outdated, please consider use version %s of BR", tikvVersionString))
-			break
+	// BR(https://github.com/pingcap/br/pull/233) and TiKV(https://github.com/tikv/tikv/pull/7241) have breaking changes
+	// if BR include #233 and TiKV not include #7241, BR will panic TiKV during restore
+	// These incompatible version is 3.1.0 and 4.0.0-rc.1
+	if tikvVersion.Major == 3 {
+		if tikvVersion.Compare(*incompatibleTiKVMajor3) < 0 && BRVersion.Compare(*incompatibleTiKVMajor3) >= 0 {
+			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+				s.Address, tikvVersion, build.ReleaseVersion)
 		}
+	}
+
+	if tikvVersion.Major == 4 {
+		if tikvVersion.Compare(*incompatibleTiKVMajor4) < 0 && BRVersion.Compare(*incompatibleTiKVMajor4) >= 0 {
+			return errors.Annotatef(berrors.ErrVersionMismatch, "TiKV node %s version %s and BR %s version mismatch, please use the same version of BR",
+				s.Address, tikvVersion, build.ReleaseVersion)
+		}
+	}
+
+	// don't warn if we are the master build, which always have the version v4.0.0-beta.2-*
+	if build.GitBranch != "master" && tikvVersion.Compare(*BRVersion) > 0 {
+		log.Warn(fmt.Sprintf("BR version is outdated, please consider use version %s of BR", tikvVersion))
 	}
 	return nil
 }
@@ -198,4 +223,20 @@ func CheckTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion 
 		return errors.Trace(err)
 	}
 	return CheckVersion("TiDB", *version, requiredMinVersion, requiredMaxVersion)
+}
+
+// NormalizeBackupVersion normalizes the version string from backupmeta.
+func NormalizeBackupVersion(version string) *semver.Version {
+	// We need to unquote here because we get the version from PD HTTP API,
+	// which returns quoted string.
+	quoted, err := strconv.Unquote(strings.TrimSpace(version))
+	if err != nil {
+		quoted = version
+	}
+	normalizedVerStr := strings.TrimSpace(quoted)
+	ver, err := semver.NewVersion(normalizedVerStr)
+	if err != nil {
+		log.Warn("cannot parse backup version", zap.String("version", normalizedVerStr), zap.Error(err))
+	}
+	return ver
 }

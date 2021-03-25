@@ -4,6 +4,7 @@ package version
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/coreos/go-semver/semver"
@@ -50,7 +51,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 		mock.getAllStores = func() []*metapb.Store {
 			return tiflash("v4.0.0-rc.1")
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, `incompatible.*version v4.0.0-rc.1, try update it to 4.0.0.*`)
 	}
 
@@ -59,7 +60,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 		mock.getAllStores = func() []*metapb.Store {
 			return tiflash("v3.1.0-beta.1")
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, `incompatible.*version v3.1.0-beta.1, try update it to 3.1.0.*`)
 	}
 
@@ -68,7 +69,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 		mock.getAllStores = func() []*metapb.Store {
 			return tiflash("v3.0.15")
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, `incompatible.*version v3.0.15, try update it to 3.1.0.*`)
 	}
 
@@ -77,7 +78,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 		mock.getAllStores = func() []*metapb.Store {
 			return []*metapb.Store{{Version: minTiKVVersion.String()}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, IsNil)
 	}
 
@@ -87,7 +88,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV is too lower to support BR
 			return []*metapb.Store{{Version: `v2.1.0`}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, ".*TiKV .* don't support BR, please upgrade cluster .*")
 	}
 
@@ -97,7 +98,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV v3.1.0-beta.2 is incompatible with BR v3.1.0
 			return []*metapb.Store{{Version: minTiKVVersion.String()}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, "TiKV .* mismatch, please .*")
 	}
 
@@ -107,7 +108,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV v4.0.0-rc major version mismatch with BR v3.1.0
 			return []*metapb.Store{{Version: "v4.0.0-rc"}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, "TiKV .* major version mismatch, please .*")
 	}
 
@@ -117,7 +118,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV v4.0.0-rc.2 is incompatible with BR v4.0.0-beta.1
 			return []*metapb.Store{{Version: "v4.0.0-beta.1"}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, ErrorMatches, "TiKV .* mismatch, please .*")
 	}
 
@@ -127,8 +128,26 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV v4.0.0-rc.1 with BR v4.0.0-rc.2 is ok
 			return []*metapb.Store{{Version: "v4.0.0-rc.1"}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, IsNil)
+	}
+
+	{
+		// Even across many patch versions, backup should be usable.
+		mock.getAllStores = func() []*metapb.Store {
+			return []*metapb.Store{{Version: "v4.0.0-rc.1"}}
+		}
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBackup(semver.New("4.0.12")))
+		c.Assert(err, IsNil)
+	}
+
+	{
+		// Restore across major version isn't allowed.
+		mock.getAllStores = func() []*metapb.Store {
+			return []*metapb.Store{{Version: "v4.0.0-rc.1"}}
+		}
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBackup(semver.New("5.0.0-rc")))
+		c.Assert(err, Not(IsNil))
 	}
 
 	{
@@ -137,7 +156,7 @@ func (s *checkSuite) TestCheckClusterVersion(c *C) {
 			// TiKV v4.0.0-rc.2 with BR v4.0.0-rc.1 is ok
 			return []*metapb.Store{{Version: "v4.0.0-rc.2"}}
 		}
-		err := CheckClusterVersion(context.Background(), &mock)
+		err := CheckClusterVersion(context.Background(), &mock, CheckVersionForBR)
 		c.Assert(err, IsNil)
 	}
 }
@@ -228,4 +247,53 @@ func (s *checkSuite) TestCheckVersion(c *C) {
 
 	err = CheckVersion("TiNB", *semver.New("3.0.0-beta"), *semver.New("2.3.5"), *semver.New("3.0.0"))
 	c.Assert(err, ErrorMatches, "TiNB version too new.*")
+}
+
+type versionEqualsC struct{}
+
+func (v versionEqualsC) Info() *CheckerInfo {
+	return &CheckerInfo{
+		Name:   "VersionEquals",
+		Params: []string{"source", "target"},
+	}
+}
+
+func (v versionEqualsC) Check(params []interface{}, names []string) (result bool, error string) {
+	source := params[0].(*semver.Version)
+	target := params[1].(*semver.Version)
+
+	if source == nil || target == nil {
+		if target == source {
+			return true, ""
+		} else {
+			return false, fmt.Sprintf("one of version is nil but another is not (%s and %s)", params[0], params[1])
+		}
+	}
+
+	if source.Equal(*target) {
+		return true, ""
+	} else {
+		return false, fmt.Sprintf("version not equal (%s vs %s)", source, target)
+	}
+}
+
+var versionEquals versionEqualsC
+
+func (s *checkSuite) TestNormalizeBackupVersion(c *C) {
+	cases := []struct {
+		target string
+		source string
+	}{
+		{"4.0.0", `"4.0.0\n"`},
+		{"5.0.0-rc.x", `"5.0.0-rc.x\n"`},
+		{"5.0.0-rc.x", `5.0.0-rc.x`},
+		{"4.0.12", `"4.0.12"` + "\n"},
+		{"<error-version>", ""},
+	}
+
+	for _, testCase := range cases {
+		target, _ := semver.NewVersion(testCase.target)
+		source := NormalizeBackupVersion(testCase.source)
+		c.Assert(source, versionEquals, target)
+	}
 }
