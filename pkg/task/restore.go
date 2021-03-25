@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/br/pkg/version"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -209,6 +211,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
+	backupVersion := version.NormalizeBackupVersion(backupMeta.BrVersion)
+	if cfg.CheckRequirements && backupVersion != nil {
+		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
+			return versionErr
+		}
+	}
 
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)

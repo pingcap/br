@@ -195,7 +195,7 @@ func NewMgr(
 		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
-		err = version.CheckClusterVersion(ctx, controller.GetPDClient())
+		err = version.CheckClusterVersion(ctx, controller.GetPDClient(), version.CheckVersionForBR)
 		if err != nil {
 			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
 				"if you believe it's OK, use --check-requirements=false to skip.")
