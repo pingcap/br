@@ -7,23 +7,9 @@ on:
     branches: [ master, release-4.0, release-5.0 ]
 
 jobs:
-  check_pr_labels_job:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Check PR labels action step
-      id: check_pr_labels
-      uses: 3pointer/check-pr-labels-on-push-action@master
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        labels: '["status/need-compatible-tests"]'
-    - name: See result
-      run: |
-        echo "${{ steps.check_pr_labels.outputs.result }}"
-        echo "${{ steps.check_pr_labels.outputs.labelNames }}"
-        echo "${{ steps.check_pr_labels.outputs.labels }}"
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
     - name: Free disk space
       run: |
@@ -48,6 +34,7 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+
     - uses: actions/upload-artifact@v2
       if: ${{ always() }}
       with:
