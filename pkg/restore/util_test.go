@@ -97,7 +97,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 
 func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	rules := &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
+		Table: []*import_sstpb.RewriteRule{{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
 		}},

@@ -242,6 +242,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
+	err = client.PreCheckTableTiFlashReplica(ctx, tables)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	err = client.PreCheckTableClusterIndex(tables, ddlJobs, mgr.GetDomain())
 	if err != nil {
 		return errors.Trace(err)
