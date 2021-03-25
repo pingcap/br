@@ -178,7 +178,7 @@ func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
 //   use a default glue later.
 // - for lightning as a library, taskCtx could be a meaningful context that get canceled outside, and glue could be a
 //   caller implemented glue.
-func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue, replaceLogger *zap.Logger) error {
+func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glue glue.Glue) error {
 	if err := taskCfg.Adjust(taskCtx); err != nil {
 		return err
 	}
@@ -188,9 +188,6 @@ func (l *Lightning) RunOnce(taskCtx context.Context, taskCfg *config.Config, glu
 		taskCfg.TaskID = int64(val.(int))
 	})
 
-	if replaceLogger != nil {
-		log.SetAppLogger(replaceLogger)
-	}
 	return l.run(taskCtx, taskCfg, glue)
 }
 
@@ -270,11 +267,15 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 		g = glue.NewExternalTiDBGlue(db, taskCfg.TiDB.SQLMode)
 	}
 
-	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, &storage.BackendOptions{})
+	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, nil)
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{
+		// we skip check path in favor of delaying the error to when we actually access the file.
+		// on S3, performing "check path" requires the additional "s3:ListBucket" permission.
+		SkipCheckPath: true,
+	})
 	if err != nil {
 		return errors.Annotate(err, "create storage failed")
 	}
@@ -644,11 +645,6 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 }
 
 func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
-	if !cfg.App.CheckRequirements {
-		log.L().Info("check-requirement is disabled, skip check system rlimit")
-		return nil
-	}
-
 	// in local mode, we need to read&write a lot of L0 sst files, so we need to check system max open files limit
 	if cfg.TikvImporter.Backend == config.BackendLocal {
 		// estimate max open files = {top N(TableConcurrency) table sizes} / {MemoryTableSize}

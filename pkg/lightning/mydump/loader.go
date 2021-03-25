@@ -93,7 +93,7 @@ func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error)
 	if err != nil {
 		return nil, err
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{SkipCheckPath: true})
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +295,7 @@ func (s *mdLoaderSetup) listFiles(ctx context.Context, store storage.ExternalSto
 			return errors.Annotatef(err, "apply file routing on file '%s' failed", path)
 		}
 		if res == nil {
-			logger.Debug("[loader] file is filtered by file router")
+			logger.Info("[loader] file is filtered by file router")
 			return nil
 		}
 

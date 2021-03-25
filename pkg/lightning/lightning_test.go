@@ -64,7 +64,7 @@ func (s *lightningSuite) TestRun(c *C) {
 	cfg := config.NewConfig()
 	err := cfg.LoadFromGlobal(globalConfig)
 	c.Assert(err, IsNil)
-	err = lightning.RunOnce(context.Background(), cfg, nil, nil)
+	err = lightning.RunOnce(context.Background(), cfg, nil)
 	c.Assert(err, ErrorMatches, ".*mydumper dir does not exist")
 
 	path, _ := filepath.Abs(".")
@@ -357,7 +357,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	err := cfg.LoadFromGlobal(s.lightning.globalCfg)
 	c.Assert(err, IsNil)
 	go func() {
-		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil, nil)
+		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil)
 	}()
 	time.Sleep(100 * time.Millisecond)
 
@@ -477,12 +477,6 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	// with this dbMetas, the estimated fds will be 2050, so should return error
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
-
-	// disable check-requirement, should return nil
-	cfg.App.CheckRequirements = false
-	err = checkSystemRequirement(cfg, dbMetas)
-	c.Assert(err, IsNil)
-	cfg.App.CheckRequirements = true
 
 	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
 	c.Assert(err, IsNil)
