@@ -267,7 +267,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 		g = glue.NewExternalTiDBGlue(db, taskCfg.TiDB.SQLMode)
 	}
 
-	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, &storage.BackendOptions{})
+	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, nil)
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
@@ -645,11 +645,6 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 }
 
 func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
-	if !cfg.App.CheckRequirements {
-		log.L().Info("check-requirement is disabled, skip check system rlimit")
-		return nil
-	}
-
 	// in local mode, we need to read&write a lot of L0 sst files, so we need to check system max open files limit
 	if cfg.TikvImporter.Backend == config.BackendLocal {
 		// estimate max open files = {top N(TableConcurrency) table sizes} / {MemoryTableSize}
