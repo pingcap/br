@@ -478,17 +478,7 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
 
-<<<<<<< HEAD
-	// disable check-requirement, should return nil
-	cfg.App.CheckRequirements = false
-	err = checkSystemRequirement(cfg, dbMetas)
-	c.Assert(err, IsNil)
-	cfg.App.CheckRequirements = true
-
 	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
-=======
-	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
->>>>>>> 9a80d3d... pkg/lightning: fix several tiny issues (#909)
 	c.Assert(err, IsNil)
 
 	// the min rlimit should be bigger than the default min value (16384)
