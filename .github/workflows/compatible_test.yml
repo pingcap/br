@@ -1,6 +1,7 @@
 name: compatible-test
 
 on:
+  push:
   pull_request:
     types: [ labeled ]
 
@@ -17,7 +18,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         labels: '["status/need-cmpatible-tests"]'
     - name: See result
-        run: echo "${{ steps.check_pr_labels.outputs.result }}"
+        run: echo "${{ steps.build.outputs.result }}"
 
     - name: Free disk space
       run: |
