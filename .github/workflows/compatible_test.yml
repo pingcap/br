@@ -1,18 +1,24 @@
 name: compatible-test
 
 on:
-  push:
-    types: [ labeled ]
   pull_request:
     types: [ labeled ]
 
 jobs:
   build:
-    if: ${{ github.event.label.name == 'status/need-compatible-tests' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
+
+    - name: Check PR labels action step
+      id: check_pr_labels
+      uses: shioyang/check-pr-labels-on-push-action@v1.0.3
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        labels: '["status/need-cmpatible-tests"]'
+    - name: See result
+        run: echo "${{ steps.check_pr_labels.outputs.result }}"
+
     - name: Free disk space
       run: |
         sudo rm -rf /usr/local/lib/android
