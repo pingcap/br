@@ -265,16 +265,14 @@ func (v versionEqualsC) Check(params []interface{}, names []string) (result bool
 	if source == nil || target == nil {
 		if target == source {
 			return true, ""
-		} else {
-			return false, fmt.Sprintf("one of version is nil but another is not (%s and %s)", params[0], params[1])
 		}
+		return false, fmt.Sprintf("one of version is nil but another is not (%s and %s)", params[0], params[1])
 	}
 
 	if source.Equal(*target) {
 		return true, ""
-	} else {
-		return false, fmt.Sprintf("version not equal (%s vs %s)", source, target)
 	}
+	return false, fmt.Sprintf("version not equal (%s vs %s)", source, target)
 }
 
 var versionEquals versionEqualsC
