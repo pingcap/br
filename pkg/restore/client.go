@@ -671,7 +671,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err := grpc.DialContext(
+		connection, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
@@ -683,14 +683,14 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		if err != nil {
 			return errors.Trace(err)
 		}
-		client := import_sstpb.NewImportSSTClient(conn)
+		client := import_sstpb.NewImportSSTClient(connection)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		})
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = conn.Close()
+		err = connection.Close()
 		if err != nil {
 			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
@@ -972,3 +972,74 @@ func (rc *Client) EnableSkipCreateSQL() {
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
 }
+<<<<<<< HEAD
+=======
+
+// PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
+func (rc *Client) PreCheckTableTiFlashReplica(
+	ctx context.Context,
+	tables []*utils.Table,
+) error {
+	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tiFlashStoreCount := len(tiFlashStores)
+	for _, table := range tables {
+		if table.Info.TiFlashReplica != nil && table.Info.TiFlashReplica.Count > uint64(tiFlashStoreCount) {
+			// we cannot satisfy TiFlash replica in restore cluster. so we should
+			// set TiFlashReplica to unavailable in tableInfo, to avoid TiDB cannot sense TiFlash and make plan to TiFlash
+			// see details at https://github.com/pingcap/br/issues/931
+			table.Info.TiFlashReplica = nil
+		}
+	}
+	return nil
+}
+
+// PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。
+func (rc *Client) PreCheckTableClusterIndex(
+	tables []*utils.Table,
+	ddlJobs []*model.Job,
+	dom *domain.Domain,
+) error {
+	for _, table := range tables {
+		oldTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
+		// table exists in database
+		if err == nil {
+			if table.Info.IsCommonHandle != oldTableInfo.IsCommonHandle {
+				return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+					"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+					transferBoolToValue(table.Info.IsCommonHandle),
+					table.Info.IsCommonHandle,
+					oldTableInfo.IsCommonHandle)
+			}
+		}
+	}
+	for _, job := range ddlJobs {
+		if job.Type == model.ActionCreateTable {
+			tableInfo := job.BinlogInfo.TableInfo
+			if tableInfo != nil {
+				oldTableInfo, err := rc.GetTableSchema(dom, model.NewCIStr(job.SchemaName), tableInfo.Name)
+				// table exists in database
+				if err == nil {
+					if tableInfo.IsCommonHandle != oldTableInfo.IsCommonHandle {
+						return errors.Annotatef(berrors.ErrRestoreModeMismatch,
+							"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+							transferBoolToValue(tableInfo.IsCommonHandle),
+							tableInfo.IsCommonHandle,
+							oldTableInfo.IsCommonHandle)
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func transferBoolToValue(enable bool) string {
+	if enable {
+		return "ON"
+	}
+	return "OFF"
+}
+>>>>>>> c0d60dae... restore: set tiflash replica to nil when tiflash node is not satified (#932)
