@@ -1,6 +1,6 @@
 name: compatible-test
 
-on: [ push, pull_request ]
+on: [ push, pull_request, issue_comment ]
 jobs:
   build:
     runs-on: ubuntu-latest
