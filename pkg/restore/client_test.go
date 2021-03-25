@@ -189,46 +189,46 @@ func (s *testRestoreClientSuite) TestPreCheckTableTiFlashReplicas(c *C) {
 	c.Assert(s.mock.Start(), IsNil)
 	defer s.mock.Stop()
 
-	mockStores := []*metapb.Store {
+	mockStores := []*metapb.Store{
 		{
 			Id: 1,
-			Labels: []*metapb.StoreLabel {
+			Labels: []*metapb.StoreLabel{
 				{
-					Key: "engine",
+					Key:   "engine",
 					Value: "tiflash",
 				},
 			},
 		},
 		{
 			Id: 2,
-			Labels: []*metapb.StoreLabel {
+			Labels: []*metapb.StoreLabel{
 				{
-					Key: "engine",
+					Key:   "engine",
 					Value: "tiflash",
 				},
 			},
 		},
 	}
 
-	client, err := restore.NewRestoreClient(gluetidb.New(),fakePDClient{
+	client, err := restore.NewRestoreClient(gluetidb.New(), fakePDClient{
 		stores: mockStores,
-	} , s.mock.Storage, nil, defaultKeepaliveCfg)
+	}, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
 	tables := make([]*utils.Table, 4)
 	for i := 0; i < len(tables); i++ {
-		tiflashReplica :=  &model.TiFlashReplicaInfo{
+		tiflashReplica := &model.TiFlashReplicaInfo{
 			Count: uint64(i),
 		}
-		if  i == 0 {
+		if i == 0 {
 			tiflashReplica = nil
 		}
 
 		tables[i] = &utils.Table{
 			DB: nil,
 			Info: &model.TableInfo{
-				ID:   int64(i),
-				Name: model.NewCIStr("test" + strconv.Itoa(i)),
+				ID:             int64(i),
+				Name:           model.NewCIStr("test" + strconv.Itoa(i)),
 				TiFlashReplica: tiflashReplica,
 			},
 		}

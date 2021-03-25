@@ -1006,7 +1006,7 @@ func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
 }
 
-// PreCheckTable checks whether TiFlash replica is less than TiFlash node.
+// PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
 func (rc *Client) PreCheckTableTiFlashReplica(
 	ctx context.Context,
 	tables []*utils.Table,
