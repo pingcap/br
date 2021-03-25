@@ -693,7 +693,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err := grpc.DialContext(
+		connection, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
@@ -705,14 +705,14 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		if err != nil {
 			return errors.Trace(err)
 		}
-		client := import_sstpb.NewImportSSTClient(conn)
+		client := import_sstpb.NewImportSSTClient(connection)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		})
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = conn.Close()
+		err = connection.Close()
 		if err != nil {
 			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
