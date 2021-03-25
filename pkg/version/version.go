@@ -229,12 +229,12 @@ func CheckTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion 
 func NormalizeBackupVersion(version string) *semver.Version {
 	// We need to unquote here because we get the version from PD HTTP API,
 	// which returns quoted string.
-	trimmedRawVersion := strings.TrimSpace(version)
-	quoted, err := strconv.Unquote(trimmedRawVersion)
+	trimmedVerStr := strings.TrimSpace(version)
+	unquotedVerStr, err := strconv.Unquote(trimmedVerStr)
 	if err != nil {
-		quoted = trimmedRawVersion
+		unquotedVerStr = trimmedVerStr
 	}
-	normalizedVerStr := strings.TrimSpace(quoted)
+	normalizedVerStr := strings.TrimSpace(unquotedVerStr)
 	ver, err := semver.NewVersion(normalizedVerStr)
 	if err != nil {
 		log.Warn("cannot parse backup version", zap.String("version", normalizedVerStr), zap.Error(err))
