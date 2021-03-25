@@ -420,48 +420,53 @@ func (e *LocalFile) ingestSSTLoop() {
 		}
 	}
 
-	metas := make([]*sstMeta, 0, 16)
+	pendingMetas := make([]*sstMeta, 0, 16)
 	totalSize := int64(0)
 	compactAndIngestSSTs := func() {
-		if len(metas) > 0 {
+		if len(pendingMetas) > 0 {
 			seqLock.Lock()
 			metaSeq := seq.Add(1)
 			seqLock.Unlock()
-			metaChan <- metaAndSeq{metas: metas, seq: metaSeq}
-			metas = make([]*sstMeta, 0, len(metas))
+			metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}
+			pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
 			totalSize = 0
 		}
 	}
 
-	addMeta := func(m *sstMeta) {
-		if m == nil || m.totalSize == 0 {
+	addMetas := func(metas []*sstMeta) {
+		if len(metas) == 0 {
 			return
 		}
 		if !e.config.Compact {
-			if err := e.ingestSSTs([]*sstMeta{m}); err != nil {
+			if err := e.batchIngestSSTs(metas); err != nil {
 				e.setError(err)
 			}
 			return
 		}
-		metas = append(metas, m)
-		totalSize += m.totalSize
-		if totalSize >= e.config.CompactThreshold {
-			compactAndIngestSSTs()
+		for _, m := range metas {
+			if m.totalCount > 0 {
+				pendingMetas = append(pendingMetas, m)
+				totalSize += m.totalSize
+				if totalSize >= e.config.CompactThreshold {
+					compactAndIngestSSTs()
+				}
+			}
 		}
 	}
+	metasTmp := make([]*sstMeta, 0)
 	for {
 		closed := false
 		select {
 		case ch := <-e.flushChan:
 			if !e.config.Compact {
 				ch <- struct{}{}
-			} else if len(metas) > 0 {
+			} else if len(pendingMetas) > 0 {
 				seqLock.Lock()
 				metaSeq := seq.Add(1)
 				flushQueue = append(flushQueue, flushSeq{ch: ch, seq: metaSeq})
 				seqLock.Unlock()
-				metaChan <- metaAndSeq{metas: metas, seq: metaSeq}
-				metas = make([]*sstMeta, 0, len(metas))
+				metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}
+				pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
 				totalSize = 0
 			} else {
 				// none remaining metas needed to be ingested
@@ -482,15 +487,16 @@ func (e *LocalFile) ingestSSTLoop() {
 			close(metaChan)
 			return
 		case m, ok := <-e.sstMetasChan:
+
 			if ok {
-				addMeta(m)
+				metasTmp = append(metasTmp, m)
 				// drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
 			inner:
 				for {
 					select {
 					case m, ok := <-e.sstMetasChan:
 						if ok {
-							addMeta(m)
+							metasTmp = append(metasTmp, m)
 						} else {
 							closed = true
 							break inner
@@ -499,6 +505,8 @@ func (e *LocalFile) ingestSSTLoop() {
 						break inner
 					}
 				}
+				addMetas(metasTmp)
+				metasTmp = metasTmp[:0]
 			} else {
 				closed = true
 			}
@@ -2596,24 +2604,33 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 		}
 	}
 	err = writer.Close()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	meta, err := writer.Metadata()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	newMeta.maxKey = lastKey
+	newMeta.fileSize = int64(meta.Size)
+
 	dur := time.Since(start)
 	log.L().Info("compact sst", zap.Int("fileCount", len(metas)), zap.Int64("size", newMeta.totalSize),
 		zap.Int64("count", newMeta.totalCount), zap.Duration("cost", dur), zap.String("file", name))
-	newMeta.maxKey = lastKey
-	if err == nil {
-		// async clean raw SSTs.
-		go func() {
-			totalSize := int64(0)
-			for _, m := range metas {
-				totalSize += m.fileSize
-				if err := os.Remove(m.path); err != nil {
-					log.L().Warn("async cleanup sst file failed", zap.Error(err))
-				}
+
+	// async clean raw SSTs.
+	go func() {
+		totalSize := int64(0)
+		for _, m := range metas {
+			totalSize += m.fileSize
+			if err := os.Remove(m.path); err != nil {
+				log.L().Warn("async cleanup sst file failed", zap.Error(err))
 			}
-			// decrease the pending size after clean up
-			i.e.pendingFileSize.Sub(totalSize)
-		}()
-	}
+		}
+		// decrease the pending size after clean up
+		i.e.pendingFileSize.Sub(totalSize)
+	}()
+
 	return newMeta, err
 }
 
