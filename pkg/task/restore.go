@@ -211,7 +211,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
-	backupVersion := version.NormalizeBackupVersion(backupMeta.BrVersion)
+	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
 		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
 			return versionErr
