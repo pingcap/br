@@ -17,7 +17,7 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         labels: '["status/need-compatible-tests"]'
     - name: See result
-      run: echo "${{ steps.check_pr_labels.outputs.result }}"
+      run: echo "${{ steps.check_pr_labels.outputs }}"
 
   build:
     runs-on: ubuntu-latest
