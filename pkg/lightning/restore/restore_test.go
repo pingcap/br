@@ -831,10 +831,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	err = cfg.Adjust(ctx)
 	c.Assert(err, IsNil)
 
-	//log.InitLogger(&log.Config{Level: "debug"}, "error")
-
 	cpDB := checkpoints.NewNullCheckpointsDB()
-
 	rc := &RestoreController{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
