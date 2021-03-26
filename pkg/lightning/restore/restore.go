@@ -1624,7 +1624,7 @@ func (t *TableRestore) postProcess(
 	// there are no data in this table, no need to do post process
 	// this is important for tables that are just the dump table of views
 	// because at this stage, the table was already deleted and replaced by the related view
-	if len(cp.Engines) == 1 {
+	if !rc.backend.ShouldPostProcess() || len(cp.Engines) == 1 {
 		return false, nil
 	}
 
