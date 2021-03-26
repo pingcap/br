@@ -148,7 +148,7 @@ type File struct {
 	Uuid         uuid.UUID
 	localWriters sync.Map
 
-	// isImportingAtomic is an atomic variable indicating whether the importMutex has been locked.
+	// isImportingAtomic is an atomic variable indicating whether this engine is importing.
 	// This should not be used as a "spin lock" indicator.
 	isImportingAtomic atomic.Uint32
 	mutex             sync.Mutex
