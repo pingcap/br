@@ -25,11 +25,16 @@ require (
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
-	github.com/pingcap/failpoint v0.0.0-20200702092429-9f69995143ce
+	github.com/pingcap/failpoint v0.0.0-20210316064728-7acb0f0a3dfd
 	github.com/pingcap/kvproto v0.0.0-20210308063835-39b884695fb8
 	github.com/pingcap/log v0.0.0-20201112100606-8f1e84a3abc8
+<<<<<<< HEAD
 	github.com/pingcap/parser v0.0.0-20210310110710-c7333a4927e6
 	github.com/pingcap/tidb v1.1.0-beta.0.20210318114336-c8226913d30e
+=======
+	github.com/pingcap/parser v0.0.0-20210324190955-ab6d0f2c18ee
+	github.com/pingcap/tidb v1.1.0-beta.0.20210326075924-aee5819a2085
+>>>>>>> fc8ea5a5... update tidb version to fix CI (#933)
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
 	github.com/pingcap/tipb v0.0.0-20210309080453-72c4feaa6da7
 	github.com/prometheus/client_golang v1.5.1
@@ -39,18 +44,22 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5
-	github.com/tikv/pd v1.1.0-beta.0.20210312145855-81f0b7adb7d6
+	github.com/tikv/pd v1.1.0-beta.0.20210323121136-78679e5e209d
 	github.com/xitongsys/parquet-go v1.5.5-0.20201110004701-b09c49d6d457
 	github.com/xitongsys/parquet-go-source v0.0.0-20200817004010-026bad9b25d0
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200824191128-ae9734ed278b
 	go.uber.org/atomic v1.7.0
 	go.uber.org/multierr v1.6.0
 	go.uber.org/zap v1.16.0
+<<<<<<< HEAD
 	golang.org/x/mod v0.4.2 // indirect
 	golang.org/x/net v0.0.0-20210226172049-e18ecbb05110
+=======
+	golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4
+>>>>>>> fc8ea5a5... update tidb version to fix CI (#933)
 	golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
 	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
-	golang.org/x/sys v0.0.0-20210309074719-68d13333faf2
+	golang.org/x/sys v0.0.0-20210320140829-1e4c9ba3b0c4
 	golang.org/x/text v0.3.5
 	google.golang.org/api v0.22.0
 	google.golang.org/grpc v1.27.1
