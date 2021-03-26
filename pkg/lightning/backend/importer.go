@@ -59,6 +59,8 @@ type importer struct {
 	tls    *common.TLS
 
 	mutationPool sync.Pool
+	// lock ensures ImportEngine are runs serially
+	lock sync.Mutex
 }
 
 // NewImporter creates a new connection to tikv-importer. A single connection
@@ -150,7 +152,13 @@ func (importer *importer) Flush(_ context.Context, _ uuid.UUID) error {
 }
 
 func (importer *importer) ImportEngine(ctx context.Context, engineUUID uuid.UUID) error {
+<<<<<<< HEAD:pkg/lightning/backend/importer.go
 	req := &kv.ImportEngineRequest{
+=======
+	importer.lock.Lock()
+	defer importer.lock.Unlock()
+	req := &import_kvpb.ImportEngineRequest{
+>>>>>>> fa66494b... lightning: fix duplicated engine counter metrics (#777):pkg/lightning/backend/importer/importer.go
 		Uuid:   engineUUID[:],
 		PdAddr: importer.pdAddr,
 	}
