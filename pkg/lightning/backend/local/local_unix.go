@@ -55,6 +55,8 @@ func VerifyRLimit(estimateMaxFiles uint64) error {
 		return errors.Trace(err)
 	}
 	if rLimit.Cur >= estimateMaxFiles {
+		log.L().Info("Check maximum number of open file descriptors(rlimit)",
+			zap.Uint64("estimated", estimateMaxFiles), zap.Uint64("current", rLimit.Cur))
 		return nil
 	}
 	if rLimit.Max < estimateMaxFiles {

@@ -1048,6 +1048,12 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var restoreErr common.OnceError
 
+	setErr := func(err error) {
+		if err != nil && !common.IsContextCanceledError(err) {
+			restoreErr.Set(err)
+		}
+	}
+
 	stopPeriodicActions := make(chan struct{})
 	go rc.runPeriodicActions(ctx, stopPeriodicActions)
 	defer close(stopPeriodicActions)
@@ -1070,7 +1076,7 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 				tableLogTask.End(zap.ErrorLevel, err)
 				web.BroadcastError(task.tr.tableName, err)
 				metric.RecordTableCount("completed", err)
-				restoreErr.Set(err)
+				setErr(err)
 				if needPostProcess {
 					postProcessTaskChan <- task
 				}
@@ -1204,7 +1210,7 @@ func (rc *RestoreController) restoreTables(ctx context.Context) error {
 			for task := range postProcessTaskChan {
 				// force all the remain post-process tasks to be executed
 				_, err := task.tr.postProcess(ctx2, rc, task.cp, true)
-				restoreErr.Set(err)
+				setErr(err)
 			}
 			wg.Done()
 		}()
@@ -2336,11 +2342,17 @@ func (cr *chunkRestore) deliverLoop(
 			start := time.Now()
 
 			if err = dataEngine.WriteRows(ctx, columns, dataKVs); err != nil {
-				deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				}
+
 				return errors.Trace(err)
 			}
 			if err = indexEngine.WriteRows(ctx, columns, indexKVs); err != nil {
-				deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				}
+
 				return errors.Trace(err)
 			}
 

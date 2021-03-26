@@ -17,6 +17,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/pingcap/errors"
 	pclog "github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/logutil"
@@ -149,7 +150,14 @@ func With(fields ...zap.Field) Logger {
 // cancellation.
 func IsContextCanceledError(err error) bool {
 	err = errors.Cause(err)
-	return err == context.Canceled || status.Code(err) == codes.Canceled
+	if err == context.Canceled || status.Code(err) == codes.Canceled {
+		return true
+	}
+	// See: https://github.com/pingcap/br/issues/918#issuecomment-807951050
+	if e, ok := err.(awserr.Error); ok {
+		return e.OrigErr() == context.Canceled
+	}
+	return false
 }
 
 // Begin marks the beginning of a task.
