@@ -2,9 +2,16 @@ name: compatible-test
 
 on:
   push:
-    branches: [ master, release-4.0, release-5.0 ]
+    branches:
+      - master
+      - 'release-[0-9].[0-9]*'
   pull_request:
-    branches: [ master, release-4.0, release-5.0 ]
+    branches:
+      - master
+      - 'release-[0-9].[0-9]*'
+  issue_comment:
+    types:
+      - created
 
 jobs:
   build:
@@ -23,21 +30,21 @@ jobs:
         sudo rm -rf /usr/share/dotnet
         docker volume prune -f
         docker image prune -f
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - uses: actions/checkout@v2
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
         go-version: 1.15
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Generate Compatible test backup data
       timeout-minutes: 15
       run: sh compatible/prepare_backup.sh
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Start server
       run: |
@@ -45,10 +52,10 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - uses: actions/upload-artifact@v2
       with:
         name: logs
         path: ${{ github.workspace }}/docker/logs/*
-      if: steps.check.outputs.triggered == 'true'
+      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
