@@ -810,6 +810,11 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 
+	chunkPendingBase := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	chunkFinishedBase := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	engineFinishedBase := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues("imported", metric.TableResultSuccess))
+	tableFinishedBase := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
+
 	ctx := context.Background()
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
@@ -870,14 +875,14 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	chunkPending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
 	chunkFinished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
-	c.Assert(chunkPending, Equals, float64(7))
-	c.Assert(chunkFinished, Equals, chunkPending)
+	c.Assert(chunkPending-chunkPendingBase, Equals, float64(7))
+	c.Assert(chunkFinished-chunkFinishedBase, Equals, chunkPending)
 
 	engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues("imported", metric.TableResultSuccess))
-	c.Assert(engineFinished, Equals, float64(8))
+	c.Assert(engineFinished-engineFinishedBase, Equals, float64(8))
 
 	tableFinished := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
-	c.Assert(tableFinished, Equals, float64(1))
+	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
 }
 
 var _ = Suite(&chunkRestoreSuite{})
