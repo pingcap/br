@@ -276,4 +276,5 @@ switch-mode = "5m"
 # the duration which the an import progress will be printed to the log.
 log-progress = "5m"
 # the duration which tikv-importer.sorted-kv-dir-capacity is checked.
-check-disk-quota = "1m"
+# NOTE: the disk-quota feature is not fully implemented, do not use it unless you know what you are doing.
+#check-disk-quota = "0s"
