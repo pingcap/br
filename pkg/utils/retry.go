@@ -53,7 +53,8 @@ func MessageIsRetryableS3Error(msg string) bool {
 	// If failed to read/write to S3.
 	failed := strings.Contains(msgLower, "failed to put object") || strings.Contains(msgLower, "failed to get object")
 	// If s3 stop or not start.
-	closedOrRefused := strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "connection refused")
+	closedOrRefused := strings.Contains(msgLower, "server closed") ||
+		strings.Contains(msgLower, "connection refused") ||  strings.Contains(msgLower, "connection reset by peer")
 	// Those conditions are retryable.
 	return failed && closedOrRefused
 }
