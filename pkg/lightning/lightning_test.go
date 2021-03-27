@@ -478,12 +478,6 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
 
-	// disable check-requirement, should return nil
-	cfg.App.CheckRequirements = false
-	err = checkSystemRequirement(cfg, dbMetas)
-	c.Assert(err, IsNil)
-	cfg.App.CheckRequirements = true
-
 	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
 	c.Assert(err, IsNil)
 

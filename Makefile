@@ -217,7 +217,8 @@ static: prepare tools
 		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
 	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
 	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
-	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' | \
+	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' \
+		$$($(PACKAGE_DIRECTORIES)) | \
 		grep -vE "backuppb" | $(CHECKER)
 
 lint: prepare tools
