@@ -176,19 +176,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
-<<<<<<< HEAD
-=======
 	err = client.PreCheckTableTiFlashReplica(ctx, tables)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	err = client.PreCheckTableClusterIndex(tables, ddlJobs, mgr.GetDomain())
-	if err != nil {
-		return errors.Trace(err)
-	}
-
->>>>>>> c0d60dae... restore: set tiflash replica to nil when tiflash node is not satified (#932)
 	// pre-set TiDB config for restore
 	restoreDBConfig := enableTiDBConfig()
 	defer restoreDBConfig()
