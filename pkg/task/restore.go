@@ -218,7 +218,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do transactional restore from raw kv data")
 	}
 
-	files, tables, dbs := filterRestoreFiles(client, cfg)
+	files, tables, dbs, filledTables := filterRestoreFiles(client, cfg)
+	if len(filledTables) > 0 {
+		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "tables already present")
+	}
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
@@ -246,11 +249,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		newTS = restoreTS
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
-
-	err = client.PreCheckTableTiFlashReplica(ctx, tables)
-	if err != nil {
-		return errors.Trace(err)
-	}
 
 	err = client.PreCheckTableClusterIndex(tables, ddlJobs, mgr.GetDomain())
 	if err != nil {
@@ -420,10 +418,14 @@ func dropToBlackhole(
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
+) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database, filledTables []*utils.Table) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
+			if table.TotalBytes > 0 {
+				filledTables = append(filledTables, table)
+			}
+
 			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
 				continue
 			}
