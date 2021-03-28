@@ -47,12 +47,13 @@ func WithRetry(
 	return allErrors // nolint:wrapcheck
 }
 
-// MessageIsRetryableS3Error checks whether the message returning from TiKV is retryable ExternalStorageError.
-func MessageIsRetryableS3Error(msg string) bool {
+// MessageIsRetryableStorageError checks whether the message returning from TiKV is retryable ExternalStorageError.
+func MessageIsRetryableStorageError(msg string) bool {
 	msgLower := strings.ToLower(msg)
-	// If failed to read/write to S3.
-	failed := strings.Contains(msgLower, "failed to put object") || strings.Contains(msgLower, "failed to get object")
-	// If s3 stop or not start.
+	// If failed to read/write to S3/GCS.
+	failed := strings.Contains(msgLower, "failed to put object") ||
+		strings.Contains(msgLower, "failed to get object") || strings.Contains(msgLower, "invalid http request")
+	// If S3/GCS stop or not start.
 	closedOrRefused := strings.Contains(msgLower, "server closed") ||
 		strings.Contains(msgLower, "connection refused") ||  strings.Contains(msgLower, "connection reset by peer")
 	// Those conditions are retryable.
