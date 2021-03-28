@@ -10,7 +10,10 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/glue"
@@ -151,7 +154,7 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		}
 		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
 		err = db.se.Execute(ctx, restoreMetaSQL)
-	} else {
+	} else if utils.NeedAutoID(table.Info) {
 		var alterAutoIncIDFormat string
 		switch {
 		case table.Info.IsView():
@@ -177,29 +180,46 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O),
 			autoIncID)
-		if utils.NeedAutoID(table.Info) {
-			err = db.se.Execute(ctx, restoreMetaSQL)
+
+		err = db.se.Execute(ctx, restoreMetaSQL)
+		if err != nil {
+			log.Error("restore meta sql failed",
+				zap.String("query", restoreMetaSQL),
+				zap.Stringer("db", table.DB.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Error(err))
+			return errors.Trace(err)
 		}
-	}
-
-	if err != nil {
-		log.Error("restore meta sql failed",
-			zap.String("query", restoreMetaSQL),
-			zap.Stringer("db", table.DB.Name),
-			zap.Stringer("table", table.Info.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-	if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
+	} else if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
 		// this table has auto random id, we need rebase it
-
+		var autoRandColTp types.FieldType
+		for _, c := range table.Info.Columns {
+			if mysql.HasPriKeyFlag(c.Flag) {
+				autoRandColTp = c.FieldType
+				break
+			}
+		}
+		autoRandID := table.Info.AutoRandID
+		layout := autoid.NewShardIDLayout(&autoRandColTp, table.Info.AutoRandomBits)
+		autoRandCap := int64(layout.IncrementalBitsCapacity())
+		if autoRandID >= autoRandCap {
+			// autoRandID is overflow, so we need set it lower than max allow base.
+			// for example. max allow base is 288230376151711743 when autoRandomBits is 5.
+			// so we need set autoRandID to 288230376151711742
+			autoRandID = autoRandCap - 1
+			log.Info("table auto rand id overflow",
+				zap.Stringer("db", table.DB.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Int64("auto rand id", table.Info.AutoRandID),
+			)
+		}
 		// we can't merge two alter query, because
 		// it will cause Error: [ddl:8200]Unsupported multi schema change
 		alterAutoRandIDSQL := fmt.Sprintf(
 			"alter table %s.%s auto_random_base = %d",
 			utils.EncloseName(table.DB.Name.O),
 			utils.EncloseName(table.Info.Name.O),
-			table.Info.AutoRandID)
+			autoRandID)
 
 		err = db.se.Execute(ctx, alterAutoRandIDSQL)
 		if err != nil {
