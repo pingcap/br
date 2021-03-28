@@ -38,6 +38,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/backend/noop"
 	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	. "github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -45,8 +46,10 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
@@ -801,6 +804,85 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 
 	err := rc.checkRequirements(ctx)
 	c.Assert(err, ErrorMatches, "fake check requirement error.*")
+}
+
+func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+
+	chunkPendingBase := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	chunkFinishedBase := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	engineFinishedBase := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues("imported", metric.TableResultSuccess))
+	tableFinishedBase := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
+
+	ctx := context.Background()
+	chptCh := make(chan saveCp)
+	defer close(chptCh)
+	cfg := config.NewConfig()
+	cfg.Mydumper.BatchSize = 1
+	cfg.PostRestore.Checksum = config.OpLevelOff
+
+	cfg.Checkpoint.Enable = false
+	cfg.TiDB.Host = "127.0.0.1"
+	cfg.TiDB.StatusPort = 10080
+	cfg.TiDB.Port = 4000
+	cfg.TiDB.PdAddr = "127.0.0.1:2379"
+
+	cfg.Mydumper.SourceDir = "."
+	cfg.Mydumper.CSV.Header = false
+	tls, err := cfg.ToTLS()
+	c.Assert(err, IsNil)
+
+	err = cfg.Adjust(ctx)
+	c.Assert(err, IsNil)
+
+	cpDB := checkpoints.NewNullCheckpointsDB()
+	rc := &RestoreController{
+		cfg: cfg,
+		dbMetas: []*mydump.MDDatabaseMeta{
+			{
+				Name:   s.tableInfo.DB,
+				Tables: []*mydump.MDTableMeta{s.tableMeta},
+			},
+		},
+		dbInfos: map[string]*TidbDBInfo{
+			s.tableInfo.DB: s.dbInfo,
+		},
+		tableWorkers:      worker.NewPool(ctx, 6, "table"),
+		indexWorkers:      worker.NewPool(ctx, 2, "index"),
+		ioWorkers:         worker.NewPool(ctx, 5, "io"),
+		regionWorkers:     worker.NewPool(ctx, 10, "region"),
+		checksumWorks:     worker.NewPool(ctx, 2, "region"),
+		saveCpCh:          chptCh,
+		pauser:            DeliverPauser,
+		backend:           noop.NewNoopBackend(),
+		tidbGlue:          mock.NewMockGlue(controller),
+		errorSummaries:    makeErrorSummaries(log.L()),
+		tls:               tls,
+		checkpointsDB:     cpDB,
+		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
+		store:             s.store,
+	}
+	go func() {
+		for range chptCh {
+		}
+	}()
+
+	web.BroadcastInitProgress(rc.dbMetas)
+
+	err = rc.restoreTables(ctx)
+	c.Assert(err, IsNil)
+
+	chunkPending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	chunkFinished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+	c.Assert(chunkPending-chunkPendingBase, Equals, float64(7))
+	c.Assert(chunkFinished-chunkFinishedBase, Equals, chunkPending)
+
+	engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues("imported", metric.TableResultSuccess))
+	c.Assert(engineFinished-engineFinishedBase, Equals, float64(8))
+
+	tableFinished := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
+	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
 }
 
 var _ = Suite(&chunkRestoreSuite{})
