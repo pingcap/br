@@ -53,24 +53,29 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 }
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
-	switch errors.Cause(err) { // nolint:errorlint
-	case berrors.ErrKVEpochNotMatch, berrors.ErrKVDownloadFailed, berrors.ErrKVIngestFailed:
+    if utils.MessageIsRetryableStorageError(err.Error()) {
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
-	case berrors.ErrKVRangeIsEmpty, berrors.ErrKVRewriteRuleNotFound:
-		// Excepted error, finish the operation
-		bo.delayTime = 0
-		bo.attempt = 0
-	default:
-		switch status.Code(err) {
-		case codes.Unavailable, codes.Aborted:
+	} else {
+		switch errors.Cause(err) { // nolint:errorlint
+		case berrors.ErrKVEpochNotMatch, berrors.ErrKVDownloadFailed, berrors.ErrKVIngestFailed:
 			bo.delayTime = 2 * bo.delayTime
 			bo.attempt--
-		default:
-			// Unexcepted error
+		case berrors.ErrKVRangeIsEmpty, berrors.ErrKVRewriteRuleNotFound:
+			// Excepted error, finish the operation
 			bo.delayTime = 0
 			bo.attempt = 0
-			log.Warn("unexcepted error, stop to retry", zap.Error(err))
+		default:
+			switch status.Code(err) {
+			case codes.Unavailable, codes.Aborted:
+				bo.delayTime = 2 * bo.delayTime
+				bo.attempt--
+			default:
+				// Unexcepted error
+				bo.delayTime = 0
+				bo.attempt = 0
+				log.Warn("unexcepted error, stop to retry", zap.Error(err))
+			}
 		}
 	}
 	if bo.delayTime > bo.maxDelayTime {
