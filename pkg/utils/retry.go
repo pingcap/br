@@ -54,7 +54,7 @@ func MessageIsRetryableStorageError(msg string) bool {
 	failed := strings.Contains(msgLower, "failed to put object") ||
 		strings.Contains(msgLower, "failed to get object") || strings.Contains(msgLower, "invalid http request")
 	// If S3/GCS stop or not start.
-	closedOrRefused := strings.Contains(msgLower, "server closed") ||
+	closedOrRefused := strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "writing a body to connection") ||
 		strings.Contains(msgLower, "connection refused") ||  strings.Contains(msgLower, "connection reset by peer")
 	// Those conditions are retryable.
 	return failed && closedOrRefused
