@@ -164,10 +164,12 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 		// auto inc id overflow
 		if table.Info.AutoIncID < 0 {
 			log.Info("table auto inc id overflow",
-				zap.Stringer("db", table.Db.Name),
+				zap.Stringer("db", table.DB.Name),
 				zap.Stringer("table", table.Info.Name),
 				zap.Int64("auto inc id", table.Info.AutoIncID),
 			)
+			autoIncID = uint64(table.Info.AutoIncID)
+		} else {
 			autoIncID = uint64(table.Info.AutoIncID)
 		}
 		restoreMetaSQL = fmt.Sprintf(
