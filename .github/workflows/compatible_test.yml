@@ -54,8 +54,14 @@ jobs:
         TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
+    - name: Collect component log
+      if: ${{ failure() }}
+      run: |
+        tar czvf /tmp/br/docker/logs.tar.gz /tmp/br/docker/backup_logs/*
+
     - uses: actions/upload-artifact@v2
+      if: ${{ failure() }}
       with:
         name: logs
-        path: ${{ github.workspace }}/docker/logs/*
+        path: /tmp/br/docker/logs.tar.gz
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
