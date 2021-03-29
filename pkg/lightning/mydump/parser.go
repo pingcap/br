@@ -527,8 +527,8 @@ func (parser *blockParser) LastRow() Row {
 
 // RecycleRow places the row object back into the allocation pool.
 func (parser *blockParser) RecycleRow(row Row) {
-	// We need farther benchmarking to make sure
-	//   whether send a pointer(instead of a slice) here can improve performance.
+	// We need farther benchmarking to make sure whether send a pointer
+	// (instead of a slice) here can improve performance.
 	//nolint:staticcheck
 	parser.rowPool.Put(row.Row[:0])
 }
