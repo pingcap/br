@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-units"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/failpoint"
 
@@ -63,7 +64,7 @@ func (s *lightningSuite) TestRun(c *C) {
 	cfg := config.NewConfig()
 	err := cfg.LoadFromGlobal(globalConfig)
 	c.Assert(err, IsNil)
-	err = lightning.RunOnce(context.Background(), cfg, nil, nil)
+	err = lightning.RunOnce(context.Background(), cfg, nil)
 	c.Assert(err, ErrorMatches, ".*mydumper dir does not exist")
 
 	path, _ := filepath.Abs(".")
@@ -356,7 +357,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	err := cfg.LoadFromGlobal(s.lightning.globalCfg)
 	c.Assert(err, IsNil)
 	go func() {
-		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil, nil)
+		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil)
 	}()
 	time.Sleep(100 * time.Millisecond)
 
@@ -429,6 +430,7 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	cfg.App.CheckRequirements = true
 	cfg.App.TableConcurrency = 4
 	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.EngineMemCacheSize = 512 * units.MiB
 
 	dbMetas := []*mydump.MDDatabaseMeta{
 		{

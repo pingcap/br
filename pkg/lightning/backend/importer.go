@@ -32,6 +32,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -39,9 +41,13 @@ const (
 )
 
 var (
-	requiredTiDBVersion = *semver.New("2.1.0")
-	requiredPDVersion   = *semver.New("2.1.0")
-	requiredTiKVVersion = *semver.New("2.1.0")
+	// Importer backend is compatible with TiDB [2.1.0, NextMajorVersion).
+	requiredMinTiDBVersion = *semver.New("2.1.0")
+	requiredMinPDVersion   = *semver.New("2.1.0")
+	requiredMinTiKVVersion = *semver.New("2.1.0")
+	requiredMaxTiDBVersion = version.NextMajorVersion()
+	requiredMaxPDVersion   = version.NextMajorVersion()
+	requiredMaxTiKVVersion = version.NextMajorVersion()
 )
 
 // importer represents a gRPC connection to tikv-importer. This type is
@@ -107,10 +113,10 @@ func (*importer) ShouldPostProcess() bool {
 }
 
 // isIgnorableOpenCloseEngineError checks if the error from
-// OpenEngine/CloseEngine can be safely ignored.
+// CloseEngine can be safely ignored.
 func isIgnorableOpenCloseEngineError(err error) bool {
-	// We allow "FileExists" error. This happens when the engine has been opened
-	// and closed before. This error typically arise when resuming from a
+	// We allow "FileExists" error. This happens when the engine has been
+	// closed before. This error typically arise when resuming from a
 	// checkpoint with a partially-imported engine.
 	//
 	// If the error is legit in a no-checkpoints settings, the later WriteEngine
@@ -124,10 +130,7 @@ func (importer *importer) OpenEngine(ctx context.Context, engineUUID uuid.UUID) 
 	}
 
 	_, err := importer.cli.OpenEngine(ctx, req)
-	if !isIgnorableOpenCloseEngineError(err) {
-		return errors.Trace(err)
-	}
-	return nil
+	return errors.Trace(err)
 }
 
 func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -211,7 +214,11 @@ func (importer *importer) WriteRowsToImporter(
 	logger := log.With(zap.Stringer("engineUUID", engineUUID))
 
 	defer func() {
-		if _, closeErr := wstream.CloseAndRecv(); closeErr != nil {
+		resp, closeErr := wstream.CloseAndRecv()
+		if closeErr == nil && resp != nil && resp.Error != nil {
+			closeErr = errors.Errorf("Engine '%s' not found", resp.Error.EngineNotFound.Uuid)
+		}
+		if closeErr != nil {
 			if finalErr == nil {
 				finalErr = errors.Trace(closeErr)
 			} else {
@@ -271,37 +278,37 @@ func (*importer) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, 
 }
 
 func (importer *importer) CheckRequirements(ctx context.Context) error {
-	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredTiDBVersion); err != nil {
+	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredMinTiDBVersion, requiredMaxTiDBVersion); err != nil {
 		return err
 	}
-	if err := checkPDVersion(ctx, importer.tls, importer.pdAddr, requiredPDVersion); err != nil {
+	if err := checkPDVersion(ctx, importer.tls, importer.pdAddr, requiredMinPDVersion, requiredMaxPDVersion); err != nil {
 		return err
 	}
-	if err := checkTiKVVersion(ctx, importer.tls, importer.pdAddr, requiredTiKVVersion); err != nil {
+	if err := checkTiKVVersion(ctx, importer.tls, importer.pdAddr, requiredMinTiKVVersion, requiredMaxTiKVVersion); err != nil {
 		return err
 	}
 	return nil
 }
 
-func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredVersion semver.Version) error {
+func checkTiDBVersionByTLS(ctx context.Context, tls *common.TLS, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	var status struct{ Version string }
 	err := tls.GetJSON(ctx, "/status", &status)
 	if err != nil {
 		return err
 	}
 
-	return checkTiDBVersion(status.Version, requiredVersion)
+	return checkTiDBVersion(status.Version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiDBVersion(versionStr string, requiredVersion semver.Version) error {
-	version, err := common.ExtractTiDBVersion(versionStr)
+func checkTiDBVersion(versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	version, err := version.ExtractTiDBVersion(versionStr)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return checkVersion("TiDB", requiredVersion, *version)
+	return checkVersion("TiDB", *version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredVersion semver.Version) error {
+func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	versionStr, err := g.GetSQLExecutor().ObtainStringWithLog(
 		ctx,
 		"SELECT version();",
@@ -311,19 +318,19 @@ func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredVersion sem
 		return errors.Trace(err)
 	}
 
-	return checkTiDBVersion(versionStr, requiredVersion)
+	return checkTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredVersion semver.Version) error {
-	version, err := common.FetchPDVersion(ctx, tls, pdAddr)
+func checkPDVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	version, err := pdutil.FetchPDVersion(ctx, tls, pdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	return checkVersion("PD", requiredVersion, *version)
+	return checkVersion("PD", *version, requiredMinVersion, requiredMaxVersion)
 }
 
-func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredVersion semver.Version) error {
+func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	return ForAllStores(
 		ctx,
 		tls.WithHost(pdAddr),
@@ -334,21 +341,35 @@ func checkTiKVVersion(ctx context.Context, tls *common.TLS, pdAddr string, requi
 			if err != nil {
 				return errors.Annotate(err, component)
 			}
-			return checkVersion(component, requiredVersion, *version)
+			return checkVersion(component, *version, requiredMinVersion, requiredMaxVersion)
 		},
 	)
 }
 
-func checkVersion(component string, expected, actual semver.Version) error {
-	if actual.Compare(expected) >= 0 {
-		return nil
+func checkVersion(component string, actual, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	// actual version must be within [requiredMinVersion, requiredMaxVersion).
+	if actual.Compare(requiredMinVersion) < 0 {
+		return errors.Errorf(
+			"%s version too old, required to be in [%s, %s), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion,
+			actual,
+		)
 	}
-	return errors.Errorf(
-		"%s version too old, expected '>=%s', found '%s'",
-		component,
-		expected,
-		actual,
-	)
+	// Compare the major version number to make sure beta version does not pass
+	// the check. This is because beta version may contains incompatible
+	// changes.
+	if actual.Major >= requiredMaxVersion.Major {
+		return errors.Errorf(
+			"%s version too new, major version expected to be within [%s, %d.0.0), found '%s'",
+			component,
+			requiredMinVersion,
+			requiredMaxVersion.Major,
+			actual,
+		)
+	}
+	return nil
 }
 
 func (importer *importer) FetchRemoteTableModels(ctx context.Context, schema string) ([]*model.TableInfo, error) {
@@ -371,7 +392,7 @@ func (importer *importer) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in importer backend")
 }
 
-func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error) {
+func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	return &ImporterWriter{importer: importer, engineUUID: engineUUID}, nil
 }
 

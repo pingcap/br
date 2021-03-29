@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/statistics/handle"
@@ -34,7 +34,7 @@ type Table struct {
 	Crc64Xor        uint64
 	TotalKvs        uint64
 	TotalBytes      uint64
-	Files           []*kvproto.File
+	Files           []*backuppb.File
 	TiFlashReplicas int
 	Stats           *handle.JSONTable
 }
@@ -68,8 +68,8 @@ func (db *Database) GetTable(name string) *Table {
 }
 
 // LoadBackupTables loads schemas from BackupMeta.
-func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
-	filesMap := make(map[int64][]*kvproto.File, len(meta.Schemas))
+func LoadBackupTables(meta *backuppb.BackupMeta) (map[string]*Database, error) {
+	filesMap := make(map[int64][]*backuppb.File, len(meta.Schemas))
 	for _, file := range meta.Files {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		if tableID == 0 {
@@ -116,7 +116,7 @@ func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		// Find the files belong to the table
-		tableFiles := make([]*kvproto.File, 0)
+		tableFiles := make([]*backuppb.File, 0)
 		if files, exists := filesMap[tableInfo.ID]; exists {
 			tableFiles = append(tableFiles, files...)
 		}
@@ -142,7 +142,7 @@ func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
 }
 
 // ArchiveSize returns the total size of the backup archive.
-func ArchiveSize(meta *kvproto.BackupMeta) uint64 {
+func ArchiveSize(meta *backuppb.BackupMeta) uint64 {
 	total := uint64(meta.Size())
 	for _, file := range meta.Files {
 		total += file.Size_

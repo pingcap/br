@@ -99,6 +99,12 @@ func (g Glue) Record(name string, value uint64) {
 	g.tikvGlue.Record(name, value)
 }
 
+// GetVersion implements glue.Glue.
+func (g Glue) GetVersion() string {
+	return g.tikvGlue.GetVersion()
+}
+
+// Execute implements glue.Session.
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
 	_, err := gs.se.Execute(ctx, sql)
 	return errors.Trace(err)

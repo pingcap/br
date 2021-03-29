@@ -6,7 +6,7 @@ import (
 	"bytes"
 
 	"github.com/google/btree"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 
 	"github.com/pingcap/br/pkg/logutil"
@@ -16,7 +16,7 @@ import (
 type Range struct {
 	StartKey []byte
 	EndKey   []byte
-	Files    []*backup.File
+	Files    []*backuppb.File
 }
 
 // Intersect returns?
@@ -136,7 +136,7 @@ func (rangeTree *RangeTree) Update(rg Range) {
 
 // Put forms a range and inserts it into tree.
 func (rangeTree *RangeTree) Put(
-	startKey, endKey []byte, files []*backup.File,
+	startKey, endKey []byte, files []*backuppb.File,
 ) {
 	rg := Range{
 		StartKey: startKey,

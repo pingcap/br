@@ -20,7 +20,7 @@ import (
 )
 
 // MakeTestLogger creates a Logger instance which produces JSON logs.
-func MakeTestLogger() (Logger, *zaptest.Buffer) {
+func MakeTestLogger(opts ...zap.Option) (Logger, *zaptest.Buffer) {
 	buffer := new(zaptest.Buffer)
 	logger := zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zapcore.EncoderConfig{
@@ -31,6 +31,6 @@ func MakeTestLogger() (Logger, *zaptest.Buffer) {
 		}),
 		buffer,
 		zap.DebugLevel,
-	))
+	), opts...)
 	return Logger{Logger: logger}, buffer
 }

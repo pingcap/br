@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -61,7 +62,7 @@ func newChecksumManager(ctx context.Context, rc *RestoreController) (ChecksumMan
 	}
 
 	pdAddr := rc.cfg.TiDB.PdAddr
-	pdVersion, err := common.FetchPDVersion(ctx, rc.tls, pdAddr)
+	pdVersion, err := pdutil.FetchPDVersion(ctx, rc.tls, pdAddr)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -266,7 +267,11 @@ func newTiKVChecksumManager(client kv.Client, pdClient pd.Client, distSQLScanCon
 }
 
 func (e *tikvChecksumManager) checksumDB(ctx context.Context, tableInfo *TidbTableInfo) (*RemoteChecksum, error) {
-	executor, err := checksum.NewExecutorBuilder(tableInfo.Core, oracle.ComposeTS(time.Now().Unix()*1000, 0)).
+	physicalTS, logicalTS, err := e.manager.pdClient.GetTS(ctx)
+	if err != nil {
+		return nil, errors.Annotate(err, "fetch tso from pd failed")
+	}
+	executor, err := checksum.NewExecutorBuilder(tableInfo.Core, oracle.ComposeTS(physicalTS, logicalTS)).
 		SetConcurrency(e.distSQLScanConcurrency).
 		Build()
 	if err != nil {

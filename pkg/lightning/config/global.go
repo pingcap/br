@@ -25,8 +25,8 @@ import (
 	"github.com/carlmjohnson/flagext"
 	"github.com/pingcap/errors"
 
-	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type GlobalLightning struct {
@@ -178,7 +178,7 @@ func LoadGlobalConfig(args []string, extraFlags func(*flag.FlagSet)) (*GlobalCon
 		return nil, errors.Trace(err)
 	}
 	if *printVersion {
-		fmt.Println(common.GetRawInfo())
+		fmt.Println(build.Info())
 		return nil, flag.ErrHelp
 	}
 

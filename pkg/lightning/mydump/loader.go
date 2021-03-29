@@ -93,7 +93,7 @@ func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error)
 	if err != nil {
 		return nil, err
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{SkipCheckPath: true})
 	if err != nil {
 		return nil, err
 	}

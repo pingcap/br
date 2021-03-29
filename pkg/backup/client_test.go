@@ -9,7 +9,7 @@ import (
 	"time"
 
 	. "github.com/pingcap/check"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -22,6 +22,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
+	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/pdutil"
 )
 
@@ -149,12 +150,12 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 		bo                *tikv.Backoffer
 		backupTS          uint64
 		lockResolver      *tikv.LockResolver
-		resp              *kvproto.BackupResponse
+		resp              *backuppb.BackupResponse
 		exceptedBackoffMs int
 		exceptedErr       bool
 	}
-	newBackupRegionErrorResp := func(regionError *errorpb.Error) *kvproto.BackupResponse {
-		return &kvproto.BackupResponse{Error: &kvproto.Error{Detail: &kvproto.Error_RegionError{RegionError: regionError}}}
+	newBackupRegionErrorResp := func(regionError *errorpb.Error) *backuppb.BackupResponse {
+		return &backuppb.BackupResponse{Error: &backuppb.Error{Detail: &backuppb.Error_RegionError{RegionError: regionError}}}
 	}
 
 	cases := []Case{
@@ -179,4 +180,19 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 			c.Assert(err, IsNil)
 		}
 	}
+}
+
+func (r *testBackup) TestBuildBackupMeta(c *C) {
+	req := backuppb.BackupRequest{
+		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
+		StartVersion: 0,
+		EndVersion:   0,
+	}
+	clusterVersion := "v4.0.10"
+	brVersion := gluetidb.New().GetVersion()
+	backupMeta, err := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
+	c.Assert(err, IsNil)
+	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
+	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
+	c.Assert(backupMeta.BrVersion, Equals, brVersion)
 }

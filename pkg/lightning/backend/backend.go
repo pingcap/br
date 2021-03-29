@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
 	"go.uber.org/zap"
@@ -163,7 +162,7 @@ type AbstractBackend interface {
 	ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-	LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error)
+	LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error)
 }
 
 func fetchRemoteTableModelsFromTLS(ctx context.Context, tls *common.TLS, schema string) ([]*model.TableInfo, error) {
@@ -298,7 +297,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 }
 
 // OpenEngine opens an engine with the given table name and engine ID.
-func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32) (*OpenedEngine, error) {
+func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)
 	logger := makeLogger(tag, engineUUID)
 
@@ -327,7 +326,7 @@ func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int
 			uuid:    engineUUID,
 		},
 		tableName: tableName,
-		ts:        oracle.ComposeTS(time.Now().Unix()*1000, 0),
+		ts:        ts,
 	}, nil
 }
 
@@ -345,21 +344,8 @@ func (engine *OpenedEngine) Flush(ctx context.Context) error {
 	return engine.backend.FlushEngine(ctx, engine.uuid)
 }
 
-// WriteRows writes a collection of encoded rows into the engine.
-func (engine *OpenedEngine) WriteRows(ctx context.Context, columnNames []string, rows Rows) error {
-	writer, err := engine.backend.LocalWriter(ctx, engine.uuid, LocalMemoryTableSize)
-	if err != nil {
-		return err
-	}
-	if err = writer.AppendRows(ctx, engine.tableName, columnNames, engine.ts, rows); err != nil {
-		writer.Close()
-		return err
-	}
-	return writer.Close()
-}
-
-func (engine *OpenedEngine) LocalWriter(ctx context.Context, maxCacheSize int64) (*LocalEngineWriter, error) {
-	w, err := engine.backend.LocalWriter(ctx, engine.uuid, maxCacheSize)
+func (engine *OpenedEngine) LocalWriter(ctx context.Context) (*LocalEngineWriter, error) {
+	w, err := engine.backend.LocalWriter(ctx, engine.uuid)
 	if err != nil {
 		return nil, err
 	}

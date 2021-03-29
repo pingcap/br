@@ -32,11 +32,17 @@ var _ = Suite(&checkReqSuite{})
 type checkReqSuite struct{}
 
 func (s *checkReqSuite) TestCheckVersion(c *C) {
-	err := checkVersion("TiNB", *semver.New("2.1.0"), *semver.New("2.3.5"))
+	err := checkVersion("TiNB", *semver.New("2.3.5"), *semver.New("2.1.0"), *semver.New("3.0.0"))
 	c.Assert(err, IsNil)
 
-	err = checkVersion("TiNB", *semver.New("2.3.5"), *semver.New("2.1.0"))
+	err = checkVersion("TiNB", *semver.New("2.1.0"), *semver.New("2.3.5"), *semver.New("3.0.0"))
 	c.Assert(err, ErrorMatches, "TiNB version too old.*")
+
+	err = checkVersion("TiNB", *semver.New("3.1.0"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too new.*")
+
+	err = checkVersion("TiNB", *semver.New("3.0.0-beta"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too new.*")
 }
 
 func (s *checkReqSuite) TestCheckTiDBVersion(c *C) {
@@ -54,11 +60,20 @@ func (s *checkReqSuite) TestCheckTiDBVersion(c *C) {
 
 	tls := common.NewTLSFromMockServer(mockServer)
 
+	version = "5.7.25-TiDB-v4.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), IsNil)
+
 	version = "5.7.25-TiDB-v9999.0.0"
-	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredTiDBVersion), IsNil)
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v5.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0-beta"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
 
 	version = "5.7.25-TiDB-v1.0.0"
-	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredTiDBVersion), ErrorMatches, "TiDB version too old.*")
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too old.*")
 }
 
 func (s *checkReqSuite) TestCheckPDVersion(c *C) {
@@ -66,9 +81,9 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 	ctx := context.Background()
 
 	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		c.Assert(req.URL.Path, Equals, "/pd/api/v1/config/cluster-version")
+		c.Assert(req.URL.Path, Equals, "/pd/api/v1/version")
 		w.WriteHeader(http.StatusOK)
-		err := json.NewEncoder(w).Encode(version)
+		_, err := w.Write([]byte(version))
 		c.Assert(err, IsNil)
 	}))
 	mockURL, err := url.Parse(mockServer.URL)
@@ -76,11 +91,35 @@ func (s *checkReqSuite) TestCheckPDVersion(c *C) {
 
 	tls := common.NewTLSFromMockServer(mockServer)
 
-	version = "9999.0.0"
-	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredPDVersion), IsNil)
+	version = `{
+    "version": "v4.0.0-rc.2-451-g760fb650"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), IsNil)
 
-	version = "1.0.0"
-	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredPDVersion), ErrorMatches, "PD version too old.*")
+	version = `{
+    "version": "v4.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), IsNil)
+
+	version = `{
+    "version": "v9999.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
+
+	version = `{
+    "version": "v5.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
+
+	version = `{
+    "version": "v6.0.0-beta"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too new.*")
+
+	version = `{
+    "version": "v1.0.0"
+}`
+	c.Assert(checkPDVersion(ctx, tls, mockURL.Host, requiredMinPDVersion, requiredMaxPDVersion), ErrorMatches, "PD version too old.*")
 }
 
 func (s *checkReqSuite) TestCheckTiKVVersion(c *C) {
@@ -111,12 +150,18 @@ func (s *checkReqSuite) TestCheckTiKVVersion(c *C) {
 
 	tls := common.NewTLSFromMockServer(mockServer)
 
-	versions = []string{"9999.0.0", "9999.0.0"}
-	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredTiKVVersion), IsNil)
-
 	versions = []string{"4.1.0", "v4.1.0-alpha-9-ga27a7dd"}
-	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredTiKVVersion), IsNil)
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), IsNil)
 
-	versions = []string{"9999.0.0", "1.0.0"}
-	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredTiKVVersion), ErrorMatches, `TiKV \(at tikv1\.test:20160\) version too old.*`)
+	versions = []string{"9999.0.0", "4.0.0"}
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
+
+	versions = []string{"4.0.0", "1.0.0"}
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv1\.test:20160\) version too old.*`)
+
+	versions = []string{"5.0.0"}
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
+
+	versions = []string{"6.0.0-beta"}
+	c.Assert(checkTiKVVersion(ctx, tls, mockURL.Host, requiredMinTiKVVersion, requiredMaxTiKVVersion), ErrorMatches, `TiKV \(at tikv0\.test:20160\) version too new.*`)
 }

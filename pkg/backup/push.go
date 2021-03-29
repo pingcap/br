@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -15,12 +15,13 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // pushDown wraps a backup task.
 type pushDown struct {
 	mgr    ClientMgr
-	respCh chan *backup.BackupResponse
+	respCh chan *backuppb.BackupResponse
 	errCh  chan error
 }
 
@@ -28,7 +29,7 @@ type pushDown struct {
 func newPushDown(mgr ClientMgr, cap int) *pushDown {
 	return &pushDown{
 		mgr:    mgr,
-		respCh: make(chan *backup.BackupResponse, cap),
+		respCh: make(chan *backuppb.BackupResponse, cap),
 		errCh:  make(chan error, cap),
 	}
 }
@@ -36,7 +37,7 @@ func newPushDown(mgr ClientMgr, cap int) *pushDown {
 // FullBackup make a full backup of a tikv cluster.
 func (push *pushDown) pushBackup(
 	ctx context.Context,
-	req backup.BackupRequest,
+	req backuppb.BackupRequest,
 	stores []*metapb.Store,
 	updateCh glue.Progress,
 ) (rtree.RangeTree, error) {
@@ -59,12 +60,12 @@ func (push *pushDown) pushBackup(
 			defer wg.Done()
 			err := SendBackup(
 				ctx, storeID, client, req,
-				func(resp *backup.BackupResponse) error {
+				func(resp *backuppb.BackupResponse) error {
 					// Forward all responses (including error).
 					push.respCh <- resp
 					return nil
 				},
-				func() (backup.BackupClient, error) {
+				func() (backuppb.BackupClient, error) {
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
@@ -98,17 +99,22 @@ func (push *pushDown) pushBackup(
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
-				case *backup.Error_KvError:
+				case *backuppb.Error_KvError:
 					log.Warn("backup occur kv error", zap.Reflect("error", v))
 
-				case *backup.Error_RegionError:
+				case *backuppb.Error_RegionError:
 					log.Warn("backup occur region error", zap.Reflect("error", v))
 
-				case *backup.Error_ClusterIdError:
+				case *backuppb.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error", zap.Reflect("error", v))
 					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
 
 				default:
+					// UNSAFE! TODO: Add a error type for failed to put file.
+					if utils.MessageIsRetryableS3Error(errPb.GetMsg()) {
+						log.Warn("backup occur s3 storage error", zap.String("error", errPb.GetMsg()))
+						continue
+					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
 					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
 				}
