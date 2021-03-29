@@ -247,6 +247,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	ddlJobs := restore.FilterDDLJobs(client.GetDDLJobs(), tables)
 
+	err = client.PreCheckTableTiFlashReplica(ctx, tables)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	err = client.PreCheckTableClusterIndex(tables, ddlJobs, mgr.GetDomain())
 	if err != nil {
 		return errors.Trace(err)
@@ -477,10 +482,6 @@ func enableTiDBConfig() func() {
 		// when upstream and downstream both set this value greater than default(3072)
 		conf.MaxIndexLength = config.DefMaxOfMaxIndexLength
 		log.Warn("set max-index-length to max(3072*4) to skip check index length in DDL")
-
-		// we need set this to true, since all create table DDLs will create with tableInfo
-		// and we can handle alter drop pk/add pk DDLs with no impact
-		conf.AlterPrimaryKey = true
 	})
 	return restoreConfig
 }

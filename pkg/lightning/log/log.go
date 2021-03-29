@@ -80,8 +80,13 @@ func InitLogger(cfg *Config, tidbLoglevel string) error {
 	}
 
 	logCfg := &pclog.Config{
-		Level: cfg.Level,
+		Level:         cfg.Level,
+		DisableCaller: false, // FilterCore requires zap.AddCaller.
 	}
+	filterTiDBLog := zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+		// Filter logs from TiDB and PD.
+		return NewFilterCore(core, "github.com/pingcap/tidb/", "github.com/tikv/pd/")
+	})
 	if len(cfg.File) > 0 {
 		logCfg.File = pclog.FileLogConfig{
 			Filename:   cfg.File,
@@ -90,10 +95,11 @@ func InitLogger(cfg *Config, tidbLoglevel string) error {
 			MaxBackups: cfg.FileMaxBackups,
 		}
 	}
-	logger, props, err := pclog.InitLogger(logCfg)
+	logger, props, err := pclog.InitLogger(logCfg, filterTiDBLog)
 	if err != nil {
 		return err
 	}
+	pclog.ReplaceGlobals(logger, props)
 
 	// Do not log stack traces at all, as we'll get the stack trace from the
 	// error itself.
@@ -106,11 +112,6 @@ func InitLogger(cfg *Config, tidbLoglevel string) error {
 // L returns the current logger for Lightning.
 func L() Logger {
 	return appLogger
-}
-
-// SetAppLogger replaces the default logger in this package to given one
-func SetAppLogger(l *zap.Logger) {
-	appLogger = Logger{l.WithOptions(zap.AddStacktrace(zap.DPanicLevel))}
 }
 
 // Level returns the current global log level.

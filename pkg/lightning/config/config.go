@@ -533,6 +533,8 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	case BackendTiDB:
 		cfg.DefaultVarsForTiDBBackend()
 		mustHaveInternalConnections = false
+		cfg.PostRestore.Checksum = OpLevelOff
+		cfg.PostRestore.Analyze = OpLevelOff
 	case BackendImporter, BackendLocal:
 		cfg.DefaultVarsForImporterAndLocalBackend()
 	default:

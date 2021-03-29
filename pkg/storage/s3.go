@@ -13,10 +13,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
@@ -39,7 +42,7 @@ const (
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
 	// number of retries to make of operations.
-	maxRetries = 6
+	maxRetries = 7
 	// max number of retries when meets error
 	maxErrorRetries = 3
 
@@ -233,9 +236,9 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
-		WithMaxRetries(maxRetries).
 		WithS3ForcePathStyle(qs.ForcePathStyle).
 		WithRegion(qs.Region)
+	request.WithRetryer(awsConfig, defaultS3Retryer())
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
 	}
@@ -670,4 +673,27 @@ func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWrite
 	}
 	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
 	return uploaderWriter, nil
+}
+
+// retryerWithLog wrappes the client.DefaultRetryer, and logging when retry triggered.
+type retryerWithLog struct {
+	client.DefaultRetryer
+}
+
+func (rl retryerWithLog) RetryRules(r *request.Request) time.Duration {
+	backoffTime := rl.DefaultRetryer.RetryRules(r)
+	if backoffTime > 0 {
+		log.Warn("failed to request s3, retrying", zap.Error(r.Error), zap.Duration("backoff", backoffTime))
+	}
+	return backoffTime
+}
+
+func defaultS3Retryer() request.Retryer {
+	return retryerWithLog{
+		DefaultRetryer: client.DefaultRetryer{
+			NumMaxRetries:    maxRetries,
+			MinRetryDelay:    1 * time.Second,
+			MinThrottleDelay: 2 * time.Second,
+		},
+	}
 }

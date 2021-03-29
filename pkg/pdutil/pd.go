@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -29,14 +30,13 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/httputil"
 	"github.com/pingcap/br/pkg/lightning/common"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
 	clusterVersionPrefix = "pd/api/v1/config/cluster-version"
 	regionCountPrefix    = "pd/api/v1/stats/region"
 	schedulerPrefix      = "pd/api/v1/schedulers"
-	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
+	maxMsgSize           = int(128 * units.MiB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
 

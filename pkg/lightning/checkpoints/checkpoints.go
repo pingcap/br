@@ -961,7 +961,13 @@ func (cpdb *FileCheckpointsDB) save() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := ioutil.WriteFile(cpdb.path, serialized, 0o644); err != nil {
+	// because `ioutil.WriteFile` is not atomic, directly write into it may reset the file
+	// to an empty file if write is not finished.
+	tmpPath := cpdb.path + ".tmp"
+	if err := ioutil.WriteFile(tmpPath, serialized, 0o644); err != nil {
+		return errors.Trace(err)
+	}
+	if err := os.Rename(tmpPath, cpdb.path); err != nil {
 		return errors.Trace(err)
 	}
 	return nil

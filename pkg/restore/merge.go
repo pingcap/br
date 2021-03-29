@@ -5,6 +5,7 @@ package restore
 import (
 	"strings"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/kv"
@@ -12,13 +13,12 @@ import (
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
 	// DefaultMergeRegionSizeBytes is the default region split size, 96MB.
 	// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
-	DefaultMergeRegionSizeBytes uint64 = 96 * utils.MB
+	DefaultMergeRegionSizeBytes uint64 = 96 * units.MB
 
 	// DefaultMergeRegionKeyCount is the default region key count, 960000.
 	DefaultMergeRegionKeyCount uint64 = 960000
