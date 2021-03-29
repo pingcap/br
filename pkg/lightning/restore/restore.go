@@ -1349,17 +1349,21 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 				CompactThreshold:   threshold,
 			}
 		}
-		indexEngine, err := rc.backend.OpenEngine(ctx, engineCfg, t.tableName, indexEngineID, rc.ts)
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		// The table checkpoint status less than `CheckpointStatusIndexImported` implies
-		// that index engine checkpoint status less than `CheckpointStatusImported`.
-		// So the index engine must be found in above process
-		if indexEngine == nil {
-			return errors.Errorf("table checkpoint status %v incompitable with index engine checkpoint status %v",
-				cp.Status, indexEngineCp.Status)
+		// import backend can't reopen engine if engine is closed, so
+		// only open index engine if any data engines don't finish writing.
+		var indexEngine *backend.OpenedEngine
+		var err error
+		for engineID, engine := range cp.Engines {
+			if engineID == indexEngineID {
+				continue
+			}
+			if engine.Status < CheckpointStatusAllWritten {
+				indexEngine, err = rc.backend.OpenEngine(ctx, engineCfg, t.tableName, indexEngineID, rc.ts)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				break
+			}
 		}
 
 		logTask := t.logger.Begin(zap.InfoLevel, "import whole table")
@@ -1442,8 +1446,13 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 			return errors.Trace(restoreErr)
 		}
 
-		closedIndexEngine, restoreErr = indexEngine.Close(ctx)
-		rc.saveStatusCheckpoint(t.tableName, indexEngineID, err, CheckpointStatusClosed)
+		if indexEngine != nil {
+			closedIndexEngine, restoreErr = indexEngine.Close(ctx)
+		} else {
+			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, t.tableName, indexEngineID)
+		}
+
+		rc.saveStatusCheckpoint(t.tableName, indexEngineID, restoreErr, CheckpointStatusClosed)
 	} else if indexEngineCp.Status == CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
