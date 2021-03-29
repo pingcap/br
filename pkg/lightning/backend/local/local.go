@@ -624,7 +624,7 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		// the default threshold value may cause write stall.
 		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
-		// set threshold to half of the max open files to avoid trigger compaction
+		// set threshold to a big value to avoid trigger compaction
 		L0CompactionThreshold: math.MaxInt32,
 		L0StopWritesThreshold: math.MaxInt32,
 		MaxOpenFiles:          local.maxOpenFiles,
@@ -1949,6 +1949,9 @@ func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
 		}
 	}
 
+	if w.writeBatch.totalSize == 0 {
+		return nil
+	}
 	// if write failed only because of unorderedness, we immediately ingest the memcache.
 	immWriter, err := newSSTWriter(w.genSSTPath())
 	if err != nil {
