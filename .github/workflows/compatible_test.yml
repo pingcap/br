@@ -64,4 +64,3 @@ jobs:
       with:
         name: logs
         path: /tmp/br/docker/logs.tar.gz
-      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
