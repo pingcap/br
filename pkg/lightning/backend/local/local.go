@@ -373,80 +373,78 @@ func (e *File) ingestSSTLoop() {
 		concurrency = 1
 	}
 	metaChan := make(chan metaAndSeq, concurrency)
-	if e.config.Compact {
-		for i := 0; i < concurrency; i++ {
-			e.wg.Add(1)
-			go func() {
-				defer e.wg.Done()
-				defer func() {
-					if e.ingestErr.Get() != nil {
-						seqLock.Lock()
-						for _, f := range flushQueue {
-							f.ch <- struct{}{}
-						}
-						flushQueue = flushQueue[:0]
-						seqLock.Unlock()
+	for i := 0; i < concurrency; i++ {
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			defer func() {
+				if e.ingestErr.Get() != nil {
+					seqLock.Lock()
+					for _, f := range flushQueue {
+						f.ch <- struct{}{}
 					}
-				}()
-				for {
-					select {
-					case <-e.ctx.Done():
+					flushQueue = flushQueue[:0]
+					seqLock.Unlock()
+				}
+			}()
+			for {
+				select {
+				case <-e.ctx.Done():
+					return
+				case metas, ok := <-metaChan:
+					if !ok {
 						return
-					case metas, ok := <-metaChan:
-						if !ok {
-							return
-						}
-						ingestMetas := metas.metas
-						if e.config.Compact {
-							newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
-							if err != nil {
-								e.setError(err)
-								return
-							}
-							ingestMetas = []*sstMeta{newMeta}
-						}
-
-						if err := e.ingestSSTs(ingestMetas); err != nil {
+					}
+					ingestMetas := metas.metas
+					if e.config.Compact {
+						newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
+						if err != nil {
 							e.setError(err)
 							return
 						}
-						seqLock.Lock()
-						finSeq := finishedSeq.Load()
-						if metas.seq == finSeq+1 {
-							finSeq = metas.seq
-							if len(inSyncSeqs.arr) > 0 {
-								for inSyncSeqs.arr[0] == finSeq+1 {
-									finSeq++
-									heap.Remove(inSyncSeqs, 0)
-									if len(inSyncSeqs.arr) == 0 {
-										break
-									}
-								}
-							}
-							var flushChans []chan struct{}
-							for _, seq := range flushQueue {
-								if seq.seq <= finSeq {
-									flushChans = append(flushChans, seq.ch)
-								} else {
+						ingestMetas = []*sstMeta{newMeta}
+					}
+
+					if err := e.ingestSSTs(ingestMetas); err != nil {
+						e.setError(err)
+						return
+					}
+					seqLock.Lock()
+					finSeq := finishedSeq.Load()
+					if metas.seq == finSeq+1 {
+						finSeq = metas.seq
+						if len(inSyncSeqs.arr) > 0 {
+							for inSyncSeqs.arr[0] == finSeq+1 {
+								finSeq++
+								heap.Remove(inSyncSeqs, 0)
+								if len(inSyncSeqs.arr) == 0 {
 									break
 								}
 							}
-							flushQueue = flushQueue[len(flushChans):]
-							finishedSeq.Store(finSeq)
-							seqLock.Unlock()
-							if len(flushChans) > 0 {
-								for _, c := range flushChans {
-									c <- struct{}{}
-								}
-							}
-						} else {
-							heap.Push(inSyncSeqs, metas.seq)
-							seqLock.Unlock()
 						}
+						var flushChans []chan struct{}
+						for _, seq := range flushQueue {
+							if seq.seq <= finSeq {
+								flushChans = append(flushChans, seq.ch)
+							} else {
+								break
+							}
+						}
+						flushQueue = flushQueue[len(flushChans):]
+						finishedSeq.Store(finSeq)
+						seqLock.Unlock()
+						if len(flushChans) > 0 {
+							for _, c := range flushChans {
+								c <- struct{}{}
+							}
+						}
+					} else {
+						heap.Push(inSyncSeqs, metas.seq)
+						seqLock.Unlock()
 					}
 				}
-			}()
-		}
+			}
+		}()
 	}
 
 	compactAndIngestSSTs := func(metas []*sstMeta) {
@@ -454,7 +452,10 @@ func (e *File) ingestSSTLoop() {
 			seqLock.Lock()
 			metaSeq := seq.Add(1)
 			seqLock.Unlock()
-			metaChan <- metaAndSeq{metas: metas, seq: metaSeq}
+			select {
+			case <-e.ctx.Done():
+			case metaChan <- metaAndSeq{metas: metas, seq: metaSeq}:
+			}
 		}
 	}
 
@@ -486,14 +487,18 @@ func (e *File) ingestSSTLoop() {
 		closed := false
 		select {
 		case ch := <-e.flushChan:
-			if !e.config.Compact {
-				ch <- struct{}{}
-			} else if len(pendingMetas) > 0 {
+			if len(pendingMetas) > 0 {
 				seqLock.Lock()
 				metaSeq := seq.Add(1)
 				flushQueue = append(flushQueue, flushSeq{ch: ch, seq: metaSeq})
 				seqLock.Unlock()
-				metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}
+				select {
+				case metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}:
+				case <-e.ctx.Done():
+					close(metaChan)
+					return
+				}
+
 				pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
 				totalSize = 0
 			} else {
