@@ -319,7 +319,7 @@ func (be *tidbBackend) MaxChunkSize() int {
 }
 
 func (be *tidbBackend) ShouldPostProcess() bool {
-	return false
+	return true
 }
 
 func (be *tidbBackend) CheckRequirements(ctx context.Context) error {
