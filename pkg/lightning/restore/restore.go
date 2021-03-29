@@ -2262,6 +2262,9 @@ func (cr *chunkRestore) deliverLoop(
 	rc *RestoreController,
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
+	// Fetch enough KV pairs from the source.
+	dataKVs := rc.backend.MakeEmptyRows()
+	indexKVs := rc.backend.MakeEmptyRows()
 
 	deliverLogger := t.logger.With(
 		zap.Int32("engineNumber", engineID),
@@ -2278,9 +2281,6 @@ func (cr *chunkRestore) deliverLoop(
 		// chunk checkpoint should stay the same
 		offset := cr.chunk.Chunk.Offset
 		rowID := cr.chunk.Chunk.PrevRowIDMax
-		// Fetch enough KV pairs from the source.
-		dataKVs := rc.backend.MakeEmptyRows()
-		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
 		for dataChecksum.SumSize()+indexChecksum.SumSize() < minDeliverBytes {
@@ -2336,6 +2336,8 @@ func (cr *chunkRestore) deliverLoop(
 		if err != nil {
 			return
 		}
+		dataKVs = dataKVs.Clear()
+		indexKVs = indexKVs.Clear()
 
 		// Update the table, and save a checkpoint.
 		// (the write to the importer is effective immediately, thus update these here)
