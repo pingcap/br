@@ -140,7 +140,10 @@ func GetSSTMetaFromFile(
 			Start: rangeStart,
 			End:   rangeEnd,
 		},
-		Length:      file.GetSize_(),
+		// if the uploaded length didn't reach the region_split_check_diff(16M)
+		// the peer won't be able to report region stats correctly with approximate_size.
+		// see details at https://github.com/tikv/tikv/blob/ffd681263107ab3ae5faba12c97d0024a03ce5ff/components/raftstore/src/store/fsm/peer.rs#L3524
+		Length:      file.GetTotalBytes(),
 		RegionId:    region.GetId(),
 		RegionEpoch: region.GetRegionEpoch(),
 	}
