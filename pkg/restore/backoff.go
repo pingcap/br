@@ -53,7 +53,7 @@ func newDownloadSSTBackoffer() utils.Backoffer {
 }
 
 func (bo *importerBackoffer) NextBackoff(err error) time.Duration {
-    if utils.MessageIsRetryableStorageError(err.Error()) {
+	if utils.MessageIsRetryableStorageError(err.Error()) {
 		bo.delayTime = 2 * bo.delayTime
 		bo.attempt--
 	} else {

@@ -50,12 +50,8 @@ func WithRetry(
 // MessageIsRetryableStorageError checks whether the message returning from TiKV is retryable ExternalStorageError.
 func MessageIsRetryableStorageError(msg string) bool {
 	msgLower := strings.ToLower(msg)
-	// If failed to read/write to S3/GCS.
-	failed := strings.Contains(msgLower, "failed to put object") ||
-		strings.Contains(msgLower, "failed to get object") || strings.Contains(msgLower, "invalid http request")
+	// UNSAFE! TODO: Add a error type for retryable connection error.
 	// If S3/GCS stop or not start.
-	closedOrRefused := strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "writing a body to connection") ||
-		strings.Contains(msgLower, "connection refused") ||  strings.Contains(msgLower, "connection reset by peer")
-	// Those conditions are retryable.
-	return failed && closedOrRefused
+	return strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "writing a body to connection") ||
+		strings.Contains(msgLower, "connection refused") || strings.Contains(msgLower, "connection reset by peer")
 }

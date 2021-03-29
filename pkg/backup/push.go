@@ -117,9 +117,8 @@ func (push *pushDown) pushBackup(
 					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
 
 				default:
-					// UNSAFE! TODO: Add a error type for failed to put file.
 					if utils.MessageIsRetryableStorageError(errPb.GetMsg()) {
-						log.Warn("backup occur s3 storage error", zap.String("error", errPb.GetMsg()))
+						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
