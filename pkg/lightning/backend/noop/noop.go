@@ -34,12 +34,24 @@ func NewNoopBackend() backend.Backend {
 
 type noopBackend struct{}
 
+type noopRows struct{}
+
+func (r noopRows) SplitIntoChunks(int) []kv.Rows {
+	return []kv.Rows{r}
+}
+
+// Clear returns a new collection with empty content. It may share the
+// capacity with the current instance. The typical usage is `x = x.Clear()`.
+func (r noopRows) Clear() kv.Rows {
+	return r
+}
+
 // Close the connection to the backend.
 func (b noopBackend) Close() {}
 
 // MakeEmptyRows creates an empty collection of encoded rows.
 func (b noopBackend) MakeEmptyRows() kv.Rows {
-	return nil
+	return noopRows{}
 }
 
 // RetryImportDelay returns the duration to sleep when retrying an import
