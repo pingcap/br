@@ -58,7 +58,7 @@ func (b noopBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv
 	return noopEncoder{}, nil
 }
 
-func (b noopBackend) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -126,7 +126,7 @@ func (b noopBackend) ResetEngine(ctx context.Context, engineUUID uuid.UUID) erro
 }
 
 // LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-func (b noopBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (b noopBackend) LocalWriter(context.Context, *backend.LocalWriterConfig, uuid.UUID) (backend.EngineWriter, error) {
 	return noopWriter{}, nil
 }
 
@@ -151,6 +151,6 @@ func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Row
 	return nil
 }
 
-func (w noopWriter) Close() error {
+func (w noopWriter) Close(context.Context) error {
 	return nil
 }
