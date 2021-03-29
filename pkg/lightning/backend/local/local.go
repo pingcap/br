@@ -367,9 +367,14 @@ func (e *File) ingestSSTLoop() {
 		seq   int32
 	}
 
-	metaChan := make(chan metaAndSeq, e.config.CompactConcurrency)
+	concurrency := e.config.CompactConcurrency
+	// when compaction is disabled, ingest is an serial action, so 1 routine is enough
+	if !e.config.Compact {
+		concurrency = 1
+	}
+	metaChan := make(chan metaAndSeq, concurrency)
 	if e.config.Compact {
-		for i := 0; i < e.config.CompactConcurrency; i++ {
+		for i := 0; i < concurrency; i++ {
 			e.wg.Add(1)
 			go func() {
 				defer e.wg.Done()
@@ -387,18 +392,21 @@ func (e *File) ingestSSTLoop() {
 					select {
 					case <-e.ctx.Done():
 						return
-					case m, ok := <-metaChan:
+					case metas, ok := <-metaChan:
 						if !ok {
 							return
 						}
-						metas := m
-						newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
-						if err != nil {
-							e.setError(err)
-							return
+						ingestMetas := metas.metas
+						if e.config.Compact {
+							newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
+							if err != nil {
+								e.setError(err)
+								return
+							}
+							ingestMetas = []*sstMeta{newMeta}
 						}
 
-						if err := e.ingestSSTs([]*sstMeta{newMeta}); err != nil {
+						if err := e.ingestSSTs(ingestMetas); err != nil {
 							e.setError(err)
 							return
 						}
@@ -441,27 +449,23 @@ func (e *File) ingestSSTLoop() {
 		}
 	}
 
-	pendingMetas := make([]*sstMeta, 0, 16)
-	totalSize := int64(0)
-	compactAndIngestSSTs := func() {
-		if len(pendingMetas) > 0 {
+	compactAndIngestSSTs := func(metas []*sstMeta) {
+		if len(metas) > 0 {
 			seqLock.Lock()
 			metaSeq := seq.Add(1)
 			seqLock.Unlock()
-			metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}
-			pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
-			totalSize = 0
+			metaChan <- metaAndSeq{metas: metas, seq: metaSeq}
 		}
 	}
 
+	pendingMetas := make([]*sstMeta, 0, 16)
+	totalSize := int64(0)
 	addMetas := func(metas []*sstMeta) {
 		if len(metas) == 0 {
 			return
 		}
 		if !e.config.Compact {
-			if err := e.batchIngestSSTs(metas); err != nil {
-				e.setError(err)
-			}
+			compactAndIngestSSTs(metas)
 			return
 		}
 		for _, m := range metas {
@@ -469,7 +473,10 @@ func (e *File) ingestSSTLoop() {
 				pendingMetas = append(pendingMetas, m)
 				totalSize += m.totalSize
 				if totalSize >= e.config.CompactThreshold {
-					compactAndIngestSSTs()
+					compactMetas := pendingMetas
+					pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
+					totalSize = 0
+					compactAndIngestSSTs(compactMetas)
 				}
 			}
 		}
@@ -527,13 +534,13 @@ func (e *File) ingestSSTLoop() {
 					}
 				}
 				addMetas(metasTmp)
-				metasTmp = metasTmp[:0]
+				metasTmp = make([]*sstMeta, 0, len(metasTmp))
 			} else {
 				closed = true
 			}
 		}
 		if closed {
-			compactAndIngestSSTs()
+			compactAndIngestSSTs(pendingMetas)
 			close(metaChan)
 			return
 		}
