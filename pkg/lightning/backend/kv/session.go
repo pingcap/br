@@ -152,9 +152,6 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
 }
 
-// SetAssertion implements the kv.Transaction interface
-func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
-
 func (t *transaction) GetUnionStore() kv.UnionStore {
 	return &t.kvUnionStore
 }
