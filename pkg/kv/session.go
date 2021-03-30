@@ -171,9 +171,6 @@ func (t *transaction) Delete(k kv.Key) error {
 	return t.kvMemBuf.Delete(k)
 }
 
-// SetAssertion implements the kv.Transaction interface.
-func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
-
 func (t *transaction) GetUnionStore() kv.UnionStore {
 	return &t.kvUnionStore
 }
