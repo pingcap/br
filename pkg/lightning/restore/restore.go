@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -575,6 +576,26 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
+func (rc *RestoreController) checkTableEmpty(ctx context.Context, tableName string) error {
+	db, err := rc.tidbGlue.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := "select 1 from " + tableName + " limit 1"
+	var dump int
+	err = db.QueryRowContext(ctx, query).Scan(&dump)
+
+	switch {
+	case err == sql.ErrNoRows:
+		return nil
+	case err != nil:
+		return errors.AddStack(err)
+	default:
+		return errors.Errorf("table %s not empty, please clean up the table first", tableName)
+	}
+}
+
 func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
@@ -606,6 +627,19 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	rc.dbInfos = dbInfos
+
+	if !rc.cfg.Checkpoint.Enable &&
+		(rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
+		for _, dbMeta := range rc.dbMetas {
+			for _, tableMeta := range dbMeta.Tables {
+				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+				err := rc.checkTableEmpty(ctx, tableName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
