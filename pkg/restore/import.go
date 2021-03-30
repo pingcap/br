@@ -248,7 +248,7 @@ func (importer *FileImporter) Import(
 					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
 					e = errors.New(msg)
 				})
-				return e
+				return errors.Trace(e)
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
