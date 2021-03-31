@@ -27,7 +27,9 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
+	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/errorpb"
@@ -43,6 +45,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -595,4 +599,53 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 	c.Assert(f.ingestErr.Get(), IsNil)
 	c.Assert(totalSize, Equals, f.TotalSize.Load())
 	c.Assert(f.Length.Load(), Equals, int64(concurrency*count))
+}
+
+func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	glue := mock.NewMockGlue(controller)
+	exec := mock.NewMockSQLExecutor(controller)
+	ctx := context.Background()
+
+	dbMetas := []*mydump.MDDatabaseMeta{
+		{
+			Name: "test",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test",
+					Name:      "t1",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+		{
+			Name: "test1",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test1",
+					Name:      "t",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test1",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+	}
+	checkCtx := &backend.CheckCtx{DBMetas: dbMetas}
+
+	glue.EXPECT().GetSQLExecutor().Return(exec)
+	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
+		Return([][]string{{"db", "tbl"}, {"test", "t1"}, {"test1", "tbl"}}, nil)
+
+	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
+	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
 }

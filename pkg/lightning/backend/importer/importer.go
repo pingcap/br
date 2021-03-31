@@ -282,7 +282,7 @@ func (*importer) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Enc
 	return kv.NewTableKVEncoder(tbl, options)
 }
 
-func (importer *importer) CheckRequirements(ctx context.Context) error {
+func (importer *importer) CheckRequirements(ctx context.Context, _ *backend.CheckCtx) error {
 	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredMinTiDBVersion, requiredMaxTiDBVersion); err != nil {
 		return err
 	}
