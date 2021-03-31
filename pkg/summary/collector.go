@@ -4,6 +4,7 @@ package summary
 
 import (
 	"fmt"
+	"github.com/docker/go-units"
 	"sync"
 	"time"
 
@@ -192,18 +193,11 @@ func (tc *logCollector) Summary(name string) {
 	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
-	msg += fmt.Sprintf(", total take(%s time): %s", name, totalCost)
-	msg += fmt.Sprintf(", total take(real time): %s", time.Since(tc.startTime))
+	msg += fmt.Sprintf(", total take: %s", time.Since(tc.startTime))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
-			fData := float64(data) / 1024 / 1024
-			if fData > 1 {
-				msg += fmt.Sprintf(", total size(MB): %.2f", fData)
-				msg += fmt.Sprintf(", avg speed(MB/s): %.2f", fData/totalCost.Seconds())
-			} else {
-				msg += fmt.Sprintf(", total size(Byte): %d", data)
-				msg += fmt.Sprintf(", avg speed(Byte/s): %.2f", float64(data)/totalCost.Seconds())
-			}
+			msg += fmt.Sprintf(", total size: %s", units.HumanSize(float64(data)))
+			msg += fmt.Sprintf(", avg speed: %s/s", units.HumanSize(float64(data)/totalCost.Seconds()))
 			continue
 		}
 		msg += fmt.Sprintf(", %s: %d", name, data)

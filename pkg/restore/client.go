@@ -735,16 +735,12 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		start := time.Now()
 		wg, ectx := errgroup.WithContext(ctx)
 		defer func() {
 			log.Info("all checksum ended")
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
-			elapsed := time.Since(start)
-			summary.CollectDuration("restore checksum", elapsed)
-			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -758,6 +754,12 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
+					start := time.Now()
+					defer func() {
+						elapsed := time.Since(start)
+						summary.CollectDuration("restore checksum", elapsed)
+						summary.CollectSuccessUnit("table checksum", 1, elapsed)
+					}()
 					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return errors.Trace(err)
