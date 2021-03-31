@@ -199,7 +199,7 @@ func (tc *logCollector) Summary(name string) {
 	for name, data := range tc.successData {
 		if name == TotalBytes {
 			logFields = append(logFields,
-				zap.String("total-size", units.HumanSize(float64(data))),
+				zap.String("data-size", units.HumanSize(float64(data))),
 				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
 			continue
 		}
