@@ -33,7 +33,7 @@ func (suit *testCollectorSuite) TestSumDurationInt(c *C) {
 	col.SetSuccessStatus(true)
 	col.Summary("foo")
 
-	c.Assert(len(fields), Equals, 3)
+	c.Assert(len(fields), Equals, 7)
 	assertContains := func(field zap.Field) {
 		for _, f := range fields {
 			if f.Key == field.Key {

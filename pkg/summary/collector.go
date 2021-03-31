@@ -3,10 +3,11 @@
 package summary
 
 import (
-	"github.com/docker/go-units"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/docker/go-units"
 
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
