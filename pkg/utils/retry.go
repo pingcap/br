@@ -10,6 +10,17 @@ import (
 	"go.uber.org/multierr"
 )
 
+var retryableServerError = []string{
+	"server closed",
+	"connection refused",
+	"connection reset by peer",
+	"channel closed",
+	"error trying to connect",
+	"connection closed before message completed",
+	"body write aborted",
+	"error during dispatch",
+}
+
 // RetryableFunc presents a retryable operation.
 type RetryableFunc func() error
 
@@ -51,7 +62,10 @@ func WithRetry(
 func MessageIsRetryableStorageError(msg string) bool {
 	msgLower := strings.ToLower(msg)
 	// UNSAFE! TODO: Add a error type for retryable connection error.
-	// If S3/GCS stop or not start.
-	return strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "writing a body to connection") ||
-		strings.Contains(msgLower, "connection refused") || strings.Contains(msgLower, "connection reset by peer")
+	for _, errStr := range retryableServerError {
+		if strings.Contains(msgLower, errStr) {
+			return true
+		}
+	}
+	return false
 }
