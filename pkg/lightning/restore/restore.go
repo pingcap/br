@@ -20,13 +20,11 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -60,7 +58,6 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/version"
 	"github.com/pingcap/br/pkg/version/build"
 )
 
@@ -80,11 +77,6 @@ const (
 const (
 	compactStateIdle int32 = iota
 	compactStateDoing
-)
-
-var (
-	// the min version of tiflash that is compatible with local backend
-	tiflashminCompatibleVersion = semver.New("4.0.5")
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
@@ -1887,66 +1879,16 @@ func (rc *RestoreController) enforceDiskQuota(ctx context.Context) {
 	}()
 }
 
-var (
-	tidbVersionQuery    = "SELECT version();"
-	tiFlashReplicaQuery = "SELECT TABLE_SCHEMA, TABLE_NAME, REPLICA_COUNT FROM information_schema.TIFLASH_REPLICA;"
-)
-
 func (rc *RestoreController) checkRequirements(ctx context.Context) error {
 	// skip requirement check if explicitly turned off
 	if !rc.cfg.App.CheckRequirements {
 		return nil
 	}
-	if err := rc.backend.CheckRequirements(ctx); err != nil {
-		return errors.Trace(err)
+	checkCtx := &backend.CheckCtx{
+		DBMetas: rc.dbMetas,
 	}
-	// check TiFlash replicas.
-	// local backend doesn't support TiFlash before tidb v4.0.5
-	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
-		versionStr, err := rc.tidbGlue.GetSQLExecutor().ObtainStringWithLog(
-			ctx,
-			tidbVersionQuery,
-			"check TiDB version",
-			log.L())
-		if err != nil {
-			return errors.Trace(err)
-		}
-		v, err := version.ExtractTiDBVersion(versionStr)
-		if err != nil {
-			return errors.Annotatef(err, "fetch tidb version failed")
-		}
-		if v.Compare(*tiflashminCompatibleVersion) < 0 {
-			res, err := rc.tidbGlue.GetSQLExecutor().QueryStringsWithLog(ctx, tiFlashReplicaQuery, "fetch tiflash replica info", log.L())
-			if err != nil {
-				return errors.Annotate(err, "fetch tiflash replica info failed")
-			}
-
-			tiflashTables := make(map[string]int64, len(res))
-			for _, tblInfo := range res {
-				count, err := strconv.ParseInt(tblInfo[2], 10, 64)
-				if err != nil {
-					return errors.Annotatef(err, "parse tiflash replica for `%s`.`%s` count '%s' failed",
-						tblInfo[0], tblInfo[1], tblInfo[2])
-				}
-				if count > 0 {
-					name := common.UniqueTable(tblInfo[0], tblInfo[1])
-					tiflashTables[name] = count
-				}
-			}
-
-			for _, dbMeta := range rc.dbMetas {
-				for _, tblMeta := range dbMeta.Tables {
-					if len(tblMeta.DataFiles) == 0 {
-						continue
-					}
-					name := common.UniqueTable(dbMeta.Name, tblMeta.Name)
-					if _, ok := tiflashTables[name]; ok {
-						helpInfo := "Please either upgrade TiDB to version >= 4.0.5 or add TiFlash replica after load data."
-						return errors.Errorf("lightning local backend doesn't support TiFlash in this TiDB version. conflict table: %s. "+helpInfo, name)
-					}
-				}
-			}
-		}
+	if err := rc.backend.CheckRequirements(ctx, checkCtx); err != nil {
+		return errors.Trace(err)
 	}
 	return nil
 }

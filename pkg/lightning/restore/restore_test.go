@@ -795,7 +795,7 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 	ctx := context.Background()
 
 	mockBackend.EXPECT().
-		CheckRequirements(ctx).
+		CheckRequirements(ctx, gomock.Any()).
 		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
 	rc := &RestoreController{
 		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
@@ -804,68 +804,6 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 
 	err := rc.checkRequirements(ctx)
 	c.Assert(err, ErrorMatches, "fake check requirement error.*")
-}
-
-func (s *tableRestoreSuite) TestCheckRequirementsTiFlash(c *C) {
-	controller := gomock.NewController(c)
-	defer controller.Finish()
-	mockBackend := mock.NewMockBackend(controller)
-	backend := backend.MakeBackend(mockBackend)
-	glue := mock.NewMockGlue(controller)
-	exec := mock.NewMockSQLExecutor(controller)
-	ctx := context.Background()
-	rc := &RestoreController{
-		cfg: &config.Config{
-			App:          config.Lightning{CheckRequirements: true},
-			TikvImporter: config.TikvImporter{Backend: config.BackendLocal},
-		},
-		backend:  backend,
-		tidbGlue: glue,
-		dbMetas: []*mydump.MDDatabaseMeta{
-			{
-				Name: "test",
-				Tables: []*mydump.MDTableMeta{
-					{
-						DB:        "test",
-						Name:      "t1",
-						DataFiles: []mydump.FileInfo{{}},
-					},
-					{
-						DB:        "test",
-						Name:      "tbl",
-						DataFiles: []mydump.FileInfo{{}},
-					},
-				},
-			},
-			{
-				Name: "test1",
-				Tables: []*mydump.MDTableMeta{
-					{
-						DB:        "test1",
-						Name:      "t",
-						DataFiles: []mydump.FileInfo{{}},
-					},
-					{
-						DB:        "test",
-						Name:      "tbl",
-						DataFiles: []mydump.FileInfo{{}},
-					},
-				},
-			},
-		},
-	}
-
-	mockBackend.EXPECT().
-		CheckRequirements(ctx).
-		Return(nil)
-	glue.EXPECT().GetSQLExecutor().Return(exec).Times(2)
-	exec.EXPECT().ObtainStringWithLog(ctx, tidbVersionQuery, gomock.Any(), gomock.Any()).
-		Return("5.7.25-TiDB-v4.0.0", nil)
-	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
-		Return([][]string{{"db", "tbl", "1"}, {"test", "t1", "0"}, {"test", "t2", "3"}, {"test1", "tbl", "1"}}, nil)
-
-	err := rc.checkRequirements(ctx)
-	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict table: `test1`.`tbl`.*")
 }
 
 func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
