@@ -3,7 +3,6 @@
 package summary
 
 import (
-	"fmt"
 	"github.com/docker/go-units"
 	"sync"
 	"time"
@@ -161,17 +160,14 @@ func (tc *logCollector) Summary(name string) {
 		tc.mu.Unlock()
 	}()
 
-	var msg string
-	switch tc.unit {
-	case BackupUnit:
-		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
-			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-	case RestoreUnit:
-		msg = fmt.Sprintf("total restore files: %d, total success: %d, total failed: %d",
-			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-	}
+	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints)+3)
 
-	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints))
+	logFields = append(logFields,
+		zap.Int("total-ranges", tc.failureUnitCount+tc.successUnitCount),
+		zap.Int("ranges-succeed", tc.successUnitCount),
+		zap.Int("ranges-failed", tc.failureUnitCount),
+	)
+
 	for key, val := range tc.durations {
 		logFields = append(logFields, zap.Duration(key, val))
 	}
@@ -186,24 +182,26 @@ func (tc *logCollector) Summary(name string) {
 		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
 		}
-		log.Info(name+" Failed summary : "+msg, logFields...)
+		log.Info(name+" failed summary", logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
 	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
-	msg += fmt.Sprintf(", total take: %s", time.Since(tc.startTime))
+
+	logFields = append(logFields, zap.Duration("total-take", time.Since(tc.startTime)))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
-			msg += fmt.Sprintf(", total size: %s", units.HumanSize(float64(data)))
-			msg += fmt.Sprintf(", avg speed: %s/s", units.HumanSize(float64(data)/totalCost.Seconds()))
+			logFields = append(logFields,
+				zap.String("total-size", units.HumanSize(float64(data))),
+				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
 			continue
 		}
-		msg += fmt.Sprintf(", %s: %d", name, data)
+		logFields = append(logFields, zap.Uint64(name, data))
 	}
 
-	tc.log(name+" Success summary: "+msg, logFields...)
+	tc.log(name+" success summary", logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside.
