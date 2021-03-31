@@ -30,7 +30,11 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
+<<<<<<< HEAD
 	"github.com/pingcap/br/pkg/lightning/verification"
+=======
+	"github.com/pingcap/br/pkg/lightning/mydump"
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968)
 )
 
 const (
@@ -94,6 +98,11 @@ type EngineFileSize struct {
 	IsImporting bool
 }
 
+// CheckCtx contains all parameters used in CheckRequirements
+type CheckCtx struct {
+	DBMetas []*mydump.MDDatabaseMeta
+}
+
 // AbstractBackend is the abstract interface behind Backend.
 // Implementations of this interface must be goroutine safe: you can share an
 // instance and execute any method anywhere.
@@ -124,7 +133,7 @@ type AbstractBackend interface {
 
 	// CheckRequirements performs the check whether the backend satisfies the
 	// version requirements
-	CheckRequirements(ctx context.Context) error
+	CheckRequirements(ctx context.Context, checkCtx *CheckCtx) error
 
 	// FetchRemoteTableModels obtains the models of all tables given the schema
 	// name. The returned table info does not need to be precise if the encoder,
@@ -233,8 +242,8 @@ func (be Backend) ShouldPostProcess() bool {
 	return be.abstract.ShouldPostProcess()
 }
 
-func (be Backend) CheckRequirements(ctx context.Context) error {
-	return be.abstract.CheckRequirements(ctx)
+func (be Backend) CheckRequirements(ctx context.Context, checkCtx *CheckCtx) error {
+	return be.abstract.CheckRequirements(ctx, checkCtx)
 }
 
 func (be Backend) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {

@@ -18,7 +18,10 @@ import (
 	verification "github.com/pingcap/br/pkg/lightning/verification"
 	model "github.com/pingcap/parser/model"
 	table "github.com/pingcap/tidb/table"
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 	types "github.com/pingcap/tidb/types"
+=======
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 )
 
 // MockBackend is a mock of AbstractBackend interface.
@@ -45,17 +48,25 @@ func (m *MockBackend) EXPECT() *MockBackendMockRecorder {
 }
 
 // CheckRequirements mocks base method.
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 func (m *MockBackend) CheckRequirements(arg0 context.Context) error {
+=======
+func (m *MockBackend) CheckRequirements(arg0 context.Context, arg1 *backend.CheckCtx) error {
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CheckRequirements", arg0)
+	ret := m.ctrl.Call(m, "CheckRequirements", arg0, arg1)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CheckRequirements indicates an expected call of CheckRequirements.
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 func (mr *MockBackendMockRecorder) CheckRequirements(arg0 interface{}) *gomock.Call {
+=======
+func (mr *MockBackendMockRecorder) CheckRequirements(arg0, arg1 interface{}) *gomock.Call {
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRequirements", reflect.TypeOf((*MockBackend)(nil).CheckRequirements), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CheckRequirements", reflect.TypeOf((*MockBackend)(nil).CheckRequirements), arg0, arg1)
 }
 
 // CleanupEngine mocks base method.
@@ -169,7 +180,7 @@ func (mr *MockBackendMockRecorder) ImportEngine(arg0, arg1 interface{}) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ImportEngine", reflect.TypeOf((*MockBackend)(nil).ImportEngine), arg0, arg1)
 }
 
-// LocalWriter mocks base method
+// LocalWriter mocks base method.
 func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 uuid.UUID) (backend.EngineWriter, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "LocalWriter", arg0, arg1)
@@ -178,14 +189,18 @@ func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 uuid.UUID) (backend
 	return ret0, ret1
 }
 
-// LocalWriter indicates an expected call of LocalWriter
+// LocalWriter indicates an expected call of LocalWriter.
 func (mr *MockBackendMockRecorder) LocalWriter(arg0, arg1 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalWriter", reflect.TypeOf((*MockBackend)(nil).LocalWriter), arg0, arg1)
 }
 
 // MakeEmptyRows mocks base method.
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 func (m *MockBackend) MakeEmptyRows() backend.Rows {
+=======
+func (m *MockBackend) MakeEmptyRows() kv.Rows {
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MakeEmptyRows")
 	ret0, _ := ret[0].(backend.Rows)
@@ -199,7 +214,11 @@ func (mr *MockBackendMockRecorder) MakeEmptyRows() *gomock.Call {
 }
 
 // NewEncoder mocks base method.
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 func (m *MockBackend) NewEncoder(arg0 table.Table, arg1 *backend.SessionOptions) (backend.Encoder, error) {
+=======
+func (m *MockBackend) NewEncoder(arg0 table.Table, arg1 *kv.SessionOptions) (kv.Encoder, error) {
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewEncoder", arg0, arg1)
 	ret0, _ := ret[0].(backend.Encoder)
@@ -269,6 +288,7 @@ func (mr *MockBackendMockRecorder) ShouldPostProcess() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ShouldPostProcess", reflect.TypeOf((*MockBackend)(nil).ShouldPostProcess))
 }
 
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 // MockEncoder is a mock of Encoder interface.
 type MockEncoder struct {
 	ctrl     *gomock.Controller
@@ -405,6 +425,8 @@ func (mr *MockRowMockRecorder) ClassifyAndAppend(arg0, arg1, arg2, arg3 interfac
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClassifyAndAppend", reflect.TypeOf((*MockRow)(nil).ClassifyAndAppend), arg0, arg1, arg2, arg3)
 }
 
+=======
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 // MockEngineWriter is a mock of EngineWriter interface.
 type MockEngineWriter struct {
 	ctrl     *gomock.Controller
@@ -429,7 +451,11 @@ func (m *MockEngineWriter) EXPECT() *MockEngineWriterMockRecorder {
 }
 
 // AppendRows mocks base method.
+<<<<<<< HEAD:pkg/lightning/mock/backend.go
 func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 uint64, arg4 backend.Rows) error {
+=======
+func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 uint64, arg4 kv.Rows) error {
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/mock/backend.go
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AppendRows", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].(error)

@@ -103,6 +103,7 @@ var (
 	localMaxTiDBVersion = version.NextMajorVersion()
 	localMaxTiKVVersion = version.NextMajorVersion()
 	localMaxPDVersion   = version.NextMajorVersion()
+	tiFlashMinVersion   = *semver.New("4.0.5")
 )
 
 var (
@@ -1450,8 +1451,16 @@ func (local *local) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) err
 	return nil
 }
 
-func (local *local) CheckRequirements(ctx context.Context) error {
-	if err := checkTiDBVersionBySQL(ctx, local.g, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
+func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.CheckCtx) error {
+	versionStr, err := local.g.GetSQLExecutor().ObtainStringWithLog(
+		ctx,
+		"SELECT version();",
+		"check TiDB version",
+		log.L())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err := checkTiDBVersion(ctx, versionStr, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
 		return err
 	}
 	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
@@ -1460,9 +1469,79 @@ func (local *local) CheckRequirements(ctx context.Context) error {
 	if err := checkTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
 		return err
 	}
+
+	tidbVersion, _ := version.ExtractTiDBVersion(versionStr)
+
+	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
+}
+
+<<<<<<< HEAD:pkg/lightning/backend/local.go
+=======
+func checkTiDBVersion(ctx context.Context, versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	return version.CheckTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
+}
+
+var tiFlashReplicaQuery = "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TIFLASH_REPLICA WHERE REPLICA_COUNT > 0;"
+
+type tblName struct {
+	schema string
+	name   string
+}
+
+type tblNames []tblName
+
+func (t tblNames) String() string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, n := range t {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(common.UniqueTable(n.schema, n.name))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// check TiFlash replicas.
+// local backend doesn't support TiFlash before tidb v4.0.5
+func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.CheckCtx, tidbVersion semver.Version) error {
+	if tidbVersion.Compare(tiFlashMinVersion) >= 0 {
+		return nil
+	}
+
+	res, err := g.GetSQLExecutor().QueryStringsWithLog(ctx, tiFlashReplicaQuery, "fetch tiflash replica info", log.L())
+	if err != nil {
+		return errors.Annotate(err, "fetch tiflash replica info failed")
+	}
+
+	tiFlashTablesMap := make(map[tblName]struct{}, len(res))
+	for _, tblInfo := range res {
+		name := tblName{schema: tblInfo[0], name: tblInfo[1]}
+		tiFlashTablesMap[name] = struct{}{}
+	}
+
+	tiFlashTables := make(tblNames, 0)
+	for _, dbMeta := range checkCtx.DBMetas {
+		for _, tblMeta := range dbMeta.Tables {
+			if len(tblMeta.DataFiles) == 0 {
+				continue
+			}
+			name := tblName{schema: tblMeta.DB, name: tblMeta.Name}
+			if _, ok := tiFlashTablesMap[name]; ok {
+				tiFlashTables = append(tiFlashTables, name)
+			}
+		}
+	}
+
+	if len(tiFlashTables) > 0 {
+		helpInfo := "Please either upgrade TiDB to version >= 4.0.5 or add TiFlash replica after load data."
+		return errors.Errorf("lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: %s. "+helpInfo, tiFlashTables)
+	}
 	return nil
 }
 
+>>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/lightning/backend/local/local.go
 func (local *local) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
 	return fetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
 }
