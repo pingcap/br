@@ -792,7 +792,7 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 	ctx := context.Background()
 
 	mockBackend.EXPECT().
-		CheckRequirements(ctx).
+		CheckRequirements(ctx, gomock.Any()).
 		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
 	rc := &RestoreController{
 		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
