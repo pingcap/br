@@ -4,6 +4,7 @@ package summary
 
 import (
 	"github.com/docker/go-units"
+	"strings"
 	"sync"
 	"time"
 
@@ -198,7 +199,7 @@ func (tc *logCollector) Summary(name string) {
 				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
 			continue
 		}
-		logFields = append(logFields, zap.Uint64(name, data))
+		logFields = append(logFields, zap.Uint64(strings.ReplaceAll(name, " ", "-"), data))
 	}
 
 	tc.log(name+" success summary", logFields...)
