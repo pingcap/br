@@ -246,8 +246,7 @@ func (importer *FileImporter) Import(
 				failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
 					msg := val.(string)
 					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
-					e = errors.New(msg)
-					errors.Annotate(e, msg)
+					e = errors.Annotate(e, msg)
 				})
 				return errors.Trace(e)
 			}, newDownloadSSTBackoffer())
