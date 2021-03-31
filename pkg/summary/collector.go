@@ -151,6 +151,10 @@ func (tc *logCollector) SetSuccessStatus(success bool) {
 	tc.successStatus = success
 }
 
+func logKeyFor(key string) string {
+	return strings.ReplaceAll(key, " ", "-")
+}
+
 func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
@@ -170,18 +174,18 @@ func (tc *logCollector) Summary(name string) {
 	)
 
 	for key, val := range tc.durations {
-		logFields = append(logFields, zap.Duration(key, val))
+		logFields = append(logFields, zap.Duration(logKeyFor(key), val))
 	}
 	for key, val := range tc.ints {
-		logFields = append(logFields, zap.Int(key, val))
+		logFields = append(logFields, zap.Int(logKeyFor(key), val))
 	}
 	for key, val := range tc.uints {
-		logFields = append(logFields, zap.Uint64(key, val))
+		logFields = append(logFields, zap.Uint64(logKeyFor(key), val))
 	}
 
 	if len(tc.failureReasons) != 0 || !tc.successStatus {
 		for unitName, reason := range tc.failureReasons {
-			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
+			logFields = append(logFields, zap.String("unit-name", unitName), zap.Error(reason))
 		}
 		log.Info(name+" failed summary", logFields...)
 		return
@@ -199,7 +203,7 @@ func (tc *logCollector) Summary(name string) {
 				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
 			continue
 		}
-		logFields = append(logFields, zap.Uint64(strings.ReplaceAll(name, " ", "-"), data))
+		logFields = append(logFields, zap.Uint64(logKeyFor(name), data))
 	}
 
 	tc.log(name+" success summary", logFields...)
