@@ -517,7 +517,7 @@ func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 					DataFiles: []mydump.FileInfo{{}},
 				},
 				{
-					DB:        "test",
+					DB:        "test1",
 					Name:      "tbl",
 					DataFiles: []mydump.FileInfo{{}},
 				},
@@ -528,8 +528,8 @@ func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 
 	glue.EXPECT().GetSQLExecutor().Return(exec)
 	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
-		Return([][]string{{"db", "tbl"}, {"test", "t2"}, {"test1", "tbl"}}, nil)
+		Return([][]string{{"db", "tbl"}, {"test", "t1"}, {"test1", "tbl"}}, nil)
 
 	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
-	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict table: `test1`.`tbl`.*")
+	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
 }

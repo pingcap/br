@@ -1486,6 +1486,26 @@ func checkTiDBVersion(ctx context.Context, versionStr string, requiredMinVersion
 
 var tiFlashReplicaQuery = "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TIFLASH_REPLICA WHERE REPLICA_COUNT > 0;"
 
+type tblName struct {
+	schema string
+	name   string
+}
+
+type tblNames []tblName
+
+func (t tblNames) String() string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, n := range t {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(common.UniqueTable(n.schema, n.name))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
 // check TiFlash replicas.
 // local backend doesn't support TiFlash before tidb v4.0.5
 func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.CheckCtx, tidbVersion semver.Version) error {
@@ -1498,23 +1518,28 @@ func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.Che
 		return errors.Annotate(err, "fetch tiflash replica info failed")
 	}
 
-	tiflashTables := make(map[string]struct{}, len(res))
+	tiFlashTablesMap := make(map[tblName]struct{}, len(res))
 	for _, tblInfo := range res {
-		name := common.UniqueTable(tblInfo[0], tblInfo[1])
-		tiflashTables[name] = struct{}{}
+		name := tblName{schema: tblInfo[0], name: tblInfo[1]}
+		tiFlashTablesMap[name] = struct{}{}
 	}
 
+	tiFlashTables := make(tblNames, 0)
 	for _, dbMeta := range checkCtx.DBMetas {
 		for _, tblMeta := range dbMeta.Tables {
 			if len(tblMeta.DataFiles) == 0 {
 				continue
 			}
-			name := common.UniqueTable(dbMeta.Name, tblMeta.Name)
-			if _, ok := tiflashTables[name]; ok {
-				helpInfo := "Please either upgrade TiDB to version >= 4.0.5 or add TiFlash replica after load data."
-				return errors.Errorf("lightning local backend doesn't support TiFlash in this TiDB version. conflict table: %s. "+helpInfo, name)
+			name := tblName{schema: tblMeta.DB, name: tblMeta.Name}
+			if _, ok := tiFlashTablesMap[name]; ok {
+				tiFlashTables = append(tiFlashTables, name)
 			}
 		}
+	}
+
+	if len(tiFlashTables) > 0 {
+		helpInfo := "Please either upgrade TiDB to version >= 4.0.5 or add TiFlash replica after load data."
+		return errors.Errorf("lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: %s. "+helpInfo, tiFlashTables)
 	}
 	return nil
 }
