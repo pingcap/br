@@ -83,8 +83,8 @@ const (
 )
 
 var (
-	tiflashMinImcompatibleVersion = semver.New("3.1.0")
-	tiflashMaxImcompatibleVersion = semver.New("4.0.4")
+	// the min version of tiflash that is compatible with local backend
+	tiflashminCompatibleVersion = semver.New("4.0.5")
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
@@ -1915,7 +1915,7 @@ func (rc *RestoreController) checkRequirements(ctx context.Context) error {
 		if err != nil {
 			return errors.Annotatef(err, "fetch tidb version failed")
 		}
-		if v.Compare(*tiflashMaxImcompatibleVersion) <= 0 && v.Compare(*tiflashMinImcompatibleVersion) >= 0 {
+		if v.Compare(*tiflashminCompatibleVersion) < 0 {
 			res, err := rc.tidbGlue.GetSQLExecutor().QueryStringsWithLog(ctx, tiFlashReplicaQuery, "fetch tiflash replica info", log.L())
 			if err != nil {
 				return errors.Annotate(err, "fetch tiflash replica info failed")
