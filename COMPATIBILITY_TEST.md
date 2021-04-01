@@ -1,4 +1,4 @@
-# Compatible test
+# Compatibility test
 
 ## Background
 
@@ -38,5 +38,5 @@ docker-compose -f docker-compose.yaml up --remove-orphans
 ```
 
 ```sh
-docker-compose -f docker-compose.yaml control make compatible_test
+docker-compose -f docker-compose.yaml control make compatibility_test
 ```

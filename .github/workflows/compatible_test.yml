@@ -1,4 +1,4 @@
-name: compatible-test
+name: compatibility-test
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
     - uses: khan/pull-request-comment-trigger@master
       id: check
       with:
-        trigger: '/run-compatible-tests'
+        trigger: '/run-compatiblility-tests'
 
     - name: Free disk space
       run: |
@@ -41,17 +41,17 @@ jobs:
         go-version: 1.15
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
-    - name: Generate Compatible test backup data
+    - name: Generate compatibility test backup data
       timeout-minutes: 15
-      run: sh compatible/prepare_backup.sh
+      run: sh compatibility/prepare_backup.sh
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Start server
       run: |
-        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml rm -s -v
-        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml build
-        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml up --remove-orphans -d
-        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatible/backup_cluster.yaml exec -T control make compatible_test
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatibility/backup_cluster.yaml rm -s -v
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatibility/backup_cluster.yaml build
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatibility/backup_cluster.yaml up --remove-orphans -d
+        TAG=nightly PORT_SUFFIX=1 docker-compose -f compatibility/backup_cluster.yaml exec -T control make compatibility_test
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Collect component log
