@@ -19,7 +19,7 @@
 
 set -eu
 
-# TODO get tags from compatible_prepare_data
+# TODO get tags from compatibility_prepare_data
 git fetch --tags
 TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
 
@@ -27,7 +27,7 @@ EXPECTED_KVS=1000
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
-TEST_DIR=/tmp/backup_restore_compatible_test
+TEST_DIR=/tmp/backup_restore_compatibility_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 

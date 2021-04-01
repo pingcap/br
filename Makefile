@@ -126,10 +126,10 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
-compatible_test_prepare: 
+compatibility_test_prepare:
 	tests/run_compatible.sh prepare
 
-compatible_test: br
+compatibility_test: br
 	tests/run_compatible.sh run
 
 coverage: tools
