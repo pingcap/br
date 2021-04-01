@@ -2,23 +2,23 @@
 
 ## Background
 
-We had some incompatible issues before which made BR cannot restore backuped data in some situations.
-So we need a test workflow to check the compatblity.
+We had some incompatibility issues in the past, which made BR cannot restore backed up data in some situations.
+So we need a test workflow to check the compatiblity.
 
 ## Goal
 
-- Restore Backward Compatible
+- Ensure backward compatibility for restoring data from the previous 3 minor versions
 
-## WorkFlow
+## Workflow
 
-### Data Prepare
+### Data Preparation
 
 This workflow needs previous backup data. to get this data. we have the following steps
 
-- Build clusters with previous version.
-- Run backup jobs with correspond BR with different storage(s3, gcs, local).
+- Run a TiDB cluster with previous version.
+- Run backup jobs with corresponding BR version, with different storages (s3, gcs).
 
-We have 3 different storage. so we should make sure backward compatible seperately.
+Given we test for the previous 3 versions, and there are 2 different storage systems, we will produce 6 backup archives for 6 separate compatibility tests.
 
 ### Test Content
 
