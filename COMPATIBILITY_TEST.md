@@ -13,7 +13,7 @@ So we need a test workflow to check the compatiblity.
 
 ### Data Preparation
 
-This workflow needs previous backup data. to get this data. we have the following steps
+This workflow needs previous backup data. To get this data. we perform the following steps
 
 - Run a TiDB cluster with previous version.
 - Run backup jobs with corresponding BR version, with different storages (s3, gcs).
