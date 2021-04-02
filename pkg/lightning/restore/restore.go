@@ -628,11 +628,23 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	if !rc.cfg.Checkpoint.Enable &&
-		(rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
+	if rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter {
 		for _, dbMeta := range rc.dbMetas {
 			for _, tableMeta := range dbMeta.Tables {
 				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+
+				// if checkpoint enable and not missing, we skip the check table empty progress.
+				if rc.cfg.Checkpoint.Enable {
+					dbCp, err := rc.checkpointsDB.Get(ctx, tableName)
+					if err != nil {
+						return errors.Trace(err)
+					}
+
+					if dbCp.Status > CheckpointStatusMissing {
+						continue
+					}
+				}
+
 				err := rc.checkTableEmpty(ctx, tableName)
 				if err != nil {
 					return err
