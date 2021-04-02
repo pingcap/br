@@ -1472,7 +1472,7 @@ func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.Che
 	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
 }
 
-func checkTiDBVersion(ctx context.Context, versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
+func checkTiDBVersion(_ context.Context, versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
 	return version.CheckTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
 }
 
