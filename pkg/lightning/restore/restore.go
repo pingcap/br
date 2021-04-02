@@ -1895,7 +1895,13 @@ func (rc *Controller) checkRequirements(ctx context.Context) error {
 	if !rc.cfg.App.CheckRequirements {
 		return nil
 	}
-	return rc.backend.CheckRequirements(ctx)
+	checkCtx := &backend.CheckCtx{
+		DBMetas: rc.dbMetas,
+	}
+	if err := rc.backend.CheckRequirements(ctx, checkCtx); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (rc *Controller) setGlobalVariables(ctx context.Context) error {
