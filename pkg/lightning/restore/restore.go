@@ -628,7 +628,7 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	if rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter {
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
 		for _, dbMeta := range rc.dbMetas {
 			for _, tableMeta := range dbMeta.Tables {
 				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
