@@ -111,123 +111,130 @@ func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
 	}
 
 	var restoreMetaSQL string
-	if table.Info.IsSequence() {
-		setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
-			utils.EncloseName(table.DB.Name.O),
-			utils.EncloseName(table.Info.Name.O))
-		if table.Info.Sequence.Cycle {
-			increment := table.Info.Sequence.Increment
-			// TiDB sequence's behaviour is designed to keep the same pace
-			// among all nodes within the same cluster. so we need restore round.
-			// Here is a hack way to trigger sequence cycle round > 0 according to
-			// https://github.com/pingcap/br/pull/242#issuecomment-631307978
-			// TODO use sql to set cycle round
-			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
+	switch {
+	case table.Info.IsSequence():
+		{
+			setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
 				utils.EncloseName(table.DB.Name.O),
 				utils.EncloseName(table.Info.Name.O))
-			var setValSQL string
-			if increment < 0 {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+			if table.Info.Sequence.Cycle {
+				increment := table.Info.Sequence.Increment
+				// TiDB sequence's behaviour is designed to keep the same pace
+				// among all nodes within the same cluster. so we need restore round.
+				// Here is a hack way to trigger sequence cycle round > 0 according to
+				// https://github.com/pingcap/br/pull/242#issuecomment-631307978
+				// TODO use sql to set cycle round
+				nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
+					utils.EncloseName(table.DB.Name.O),
+					utils.EncloseName(table.Info.Name.O))
+				var setValSQL string
+				if increment < 0 {
+					setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+				} else {
+					setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				}
+				err = db.se.Execute(ctx, setValSQL)
+				if err != nil {
+					log.Error("restore meta sql failed",
+						zap.String("query", setValSQL),
+						zap.Stringer("db", table.DB.Name),
+						zap.Stringer("table", table.Info.Name),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
+
+				// trigger cycle round > 0
+				err = db.se.Execute(ctx, nextSeqSQL)
+				if err != nil {
+					log.Error("restore meta sql failed",
+						zap.String("query", nextSeqSQL),
+						zap.Stringer("db", table.DB.Name),
+						zap.Stringer("table", table.Info.Name),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
+			}
+			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+			err = db.se.Execute(ctx, restoreMetaSQL)
+		}
+	case utils.NeedAutoID(table.Info):
+		{
+			var alterAutoIncIDFormat string
+			switch {
+			case table.Info.IsView():
+				return nil
+			default:
+				alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
+			}
+
+			var autoIncID uint64
+			// auto inc id overflow
+			if table.Info.AutoIncID < 0 {
+				log.Info("table auto inc id overflow",
+					zap.Stringer("db", table.DB.Name),
+					zap.Stringer("table", table.Info.Name),
+					zap.Int64("auto inc id", table.Info.AutoIncID),
+				)
+				autoIncID = uint64(table.Info.AutoIncID)
 			} else {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				autoIncID = uint64(table.Info.AutoIncID)
 			}
-			err = db.se.Execute(ctx, setValSQL)
+			restoreMetaSQL = fmt.Sprintf(
+				alterAutoIncIDFormat,
+				utils.EncloseName(table.DB.Name.O),
+				utils.EncloseName(table.Info.Name.O),
+				autoIncID)
+
+			err = db.se.Execute(ctx, restoreMetaSQL)
 			if err != nil {
 				log.Error("restore meta sql failed",
-					zap.String("query", setValSQL),
+					zap.String("query", restoreMetaSQL),
 					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
 				return errors.Trace(err)
 			}
+		}
+	case table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits():
+		{
+			// this table has auto random id, we need rebase it
+			var autoRandColTp types.FieldType
+			for _, c := range table.Info.Columns {
+				if mysql.HasPriKeyFlag(c.Flag) {
+					autoRandColTp = c.FieldType
+					break
+				}
+			}
+			autoRandID := table.Info.AutoRandID
+			layout := autoid.NewShardIDLayout(&autoRandColTp, table.Info.AutoRandomBits)
+			autoRandCap := int64(layout.IncrementalBitsCapacity())
+			if autoRandID >= autoRandCap {
+				// autoRandID is overflow, so we need set it lower than max allow base.
+				// for example. max allow base is 288230376151711743 when autoRandomBits is 5.
+				// so we need set autoRandID to 288230376151711742
+				autoRandID = autoRandCap - 1
+				log.Info("table auto rand id overflow",
+					zap.Stringer("db", table.DB.Name),
+					zap.Stringer("table", table.Info.Name),
+					zap.Int64("auto rand id", table.Info.AutoRandID),
+				)
+			}
+			// we can't merge two alter query, because
+			// it will cause Error: [ddl:8200]Unsupported multi schema change
+			alterAutoRandIDSQL := fmt.Sprintf(
+				"alter table %s.%s auto_random_base = %d",
+				utils.EncloseName(table.DB.Name.O),
+				utils.EncloseName(table.Info.Name.O),
+				autoRandID)
 
-			// trigger cycle round > 0
-			err = db.se.Execute(ctx, nextSeqSQL)
+			err = db.se.Execute(ctx, alterAutoRandIDSQL)
 			if err != nil {
-				log.Error("restore meta sql failed",
-					zap.String("query", nextSeqSQL),
+				log.Error("alter AutoRandID failed",
+					zap.String("query", alterAutoRandIDSQL),
 					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
-				return errors.Trace(err)
 			}
-		}
-		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
-		err = db.se.Execute(ctx, restoreMetaSQL)
-	} else if utils.NeedAutoID(table.Info) {
-		var alterAutoIncIDFormat string
-		switch {
-		case table.Info.IsView():
-			return nil
-		default:
-			alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
-		}
-
-		var autoIncID uint64
-		// auto inc id overflow
-		if table.Info.AutoIncID < 0 {
-			log.Info("table auto inc id overflow",
-				zap.Stringer("db", table.DB.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Int64("auto inc id", table.Info.AutoIncID),
-			)
-			autoIncID = uint64(table.Info.AutoIncID)
-		} else {
-			autoIncID = uint64(table.Info.AutoIncID)
-		}
-		restoreMetaSQL = fmt.Sprintf(
-			alterAutoIncIDFormat,
-			utils.EncloseName(table.DB.Name.O),
-			utils.EncloseName(table.Info.Name.O),
-			autoIncID)
-
-		err = db.se.Execute(ctx, restoreMetaSQL)
-		if err != nil {
-			log.Error("restore meta sql failed",
-				zap.String("query", restoreMetaSQL),
-				zap.Stringer("db", table.DB.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Error(err))
-			return errors.Trace(err)
-		}
-	} else if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
-		// this table has auto random id, we need rebase it
-		var autoRandColTp types.FieldType
-		for _, c := range table.Info.Columns {
-			if mysql.HasPriKeyFlag(c.Flag) {
-				autoRandColTp = c.FieldType
-				break
-			}
-		}
-		autoRandID := table.Info.AutoRandID
-		layout := autoid.NewShardIDLayout(&autoRandColTp, table.Info.AutoRandomBits)
-		autoRandCap := int64(layout.IncrementalBitsCapacity())
-		if autoRandID >= autoRandCap {
-			// autoRandID is overflow, so we need set it lower than max allow base.
-			// for example. max allow base is 288230376151711743 when autoRandomBits is 5.
-			// so we need set autoRandID to 288230376151711742
-			autoRandID = autoRandCap - 1
-			log.Info("table auto rand id overflow",
-				zap.Stringer("db", table.DB.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Int64("auto rand id", table.Info.AutoRandID),
-			)
-		}
-		// we can't merge two alter query, because
-		// it will cause Error: [ddl:8200]Unsupported multi schema change
-		alterAutoRandIDSQL := fmt.Sprintf(
-			"alter table %s.%s auto_random_base = %d",
-			utils.EncloseName(table.DB.Name.O),
-			utils.EncloseName(table.Info.Name.O),
-			autoRandID)
-
-		err = db.se.Execute(ctx, alterAutoRandIDSQL)
-		if err != nil {
-			log.Error("alter AutoRandID failed",
-				zap.String("query", alterAutoRandIDSQL),
-				zap.Stringer("db", table.DB.Name),
-				zap.Stringer("table", table.Info.Name),
-				zap.Error(err))
 		}
 	}
 
