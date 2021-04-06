@@ -9,6 +9,28 @@ import (
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 )
 
+// MarshalBackupMeta converts the backupmeta strcture to JSON.
+// Unlike json.Marshal, this function also format some []byte fields for human reading.
+func MarshalBackupMeta(meta *backuppb.BackupMeta) ([]byte, error) {
+	result, err := makeJSONBackupMeta(meta)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(result)
+}
+
+// UnmarshalBackupMeta converts the prettied JSON format of backupmeta
+// (made by MarshalBackupMeta) back to the go structure.
+func UnmarshalBackupMeta(data []byte) (*backuppb.BackupMeta, error) {
+	jMeta := &jsonBackupMeta{}
+	if err := json.Unmarshal(data, jMeta); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return fromJSONBackupMeta(jMeta)
+}
+
+type jsonValue interface{}
+
 type jsonFile struct {
 	SHA256   string `json:"sha256,omitempty"`
 	StartKey string `json:"start_key,omitempty"`
@@ -72,37 +94,46 @@ func fromJSONRawRange(rng *jsonRawRange) (*backuppb.RawRange, error) {
 }
 
 type jsonSchema struct {
-	// Use string here for compatibility
-	Table string `json:"table,omitempty"`
-	DB    string `json:"db,omitempty"`
+	Table jsonValue `json:"table,omitempty"`
+	DB    jsonValue `json:"db,omitempty"`
 	*backuppb.Schema
 }
 
-func makeJSONSchema(schema *backuppb.Schema) *jsonSchema {
-	return &jsonSchema{
-		Table:  string(schema.Table),
-		DB:     string(schema.Db),
-		Schema: schema,
+func makeJSONSchema(schema *backuppb.Schema) (*jsonSchema, error) {
+	result := &jsonSchema{Schema: schema}
+	if err := json.Unmarshal(schema.Db, &result.DB); err != nil {
+		return nil, errors.Trace(err)
 	}
+	if err := json.Unmarshal(schema.Table, &result.Table); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return result, nil
 }
 
-func fromJSONSchema(jSchema *jsonSchema) *backuppb.Schema {
+func fromJSONSchema(jSchema *jsonSchema) (*backuppb.Schema, error) {
 	schema := jSchema.Schema
-	schema.Db = []byte(jSchema.DB)
-	schema.Table = []byte(jSchema.Table)
-	return schema
+	var err error
+	schema.Db, err = json.Marshal(jSchema.DB)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	schema.Table, err = json.Marshal(jSchema.Table)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return schema, nil
 }
 
 type jsonBackupMeta struct {
 	Files     []*jsonFile     `json:"files,omitempty"`
 	RawRanges []*jsonRawRange `json:"raw_ranges,omitempty"`
 	Schemas   []*jsonSchema   `json:"schemas,omitempty"`
-	DDLs      string          `json:"ddls,omitempty"`
+	DDLs      jsonValue       `json:"ddls,omitempty"`
 
 	*backuppb.BackupMeta
 }
 
-func makeJSONBackupMeta(meta *backuppb.BackupMeta) *jsonBackupMeta {
+func makeJSONBackupMeta(meta *backuppb.BackupMeta) (*jsonBackupMeta, error) {
 	result := &jsonBackupMeta{
 		BackupMeta: meta,
 	}
@@ -113,16 +144,26 @@ func makeJSONBackupMeta(meta *backuppb.BackupMeta) *jsonBackupMeta {
 		result.RawRanges = append(result.RawRanges, makeJSONRawRange(rawRange))
 	}
 	for _, schema := range meta.Schemas {
-		result.Schemas = append(result.Schemas, makeJSONSchema(schema))
+		s, err := makeJSONSchema(schema)
+		if err != nil {
+			return nil, err
+		}
+		result.Schemas = append(result.Schemas, s)
 	}
-	result.DDLs = string(meta.Ddls)
-	return result
+	if err := json.Unmarshal(meta.Ddls, &result.DDLs); err != nil {
+		return nil, errors.Trace(err)
+	}
+	return result, nil
 }
 
 func fromJSONBackupMeta(jMeta *jsonBackupMeta) (*backuppb.BackupMeta, error) {
 	meta := jMeta.BackupMeta
 	for _, schema := range jMeta.Schemas {
-		meta.Schemas = append(meta.Schemas, fromJSONSchema(schema))
+		s, err := fromJSONSchema(schema)
+		if err != nil {
+			return nil, err
+		}
+		meta.Schemas = append(meta.Schemas, s)
 	}
 	for _, file := range jMeta.Files {
 		f, err := fromJSONFile(file)
@@ -138,22 +179,10 @@ func fromJSONBackupMeta(jMeta *jsonBackupMeta) (*backuppb.BackupMeta, error) {
 		}
 		meta.RawRanges = append(meta.RawRanges, rng)
 	}
-	meta.Ddls = []byte(jMeta.DDLs)
-	return meta, nil
-}
-
-// MarshalBackupMeta converts the backupmeta strcture to JSON.
-// Unlike json.Marshal, this function also format some []byte fields for human reading.
-func MarshalBackupMeta(meta *backuppb.BackupMeta) ([]byte, error) {
-	return json.Marshal(makeJSONBackupMeta(meta))
-}
-
-// UnmarshalBackupMeta converts the prettied JSON format of backupmeta
-// (made by MarshalBackupMeta) back to the go structure.
-func UnmarshalBackupMeta(data []byte) (*backuppb.BackupMeta, error) {
-	jMeta := &jsonBackupMeta{}
-	if err := json.Unmarshal(data, jMeta); err != nil {
+	var err error
+	meta.Ddls, err = json.Marshal(jMeta.DDLs)
+	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return fromJSONBackupMeta(jMeta)
+	return meta, nil
 }

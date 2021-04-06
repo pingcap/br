@@ -30,14 +30,119 @@ var testMetaJSONs = [][]byte{
   ],
   "schemas": [
     {
-      "table": "{\"id\":54,\"name\":{\"O\":\"test\",\"L\":\"test\"},\"charset\":\"utf8mb4\",\"collate\":\"utf8mb4_bin\",\"cols\":[{\"id\":1,\"name\":{\"O\":\"pk\",\"L\":\"pk\"},\"offset\":0,\"origin_default\":null,\"origin_default_bit\":null,\"default\":null,\"default_bit\":null,\"default_is_expr\":false,\"generated_expr_string\":\"\",\"generated_stored\":false,\"dependences\":null,\"type\":{\"Tp\":15,\"Flag\":4099,\"Flen\":256,\"Decimal\":0,\"Charset\":\"utf8mb4\",\"Collate\":\"utf8mb4_bin\",\"Elems\":null},\"state\":5,\"comment\":\"\",\"hidden\":false,\"change_state_info\":null,\"version\":2}],\"index_info\":[{\"id\":1,\"idx_name\":{\"O\":\"PRIMARY\",\"L\":\"primary\"},\"tbl_name\":{\"O\":\"\",\"L\":\"\"},\"idx_cols\":[{\"name\":{\"O\":\"pk\",\"L\":\"pk\"},\"offset\":0,\"length\":-1}],\"state\":5,\"comment\":\"\",\"index_type\":1,\"is_unique\":true,\"is_primary\":true,\"is_invisible\":false,\"is_global\":false}],\"constraint_info\":null,\"fk_info\":null,\"state\":5,\"pk_is_handle\":false,\"is_common_handle\":true,\"common_handle_version\":1,\"comment\":\"\",\"auto_inc_id\":0,\"auto_id_cache\":0,\"auto_rand_id\":0,\"max_col_id\":1,\"max_idx_id\":1,\"max_cst_id\":0,\"update_timestamp\":423978913176223755,\"ShardRowIDBits\":0,\"max_shard_row_id_bits\":0,\"auto_random_bits\":0,\"pre_split_regions\":0,\"partition\":null,\"compression\":\"\",\"view\":null,\"sequence\":null,\"Lock\":null,\"version\":4,\"tiflash_replica\":null,\"is_columnar\":false}",
-      "db": "{\"id\":1,\"db_name\":{\"O\":\"test\",\"L\":\"test\"},\"charset\":\"utf8mb4\",\"collate\":\"utf8mb4_bin\",\"state\":5}",
+      "table": {
+        "Lock": null,
+        "ShardRowIDBits": 0,
+        "auto_id_cache": 0,
+        "auto_inc_id": 0,
+        "auto_rand_id": 0,
+        "auto_random_bits": 0,
+        "charset": "utf8mb4",
+        "collate": "utf8mb4_bin",
+        "cols": [
+          {
+            "change_state_info": null,
+            "comment": "",
+            "default": null,
+            "default_bit": null,
+            "default_is_expr": false,
+            "dependences": null,
+            "generated_expr_string": "",
+            "generated_stored": false,
+            "hidden": false,
+            "id": 1,
+            "name": {
+              "L": "pk",
+              "O": "pk"
+            },
+            "offset": 0,
+            "origin_default": null,
+            "origin_default_bit": null,
+            "state": 5,
+            "type": {
+              "Charset": "utf8mb4",
+              "Collate": "utf8mb4_bin",
+              "Decimal": 0,
+              "Elems": null,
+              "Flag": 4099,
+              "Flen": 256,
+              "Tp": 15
+            },
+            "version": 2
+          }
+        ],
+        "comment": "",
+        "common_handle_version": 1,
+        "compression": "",
+        "constraint_info": null,
+        "fk_info": null,
+        "id": 54,
+        "index_info": [
+          {
+            "comment": "",
+            "id": 1,
+            "idx_cols": [
+              {
+                "length": -1,
+                "name": {
+                  "L": "pk",
+                  "O": "pk"
+                },
+                "offset": 0
+              }
+            ],
+            "idx_name": {
+              "L": "primary",
+              "O": "PRIMARY"
+            },
+            "index_type": 1,
+            "is_global": false,
+            "is_invisible": false,
+            "is_primary": true,
+            "is_unique": true,
+            "state": 5,
+            "tbl_name": {
+              "L": "",
+              "O": ""
+            }
+          }
+        ],
+        "is_columnar": false,
+        "is_common_handle": true,
+        "max_col_id": 1,
+        "max_cst_id": 0,
+        "max_idx_id": 1,
+        "max_shard_row_id_bits": 0,
+        "name": {
+          "L": "test",
+          "O": "test"
+        },
+        "partition": null,
+        "pk_is_handle": false,
+        "pre_split_regions": 0,
+        "sequence": null,
+        "state": 5,
+        "tiflash_replica": null,
+        "update_timestamp": 423978913176223740,
+        "version": 4,
+        "view": null
+      },
+      "db": {
+        "charset": "utf8mb4",
+        "collate": "utf8mb4_bin",
+        "db_name": {
+          "L": "test",
+          "O": "test"
+        },
+        "id": 1,
+        "state": 5
+      },
       "crc64xor": 8093018294706077000,
       "total_kvs": 1,
       "total_bytes": 27
     }
   ],
-  "ddls": "[]",
+  "ddls": [],
   "cluster_id": 6946469498797568000,
   "cluster_version": "\"5.0.0-rc.x\"\n",
   "end_version": 423978913229963260,
@@ -100,13 +205,11 @@ var testMetaJSONs = [][]byte{
       "cf": "default"
     }
   ],
-  "ddls": "null",
   "cluster_id": 6946469498797568000,
   "cluster_version": "\"5.0.0-rc.x\"\n",
   "is_raw_kv": true,
   "br_version": "BR\nRelease Version: v5.0.0-master\nGit Commit Hash: c0d60dae4998cf9ac40f02e5444731c15f0b2522\nGit Branch: HEAD\nGo Version: go1.13.4\nUTC Build Time: 2021-03-25 08:10:08\nRace Enabled: false"
-}
-`),
+}`),
 }
 
 type jsonEquals struct{}
