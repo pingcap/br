@@ -653,7 +653,7 @@ func (cpdb *MySQLCheckpointsDB) Initialize(ctx context.Context, cfg *config.Conf
 		for _, db := range dbInfo {
 			for _, table := range db.Tables {
 				tableName := common.UniqueTable(db.Name, table.Name)
-				_, err = stmt.ExecContext(c, cfg.TaskID, tableName, 0, table.ID)
+				_, err = stmt.ExecContext(c, cfg.TaskID, tableName, CheckpointStatusLoaded, table.ID)
 				if err != nil {
 					return errors.Trace(err)
 				}
