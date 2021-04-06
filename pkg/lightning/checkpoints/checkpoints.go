@@ -770,7 +770,7 @@ func (cpdb *MySQLCheckpointsDB) Get(ctx context.Context, tableName string) (*Tab
 		tableRow := tx.QueryRowContext(c, tableQuery, tableName)
 
 		var status uint8
-		if err := tableRow.Scan(&status, &cp.AllocBase, &cp.TableID); err != nil {
+		if err := tableRow.Scan(&status, &cp.AllocBase, &cp.TableID); err != nil && err != sql.ErrNoRows {
 			return errors.Trace(err)
 		}
 		cp.Status = CheckpointStatus(status)

@@ -288,8 +288,34 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 func (s *cpSQLSuite) TestRemoveAllCheckpoints(c *C) {
 	s.mock.ExpectExec("DROP SCHEMA `mock-schema`").WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := s.cpdb.RemoveCheckpoint(context.Background(), "all")
+	ctx := context.Background()
+
+	err := s.cpdb.RemoveCheckpoint(ctx, "all")
 	c.Assert(err, IsNil)
+
+	s.mock.ExpectBegin()
+	s.mock.
+		ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
+	s.mock.
+		ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(
+			sqlmock.NewRows([]string{
+				"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
+				"pos", "end_offset", "prev_rowid_max", "rowid_max",
+				"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
+			}))
+	s.mock.
+		ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
+	s.mock.ExpectCommit()
+
+	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
+	c.Assert(err, IsNil)
+	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
 }
 
 func (s *cpSQLSuite) TestRemoveOneCheckpoint(c *C) {

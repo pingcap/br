@@ -628,16 +628,6 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	// Load new checkpoints
-	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	failpoint.Inject("InitializeCheckpointExit", func() {
-		log.L().Warn("exit triggered", zap.String("failpoint", "InitializeCheckpointExit"))
-		os.Exit(0)
-	})
-
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
 		for _, dbMeta := range rc.dbMetas {
 			for _, tableMeta := range dbMeta.Tables {
@@ -662,6 +652,16 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Load new checkpoints
+	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	failpoint.Inject("InitializeCheckpointExit", func() {
+		log.L().Warn("exit triggered", zap.String("failpoint", "InitializeCheckpointExit"))
+		os.Exit(0)
+	})
 
 	go rc.listenCheckpointUpdates()
 
