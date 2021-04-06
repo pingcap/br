@@ -269,7 +269,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 			fieldName, _ := cmd.Flags().GetString("field")
 			if fieldName == "" {
 				// No field flag, write backupmeta to external storage in JSON format.
-				backupMetaJSON, err := json.Marshal(backupMeta)
+				backupMetaJSON, err := utils.MarshalBackupMeta(backupMeta)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -332,8 +332,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			backupMetaJSON := &backuppb.BackupMeta{}
-			err = json.Unmarshal(metaData, backupMetaJSON)
+			backupMetaJSON, err := utils.UnmarshalBackupMeta(metaData)
 			if err != nil {
 				return errors.Trace(err)
 			}
