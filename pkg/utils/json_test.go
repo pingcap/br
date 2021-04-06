@@ -3,8 +3,9 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	. "github.com/pingcap/check"
 	"reflect"
+
+	. "github.com/pingcap/check"
 )
 
 type testJSONSuite struct{}

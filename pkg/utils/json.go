@@ -3,6 +3,9 @@ package utils
 import (
 	"encoding/hex"
 	"encoding/json"
+
+	"github.com/pingcap/errors"
+
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 )
 
@@ -27,15 +30,15 @@ func fromJSONFile(jFile *jsonFile) (*backuppb.File, error) {
 	var err error
 	f.Sha256, err = hex.DecodeString(jFile.SHA256)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	f.StartKey, err = hex.DecodeString(jFile.StartKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	f.EndKey, err = hex.DecodeString(jFile.EndKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return f, nil
 }
@@ -59,11 +62,11 @@ func fromJSONRawRange(rng *jsonRawRange) (*backuppb.RawRange, error) {
 	var err error
 	r.StartKey, err = hex.DecodeString(rng.StartKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	r.EndKey, err = hex.DecodeString(rng.EndKey)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return r, nil
 }
@@ -150,7 +153,7 @@ func MarshalBackupMeta(meta *backuppb.BackupMeta) ([]byte, error) {
 func UnmarshalBackupMeta(data []byte) (*backuppb.BackupMeta, error) {
 	jMeta := &jsonBackupMeta{}
 	if err := json.Unmarshal(data, jMeta); err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return fromJSONBackupMeta(jMeta)
 }
