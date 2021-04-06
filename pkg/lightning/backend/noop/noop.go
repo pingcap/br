@@ -76,7 +76,7 @@ func (b noopBackend) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) er
 
 // CheckRequirements performs the check whether the backend satisfies the
 // version requirements
-func (b noopBackend) CheckRequirements(ctx context.Context) error {
+func (b noopBackend) CheckRequirements(context.Context, *backend.CheckCtx) error {
 	return nil
 }
 

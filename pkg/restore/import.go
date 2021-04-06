@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -242,7 +243,12 @@ func (importer *FileImporter) Import(
 				} else {
 					downloadMeta, e = importer.downloadSST(ctx, info, file, rewriteRules)
 				}
-				return e
+				failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
+					msg := val.(string)
+					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
+					e = errors.Annotate(e, msg)
+				})
+				return errors.Trace(e)
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
