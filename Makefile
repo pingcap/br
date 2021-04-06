@@ -11,7 +11,7 @@ BR_PKG := github.com/pingcap/br
 
 VERSION := v5.0.0-master
 release_version_regex := ^v5\..*$$
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
+release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$"
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, try to use tag version.
 	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
@@ -210,7 +210,7 @@ static: prepare tools
 		--disable gosec \
 		--disable errorlint \
 		--disable wrapcheck \
-		$$($(PACKAGE_DIRECTORIES))
+		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".

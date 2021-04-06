@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -575,6 +576,26 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
+func (rc *Controller) checkTableEmpty(ctx context.Context, tableName string) error {
+	db, err := rc.tidbGlue.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := "select 1 from " + tableName + " limit 1"
+	var dump int
+	err = db.QueryRowContext(ctx, query).Scan(&dump)
+
+	switch {
+	case err == sql.ErrNoRows:
+		return nil
+	case err != nil:
+		return errors.AddStack(err)
+	default:
+		return errors.Errorf("table %s not empty, please clean up the table first", tableName)
+	}
+}
+
 func (rc *Controller) restoreSchema(ctx context.Context) error {
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
@@ -616,6 +637,31 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		log.L().Warn("exit triggered", zap.String("failpoint", "InitializeCheckpointExit"))
 		os.Exit(0)
 	})
+
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+		for _, dbMeta := range rc.dbMetas {
+			for _, tableMeta := range dbMeta.Tables {
+				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+
+				// if checkpoint enable and not missing, we skip the check table empty progress.
+				if rc.cfg.Checkpoint.Enable {
+					dbCp, err := rc.checkpointsDB.Get(ctx, tableName)
+					if err != nil {
+						return errors.Trace(err)
+					}
+
+					if dbCp.Status > checkpoints.CheckpointStatusMissing {
+						continue
+					}
+				}
+
+				err := rc.checkTableEmpty(ctx, tableName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	go rc.listenCheckpointUpdates()
 
