@@ -19,6 +19,9 @@ set -eux
 run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint_error_summary;'
 
 # The easiest way to induce error is to prepopulate the target table with conflicting content.
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/InitializeCheckpointExit=return(true)"
+run_lightning --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-error-summary.log"
+
 run_sql 'CREATE DATABASE IF NOT EXISTS error_summary;'
 run_sql 'DROP TABLE IF EXISTS error_summary.a;'
 run_sql 'DROP TABLE IF EXISTS error_summary.c;'
@@ -28,6 +31,7 @@ run_sql 'INSERT INTO error_summary.a VALUES (2, 4), (6, 8);'
 run_sql 'INSERT INTO error_summary.c VALUES (3, 9), (27, 81);'
 
 set +e
+export GO_FAILPOINTS=""
 run_lightning --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-error-summary.log"
 ERRORCODE=$?
 set -e
