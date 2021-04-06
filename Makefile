@@ -9,8 +9,14 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
+<<<<<<< HEAD
 VERSION := v4.0.0-dev
 release_branch_regex := ^release-[0-9]\.[0-9].*$$
+=======
+VERSION := v5.0.0-master
+release_version_regex := ^v5\..*$$
+release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$"
+>>>>>>> a9290211... makefile: fix wrong release version build (#978)
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, use tag version.
 	VERSION := $(shell git describe --tags --dirty)
