@@ -20,14 +20,14 @@ import (
 	"time"
 )
 
-// ConfigList is a goroutine-safe FIFO list of *Config, which supports removal
+// List is a goroutine-safe FIFO list of *Config, which supports removal
 // from the middle. The list is not expected to be very long.
-type ConfigList struct {
+type List struct {
 	cond      *sync.Cond
 	taskIDMap map[int64]*list.Element
 	nodes     list.List
 
-	// lastID records the largest task ID being Push()'ed to the ConfigList.
+	// lastID records the largest task ID being Push()'ed to the List.
 	// In the rare case where two Push() are executed in the same nanosecond
 	// (or the not-so-rare case where the clock's precision is lower than CPU
 	// speed), we'll need to manually force one of the task to use the ID as
@@ -36,8 +36,8 @@ type ConfigList struct {
 }
 
 // NewConfigList creates a new ConfigList instance.
-func NewConfigList() *ConfigList {
-	return &ConfigList{
+func NewConfigList() *List {
+	return &List{
 		cond:      sync.NewCond(new(sync.Mutex)),
 		taskIDMap: make(map[int64]*list.Element),
 	}
@@ -45,7 +45,7 @@ func NewConfigList() *ConfigList {
 
 // Push adds a configuration to the end of the list. The field `cfg.TaskID` will
 // be modified to include a unique ID to identify this task.
-func (cl *ConfigList) Push(cfg *Config) {
+func (cl *List) Push(cfg *Config) {
 	id := time.Now().UnixNano()
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
@@ -63,7 +63,7 @@ func (cl *ConfigList) Push(cfg *Config) {
 // input context expired.
 //
 // If the context expired, the error field will contain the error from context.
-func (cl *ConfigList) Pop(ctx context.Context) (*Config, error) {
+func (cl *List) Pop(ctx context.Context) (*Config, error) {
 	res := make(chan *Config)
 
 	go func() {
@@ -91,7 +91,7 @@ func (cl *ConfigList) Pop(ctx context.Context) (*Config, error) {
 
 // Remove removes a task from the list given its task ID. Returns true if a task
 // is successfully removed, false if the task ID did not exist.
-func (cl *ConfigList) Remove(taskID int64) bool {
+func (cl *List) Remove(taskID int64) bool {
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
 	element, ok := cl.taskIDMap[taskID]
@@ -105,7 +105,7 @@ func (cl *ConfigList) Remove(taskID int64) bool {
 
 // Get obtains a task from the list given its task ID. If the task ID did not
 // exist, the returned bool field will be false.
-func (cl *ConfigList) Get(taskID int64) (*Config, bool) {
+func (cl *List) Get(taskID int64) (*Config, bool) {
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
 	element, ok := cl.taskIDMap[taskID]
@@ -116,7 +116,7 @@ func (cl *ConfigList) Get(taskID int64) (*Config, bool) {
 }
 
 // AllIDs returns a list of all task IDs in the list.
-func (cl *ConfigList) AllIDs() []int64 {
+func (cl *List) AllIDs() []int64 {
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
 	res := make([]int64, 0, len(cl.taskIDMap))
@@ -128,7 +128,7 @@ func (cl *ConfigList) AllIDs() []int64 {
 
 // MoveToFront moves a task to the front of the list. Returns true if the task
 // is successfully moved (including no-op), false if the task ID did not exist.
-func (cl *ConfigList) MoveToFront(taskID int64) bool {
+func (cl *List) MoveToFront(taskID int64) bool {
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
 	element, ok := cl.taskIDMap[taskID]
@@ -141,7 +141,7 @@ func (cl *ConfigList) MoveToFront(taskID int64) bool {
 
 // MoveToBack moves a task to the back of the list. Returns true if the task is
 // successfully moved (including no-op), false if the task ID did not exist.
-func (cl *ConfigList) MoveToBack(taskID int64) bool {
+func (cl *List) MoveToBack(taskID int64) bool {
 	cl.cond.L.Lock()
 	defer cl.cond.L.Unlock()
 	element, ok := cl.taskIDMap[taskID]

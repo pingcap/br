@@ -81,9 +81,9 @@ func (s *localSuite) TestNextKey(c *C) {
 
 	// test recode key
 	// key with int handle
-	for _, handleId := range []int64{1, 255, math.MaxInt32} {
-		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId))
-		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId+1))))
+	for _, handleID := range []int64{1, 255, math.MaxInt32} {
+		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID))
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID+1))))
 	}
 
 	testDatums := [][]types.Datum{
@@ -331,7 +331,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	engineCtx, cancel := context.WithCancel(context.Background())
 	f := &File{
 		db:           db,
-		Uuid:         engineUUID,
+		UUID:         engineUUID,
 		sstDir:       tmpPath,
 		ctx:          engineCtx,
 		cancel:       cancel,
@@ -495,11 +495,12 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
@@ -545,7 +546,7 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 	engineCtx, cancel := context.WithCancel(context.Background())
 	f := File{
 		db:           db,
-		Uuid:         engineUUID,
+		UUID:         engineUUID,
 		sstDir:       "",
 		ctx:          engineCtx,
 		cancel:       cancel,

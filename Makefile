@@ -11,7 +11,7 @@ BR_PKG := github.com/pingcap/br
 
 VERSION := v5.0.0-master
 release_version_regex := ^v5\..*$$
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
+release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$"
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, try to use tag version.
 	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
@@ -186,6 +186,8 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
+	@#          errorlint - pingcap/errors is incompatible with std errors.
+	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -206,7 +208,9 @@ static: prepare tools
 		--disable exhaustive \
 		--disable godot \
 		--disable gosec \
-		$$($(PACKAGE_DIRECTORIES) | grep -v "lightning")
+		--disable errorlint \
+		--disable wrapcheck \
+		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
