@@ -21,7 +21,7 @@ import (
 	"testing"
 )
 
-func TestRunMain(t *testing.T) {
+func TestRunMain(_ *testing.T) {
 	if _, isIntegrationTest := os.LookupEnv("INTEGRATION_TEST"); !isIntegrationTest {
 		// override exit to pass unit test.
 		exit = func(code int) {}

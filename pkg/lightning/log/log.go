@@ -75,7 +75,9 @@ var (
 
 // InitLogger initializes Lightning's and also the TiDB library's loggers.
 func InitLogger(cfg *Config, tidbLoglevel string) error {
-	logutil.InitLogger(&logutil.LogConfig{Config: pclog.Config{Level: tidbLoglevel}})
+	if err := logutil.InitLogger(&logutil.LogConfig{Config: pclog.Config{Level: tidbLoglevel}}); err != nil {
+		return errors.Trace(err)
+	}
 
 	logCfg := &pclog.Config{
 		Level:         cfg.Level,

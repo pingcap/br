@@ -32,9 +32,9 @@ type securitySuite struct{}
 var _ = Suite(&securitySuite{})
 
 func respondPathHandler(w http.ResponseWriter, req *http.Request) {
-	io.WriteString(w, `{"path":"`)
-	io.WriteString(w, req.URL.Path)
-	io.WriteString(w, `"}`)
+	_, _ = io.WriteString(w, `{"path":"`)
+	_, _ = io.WriteString(w, req.URL.Path)
+	_, _ = io.WriteString(w, `"}`)
 }
 
 func (s *securitySuite) TestGetJSONInsecure(c *C) {
