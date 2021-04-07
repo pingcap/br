@@ -904,6 +904,14 @@ func (rc *RestoreController) listenCheckpointUpdates() {
 				common.KillMySelf()
 			}
 		})
+
+		failpoint.Inject("FailAfterWriteRows", func(_ failpoint.Value) {
+			if _, ok := scp.merger.(*ChunkCheckpointMerger); ok {
+				rc.checkpointsWg.Done()
+				rc.checkpointsWg.Wait()
+				panic("forcing failure due to FailAfterWriteRows")
+			}
+		})
 	}
 	rc.checkpointsWg.Done()
 }
@@ -2414,13 +2422,12 @@ func (cr *chunkRestore) deliverLoop(
 		failpoint.Inject("SlowDownWriteRows", func() {
 			deliverLogger.Warn("Slowed down write rows")
 		})
-		failpoint.Inject("FailAfterWriteRows", nil)
 		// TODO: for local backend, we may save checkpoint more frequently, e.g. after writen
 		// 10GB kv pairs to data engine, we can do a flush for both data & index engine, then we
 		// can safely update current checkpoint.
 
 		failpoint.Inject("LocalBackendSaveCheckpoint", func() {
-			if !rc.isLocalBackend() && (dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0) {
+			if rc.isLocalBackend() && (dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0) {
 				// No need to save checkpoint if nothing was delivered.
 				saveCheckpoint(rc, t, engineID, cr.chunk)
 			}
