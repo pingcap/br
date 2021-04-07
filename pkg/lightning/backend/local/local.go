@@ -153,7 +153,7 @@ type File struct {
 	// This should not be used as a "spin lock" indicator.
 	isImportingAtomic atomic.Uint32
 	mutex             sync.Mutex
-	finishedRanges    syncdRanges
+	finishedRanges    syncedRanges
 }
 
 func (e *File) Close() error {
@@ -1317,18 +1317,18 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 	return allErr
 }
 
-type syncdRanges struct {
+type syncedRanges struct {
 	sync.Mutex
 	ranges []Range
 }
 
-func (r *syncdRanges) add(g Range) {
+func (r *syncedRanges) add(g Range) {
 	r.Lock()
 	r.ranges = append(r.ranges, g)
 	r.Unlock()
 }
 
-func (r *syncdRanges) take() []Range {
+func (r *syncedRanges) take() []Range {
 	r.Lock()
 	rg := r.ranges
 	r.ranges = []Range{}
@@ -1339,6 +1339,12 @@ func (r *syncdRanges) take() []Range {
 		})
 	}
 	return rg
+}
+
+func (r *syncedRanges) reset() {
+	r.Lock()
+	r.ranges = r.ranges[:0]
+	r.Unlock()
 }
 
 func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -1502,6 +1508,8 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 		localEngine.db = db
 		localEngine.localFileMeta = localFileMeta{}
 	}
+	localEngine.finishedRanges.reset()
+
 	return err
 }
 
