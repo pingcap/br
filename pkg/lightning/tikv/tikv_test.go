@@ -33,7 +33,7 @@ var (
 
 func (s *tikvSuite) TestForAllStores(c *C) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte(`
+		_, err := w.Write([]byte(`
 			{
 				"count": 5,
 				"stores": [
@@ -85,6 +85,7 @@ func (s *tikvSuite) TestForAllStores(c *C) {
 				]
 			}
 		`))
+		c.Assert(err, IsNil)
 	}))
 	defer server.Close()
 
