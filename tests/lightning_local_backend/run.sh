@@ -97,9 +97,6 @@ for ckpt in mysql file; do
   grep -Fq "No table has lost intermediate files according to given config" $TEST_DIR/lightning_ctl.output
 
   # when position of chunk file doesn't equal to offset, intermediate file should exist
-  run_sql 'DROP DATABASE IF EXISTS cpeng;'
-  run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint_local_backend_test'
-  rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
   set +e
   export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/LocalBackendSaveCheckpoint=return;github.com/pingcap/br/pkg/lightning/restore/FailIfImportedChunk=return(1)"
   run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
@@ -114,9 +111,6 @@ for ckpt in mysql file; do
 
   # after index engine is imported, local file could handle lost
   set +e
-  run_sql 'DROP DATABASE IF EXISTS cpeng;'
-  run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint_local_backend_test'
-  rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
   export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/FailIfIndexEngineImported=return(1)"
   run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
   set -e
