@@ -25,6 +25,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+
+	"go.uber.org/zap"
 )
 
 // invalidIterator is a trimmed down Iterator type which is invalid.
@@ -88,12 +91,15 @@ type transaction struct {
 	kvMemBuf
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/session.go
 var _ kv.Transaction = &transaction{}
 
 func (t *transaction) NewStagingBuffer() kv.MemBuffer {
 	return &t.kvMemBuf
 }
 
+=======
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/kv/session.go
 func (t *transaction) GetMemBuffer() kv.MemBuffer {
 	return &t.kvMemBuf
 }
@@ -175,11 +181,18 @@ func newSession(options *SessionOptions) *session {
 	vars.SQLMode = sqlMode
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
-			vars.SetSystemVar(k, v)
+			if err := vars.SetSystemVar(k, v); err != nil {
+				log.L().DPanic("new session: failed to set system var",
+					log.ShortError(err),
+					zap.String("key", k))
+			}
 		}
 	}
 	vars.StmtCtx.TimeZone = vars.Location()
-	vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10))
+	if err := vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10)); err != nil {
+		log.L().Warn("new session: failed to set timestamp",
+			log.ShortError(err))
+	}
 	vars.TxnCtx = nil
 
 	s := &session{

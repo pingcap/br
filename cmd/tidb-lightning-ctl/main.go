@@ -58,7 +58,7 @@ func run() error {
 		// there is a check if `-d` points to a valid storage, and '' is not.
 		// since tidb-lightning-ctl does not need `-d` we change the default to a valid but harmless value.
 		dFlag := fs.Lookup("d")
-		dFlag.Value.Set("noop://")
+		_ = dFlag.Value.Set("noop://")
 		dFlag.DefValue = "noop://"
 
 		compact = fs.Bool("compact", false, "do manual compaction on the target cluster")
@@ -244,8 +244,8 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "* Encountered error while closing engine:", err)
 					lastErr = err
-				} else {
-					closedEngine.Cleanup(ctx)
+				} else if err := closedEngine.Cleanup(ctx); err != nil {
+					lastErr = err
 				}
 			}
 		}
@@ -259,8 +259,13 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 		for _, table := range targetTables {
 			for engineID := table.MinEngineID; engineID <= table.MaxEngineID; engineID++ {
 				fmt.Fprintln(os.Stderr, "Closing and cleaning up engine:", table.TableName, engineID)
+<<<<<<< HEAD
 				_, eID := kv.MakeUUID(table.TableName, engineID)
 				file := kv.LocalFile{Uuid: eID}
+=======
+				_, eID := backend.MakeUUID(table.TableName, engineID)
+				file := local.File{UUID: eID}
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 				err := file.Cleanup(cfg.TikvImporter.SortedKVDir)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "* Encountered error while cleanup engine:", err)
@@ -318,6 +323,7 @@ func checkpointDump(ctx context.Context, cfg *config.Config, dumpFolder string) 
 }
 
 func getLocalStoringTables(ctx context.Context, cfg *config.Config) (err2 error) {
+	//nolint:prealloc // This is a placeholder.
 	var tables []string
 	defer func() {
 		if err2 == nil {

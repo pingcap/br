@@ -11,6 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Contexts for HTTP requests communicating with a real HTTP server are essential,
+// however, when the subject is a mocked server, it would probably be redundant.
+//nolint:noctx
 package lightning
 
 import (
@@ -116,13 +119,13 @@ func (s *lightningServerSuite) SetUpTest(c *C) {
 	s.lightning = New(cfg)
 	s.taskCfgCh = make(chan *config.Config)
 	s.lightning.ctx = context.WithValue(s.lightning.ctx, &taskCfgRecorderKey, s.taskCfgCh)
-	s.lightning.GoServe()
+	_ = s.lightning.GoServe()
 
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
 }
 
 func (s *lightningServerSuite) TearDownTest(c *C) {
-	failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
+	_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
 	s.lightning.Stop()
 }
 
@@ -139,7 +142,10 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	c.Assert(data["error"], Equals, "server-mode not enabled")
 	resp.Body.Close()
 
-	go s.lightning.RunServer()
+	go func() {
+		err := s.lightning.RunServer()
+		c.Assert(err, IsNil)
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	req, err := http.NewRequest(http.MethodPut, url, nil)
@@ -226,7 +232,10 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 		return result.ID
 	}
 
-	go s.lightning.RunServer()
+	go func() {
+		err := s.lightning.RunServer()
+		c.Assert(err, IsNil)
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	// Check `GET /tasks` without any active tasks
@@ -415,7 +424,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	resp, err = http.DefaultClient.Do(req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.StatusCode, Equals, http.StatusOK)
-
+	c.Assert(resp.Body.Close(), IsNil)
 	// ... and the task should be canceled now.
 	c.Assert(<-errCh, Equals, context.Canceled)
 }
@@ -473,7 +482,13 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	c.Assert(err, IsNil)
 	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError", "return(true)")
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError")
+=======
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/SetRlimitError")
+	}()
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	// with this dbMetas, the estimated fds will be 2050, so should return error
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
@@ -488,8 +503,15 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	c.Assert(err, IsNil)
 
 	// the min rlimit should be bigger than the default min value (16384)
+<<<<<<< HEAD
 	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue", "return(8200)")
 	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
+=======
+	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue", "return(8200)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
+	}()
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	c.Assert(err, IsNil)
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, IsNil)

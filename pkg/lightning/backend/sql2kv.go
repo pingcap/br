@@ -91,7 +91,7 @@ func autoRandomIncrementBits(col *table.Column, randomBits int) int {
 	incrementalBits := typeBitsLength - randomBits
 	hasSignBit := !mysql.HasUnsignedFlag(col.Flag)
 	if hasSignBit {
-		incrementalBits -= 1
+		incrementalBits--
 	}
 	return incrementalBits
 }
@@ -208,11 +208,13 @@ func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 				return err
 			}
 		}
-		encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
+		if err := encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
 			enc.AddString("val", log.RedactString(str))
 			return nil
-		}))
+		})); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -271,6 +273,17 @@ func MakeRowFromKvPairs(pairs []common.KvPair) Row {
 	return kvPairs(pairs)
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/sql2kv.go
+=======
+// KvPairsFromRows converts a Rows instance constructed from MakeRowsFromKvPairs
+// back into a slice of KvPair. This method panics if the Rows is not
+// constructed in such way.
+// nolint:golint // kv.KvPairsFromRows sounds good.
+func KvPairsFromRows(rows Rows) []common.KvPair {
+	return []common.KvPair(rows.(kvPairs))
+}
+
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/kv/sql2kv.go
 // Encode a row of data into KV pairs.
 //
 // See comments in `(*TableRestore).initializeColumns` for the meaning of the
@@ -285,6 +298,7 @@ func (kvcodec *tableKVEncoder) Encode(
 
 	var value types.Datum
 	var err error
+	//nolint:prealloc // This is a placeholder.
 	var record []types.Datum
 
 	if kvcodec.recordCache != nil {
@@ -298,15 +312,16 @@ func (kvcodec *tableKVEncoder) Encode(
 		j := columnPermutation[i]
 		isAutoIncCol := mysql.HasAutoIncrementFlag(col.Flag)
 		isPk := mysql.HasPriKeyFlag(col.Flag)
-		if j >= 0 && j < len(row) {
+		switch {
+		case j >= 0 && j < len(row):
 			value, err = table.CastValue(kvcodec.se, row[j], col.ToInfo(), false, false)
 			if err == nil {
 				value, err = col.HandleBadNull(value, kvcodec.se.vars.StmtCtx)
 			}
-		} else if isAutoIncCol {
+		case isAutoIncCol:
 			// we still need a conversion, e.g. to catch overflow with a TINYINT column.
 			value, err = table.CastValue(kvcodec.se, types.NewIntDatum(rowID), col.ToInfo(), false, false)
-		} else if isAutoRandom && isPk {
+		case isAutoRandom && isPk:
 			var val types.Datum
 			if mysql.HasUnsignedFlag(col.Flag) {
 				val = types.NewUintDatum(uint64(kvcodec.autoRandomHeaderBits | rowID))
@@ -314,11 +329,11 @@ func (kvcodec *tableKVEncoder) Encode(
 				val = types.NewIntDatum(kvcodec.autoRandomHeaderBits | rowID)
 			}
 			value, err = table.CastValue(kvcodec.se, val, col.ToInfo(), false, false)
-		} else if col.IsGenerated() {
+		case col.IsGenerated():
 			// inject some dummy value for gen col so that MutRowFromDatums below sees a real value instead of nil.
 			// if MutRowFromDatums sees a nil it won't initialize the underlying storage and cause SetDatum to panic.
 			value = types.GetMinValue(&col.FieldType)
-		} else {
+		default:
 			value, err = table.GetColDefaultValue(kvcodec.se, col.ToInfo())
 		}
 		if err != nil {
@@ -329,10 +344,14 @@ func (kvcodec *tableKVEncoder) Encode(
 
 		if isAutoRandom && isPk {
 			incrementalBits := autoRandomIncrementBits(col, int(kvcodec.tbl.Meta().AutoRandomBits))
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType)
+			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64()&((1<<incrementalBits)-1), false, autoid.AutoRandomType); err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 		if isAutoIncCol {
-			kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType)
+			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType); err != nil {
+				return nil, errors.Trace(err)
+			}
 		}
 	}
 
@@ -347,7 +366,9 @@ func (kvcodec *tableKVEncoder) Encode(
 			return nil, logKVConvertFailed(logger, row, j, extraHandleColumnInfo, err)
 		}
 		record = append(record, value)
-		kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
+		if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType); err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
 
 	if len(kvcodec.genCols) > 0 {
@@ -404,8 +425,8 @@ func (kvs kvPairs) ClassifyAndAppend(
 	*indices = indexKVs
 }
 
-func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
-	if len(totalKVs) == 0 {
+func (kvs kvPairs) SplitIntoChunks(splitSize int) []Rows {
+	if len(kvs) == 0 {
 		return nil
 	}
 
@@ -413,19 +434,19 @@ func (totalKVs kvPairs) SplitIntoChunks(splitSize int) []Rows {
 	i := 0
 	cumSize := 0
 
-	for j, pair := range totalKVs {
+	for j, pair := range kvs {
 		size := len(pair.Key) + len(pair.Val)
 		if i < j && cumSize+size > splitSize {
-			res = append(res, kvPairs(totalKVs[i:j]))
+			res = append(res, kvs[i:j])
 			i = j
 			cumSize = 0
 		}
 		cumSize += size
 	}
 
-	return append(res, kvPairs(totalKVs[i:]))
+	return append(res, kvs[i:])
 }
 
 func (kvs kvPairs) Clear() Rows {
-	return kvPairs(kvs[:0])
+	return kvs[:0]
 }

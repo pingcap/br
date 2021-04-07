@@ -128,10 +128,10 @@ func (mr *MockGlueMockRecorder) GetSession(arg0 interface{}) *gomock.Call {
 }
 
 // OpenCheckpointsDB mocks base method
-func (m *MockGlue) OpenCheckpointsDB(arg0 context.Context, arg1 *config.Config) (checkpoints.CheckpointsDB, error) {
+func (m *MockGlue) OpenCheckpointsDB(arg0 context.Context, arg1 *config.Config) (checkpoints.DB, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "OpenCheckpointsDB", arg0, arg1)
-	ret0, _ := ret[0].(checkpoints.CheckpointsDB)
+	ret0, _ := ret[0].(checkpoints.DB)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

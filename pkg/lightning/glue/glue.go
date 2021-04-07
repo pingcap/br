@@ -38,7 +38,7 @@ type Glue interface {
 	GetParser() *parser.Parser
 	GetTables(context.Context, string) ([]*model.TableInfo, error)
 	GetSession(context.Context) (checkpoints.Session, error)
-	OpenCheckpointsDB(context.Context, *config.Config) (checkpoints.CheckpointsDB, error)
+	OpenCheckpointsDB(context.Context, *config.Config) (checkpoints.DB, error)
 	// Record is used to report some information (key, value) to host TiDB, including progress, stage currently
 	Record(string, uint64)
 }
@@ -170,7 +170,7 @@ func (e *ExternalTiDBGlue) GetSession(ctx context.Context) (checkpoints.Session,
 	return &sqlConnSession{conn: conn}, nil
 }
 
-func (e *ExternalTiDBGlue) OpenCheckpointsDB(ctx context.Context, cfg *config.Config) (checkpoints.CheckpointsDB, error) {
+func (e *ExternalTiDBGlue) OpenCheckpointsDB(ctx context.Context, cfg *config.Config) (checkpoints.DB, error) {
 	return checkpoints.OpenCheckpointsDB(ctx, cfg)
 }
 

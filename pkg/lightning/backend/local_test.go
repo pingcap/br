@@ -63,9 +63,38 @@ func (s *localSuite) TestNextKey(c *C) {
 
 	// test recode key
 	// key with int handle
+<<<<<<< HEAD:pkg/lightning/backend/local_test.go
 	for _, handleId := range []int64{1, 255, math.MaxInt32} {
 		key := tablecodec.EncodeRowKeyWithHandle(1, handleId)
 		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, handleId+1)))
+=======
+	for _, handleID := range []int64{1, 255, math.MaxInt32} {
+		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID))
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID+1))))
+	}
+
+	testDatums := [][]types.Datum{
+		{types.NewIntDatum(1), types.NewIntDatum(2)},
+		{types.NewIntDatum(255), types.NewIntDatum(256)},
+		{types.NewIntDatum(math.MaxInt32), types.NewIntDatum(math.MaxInt32 + 1)},
+		{types.NewStringDatum("test"), types.NewStringDatum("test\000")},
+		{types.NewStringDatum("test\255"), types.NewStringDatum("test\255\000")},
+	}
+
+	stmtCtx := new(stmtctx.StatementContext)
+	for _, datums := range testDatums {
+		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[0])
+		c.Assert(err, IsNil)
+		h, err := tidbkv.NewCommonHandle(keyBytes)
+		c.Assert(err, IsNil)
+		key := tablecodec.EncodeRowKeyWithHandle(1, h)
+		nextKeyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[1])
+		c.Assert(err, IsNil)
+		nextHdl, err := tidbkv.NewCommonHandle(nextKeyBytes)
+		c.Assert(err, IsNil)
+		expectNextKey := []byte(tablecodec.EncodeRowKeyWithHandle(1, nextHdl))
+		c.Assert(nextKey(key), DeepEquals, expectNextKey)
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/local_test.go
 	}
 
 	// dIAAAAAAAAD/PV9pgAAAAAD/AAABA4AAAAD/AAAAAQOAAAD/AAAAAAEAAAD8
@@ -285,8 +314,13 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
+<<<<<<< HEAD:pkg/lightning/backend/local_test.go
 	_, engineUUID := MakeUUID("ww", 0)
 	f := LocalFile{localFileMeta: meta, db: db, Uuid: engineUUID}
+=======
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	f := File{localFileMeta: meta, db: db, UUID: engineUUID}
+>>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/local_test.go
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
@@ -439,11 +473,12 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
