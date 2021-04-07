@@ -912,7 +912,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 		})
 
 		failpoint.Inject("FailAfterWriteRows", func(_ failpoint.Value) {
-			if _, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok {
+			if merger, ok := scp.merger.(*checkpoints.ChunkCheckpointMerger); ok && merger.Checksum.SumKVS() > 0 {
 				rc.checkpointsWg.Done()
 				rc.checkpointsWg.Wait()
 				panic("forcing failure due to FailAfterWriteRows")
@@ -1640,11 +1640,6 @@ func (tr *TableRestore) restoreEngine(
 	if err == nil && rc.cfg.Checkpoint.Enable && rc.isLocalBackend() {
 		if err = flushAndSaveAllChunks(); err != nil {
 			return nil, errors.Trace(err)
-		}
-
-		// Currently we write all the checkpoints after data&index engine are flushed.
-		for _, chunk := range cp.Chunks {
-			saveCheckpoint(rc, tr, engineID, chunk)
 		}
 	}
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusClosed)
