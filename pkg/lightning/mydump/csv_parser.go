@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/pingcap/br/pkg/utils"
 
@@ -37,8 +36,7 @@ var (
 // CSVParser is basically a copy of encoding/csv, but special-cased for MySQL-like input.
 type CSVParser struct {
 	blockParser
-	cfg       *config.CSVConfig
-	escFlavor backslashEscapeFlavor
+	cfg *config.CSVConfig
 
 	comma            []byte
 	quote            []byte
@@ -57,6 +55,7 @@ type CSVParser struct {
 
 	lastRecord []string
 
+	escFlavor backslashEscapeFlavor
 	// if set to true, csv parser will treat the first non-empty line as header line
 	shouldParseHeader bool
 }
@@ -131,6 +130,7 @@ func (parser *CSVParser) readByte() (byte, error) {
 	return b, nil
 }
 
+//nolint:unused // Maybe useful in the future.
 func (parser *CSVParser) readBytes(buf []byte) (int, error) {
 	cnt := 0
 	for cnt < len(buf) {
@@ -290,7 +290,7 @@ outside:
 				continue
 			}
 			// skip lines only contain whitespaces
-			if err == nil && whitespaceLine && len(bytes.TrimFunc(parser.recordBuffer, unicode.IsSpace)) == 0 {
+			if err == nil && whitespaceLine && len(bytes.TrimSpace(parser.recordBuffer)) == 0 {
 				parser.recordBuffer = parser.recordBuffer[:0]
 				continue
 			}
@@ -391,9 +391,8 @@ func (parser *CSVParser) readQuotedField() error {
 					if !bytes.Equal(b, parser.quote) {
 						if parser.quote[0] == parser.comma[0] {
 							return processComma()
-						} else {
-							return processDefault()
 						}
+						return processDefault()
 					}
 				}
 				parser.skipBytes(len(parser.quote))
@@ -567,10 +566,10 @@ func (parser *CSVParser) ReadColumns() error {
 	return nil
 }
 
-var newLineAsciiSet = makeByteSet([]byte{'\r', '\n'})
+var newLineASCIISet = makeByteSet([]byte{'\r', '\n'})
 
 func indexOfNewLine(b []byte) int {
-	return IndexAnyByte(b, &newLineAsciiSet)
+	return IndexAnyByte(b, &newLineASCIISet)
 }
 
 func (parser *CSVParser) ReadUntilTokNewLine() (int64, error) {
