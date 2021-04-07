@@ -780,7 +780,10 @@ func (cpdb *MySQLCheckpointsDB) Get(ctx context.Context, tableName string) (*Tab
 		tableRow := tx.QueryRowContext(c, tableQuery, tableName)
 
 		var status uint8
-		if err := tableRow.Scan(&status, &cp.AllocBase, &cp.TableID); err != nil && err != sql.ErrNoRows {
+		if err := tableRow.Scan(&status, &cp.AllocBase, &cp.TableID); err != nil {
+			if err == sql.ErrNoRows {
+				return errors.NotFoundf("checkpoint for table %s", tableName)
+			}
 			return errors.Trace(err)
 		}
 		cp.Status = CheckpointStatus(status)
@@ -1043,7 +1046,7 @@ func (cpdb *FileCheckpointsDB) Get(_ context.Context, tableName string) (*TableC
 
 	tableModel, ok := cpdb.checkpoints.Checkpoints[tableName]
 	if !ok {
-		tableModel = &checkpointspb.TableCheckpointModel{}
+		return nil, errors.NotFoundf("checkpoint for table %s", tableName)
 	}
 
 	cp := &TableCheckpoint{

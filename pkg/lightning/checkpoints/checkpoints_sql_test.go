@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/mydump"
@@ -293,29 +294,32 @@ func (s *cpSQLSuite) TestRemoveAllCheckpoints(c *C) {
 	err := s.cpdb.RemoveCheckpoint(ctx, "all")
 	c.Assert(err, IsNil)
 
-	s.mock.ExpectBegin()
-	s.mock.
-		ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
-		WithArgs("`db1`.`t2`").
-		WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
-	s.mock.
-		ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
-		WithArgs("`db1`.`t2`").
-		WillReturnRows(
-			sqlmock.NewRows([]string{
-				"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
-				"pos", "end_offset", "prev_rowid_max", "rowid_max",
-				"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
-			}))
-	s.mock.
-		ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
-		WithArgs("`db1`.`t2`").
-		WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
-	s.mock.ExpectCommit()
+	// to respect the internal retry 3 time of cp.db.Get
+	for i := 0; i < 3; i++ {
+		s.mock.ExpectBegin()
+		s.mock.
+			ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
+		s.mock.
+			ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(
+				sqlmock.NewRows([]string{
+					"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
+					"pos", "end_offset", "prev_rowid_max", "rowid_max",
+					"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
+				}))
+		s.mock.
+			ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
+		s.mock.ExpectRollback()
+	}
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 }
 
 func (s *cpSQLSuite) TestRemoveOneCheckpoint(c *C) {

@@ -635,13 +635,13 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 
 				// if checkpoint enable and not missing, we skip the check table empty progress.
 				if rc.cfg.Checkpoint.Enable {
-					dbCp, err := rc.checkpointsDB.Get(ctx, tableName)
-					if err != nil {
-						return errors.Trace(err)
-					}
-
-					if dbCp.Status > checkpoints.CheckpointStatusMissing {
+					_, err := rc.checkpointsDB.Get(ctx, tableName)
+					switch {
+					case err == nil:
 						continue
+					case errors.IsNotFound(err):
+					default:
+						return err
 					}
 				}
 
