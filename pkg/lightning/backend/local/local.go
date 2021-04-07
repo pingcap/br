@@ -903,6 +903,9 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	curKeys := uint64(0)
 	curKey := fullRange.start
 	sizeProps.iter(func(p *rangeProperty) bool {
+		if bytes.Equal(p.Key, engineMetaKey) {
+			return true
+		}
 		curSize += p.Size
 		curKeys += p.Keys
 		if int64(curSize) >= sizeLimit || int64(curKeys) >= keysLimit {
