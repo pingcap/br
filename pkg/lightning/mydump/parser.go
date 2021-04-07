@@ -276,8 +276,8 @@ func unescape(
 ) string {
 	if len(delim) > 0 {
 		delim2 := delim + delim
-		if strings.Index(input, delim2) != -1 {
-			input = strings.Replace(input, delim2, delim, -1)
+		if strings.Contains(input, delim2) {
+			input = strings.ReplaceAll(input, delim2, delim)
 		}
 	}
 	if escFlavor != backslashEscapeFlavorNone && strings.IndexByte(input, '\\') != -1 {
@@ -500,13 +500,13 @@ func (parser *ChunkParser) ReadRow() error {
 			case tokHexString:
 				hexLit, err := types.ParseHexStr(string(content))
 				if err != nil {
-					return err
+					return errors.Trace(err)
 				}
 				value.SetBinaryLiteral(hexLit)
 			case tokBinString:
 				binLit, err := types.ParseBitStr(string(content))
 				if err != nil {
-					return err
+					return errors.Trace(err)
 				}
 				value.SetBinaryLiteral(binLit)
 			default:
@@ -527,6 +527,9 @@ func (parser *blockParser) LastRow() Row {
 
 // RecycleRow places the row object back into the allocation pool.
 func (parser *blockParser) RecycleRow(row Row) {
+	// We need farther benchmarking to make sure whether send a pointer
+	// (instead of a slice) here can improve performance.
+	//nolint:staticcheck
 	parser.rowPool.Put(row.Row[:0])
 }
 

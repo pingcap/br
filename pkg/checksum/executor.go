@@ -224,7 +224,6 @@ func sendChecksumRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	res.Fetch(ctx)
 	defer func() {
 		if err1 := res.Close(); err1 != nil {
 			err = err1

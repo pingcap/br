@@ -21,9 +21,7 @@ func Test(t *testing.T) {
 var _ = Suite(&cpFileSuite{})
 
 type cpFileSuite struct {
-	path string
 	cpdb *checkpoints.FileCheckpointsDB
-	cfg  *config.Config
 }
 
 func newTestConfig() *config.Config {
