@@ -1094,6 +1094,7 @@ func (local *local) writeAndIngestByRange(
 			log.ZapRedactBinary("start", start),
 			log.ZapRedactBinary("end", end),
 			log.ZapRedactBinary("next end", nextKey(end)))
+		engineFile.finishedRanges.add(Range{start: start, end: end})
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
