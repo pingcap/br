@@ -202,6 +202,7 @@ outside:
 
 func (importer *importer) WriteRowsToImporter(
 	ctx context.Context,
+	//nolint:interfacer // false positive
 	engineUUID uuid.UUID,
 	ts uint64,
 	rows kv.Rows,
@@ -326,18 +327,18 @@ func (importer *importer) ResetEngine(context.Context, uuid.UUID) error {
 }
 
 func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
-	return &ImporterWriter{importer: importer, engineUUID: engineUUID}, nil
+	return &Writer{importer: importer, engineUUID: engineUUID}, nil
 }
 
-type ImporterWriter struct {
+type Writer struct {
 	importer   *importer
 	engineUUID uuid.UUID
 }
 
-func (w *ImporterWriter) Close() error {
+func (w *Writer) Close() error {
 	return nil
 }
 
-func (w *ImporterWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
 	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
 }

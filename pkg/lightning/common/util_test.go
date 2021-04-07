@@ -57,7 +57,7 @@ func (s *utilSuite) TestGetJSON(c *C) {
 
 	ctx := context.Background()
 	// Mock success response
-	handle := func(res http.ResponseWriter, req *http.Request) {
+	handle := func(res http.ResponseWriter, _ *http.Request) {
 		res.WriteHeader(http.StatusOK)
 		err := json.NewEncoder(res).Encode(request)
 		c.Assert(err, IsNil)
@@ -77,7 +77,7 @@ func (s *utilSuite) TestGetJSON(c *C) {
 	c.Assert(request, DeepEquals, response)
 
 	// Mock `StatusNoContent` response
-	handle = func(res http.ResponseWriter, req *http.Request) {
+	handle = func(res http.ResponseWriter, _ *http.Request) {
 		res.WriteHeader(http.StatusNoContent)
 	}
 	err = common.GetJSON(ctx, client, testServer.URL, &response)
