@@ -545,7 +545,8 @@ func makeRanges(input []string) []Range {
 func (s *localSuite) TestDedupAndMergeRanges(c *C) {
 	cases := [][]string{
 		// empty
-		{}, {},
+		{},
+		{},
 		// without overlap
 		{"1", "2", "3", "4", "5", "6", "7", "8"},
 		{"1", "2", "3", "4", "5", "6", "7", "8"},
@@ -575,10 +576,20 @@ func (s *localSuite) TestDedupAndMergeRanges(c *C) {
 
 func (s *localSuite) TestFilterOverlapRange(c *C) {
 	cases := [][]string{
-		// empty input
-		{}, {}, {},
-		{}, {"0", "1"}, {},
-		{"0", "1", "2", "3"}, {}, {"0", "1", "2", "3"},
+		// both empty input
+		{},
+		{},
+		{},
+
+		// ranges are empty
+		{},
+		{"0", "1"},
+		{},
+
+		// finished ranges are empty
+		{"0", "1", "2", "3"},
+		{},
+		{"0", "1", "2", "3"},
 
 		// single big finished range
 		{"00", "10", "20", "30", "40", "50", "60", "70"},
