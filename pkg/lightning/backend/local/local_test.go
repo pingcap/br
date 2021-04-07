@@ -533,3 +533,74 @@ func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
 	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
 }
+
+func makeRanges(input []string) []Range {
+	ranges := make([]Range, 0, len(input)/2)
+	for i := 0; i < len(input)-1; i += 2 {
+		ranges = append(ranges, Range{start: []byte(input[i]), end: []byte(input[i+1])})
+	}
+	return ranges
+}
+
+func (s *localSuite) TestDedupAndMergeRanges(c *C) {
+	cases := [][]string{
+		// empty
+		{}, {},
+		// without overlap
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		// merge all as one
+		{"1", "12", "12", "13", "13", "14", "14", "15", "15", "999"},
+		{"1", "999"},
+		// overlap
+		{"1", "12", "12", "13", "121", "129", "122", "133", "14", "15", "15", "999"},
+		{"1", "133", "14", "999"},
+
+		// out of order, same as test 3
+		{"15", "999", "1", "12", "121", "129", "12", "13", "122", "133", "14", "15"},
+		{"1", "133", "14", "999"},
+
+		// not continuous
+		{"000", "001", "002", "004", "100", "108", "107", "200", "255", "300"},
+		{"000", "001", "002", "004", "100", "200", "255", "300"},
+	}
+
+	for i := 0; i < len(cases)-1; i += 2 {
+		input := makeRanges(cases[i])
+		output := makeRanges(cases[i+1])
+
+		c.Assert(dedupAndMergeRanges(input), DeepEquals, output)
+	}
+}
+
+func (s *localSuite) TestFilterOverlapRange(c *C) {
+	cases := [][]string{
+		// empty input
+		{}, {}, {},
+		{}, {"0", "1"}, {},
+		{"0", "1", "2", "3"}, {}, {"0", "1", "2", "3"},
+
+		// single big finished range
+		{"00", "10", "20", "30", "40", "50", "60", "70"},
+		{"25", "65"},
+		{"00", "10", "20", "25", "65", "70"},
+
+		// single big input
+		{"10", "99"},
+		{"00", "10", "15", "30", "45", "60"},
+		{"10", "15", "30", "45", "60", "99"},
+
+		// multi input and finished
+		{"00", "05", "05", "10", "10", "20", "30", "45", "50", "70", "70", "90"},
+		{"07", "12", "14", "16", "17", "30", "45", "70"},
+		{"00", "05", "05", "07", "12", "14", "16", "17", "30", "45", "70", "90"},
+	}
+
+	for i := 0; i < len(cases)-2; i += 3 {
+		input := makeRanges(cases[i])
+		finished := makeRanges(cases[i+1])
+		output := makeRanges(cases[i+2])
+
+		c.Assert(filterOverlapRange(input, finished), DeepEquals, output)
+	}
+}
