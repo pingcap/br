@@ -89,16 +89,6 @@ const (
 	defaultPropSizeIndexDistance = 4 * units.MiB
 	defaultPropKeysIndexDistance = 40 * 1024
 
-	// defaultLocalWriterKVsChannelCap is the capacity of the
-	// Writer.kvsChan field, which acts as the buffer between local writer
-	// and deliverLoop. Each entry in the channel can be observed from metrics
-	//
-	//		2 * sum(lightning_block_deliver_bytes_sum) / sum(lightning_block_deliver_bytes_count)
-	//
-	// which has a minimum size of 64 KB and a maximum size depending on the KV
-	// encoding of each row. It can be as high as 1 MiB.
-	defaultLocalWriterKVsChannelCap = 16
-
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 )
@@ -126,7 +116,7 @@ type Range struct {
 	end   []byte
 }
 
-// FileMeta contains some field that is necessary to continue the engine restore/import process.
+// localFileMeta contains some field that is necessary to continue the engine restore/import process.
 // These field should be written to disk when we update chunk checkpoint
 type localFileMeta struct {
 	TS uint64 `json:"ts"`
@@ -1029,7 +1019,7 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 	opt := &pebble.Options{
 		MemTableSize: local.engineMemCacheSize,
 		// the default threshold value may cause write stall.
-		MemTableStopWritesThreshold: 32,
+		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
 		// set threshold to half of the max open files to avoid trigger compaction
 		L0CompactionThreshold: math.MaxInt32,
@@ -2622,7 +2612,7 @@ func (h *sstIterHeap) Next() ([]byte, []byte, error) {
 }
 
 // sstIngester is a interface used to merge and ingest SST files.
-// it's a interface mainly used for test convenient
+// it's a interface mainly used for test convenience
 type sstIngester interface {
 	mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 	ingest([]*sstMeta) error
