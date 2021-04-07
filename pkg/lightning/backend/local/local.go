@@ -909,8 +909,13 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 		curSize += p.Size
 		curKeys += p.Keys
 		if int64(curSize) >= sizeLimit || int64(curKeys) >= keysLimit {
-			ranges = append(ranges, Range{start: curKey, end: p.Key})
-			curKey = p.Key
+			// in case the sizeLimit or keysLimit is too small
+			endKey := p.Key
+			if bytes.Equal(curKey, endKey) {
+				endKey = nextKey(endKey)
+			}
+			ranges = append(ranges, Range{start: curKey, end: endKey})
+			curKey = endKey
 			curSize = 0
 			curKeys = 0
 		}
