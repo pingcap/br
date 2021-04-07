@@ -535,7 +535,7 @@ func IsCheckpointsDBExists(ctx context.Context, cfg *config.Config) (bool, error
 		defer rows.Close()
 		result := rows.Next()
 		if err := rows.Err(); err != nil {
-			return false, err
+			return false, errors.Trace(err)
 		}
 		return result, nil
 
