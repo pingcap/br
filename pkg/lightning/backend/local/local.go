@@ -1366,7 +1366,6 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 
 	lfTotalSize := lf.TotalSize.Load()
 	lfLength := lf.Length.Load()
-
 	if lfTotalSize == 0 {
 		log.L().Info("engine contains no kv, skip import", zap.Stringer("engine", engineUUID))
 		return nil
@@ -1380,21 +1379,19 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 
 	log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
 		zap.Int("ranges", len(ranges)))
-
 	for {
 		unfinishedRanges := lf.unfinishedRanges(ranges)
 		if len(unfinishedRanges) == 0 {
 			break
 		}
-		log.L().Info("ingest ranges unfinished", zap.Int("count", len(unfinishedRanges)))
+		log.L().Info("import engine unfinished ranges", zap.Int("count", len(unfinishedRanges)))
 
 		// if all the kv can fit in one region, skip split regions. TiDB will split one region for
 		// the table when table is created.
-		needSplit := len(ranges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
-
+		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
-			err = local.SplitAndScatterRegionByRanges(ctx, ranges, needSplit)
+			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)
 			if err == nil || common.IsContextCanceledError(err) {
 				break
 			}
@@ -1408,12 +1405,11 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		}
 
 		// start to write to kv and ingest
-		err = local.writeAndIngestByRanges(ctx, lf, ranges)
+		err = local.writeAndIngestByRanges(ctx, lf, unfinishedRanges)
 		if err != nil {
 			log.L().Error("write and ingest engine failed", log.ShortError(err))
 			return err
 		}
-
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
