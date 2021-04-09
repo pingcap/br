@@ -22,7 +22,7 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
-		backend, err := ParseBackend("local:///"+dir, nil)
+		backend, err := ParseBackend("local://"+filepath.ToSlash(dir), nil)
 		c.Assert(err, IsNil)
 		ctx := context.Background()
 		storage, err := Create(ctx, backend, true)
@@ -96,7 +96,7 @@ func (r *testStorageSuite) TestCompressReaderWriter(c *C) {
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
-		backend, err := ParseBackend("local:///"+dir, nil)
+		backend, err := ParseBackend("local://"+filepath.ToSlash(dir), nil)
 		c.Assert(err, IsNil)
 		ctx := context.Background()
 		storage, err := Create(ctx, backend, true)
