@@ -91,11 +91,11 @@ type mdLoaderSetup struct {
 func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error) {
 	u, err := storage.ParseBackend(cfg.Mydumper.SourceDir, nil)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{SkipCheckPath: true})
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	return NewMyDumpLoaderWithStore(ctx, cfg, s)
@@ -219,7 +219,7 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	if !s.loader.noSchema {
 		// setup database schema
 		if len(s.dbSchemas) == 0 {
-			return errors.New("no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database.")
+			return errors.New("no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database")
 		}
 		for _, fileInfo := range s.dbSchemas {
 			if _, dbExists := s.insertDB(fileInfo.TableName.Schema, fileInfo.FileMeta.Path); dbExists && s.loader.router == nil {
@@ -267,12 +267,13 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	for _, dbMeta := range s.loader.dbs {
 		// Put the small table in the front of the slice which can avoid large table
 		// take a long time to import and block small table to release index worker.
-		sort.SliceStable(dbMeta.Tables, func(i, j int) bool {
-			return dbMeta.Tables[i].TotalSize < dbMeta.Tables[j].TotalSize
+		meta := dbMeta
+		sort.SliceStable(meta.Tables, func(i, j int) bool {
+			return meta.Tables[i].TotalSize < meta.Tables[j].TotalSize
 		})
 
 		// sort each table source files by sort-key
-		for _, tbMeta := range dbMeta.Tables {
+		for _, tbMeta := range meta.Tables {
 			dataFiles := tbMeta.DataFiles
 			sort.SliceStable(dataFiles, func(i, j int) bool {
 				return dataFiles[i].FileMeta.SortKey < dataFiles[j].FileMeta.SortKey
@@ -419,16 +420,15 @@ func (s *mdLoaderSetup) insertDB(dbName string, path string) (*MDDatabaseMeta, b
 	dbIndex, ok := s.dbIndexMap[dbName]
 	if ok {
 		return s.loader.dbs[dbIndex], true
-	} else {
-		s.dbIndexMap[dbName] = len(s.loader.dbs)
-		ptr := &MDDatabaseMeta{
-			Name:       dbName,
-			SchemaFile: path,
-			charSet:    s.loader.charSet,
-		}
-		s.loader.dbs = append(s.loader.dbs, ptr)
-		return ptr, false
 	}
+	s.dbIndexMap[dbName] = len(s.loader.dbs)
+	ptr := &MDDatabaseMeta{
+		Name:       dbName,
+		SchemaFile: path,
+		charSet:    s.loader.charSet,
+	}
+	s.loader.dbs = append(s.loader.dbs, ptr)
+	return ptr, false
 }
 
 func (s *mdLoaderSetup) insertTable(fileInfo FileInfo) (*MDTableMeta, bool, bool) {
@@ -436,18 +436,17 @@ func (s *mdLoaderSetup) insertTable(fileInfo FileInfo) (*MDTableMeta, bool, bool
 	tableIndex, ok := s.tableIndexMap[fileInfo.TableName]
 	if ok {
 		return dbMeta.Tables[tableIndex], dbExists, true
-	} else {
-		s.tableIndexMap[fileInfo.TableName] = len(dbMeta.Tables)
-		ptr := &MDTableMeta{
-			DB:         fileInfo.TableName.Schema,
-			Name:       fileInfo.TableName.Name,
-			SchemaFile: fileInfo,
-			DataFiles:  make([]FileInfo, 0, 16),
-			charSet:    s.loader.charSet,
-		}
-		dbMeta.Tables = append(dbMeta.Tables, ptr)
-		return ptr, dbExists, false
 	}
+	s.tableIndexMap[fileInfo.TableName] = len(dbMeta.Tables)
+	ptr := &MDTableMeta{
+		DB:         fileInfo.TableName.Schema,
+		Name:       fileInfo.TableName.Name,
+		SchemaFile: fileInfo,
+		DataFiles:  make([]FileInfo, 0, 16),
+		charSet:    s.loader.charSet,
+	}
+	dbMeta.Tables = append(dbMeta.Tables, ptr)
+	return ptr, dbExists, false
 }
 
 func (s *mdLoaderSetup) insertView(fileInfo FileInfo) (bool, bool) {

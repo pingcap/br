@@ -41,7 +41,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend/noop"
 	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
-	. "github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
@@ -73,7 +72,7 @@ func (s *restoreSuite) TestNewTableRestore(c *C) {
 	p := parser.New()
 	se := tmock.NewContext()
 
-	dbInfo := &TidbDBInfo{Name: "mockdb", Tables: map[string]*TidbTableInfo{}}
+	dbInfo := &checkpoints.TidbDBInfo{Name: "mockdb", Tables: map[string]*checkpoints.TidbTableInfo{}}
 	for i, tc := range testCases {
 		node, err := p.ParseOneStmt(tc.createStmt, "utf8mb4", "utf8mb4_bin")
 		c.Assert(err, IsNil)
@@ -81,7 +80,7 @@ func (s *restoreSuite) TestNewTableRestore(c *C) {
 		c.Assert(err, IsNil)
 		tableInfo.State = model.StatePublic
 
-		dbInfo.Tables[tc.name] = &TidbTableInfo{
+		dbInfo.Tables[tc.name] = &checkpoints.TidbTableInfo{
 			Name: tc.name,
 			Core: tableInfo,
 		}
@@ -90,23 +89,23 @@ func (s *restoreSuite) TestNewTableRestore(c *C) {
 	for _, tc := range testCases {
 		tableInfo := dbInfo.Tables[tc.name]
 		tableName := common.UniqueTable("mockdb", tableInfo.Name)
-		tr, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &TableCheckpoint{})
+		tr, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{})
 		c.Assert(tr, NotNil)
 		c.Assert(err, IsNil)
 	}
 }
 
 func (s *restoreSuite) TestNewTableRestoreFailure(c *C) {
-	tableInfo := &TidbTableInfo{
+	tableInfo := &checkpoints.TidbTableInfo{
 		Name: "failure",
 		Core: &model.TableInfo{},
 	}
-	dbInfo := &TidbDBInfo{Name: "mockdb", Tables: map[string]*TidbTableInfo{
+	dbInfo := &checkpoints.TidbDBInfo{Name: "mockdb", Tables: map[string]*checkpoints.TidbTableInfo{
 		"failure": tableInfo,
 	}}
 	tableName := common.UniqueTable("mockdb", "failure")
 
-	_, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &TableCheckpoint{})
+	_, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{})
 	c.Assert(err, ErrorMatches, `failed to tables\.TableFromMeta.*`)
 }
 
@@ -114,8 +113,8 @@ func (s *restoreSuite) TestErrorSummaries(c *C) {
 	logger, buffer := log.MakeTestLogger()
 
 	es := makeErrorSummaries(logger)
-	es.record("first", errors.New("a1 error"), CheckpointStatusAnalyzed)
-	es.record("second", errors.New("b2 error"), CheckpointStatusAllWritten)
+	es.record("first", errors.New("a1 error"), checkpoints.CheckpointStatusAnalyzed)
+	es.record("second", errors.New("b2 error"), checkpoints.CheckpointStatusAllWritten)
 	es.emitLog()
 
 	lines := buffer.Lines()
@@ -214,8 +213,8 @@ type tableRestoreSuiteBase struct {
 	tr  *TableRestore
 	cfg *config.Config
 
-	tableInfo *TidbTableInfo
-	dbInfo    *TidbDBInfo
+	tableInfo *checkpoints.TidbTableInfo
+	dbInfo    *checkpoints.TidbDBInfo
 	tableMeta *mydump.MDTableMeta
 
 	store storage.ExternalStorage
@@ -244,10 +243,10 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 	c.Assert(err, IsNil)
 	core.State = model.StatePublic
 
-	s.tableInfo = &TidbTableInfo{Name: "table", DB: "db", Core: core}
-	s.dbInfo = &TidbDBInfo{
+	s.tableInfo = &checkpoints.TidbTableInfo{Name: "table", DB: "db", Core: core}
+	s.dbInfo = &checkpoints.TidbDBInfo{
 		Name:   "db",
-		Tables: map[string]*TidbTableInfo{"table": s.tableInfo},
+		Tables: map[string]*checkpoints.TidbTableInfo{"table": s.tableInfo},
 	}
 
 	// Write some sample SQL dump
@@ -267,28 +266,50 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 		fakeDataPath := filepath.Join(fakeDataDir, fakeFileName)
 		err = ioutil.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
 		c.Assert(err, IsNil)
-		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{TableName: filter.Table{"db", "table"}, FileMeta: mydump.SourceFileMeta{Path: fakeFileName, Type: mydump.SourceTypeSQL, SortKey: fmt.Sprintf("%d", i), FileSize: 37}})
+		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
+			TableName: filter.Table{Schema: "db", Name: "table"},
+			FileMeta: mydump.SourceFileMeta{
+				Path:     fakeFileName,
+				Type:     mydump.SourceTypeSQL,
+				SortKey:  fmt.Sprintf("%d", i),
+				FileSize: 37,
+			},
+		})
 	}
 
 	fakeCsvContent := []byte("1,2,3\r\n4,5,6\r\n")
 	csvName := "db.table.99.csv"
 	err = ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
 	c.Assert(err, IsNil)
-	fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{TableName: filter.Table{"db", "table"}, FileMeta: mydump.SourceFileMeta{Path: csvName, Type: mydump.SourceTypeCSV, SortKey: "99", FileSize: 14}})
+	fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
+		TableName: filter.Table{Schema: "db", Name: "table"},
+		FileMeta: mydump.SourceFileMeta{
+			Path:     csvName,
+			Type:     mydump.SourceTypeCSV,
+			SortKey:  "99",
+			FileSize: 14,
+		},
+	})
 
 	s.tableMeta = &mydump.MDTableMeta{
-		DB:         "db",
-		Name:       "table",
-		TotalSize:  222,
-		SchemaFile: mydump.FileInfo{TableName: filter.Table{Schema: "db", Name: "table"}, FileMeta: mydump.SourceFileMeta{Path: "db.table-schema.sql", Type: mydump.SourceTypeTableSchema}},
-		DataFiles:  fakeDataFiles,
+		DB:        "db",
+		Name:      "table",
+		TotalSize: 222,
+		SchemaFile: mydump.FileInfo{
+			TableName: filter.Table{Schema: "db", Name: "table"},
+			FileMeta: mydump.SourceFileMeta{
+				Path: "db.table-schema.sql",
+				Type: mydump.SourceTypeTableSchema,
+			},
+		},
+		DataFiles: fakeDataFiles,
 	}
 }
 
 func (s *tableRestoreSuiteBase) SetUpTest(c *C) {
 	// Collect into the test TableRestore structure
 	var err error
-	s.tr, err = NewTableRestore("`db`.`table`", s.tableMeta, s.dbInfo, s.tableInfo, &TableCheckpoint{})
+	s.tr, err = NewTableRestore("`db`.`table`", s.tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{})
 	c.Assert(err, IsNil)
 
 	s.cfg = config.NewConfig()
@@ -297,25 +318,28 @@ func (s *tableRestoreSuiteBase) SetUpTest(c *C) {
 }
 
 func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	}()
 
-	cp := &TableCheckpoint{
-		Engines: make(map[int32]*EngineCheckpoint),
+	cp := &checkpoints.TableCheckpoint{
+		Engines: make(map[int32]*checkpoints.EngineCheckpoint),
 	}
 
-	rc := &RestoreController{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
+	rc := &Controller{cfg: s.cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: s.store}
 	err := s.tr.populateChunks(context.Background(), rc, cp)
 	c.Assert(err, IsNil)
-	c.Assert(cp.Engines, DeepEquals, map[int32]*EngineCheckpoint{
+	//nolint:dupl // false positive.
+	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
 		-1: {
-			Status: CheckpointStatusLoaded,
+			Status: checkpoints.CheckpointStatusLoaded,
 		},
 		0: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[0].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[0].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[0].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -326,7 +350,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[1].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -337,7 +361,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[2].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[2].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[2].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -350,10 +374,10 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 			},
 		},
 		1: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[3].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[3].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[3].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -364,7 +388,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[4].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[4].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[4].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -375,7 +399,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[5].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[5].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[5].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -388,10 +412,10 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 			},
 		},
 		2: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[6].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[6].FileMeta.Path, Offset: 0},
 					FileMeta: s.tr.tableMeta.DataFiles[6].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -442,7 +466,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 		err := ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
-			TableName: filter.Table{"db", "table"},
+			TableName: filter.Table{Schema: "db", Name: "table"},
 			FileMeta:  mydump.SourceFileMeta{Path: csvName, Type: mydump.SourceTypeCSV, SortKey: fmt.Sprintf("%02d", i), FileSize: int64(len(s))},
 		})
 		total += len(s)
@@ -455,11 +479,13 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 		DataFiles:  fakeDataFiles,
 	}
 
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp", "return(1234567897)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/PopulateChunkTimestamp")
+	}()
 
-	cp := &TableCheckpoint{
-		Engines: make(map[int32]*EngineCheckpoint),
+	cp := &checkpoints.TableCheckpoint{
+		Engines: make(map[int32]*checkpoints.EngineCheckpoint),
 	}
 
 	cfg := config.NewConfig()
@@ -468,21 +494,21 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 
 	cfg.Mydumper.CSV.Header = true
 	cfg.Mydumper.StrictFormat = true
-	rc := &RestoreController{cfg: cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: store}
+	rc := &Controller{cfg: cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: store}
 
-	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &TableCheckpoint{})
+	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{})
 	c.Assert(err, IsNil)
 	c.Assert(tr.populateChunks(context.Background(), rc, cp), IsNil)
 
-	c.Assert(cp.Engines, DeepEquals, map[int32]*EngineCheckpoint{
+	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
 		-1: {
-			Status: CheckpointStatusLoaded,
+			Status: checkpoints.CheckpointStatusLoaded,
 		},
 		0: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:      ChunkCheckpointKey{Path: tableMeta.DataFiles[0].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[0].FileMeta.Path, Offset: 0},
 					FileMeta: tableMeta.DataFiles[0].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -493,7 +519,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:      ChunkCheckpointKey{Path: tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
+					Key:      checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
 					FileMeta: tableMeta.DataFiles[1].FileMeta,
 					Chunk: mydump.Chunk{
 						Offset:       0,
@@ -504,7 +530,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[2].FileMeta.Path, Offset: 6},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[2].FileMeta.Path, Offset: 6},
 					FileMeta:          tableMeta.DataFiles[2].FileMeta,
 					ColumnPermutation: []int{0, 1, 2, -1},
 					Chunk: mydump.Chunk{
@@ -518,7 +544,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[2].FileMeta.Path, Offset: 52},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[2].FileMeta.Path, Offset: 52},
 					FileMeta:          tableMeta.DataFiles[2].FileMeta,
 					ColumnPermutation: []int{0, 1, 2, -1},
 					Chunk: mydump.Chunk{
@@ -531,7 +557,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 6},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 6},
 					FileMeta:          tableMeta.DataFiles[3].FileMeta,
 					ColumnPermutation: []int{1, 2, 0, -1},
 					Chunk: mydump.Chunk{
@@ -546,10 +572,10 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 			},
 		},
 		1: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 48},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 48},
 					FileMeta:          tableMeta.DataFiles[3].FileMeta,
 					ColumnPermutation: []int{1, 2, 0, -1},
 					Chunk: mydump.Chunk{
@@ -562,7 +588,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 101},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[3].FileMeta.Path, Offset: 101},
 					FileMeta:          tableMeta.DataFiles[3].FileMeta,
 					ColumnPermutation: []int{1, 2, 0, -1},
 					Chunk: mydump.Chunk{
@@ -575,7 +601,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 					Timestamp: 1234567897,
 				},
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[4].FileMeta.Path, Offset: 4},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[4].FileMeta.Path, Offset: 4},
 					FileMeta:          tableMeta.DataFiles[4].FileMeta,
 					ColumnPermutation: []int{-1, 0, 1, -1},
 					Chunk: mydump.Chunk{
@@ -590,10 +616,10 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 			},
 		},
 		2: {
-			Status: CheckpointStatusLoaded,
-			Chunks: []*ChunkCheckpoint{
+			Status: checkpoints.CheckpointStatusLoaded,
+			Chunks: []*checkpoints.ChunkCheckpoint{
 				{
-					Key:               ChunkCheckpointKey{Path: tableMeta.DataFiles[4].FileMeta.Path, Offset: 59},
+					Key:               checkpoints.ChunkCheckpointKey{Path: tableMeta.DataFiles[4].FileMeta.Path, Offset: 59},
 					FileMeta:          tableMeta.DataFiles[4].FileMeta,
 					ColumnPermutation: []int{-1, 0, 1, -1},
 					Chunk: mydump.Chunk{
@@ -625,7 +651,7 @@ func (s *tableRestoreSuite) TestGetColumnsNames(c *C) {
 }
 
 func (s *tableRestoreSuite) TestInitializeColumns(c *C) {
-	ccp := &ChunkCheckpoint{}
+	ccp := &checkpoints.ChunkCheckpoint{}
 	c.Assert(s.tr.initializeColumns(nil, ccp), IsNil)
 	c.Assert(ccp.ColumnPermutation, DeepEquals, []int{0, 1, 2, -1})
 
@@ -732,7 +758,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	importer := backend.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
-	rc := &RestoreController{saveCpCh: chptCh}
+	rc := &Controller{saveCpCh: chptCh}
 	go func() {
 		for range chptCh {
 		}
@@ -764,7 +790,7 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	importer := backend.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
-	rc := &RestoreController{saveCpCh: chptCh}
+	rc := &Controller{saveCpCh: chptCh}
 	go func() {
 		for range chptCh {
 		}
@@ -797,7 +823,7 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 	mockBackend.EXPECT().
 		CheckRequirements(ctx, gomock.Any()).
 		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
-	rc := &RestoreController{
+	rc := &Controller{
 		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
 		backend: backend,
 	}
@@ -837,7 +863,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(err, IsNil)
 
 	cpDB := checkpoints.NewNullCheckpointsDB()
-	rc := &RestoreController{
+	rc := &Controller{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
 			{
@@ -845,7 +871,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 				Tables: []*mydump.MDTableMeta{s.tableMeta},
 			},
 		},
-		dbInfos: map[string]*TidbDBInfo{
+		dbInfos: map[string]*checkpoints.TidbDBInfo{
 			s.tableInfo.DB: s.dbInfo,
 		},
 		tableWorkers:      worker.NewPool(ctx, 6, "table"),
@@ -898,8 +924,8 @@ func (s *chunkRestoreSuite) SetUpTest(c *C) {
 	ctx := context.Background()
 	w := worker.NewPool(ctx, 5, "io")
 
-	chunk := ChunkCheckpoint{
-		Key:      ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
+	chunk := checkpoints.ChunkCheckpoint{
+		Key:      checkpoints.ChunkCheckpointKey{Path: s.tr.tableMeta.DataFiles[1].FileMeta.Path, Offset: 0},
 		FileMeta: s.tr.tableMeta.DataFiles[1].FileMeta,
 		Chunk: mydump.Chunk{
 			Offset:       0,
@@ -919,7 +945,7 @@ func (s *chunkRestoreSuite) TearDownTest(c *C) {
 }
 
 func (s *chunkRestoreSuite) TestDeliverLoopCancel(c *C) {
-	rc := &RestoreController{backend: importer.NewMockImporter(nil, "")}
+	rc := &Controller{backend: importer.NewMockImporter(nil, "")}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	kvsCh := make(chan []deliveredKVs)
@@ -958,7 +984,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &RestoreController{cfg: cfg, backend: importer}
+	rc := &Controller{cfg: cfg, backend: importer}
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
@@ -1051,7 +1077,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	}()
 
 	cfg := &config.Config{}
-	rc := &RestoreController{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
 
 	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
 	c.Assert(err, IsNil)
@@ -1071,7 +1097,7 @@ func (s *chunkRestoreSuite) TestEncodeLoop(c *C) {
 	})
 	c.Assert(err, IsNil)
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, IsNil)
 	c.Assert(kvsCh, HasLen, 2)
@@ -1098,7 +1124,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopCanceled(c *C) {
 
 	go cancel()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(errors.Cause(err), Equals, context.Canceled)
 	c.Assert(kvsCh, HasLen, 0)
@@ -1118,7 +1144,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 	s.cr.parser.Close()
 
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, `in file .*[/\\]?db\.table\.2\.sql:0 at offset 0:.*file already closed`)
 	c.Assert(kvsCh, HasLen, 0)
@@ -1140,7 +1166,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 		}
 	}()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, "fake deliver error")
 	c.Assert(kvsCh, HasLen, 0)
@@ -1157,7 +1183,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 
 	ctx := context.Background()
 	cfg := config.NewConfig()
-	rc := &RestoreController{pauser: DeliverPauser, cfg: cfg}
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 
 	reader, err := store.Open(ctx, fileName)
 	c.Assert(err, IsNil)
@@ -1229,7 +1255,7 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	// Now actually start the restore loop.
 
 	saveCpCh := make(chan saveCp, 2)
-	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &RestoreController{
+	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &Controller{
 		cfg:      s.cfg,
 		saveCpCh: saveCpCh,
 		backend:  importer,
@@ -1243,7 +1269,7 @@ var _ = Suite(&restoreSchemaSuite{})
 
 type restoreSchemaSuite struct {
 	ctx        context.Context
-	rc         *RestoreController
+	rc         *Controller
 	controller *gomock.Controller
 }
 
@@ -1285,7 +1311,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	config.App.RegionConcurrency = 8
 	mydumpLoader, err := mydump.NewMyDumpLoaderWithStore(ctx, config, store)
 	c.Assert(err, IsNil)
-	s.rc = &RestoreController{
+	s.rc = &Controller{
 		cfg:           config,
 		store:         store,
 		dbMetas:       mydumpLoader.GetDatabases(),
@@ -1293,6 +1319,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	}
 }
 
+//nolint:interfacer // change test case signature might cause Check failed to find this test case?
 func (s *restoreSchemaSuite) SetUpTest(c *C) {
 	s.controller, s.ctx = gomock.WithContext(context.Background(), c)
 	mockBackend := mock.NewMockBackend(s.controller)

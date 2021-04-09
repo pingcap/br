@@ -186,6 +186,8 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
+	@#          errorlint - pingcap/errors is incompatible with std errors.
+	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -206,7 +208,9 @@ static: prepare tools
 		--disable exhaustive \
 		--disable godot \
 		--disable gosec \
-		$$($(PACKAGE_DIRECTORIES) | grep -v "lightning")
+		--disable errorlint \
+		--disable wrapcheck \
+		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
