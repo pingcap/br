@@ -1337,19 +1337,6 @@ func (r *syncedRanges) add(g Range) {
 	r.Unlock()
 }
 
-func (r *syncedRanges) take() []Range {
-	r.Lock()
-	rg := r.ranges
-	r.ranges = []Range{}
-	r.Unlock()
-	if len(rg) > 0 {
-		sort.Slice(rg, func(i, j int) bool {
-			return bytes.Compare(rg[i].start, rg[j].start) < 0
-		})
-	}
-	return rg
-}
-
 func (r *syncedRanges) reset() {
 	r.Lock()
 	r.ranges = r.ranges[:0]
