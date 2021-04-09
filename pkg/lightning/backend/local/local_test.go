@@ -571,7 +571,7 @@ func (s *localSuite) TestDedupAndMergeRanges(c *C) {
 		input := makeRanges(cases[i])
 		output := makeRanges(cases[i+1])
 
-		c.Assert(dedupAndMergeRanges(input), DeepEquals, output)
+		c.Assert(sortAndMergeRanges(input), DeepEquals, output)
 	}
 }
 

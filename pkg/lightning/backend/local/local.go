@@ -1408,12 +1408,13 @@ func (engine *File) unfinishedRanges(ranges []Range) []Range {
 	engine.finishedRanges.Lock()
 	defer engine.finishedRanges.Unlock()
 
-	engine.finishedRanges.ranges = dedupAndMergeRanges(engine.finishedRanges.ranges)
+	engine.finishedRanges.ranges = sortAndMergeRanges(engine.finishedRanges.ranges)
 
 	return filterOverlapRange(ranges, engine.finishedRanges.ranges)
 }
 
-func dedupAndMergeRanges(ranges []Range) []Range {
+// sortAndMergeRanges sort the ranges and merge range that overlaps with each other into a single range.
+func sortAndMergeRanges(ranges []Range) []Range {
 	if len(ranges) == 0 {
 		return ranges
 	}
