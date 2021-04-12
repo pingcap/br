@@ -81,7 +81,6 @@ func (push *pushDown) pushBackup(
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
-
 			// Disconnected stores can be ignored.
 			if err != nil {
 				push.errCh <- err
