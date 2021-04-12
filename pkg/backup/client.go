@@ -223,7 +223,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 		if sigFile, ok := v.(string); ok {
 			file, err := os.Create(sigFile)
 			if err != nil {
-				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
 				file.Close()
@@ -619,7 +619,7 @@ func (bc *Client) fineGrainedBackup(
 		if sigFile, ok := v.(string); ok {
 			file, err := os.Create(sigFile)
 			if err != nil {
-				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
 				file.Close()
@@ -888,7 +888,7 @@ backupLoop:
 			if sigFile, ok := v.(string); ok {
 				file, err := os.Create(sigFile)
 				if err != nil {
-					log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+					log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 				}
 				if file != nil {
 					file.Close()
