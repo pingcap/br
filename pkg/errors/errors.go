@@ -6,11 +6,13 @@ import (
 	"github.com/pingcap/errors"
 )
 
+// Is tests whether the specificated error causes the error `err`.
 func Is(err error, is *errors.Error) bool {
-	return errors.Find(err, func(e error) bool {
+	errorFound := errors.Find(err, func(e error) bool {
 		normalizedErr, ok := e.(*errors.Error)
 		return ok && normalizedErr.ID() == is.ID()
-	}) != nil
+	})
+	return errorFound != nil
 }
 
 // BR errors.
