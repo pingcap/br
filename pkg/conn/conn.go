@@ -5,12 +5,14 @@ package conn
 import (
 	"context"
 	"crypto/tls"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
@@ -245,6 +247,20 @@ func NewMgr(
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
+	failpoint.Inject("hint-get-backup-client", func(v failpoint.Value) {
+		log.Info("failpoint hint-get-backup-client injected, "+
+			"process will notify the shell.", zap.Uint64("store", storeID))
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	store, err := mgr.GetPDClient().GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -270,7 +286,7 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	)
 	cancel()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to make connection to store %d", storeID)
 	}
 	return conn, nil
 }
@@ -283,6 +299,7 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backuppb.B
 
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
+
 	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
 		// Find a cached backup client.
 		return backuppb.NewBackupClient(conn), nil

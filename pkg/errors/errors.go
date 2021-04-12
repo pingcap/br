@@ -6,11 +6,19 @@ import (
 	"github.com/pingcap/errors"
 )
 
+func Is(err error, is *errors.Error) bool {
+	return errors.Find(err, func(e error) bool {
+		normalizedErr, ok := e.(*errors.Error)
+		return ok && normalizedErr.ID() == is.ID()
+	}) != nil
+}
+
 // BR errors.
 var (
 	ErrUnknown         = errors.Normalize("internal error", errors.RFCCodeText("BR:Common:ErrUnknown"))
 	ErrInvalidArgument = errors.Normalize("invalid argument", errors.RFCCodeText("BR:Common:ErrInvalidArgument"))
 	ErrVersionMismatch = errors.Normalize("version mismatch", errors.RFCCodeText("BR:Common:ErrVersionMismatch"))
+	ErrFailedToConnect = errors.Normalize("failed to make gRPC channels", errors.RFCCodeText("BR:Common:ErrFailedToConnect"))
 
 	ErrPDUpdateFailed    = errors.Normalize("failed to update PD", errors.RFCCodeText("BR:PD:ErrPDUpdateFailed"))
 	ErrPDLeaderNotFound  = errors.Normalize("PD leader not found", errors.RFCCodeText("BR:PD:ErrPDLeaderNotFound"))

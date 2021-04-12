@@ -16,6 +16,8 @@ import (
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -60,8 +62,10 @@ func (push *pushDown) pushBackup(
 		}
 		client, err := push.mgr.GetBackupClient(ctx, storeID)
 		if err != nil {
-			log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
-			return res, errors.Trace(err)
+			// BR should be able to backup even some of stores disconnected.
+			// The regions managed by this store can be retried at fine-grained backup then.
+			log.Warn("fail to connect store, skipping", zap.Uint64("StoreID", storeID), zap.Error(err))
+			return res, nil
 		}
 		wg.Add(1)
 		go func() {
@@ -77,6 +81,8 @@ func (push *pushDown) pushBackup(
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
+
+			// Disconnected stores can be ignored.
 			if err != nil {
 				push.errCh <- err
 				return
@@ -133,7 +139,11 @@ func (push *pushDown) pushBackup(
 				}
 			}
 		case err := <-push.errCh:
-			return res, errors.Trace(err)
+			if !berrors.Is(err, berrors.ErrFailedToConnect) {
+				return res, errors.Annotatef(err, "failed to backup range [%s, %s)", redact.Key(req.StartKey), redact.Key(req.EndKey))
+			}
+			log.Warn("skipping disconnected stores", logutil.ShortError(err))
+			return res, nil
 		}
 	}
 }
