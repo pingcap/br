@@ -40,6 +40,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 )
 
 var ExtraHandleColumnInfo = model.NewExtraHandleColInfo()
@@ -217,7 +219,7 @@ func (row RowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error
 		}
 		if err := encoder.AppendObject(zapcore.ObjectMarshalerFunc(func(enc zapcore.ObjectEncoder) error {
 			enc.AddString("kind", kindStr[kind])
-			enc.AddString("val", log.RedactString(str))
+			enc.AddString("val", redact.String(str))
 			return nil
 		})); err != nil {
 			return err
@@ -241,7 +243,7 @@ func logKVConvertFailed(logger log.Logger, row []types.Datum, j int, colInfo *mo
 		log.ShortError(err),
 	)
 
-	log.L().Error("failed to covert kv value", log.ZapRedactReflect("origVal", original.GetValue()),
+	log.L().Error("failed to covert kv value", logutil.Any("origVal", original.GetValue()),
 		zap.Stringer("fieldType", &colInfo.FieldType), zap.String("column", colInfo.Name.O),
 		zap.Int("columnID", j+1))
 	return errors.Annotatef(
