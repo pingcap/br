@@ -144,19 +144,18 @@ const (
 )
 
 type Controller struct {
-	cfg             *config.Config
-	dbMetas         []*mydump.MDDatabaseMeta
-	dbInfos         map[string]*checkpoints.TidbDBInfo
-	tableWorkers    *worker.Pool
-	indexWorkers    *worker.Pool
-	regionWorkers   *worker.Pool
-	ioWorkers       *worker.Pool
-	checksumWorks   *worker.Pool
-	pauser          *common.Pauser
-	backend         backend.Backend
-	tidbGlue        glue.Glue
-	postProcessLock sync.Mutex // a simple way to ensure post-processing is not concurrent without using complicated goroutines
-	alterTableLock  sync.Mutex
+	cfg            *config.Config
+	dbMetas        []*mydump.MDDatabaseMeta
+	dbInfos        map[string]*checkpoints.TidbDBInfo
+	tableWorkers   *worker.Pool
+	indexWorkers   *worker.Pool
+	regionWorkers  *worker.Pool
+	ioWorkers      *worker.Pool
+	checksumWorks  *worker.Pool
+	pauser         *common.Pauser
+	backend        backend.Backend
+	tidbGlue       glue.Glue
+	alterTableLock sync.Mutex
 
 	sysVars map[string]string
 	tls     *common.TLS
@@ -1458,15 +1457,7 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 	if cp.Status < checkpoints.CheckpointStatusIndexImported {
 		var err error
 		if indexEngineCp.Status < checkpoints.CheckpointStatusImported {
-			// the lock ensures the import() step will not be concurrent.
-			if !rc.isLocalBackend() {
-				rc.postProcessLock.Lock()
-			}
 			err = tr.importKV(ctx, closedIndexEngine, rc, indexEngineID)
-			rc.saveStatusCheckpoint(tr.tableName, indexEngineID, err, checkpoints.CheckpointStatusImported)
-			if !rc.isLocalBackend() {
-				rc.postProcessLock.Unlock()
-			}
 		}
 
 		failpoint.Inject("FailBeforeIndexEngineImported", func() {
@@ -1657,19 +1648,8 @@ func (tr *TableRestore) importEngine(
 		return nil
 	}
 
-	// 1. close engine, then calling import
-	// FIXME: flush is an asynchronous operation, what if flush failed?
-
-	// the lock ensures the import() step will not be concurrent.
-	if !rc.isLocalBackend() {
-		rc.postProcessLock.Lock()
-	}
-	err := tr.importKV(ctx, closedEngine, rc, engineID)
-	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
-	if !rc.isLocalBackend() {
-		rc.postProcessLock.Unlock()
-	}
-	if err != nil {
+	// 1. calling import
+	if err := tr.importKV(ctx, closedEngine, rc, engineID); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -1700,7 +1680,7 @@ func (tr *TableRestore) postProcess(
 	// there are no data in this table, no need to do post process
 	// this is important for tables that are just the dump table of views
 	// because at this stage, the table was already deleted and replaced by the related view
-	if len(cp.Engines) == 1 {
+	if !rc.backend.ShouldPostProcess() || len(cp.Engines) == 1 {
 		return false, nil
 	}
 
