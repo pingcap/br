@@ -53,6 +53,11 @@ func (push *pushDown) pushBackup(
 
 	// Push down backup tasks to all tikv instances.
 	res := rtree.NewRangeTree()
+	failpoint.Inject("noop-backup", func(_ failpoint.Value) {
+		log.Warn("skipping normal backup, jump to fine-grained backup, meow :3", logutil.Key("start-key", req.StartKey), logutil.Key("end-key", req.EndKey))
+		failpoint.Return(res, nil)
+	})
+
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
 		storeID := s.GetId()

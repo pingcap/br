@@ -614,8 +614,8 @@ func (bc *Client) fineGrainedBackup(
 	}
 
 	failpoint.Inject("hint-fine-grained-backup", func(v failpoint.Value) {
-		log.Info("failpoint hint-fine-grained-backup injected, " +
-			"process will sleep for 3s and notify the shell.")
+		log.Info("failpoint hint-fine-grained-backup injected, "+
+			"process will sleep for 3s and notify the shell.", zap.String("file", v.(string)))
 		if sigFile, ok := v.(string); ok {
 			file, err := os.Create(sigFile)
 			if err != nil {
@@ -824,8 +824,15 @@ func (bc *Client) handleFineGrained(
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
 	if err != nil {
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+
 		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
-		return 0, errors.Trace(err)
+		return 0, errors.Annotatef(err, "failed to connect to store %d", storeID)
 	}
 	err = SendBackup(
 		ctx, storeID, client, req,
@@ -849,7 +856,15 @@ func (bc *Client) handleFineGrained(
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
-		return 0, errors.Trace(err)
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+		log.Error("failed to send fine-grained backup", zap.Uint64("storeID", storeID), logutil.ShortError(err))
+		return 0, errors.Annotatef(err, "failed to send fine-grained backup [%s, %s)",
+			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
 	return max, nil
 }
@@ -921,7 +936,7 @@ backupLoop:
 			}
 			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
 				zap.Int("retry time", retry))
-			return errors.Trace(err)
+			return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to create backup stream to store %d", storeID)
 		}
 		defer bcli.CloseSend()
 
@@ -944,8 +959,9 @@ backupLoop:
 					}
 					break
 				}
-				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d", storeID, retry)
+				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d: %s", storeID, retry, err.Error())
 			}
+
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
 				logutil.Key("startKey", resp.GetStartKey()),

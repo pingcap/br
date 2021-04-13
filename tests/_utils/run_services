@@ -106,7 +106,7 @@ kv_outage() {
     $scale_out || { 
         for i in "${id[@]}"; do
             target=$(cat "${TIKV_PIDS}_$i" | awk '{print $1}')
-            echo "killing TiKV $target"
+            echo "killing TiKV $target(#$i)"
             kill "$target" || true
             sleep 1
             kill -9 "$target" || true

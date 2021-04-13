@@ -17,17 +17,19 @@ single_point_fault() {
     case $type in
         outage)
             wait_file_exist "$hint_backup_start"
-            kv_outage -d 20 -i $victim;;
+            kv_outage -d 30 -i $victim;;
         outage-after-request)
             wait_file_exist "$hint_get_backup_client"
             kv_outage -d 30 -i $victim;;
-        twice-outage)
-            wait_file_exist "$hint_backup_start"
-            local_victim=$(shuf -i 1-3 -n 1)
-            kv_outage -d 20 -i $local_victim
+        outage-at-finegrained)
             wait_file_exist "$hint_finegrained"
-            local_victim=$(shuf -i 1-3 -n 1)
-            kv_outage -d 20 -i $local_victim;;
+            for i in $(seq 3); do
+                if [ "$i" -eq "$victim" ]; then
+                    kv_outage --kill $i
+                else
+                    kv_outage -d 100 -i $i
+                fi
+            done ;;
         shutdown)
             wait_file_exist "$hint_backup_start"
             kv_outage --kill -i $victim;;
@@ -35,12 +37,6 @@ single_point_fault() {
             wait_file_exist "$hint_backup_start"
             kv_outage --kill -i $victim
             kv_outage --scale-out -i 4;;
-        random)
-            # Maybe we need to skip this case for less CI failure...
-            after=$(shuf -i 0-8 -n 1)
-            echo "injecting after random seconds (${after}s)."
-            sleep "$after"
-            kv_outage -d $(shuf -i 1-30 -n 1) -i $victim
     esac
 }
 
@@ -62,22 +58,33 @@ load
 hint_finegrained=$TEST_DIR/hint_finegrained
 hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
-export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/hint-backup-start=1*return(\"$hint_backup_start\");\
+
+trap 'export GOFAILPOINTS=""' EXIT
+
+cases=${cases:-'outage outage-after-request outage-at-finegrained shutdown scale-out'}
+
+for failure in $cases; do
+    rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"
+    export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/hint-backup-start=1*return(\"$hint_backup_start\");\
 github.com/pingcap/br/pkg/backup/hint-fine-grained-backup=1*return(\"$hint_finegrained\");\
 github.com/pingcap/br/pkg/conn/hint-get-backup-client=1*return(\"$hint_get_backup_client\")"
+    if [ "$failure" = outage-at-finegrained ]; then
+        export GO_FAILPOINTS="$GO_FAILPOINTS;github.com/pingcap/br/pkg/backup/noop-backup=return(true)"
+    fi
 
-for failure in outage outage-after-request twice-outage shutdown scale-out random; do
-    rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"
     backup_dir=${TEST_DIR:?}/"backup{test:${TEST_NAME}|with:${failure}}"
+    rm -rf "${backup_dir:?}"
     run_br backup full -s local://"$backup_dir" --ratelimit 128 --ratelimit-unit 1024 &
     backup_pid=$!
     single_point_fault $failure
     wait $backup_pid
     case $failure in
-    scale-out | shutdown ) stop_services
+    scale-out | shutdown | outage-at-finegrained ) stop_services
         start_services ;;
     *) ;;
     esac
+
+
     check
 done
 
