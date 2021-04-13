@@ -25,7 +25,7 @@ single_point_fault() {
             wait_file_exist "$hint_finegrained"
             for i in $(seq 3); do
                 if [ "$i" -eq "$victim" ]; then
-                    kv_outage --kill $i
+                    kv_outage --kill -i $i
                 else
                     kv_outage -d 100 -i $i
                 fi
