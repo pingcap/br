@@ -23,13 +23,7 @@ single_point_fault() {
             kv_outage -d 30 -i $victim;;
         outage-at-finegrained)
             wait_file_exist "$hint_finegrained"
-            for i in $(seq 3); do
-                if [ "$i" -eq "$victim" ]; then
-                    kv_outage --kill -i $i
-                else
-                    kv_outage -d 100 -i $i
-                fi
-            done ;;
+            kv_outage --kill -i $victim;;
         shutdown)
             wait_file_exist "$hint_backup_start"
             kv_outage --kill -i $victim;;
