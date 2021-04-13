@@ -18,8 +18,27 @@ set -eux
 # update tags
 git fetch --tags
 
-# get latest 3 version clusters
-TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}' | tail -n3)
+TAGS="v5.0.0"
+getLatestTags() {
+  # get latest 3 version clusters
+  release_5_branch_regex="^release-5\.[0-9].*$"
+  release_4_branch_regex="^release-4\.[0-9].*$"
+  TOTAL_TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}')
+  # latest tags
+  TAGS=$(echo $TOTAL_TAGS | tr ' ' '\n' | tail -n3)
+  if (echo $(git rev-parse --abbrev-ref HEAD) | egrep $release_5_branch_regex)
+  then
+    # If we are in release-5.0 branch, try to use latest 3 version of 5.x and last 4.x version
+    TAGS=$(echo $TOTAL_TAGS | tr ' ' '\n' | grep "4." | tail -n1 && echo $TOTAL_TAGS | tr ' ' '\n' | grep "5." | tail -n3)
+  elif (echo $(git rev-parse --abbrev-ref HEAD) | egrep $release_4_branch_regex)
+  then
+    # If we are in release-5.0 branch, try to use latest 3 version of 5.x and last 4.x version
+    # If we are in release-4.0 branch, try to use latest 3 version of 4.x
+    TAGS=$(echo $TOTAL_TAGS | tr ' ' '\n' | grep "4." | tail -n3)
+  fi
+}
+
+getLatestTags
 echo "recent version of cluster is $TAGS"
 
 i=0
