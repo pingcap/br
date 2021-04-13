@@ -19,7 +19,7 @@
 
 set -eu
 
-source ../compatibility/prepare_backup.sh
+source ${BASH_SOURCE[0]%/*}/../compatibility/prepare_backup.sh
 echo "start test on $TAGS"
 
 EXPECTED_KVS=1000

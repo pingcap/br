@@ -57,10 +57,10 @@ jobs:
     - name: Collect component log
       if: ${{ failure() }}
       run: |
-        tar czvf /tmp/br/docker/logs.tar.gz /tmp/br/docker/backup_logs/*
+        tar czvf /tmp/br/logs.tar.gz /tmp/br/docker/backup_logs/*
 
     - uses: actions/upload-artifact@v2
       if: ${{ failure() }}
       with:
         name: logs
-        path: /tmp/br/docker/logs.tar.gz
+        path: /tmp/br/logs.tar.gz
