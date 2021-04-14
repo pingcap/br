@@ -187,8 +187,8 @@ func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
 }
 
-// Any constructs a field that carries an interface{}.
-func Any(fieldKey string, key interface{}) zap.Field {
+// RedactAny constructs a redacted field that carries an interface{}.
+func RedactAny(fieldKey string, key interface{}) zap.Field {
 	if redact.NeedRedact() {
 		return zap.String(fieldKey, "?")
 	}
