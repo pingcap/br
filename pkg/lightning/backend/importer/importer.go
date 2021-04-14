@@ -60,6 +60,8 @@ type importer struct {
 	tls    *common.TLS
 
 	mutationPool sync.Pool
+	// lock ensures ImportEngine are runs serially
+	lock sync.Mutex
 }
 
 // NewImporter creates a new connection to tikv-importer. A single connection
@@ -151,6 +153,8 @@ func (importer *importer) Flush(_ context.Context, _ uuid.UUID) error {
 }
 
 func (importer *importer) ImportEngine(ctx context.Context, engineUUID uuid.UUID) error {
+	importer.lock.Lock()
+	defer importer.lock.Unlock()
 	req := &import_kvpb.ImportEngineRequest{
 		Uuid:   engineUUID[:],
 		PdAddr: importer.pdAddr,
@@ -198,6 +202,7 @@ outside:
 
 func (importer *importer) WriteRowsToImporter(
 	ctx context.Context,
+	//nolint:interfacer // false positive
 	engineUUID uuid.UUID,
 	ts uint64,
 	rows kv.Rows,
@@ -278,7 +283,7 @@ func (*importer) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Enc
 	return kv.NewTableKVEncoder(tbl, options)
 }
 
-func (importer *importer) CheckRequirements(ctx context.Context) error {
+func (importer *importer) CheckRequirements(ctx context.Context, _ *backend.CheckCtx) error {
 	if err := checkTiDBVersionByTLS(ctx, importer.tls, requiredMinTiDBVersion, requiredMaxTiDBVersion); err != nil {
 		return err
 	}
@@ -322,18 +327,18 @@ func (importer *importer) ResetEngine(context.Context, uuid.UUID) error {
 }
 
 func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
-	return &ImporterWriter{importer: importer, engineUUID: engineUUID}, nil
+	return &Writer{importer: importer, engineUUID: engineUUID}, nil
 }
 
-type ImporterWriter struct {
+type Writer struct {
 	importer   *importer
 	engineUUID uuid.UUID
 }
 
-func (w *ImporterWriter) Close() error {
+func (w *Writer) Close() error {
 	return nil
 }
 
-func (w *ImporterWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
 	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
 }

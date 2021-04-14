@@ -8,6 +8,7 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -96,6 +97,13 @@ func (push *pushDown) pushBackup(
 				// Finished.
 				return res, nil
 			}
+			failpoint.Inject("backup-storage-error", func(val failpoint.Value) {
+				msg := val.(string)
+				log.Debug("failpoint backup-storage-error injected.", zap.String("msg", msg))
+				resp.Error = &backuppb.Error{
+					Msg: msg,
+				}
+			})
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
 				res.Put(
@@ -115,11 +123,9 @@ func (push *pushDown) pushBackup(
 				case *backuppb.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error", zap.Reflect("error", v))
 					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
-
 				default:
-					// UNSAFE! TODO: Add a error type for failed to put file.
-					if utils.MessageIsRetryableS3Error(errPb.GetMsg()) {
-						log.Warn("backup occur s3 storage error", zap.String("error", errPb.GetMsg()))
+					if utils.MessageIsRetryableStorageError(errPb.GetMsg()) {
+						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
