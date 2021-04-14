@@ -143,8 +143,7 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	resp.Body.Close()
 
 	go func() {
-		err := s.lightning.RunServer()
-		c.Assert(err, IsNil)
+		s.lightning.RunServer()
 	}()
 	time.Sleep(100 * time.Millisecond)
 
