@@ -2435,7 +2435,12 @@ func (w *Writer) flush(ctx context.Context) error {
 func (w *Writer) Close(ctx context.Context) error {
 	defer w.kvBuffer.destroy()
 	defer w.local.localWriters.Delete(w)
-	return w.flush(ctx)
+	err := w.flush(ctx)
+	// FIXME: in theory this line is useless, but I our test with go1.15
+	// this can resolve the memory consistently increasing issue.
+	// maybe this is a bug related to go GC mechanism.
+	w.writeBatch = nil
+	return err
 }
 
 func (w *Writer) flushKVs(ctx context.Context) error {
@@ -2687,6 +2692,10 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 	newMeta.minKey = append(newMeta.minKey[:0], key...)
 	lastKey := make([]byte, 0)
 	for {
+		if bytes.Equal(lastKey, key) {
+			log.L().Warn("duplicated key found, skipped", zap.Binary("key", lastKey))
+			continue
+		}
 		internalKey.UserKey = key
 		err = writer.Add(internalKey, val)
 		if err != nil {
@@ -2699,9 +2708,6 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 		}
 		if key == nil {
 			break
-		}
-		if bytes.Equal(lastKey, key) {
-			log.L().Warn("duplicated key found, skipped", zap.Binary("key", lastKey))
 		}
 	}
 	err = writer.Close()
