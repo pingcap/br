@@ -1160,6 +1160,7 @@ type restoreSchemaSuite struct {
 	ctx        context.Context
 	rc         *RestoreController
 	controller *gomock.Controller
+	tableInfos []*model.TableInfo
 }
 
 func (s *restoreSchemaSuite) SetUpSuite(c *C) {
@@ -1175,14 +1176,33 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	c.Assert(err, IsNil)
 	// restore table schema files
 	fakeTableFilesCount := 8
+
+	p := parser.New()
+	p.SetSQLMode(mysql.ModeANSIQuotes)
+	se := tmock.NewContext()
+
+	tableInfos := make([]*model.TableInfo, 0, fakeTableFilesCount)
 	for i := 1; i <= fakeTableFilesCount; i++ {
 		fakeTableName := fmt.Sprintf("tbl%d", i)
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema.sql", fakeDBName, fakeTableName)
+<<<<<<< HEAD
 		fakeFileContent := []byte(fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName))
 		err = store.Write(ctx, fakeFileName, fakeFileContent)
+=======
+		fakeFileContent := fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName)
+		err = store.WriteFile(ctx, fakeFileName, []byte(fakeFileContent))
 		c.Assert(err, IsNil)
+
+		node, err := p.ParseOneStmt(fakeFileContent, "", "")
+		c.Assert(err, IsNil)
+		core, err := ddl.MockTableInfo(se, node.(*ast.CreateTableStmt), 0xabcdef)
+>>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
+		c.Assert(err, IsNil)
+		core.State = model.StatePublic
+		tableInfos = append(tableInfos, core)
 	}
+	s.tableInfos = tableInfos
 	// restore view schema files
 	fakeViewFilesCount := 8
 	for i := 1; i <= fakeViewFilesCount; i++ {
@@ -1211,12 +1231,17 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 func (s *restoreSchemaSuite) SetUpTest(c *C) {
 	s.controller, s.ctx = gomock.WithContext(context.Background(), c)
 	mockBackend := mock.NewMockBackend(s.controller)
-	// We don't care the execute results of those
 	mockBackend.EXPECT().
 		FetchRemoteTableModels(gomock.Any(), gomock.Any()).
 		AnyTimes().
+<<<<<<< HEAD
 		Return(make([]*model.TableInfo, 0), nil)
 	s.rc.backend = kv.MakeBackend(mockBackend)
+=======
+		Return(s.tableInfos, nil)
+	mockBackend.EXPECT().Close()
+	s.rc.backend = backend.MakeBackend(mockBackend)
+>>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
 	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
 	mockSQLExecutor.EXPECT().
 		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
@@ -1249,6 +1274,7 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		GetParser().
 		AnyTimes().
 		Return(parser)
+	mockSQLExecutor.EXPECT().Close()
 	s.rc.tidbGlue = mockTiDBGlue
 }
 

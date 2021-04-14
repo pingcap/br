@@ -244,14 +244,24 @@ func LoadSchemaInfo(
 			return nil, err
 		}
 
+<<<<<<< HEAD
 		dbInfo := &TidbDBInfo{
+=======
+		tableMap := make(map[string]*model.TableInfo, len(tables))
+		for _, tbl := range tables {
+			tableMap[tbl.Name.L] = tbl
+		}
+
+		dbInfo := &checkpoints.TidbDBInfo{
+>>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
 			Name:   schema.Name,
 			Tables: make(map[string]*TidbTableInfo),
 		}
 
-		for _, tbl := range tables {
-			tableName := tbl.Name.String()
-			if tbl.State != model.StatePublic {
+		for _, tbl := range schema.Tables {
+			tblInfo := tableMap[strings.ToLower(tbl.Name)]
+			tableName := tblInfo.Name.String()
+			if tblInfo.State != model.StatePublic {
 				err := errors.Errorf("table [%s.%s] state is not public", schema.Name, tableName)
 				metric.RecordTableCount(metric.TableStatePending, err)
 				return nil, err
@@ -260,11 +270,16 @@ func LoadSchemaInfo(
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
+<<<<<<< HEAD
 			tableInfo := &TidbTableInfo{
 				ID:   tbl.ID,
+=======
+			tableInfo := &checkpoints.TidbTableInfo{
+				ID:   tblInfo.ID,
+>>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
 				DB:   schema.Name,
 				Name: tableName,
-				Core: tbl,
+				Core: tblInfo,
 			}
 			dbInfo.Tables[tableName] = tableInfo
 		}
