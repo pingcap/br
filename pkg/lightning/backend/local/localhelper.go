@@ -49,8 +49,8 @@ var (
 	// the max keys count in a batch to split one region
 	maxBatchSplitKeys = 4096
 	// the max total key size in a split region batch.
-	// it shouldn't exceed tikv raft max entry size(default is 8MB).
-	maxBatchSplitSize = 8 * units.MB
+	// our threshold should be smaller than TiKV's raft max entry size(default is 8MB).
+	maxBatchSplitSize = 6 * units.MiB
 	// the base exponential backoff time
 	// the variable is only changed in unit test for running test faster.
 	splitRegionBaseBackOffTime = time.Second
