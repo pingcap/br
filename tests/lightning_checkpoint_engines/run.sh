@@ -62,8 +62,7 @@ for BACKEND in importer local; do
   done
 
   echo "******** Verify checkpoint no-op ********"
-  # cleanup importer data directory to avoid open-engine failure in import backend.
-  rm -rf $TEST_DIR/importer/*
+  # all engines should have been imported here.
   do_run_lightning $BACKEND config
 
   run_sql 'SELECT count(*), sum(c) FROM cpeng.a'
