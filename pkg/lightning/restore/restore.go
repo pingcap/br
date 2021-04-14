@@ -628,16 +628,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	// Load new checkpoints
-	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	failpoint.Inject("InitializeCheckpointExit", func() {
-		log.L().Warn("exit triggered", zap.String("failpoint", "InitializeCheckpointExit"))
-		os.Exit(0)
-	})
-
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
 		for _, dbMeta := range rc.dbMetas {
 			for _, tableMeta := range dbMeta.Tables {
@@ -645,13 +635,13 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 
 				// if checkpoint enable and not missing, we skip the check table empty progress.
 				if rc.cfg.Checkpoint.Enable {
-					dbCp, err := rc.checkpointsDB.Get(ctx, tableName)
-					if err != nil {
-						return errors.Trace(err)
-					}
-
-					if dbCp.Status > checkpoints.CheckpointStatusMissing {
+					_, err := rc.checkpointsDB.Get(ctx, tableName)
+					switch {
+					case err == nil:
 						continue
+					case errors.IsNotFound(err):
+					default:
+						return err
 					}
 				}
 
@@ -662,6 +652,16 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Load new checkpoints
+	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	failpoint.Inject("InitializeCheckpointExit", func() {
+		log.L().Warn("exit triggered", zap.String("failpoint", "InitializeCheckpointExit"))
+		os.Exit(0)
+	})
 
 	go rc.listenCheckpointUpdates()
 
