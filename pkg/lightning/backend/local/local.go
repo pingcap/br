@@ -135,6 +135,12 @@ const (
 	importMutexStateLocalIngest
 )
 
+// either a sstMeta or a flush message
+type metaOrFlush struct {
+	meta    *sstMeta
+	flushCh chan struct{}
+}
+
 type File struct {
 	localFileMeta
 	db           *pebble.DB
@@ -150,8 +156,7 @@ type File struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	sstDir       string
-	sstMetasChan chan *sstMeta
-	flushChan    chan chan struct{}
+	sstMetasChan chan metaOrFlush
 	ingestErr    common.OnceError
 	wg           sync.WaitGroup
 	sstIngester  sstIngester
@@ -395,7 +400,7 @@ func (e *File) ingestSSTLoop() {
 						ingestMetas = []*sstMeta{newMeta}
 					}
 
-					if err := e.ingestSSTs(ingestMetas); err != nil {
+					if err := e.batchIngestSSTs(ingestMetas); err != nil {
 						e.setError(err)
 						return
 					}
@@ -476,63 +481,72 @@ func (e *File) ingestSSTLoop() {
 	for {
 		closed := false
 		select {
-		case ch := <-e.flushChan:
-			if len(pendingMetas) > 0 {
-				seqLock.Lock()
-				metaSeq := seq.Add(1)
-				flushQueue = append(flushQueue, flushSeq{ch: ch, seq: metaSeq})
-				seqLock.Unlock()
-				select {
-				case metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}:
-				case <-e.ctx.Done():
-					close(metaChan)
-					return
-				}
-
-				pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
-				totalSize = 0
-			} else {
-				// none remaining metas needed to be ingested
-				seqLock.Lock()
-				curSeq := seq.Load()
-				finSeq := finishedSeq.Load()
-				// if all pending SST files are written, directly do a db.Flush
-				if curSeq == finSeq {
-					seqLock.Unlock()
-					ch <- struct{}{}
-				} else {
-					// waiting for pending compaction tasks
-					flushQueue = append(flushQueue, flushSeq{ch: ch, seq: curSeq})
-					seqLock.Unlock()
-				}
-			}
 		case <-e.ctx.Done():
 			close(metaChan)
 			return
 		case m, ok := <-e.sstMetasChan:
-
-			if ok {
-				metasTmp = append(metasTmp, m)
-				// drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
-			inner:
-				for {
+			if !ok {
+				closed = true
+				break
+			}
+			msg := m
+		processMsg:
+			if msg.flushCh != nil {
+				if len(pendingMetas) > 0 {
+					seqLock.Lock()
+					metaSeq := seq.Add(1)
+					flushQueue = append(flushQueue, flushSeq{ch: msg.flushCh, seq: metaSeq})
+					seqLock.Unlock()
 					select {
-					case m, ok := <-e.sstMetasChan:
-						if ok {
-							metasTmp = append(metasTmp, m)
-						} else {
-							closed = true
-							break inner
-						}
-					default:
-						break inner
+					case metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}:
+					case <-e.ctx.Done():
+						close(metaChan)
+						return
+					}
+
+					pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
+					totalSize = 0
+				} else {
+					// none remaining metas needed to be ingested
+					seqLock.Lock()
+					curSeq := seq.Load()
+					finSeq := finishedSeq.Load()
+					// if all pending SST files are written, directly do a db.Flush
+					if curSeq == finSeq {
+						seqLock.Unlock()
+						msg.flushCh <- struct{}{}
+					} else {
+						// waiting for pending compaction tasks
+						flushQueue = append(flushQueue, flushSeq{ch: msg.flushCh, seq: curSeq})
+						seqLock.Unlock()
 					}
 				}
-				addMetas(metasTmp)
-				metasTmp = make([]*sstMeta, 0, len(metasTmp))
-			} else {
-				closed = true
+				break
 			}
+			metasTmp = append(metasTmp, msg.meta)
+			// drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
+		inner:
+			for {
+				select {
+				case m, ok := <-e.sstMetasChan:
+					if !ok {
+						closed = true
+						break inner
+					}
+					if m.flushCh != nil {
+						addMetas(metasTmp)
+						metasTmp = make([]*sstMeta, 0, len(metasTmp))
+						// meet a flush message
+						msg = m
+						goto processMsg
+					}
+					metasTmp = append(metasTmp, m.meta)
+				default:
+					break inner
+				}
+			}
+			addMetas(metasTmp)
+			metasTmp = make([]*sstMeta, 0, len(metasTmp))
 		}
 		if closed {
 			compactAndIngestSSTs(pendingMetas)
@@ -546,7 +560,7 @@ func (e *File) addSST(ctx context.Context, m *sstMeta) error {
 	// set pending size after SST file is generated
 	e.pendingFileSize.Add(m.fileSize)
 	select {
-	case e.sstMetasChan <- m:
+	case e.sstMetasChan <- metaOrFlush{meta: m}:
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-e.ctx.Done():
@@ -637,7 +651,7 @@ func (e *File) flushEngineWithoutLock(ctx context.Context) error {
 	}
 	flushChan := make(chan struct{}, 1)
 	select {
-	case e.flushChan <- flushChan:
+	case e.sstMetasChan <- metaOrFlush{flushCh: flushChan}:
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-e.ctx.Done():
@@ -1069,8 +1083,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	e, _ := local.engines.LoadOrStore(engineUUID, &File{
 		UUID:         engineUUID,
 		sstDir:       sstDir,
-		sstMetasChan: make(chan *sstMeta, 64),
-		flushChan:    make(chan chan struct{}, 1),
+		sstMetasChan: make(chan metaOrFlush, 64),
 		ctx:          engineCtx,
 		cancel:       cancel,
 		config:       engineCfg,
@@ -1104,7 +1117,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 		engineFile := &File{
 			UUID:         engineUUID,
 			db:           db,
-			sstMetasChan: make(chan *sstMeta),
+			sstMetasChan: make(chan metaOrFlush),
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
 		engineFile.loadEngineMeta()

@@ -335,8 +335,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		sstDir:       tmpPath,
 		ctx:          engineCtx,
 		cancel:       cancel,
-		sstMetasChan: make(chan *sstMeta, 64),
-		flushChan:    make(chan chan struct{}, 1),
+		sstMetasChan: make(chan metaOrFlush, 64),
 	}
 	f.sstIngester = dbSSTIngester{e: f}
 	f.wg.Add(1)
@@ -550,8 +549,7 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 		sstDir:       "",
 		ctx:          engineCtx,
 		cancel:       cancel,
-		sstMetasChan: make(chan *sstMeta, 64),
-		flushChan:    make(chan chan struct{}, 1),
+		sstMetasChan: make(chan metaOrFlush, 64),
 		config: backend.LocalEngineConfig{
 			Compact:            true,
 			CompactThreshold:   100,
