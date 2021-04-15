@@ -21,6 +21,11 @@ error = '''
 backup no leader
 '''
 
+["BR:Common:ErrFailedToConnect"]
+error = '''
+failed to make gRPC channels
+'''
+
 ["BR:Common:ErrInvalidArgument"]
 error = '''
 invalid argument
