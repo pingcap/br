@@ -59,7 +59,7 @@ type bytesBuf struct {
 
 func (b *bytesBuf) add(v []byte) []byte {
 	start := b.idx
-	copy(b.buf[b.idx:], v)
+	copy(b.buf[start:], v)
 	b.idx += len(v)
 	return b.buf[start:b.idx]
 }
@@ -83,7 +83,7 @@ type kvMemBuf struct {
 	kv.MemBuffer
 	buf           *bytesBuf
 	availableBufs []*bytesBuf
-	kvParis       *KvPairs
+	kvPairs       *KvPairs
 	capacity      int
 	size          int
 }
@@ -109,7 +109,7 @@ func (mb *kvMemBuf) AllocateBuf(size int) {
 }
 
 func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
-	kvPairs := mb.kvParis
+	kvPairs := mb.kvPairs
 	size := len(k) + len(v)
 	if mb.buf == nil || mb.buf.cap-mb.buf.idx < size {
 		if mb.buf != nil {
@@ -281,18 +281,18 @@ func newSession(options *SessionOptions) *session {
 		vars:   vars,
 		values: make(map[fmt.Stringer]interface{}, 1),
 	}
-	s.txn.kvParis = &KvPairs{}
+	s.txn.kvPairs = &KvPairs{}
 
 	return s
 }
 
 func (se *session) takeKvPairs() *KvPairs {
 	memBuf := &se.txn.kvMemBuf
-	pairs := memBuf.kvParis
+	pairs := memBuf.kvPairs
 	if pairs.bytesBuf != nil {
 		pairs.memBuf = memBuf
 	}
-	memBuf.kvParis = &KvPairs{pairs: make([]common.KvPair, 0, len(pairs.pairs))}
+	memBuf.kvPairs = &KvPairs{pairs: make([]common.KvPair, 0, len(pairs.pairs))}
 	memBuf.size = 0
 	return pairs
 }

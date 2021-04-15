@@ -2343,8 +2343,8 @@ type Writer struct {
 	// bytes buffer for writeBatch
 	kvBuffer   *bytesBuffer
 	writeBatch []common.KvPair
-	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice`
-	// sort is slow, in our bench, the sort operation will eat 10% of total CPU
+	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
+	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
 	isWriteBatchSorted bool
 
 	batchCount int
