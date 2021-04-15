@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/restore"
 	"github.com/pingcap/br/pkg/lightning/web"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version/build"
@@ -82,7 +83,7 @@ func New(globalCfg *config.GlobalConfig) *Lightning {
 		log.L().Fatal("failed to load TLS certificates", zap.Error(err))
 	}
 
-	log.InitRedact(globalCfg.Security.RedactInfoLog)
+	redact.InitRedact(globalCfg.Security.RedactInfoLog)
 
 	ctx, shutdown := context.WithCancel(context.Background())
 	return &Lightning{
