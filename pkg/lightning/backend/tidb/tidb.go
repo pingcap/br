@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/version"
 )
 
@@ -59,7 +60,7 @@ type tidbRows []tidbRow
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface
 func (rows tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, r := range rows {
-		encoder.AppendString(string(r))
+		encoder.AppendString(redact.String(string(r)))
 	}
 	return nil
 }
@@ -420,8 +421,8 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	// Retry will be done externally, so we're not going to retry here.
 	_, err := be.db.ExecContext(ctx, insertStmt.String())
 	if err != nil {
-		log.L().Error("execute statement failed", log.ZapRedactString("stmt", insertStmt.String()),
-			log.ZapRedactArray("rows", rows), zap.Error(err))
+		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
+			zap.Array("rows", rows), zap.Error(err))
 	}
 	failpoint.Inject("FailIfImportedSomeRows", func() {
 		panic("forcing failure due to FailIfImportedSomeRows, before saving checkpoint")
