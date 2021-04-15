@@ -959,7 +959,7 @@ backupLoop:
 					}
 					break
 				}
-				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d: %s", storeID, retry, err.Error())
+				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d", storeID, retry)
 			}
 
 			// TODO: handle errors in the resp.

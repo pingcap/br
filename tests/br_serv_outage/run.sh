@@ -53,7 +53,6 @@ hint_finegrained=$TEST_DIR/hint_finegrained
 hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
-trap 'export GOFAILPOINTS=""' EXIT
 
 cases=${cases:-'outage outage-after-request outage-at-finegrained shutdown scale-out'}
 
@@ -81,4 +80,3 @@ github.com/pingcap/br/pkg/conn/hint-get-backup-client=1*return(\"$hint_get_backu
 
     check
 done
-
