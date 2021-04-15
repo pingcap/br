@@ -39,6 +39,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/version"
 )
 
@@ -57,9 +58,9 @@ type tidbRow string
 type tidbRows []tidbRow
 
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface
-func (row tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, r := range row {
-		encoder.AppendString(string(r))
+func (rows tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	for _, r := range rows {
+		encoder.AppendString(redact.String(string(r)))
 	}
 	return nil
 }
@@ -95,7 +96,9 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 
 func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
-	*data = tidbRows(append(rows, row))
+	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
+	//nolint:gocritic
+	*data = append(rows, row)
 	cs := verification.MakeKVChecksum(uint64(len(row)), 1, 0)
 	checksum.Add(&cs)
 }
@@ -165,7 +168,7 @@ func (enc *tidbEncoder) appendSQLBytes(sb *strings.Builder, value []byte) {
 
 // appendSQL appends the SQL representation of the Datum into the string builder.
 // Note that we cannot use Datum.ToString since it doesn't perform SQL escaping.
-func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, col *table.Column) error {
+func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, _ *table.Column) error {
 	switch datum.Kind() {
 	case types.KindNull:
 		sb.WriteString("NULL")
@@ -195,13 +198,13 @@ func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, col *
 		sb.Write(value)
 	case types.KindString:
 		// See: https://github.com/pingcap/tidb-lightning/issues/550
-		//if enc.mode.HasStrictMode() {
+		// if enc.mode.HasStrictMode() {
 		//	d, err := table.CastValue(enc.se, *datum, col.ToInfo(), false, false)
 		//	if err != nil {
 		//		return errors.Trace(err)
 		//	}
 		//	datum = &d
-		//}
+		// }
 
 		enc.appendSQLBytes(sb, datum.GetBytes())
 	case types.KindBytes:
@@ -218,7 +221,9 @@ func (enc *tidbEncoder) appendSQL(sb *strings.Builder, datum *types.Datum, col *
 		value := datum.GetBinaryLiteral()
 		sb.Grow(3 + 2*len(value))
 		sb.WriteString("x'")
-		hex.NewEncoder(sb).Write(value)
+		if _, err := hex.NewEncoder(sb).Write(value); err != nil {
+			return errors.Trace(err)
+		}
 		sb.WriteByte('\'')
 
 	case types.KindMysqlBit:
@@ -285,7 +290,8 @@ func (enc *tidbEncoder) Encode(logger log.Logger, row []types.Datum, _ int64, co
 		if i != 0 {
 			encoded.WriteByte(',')
 		}
-		if err := enc.appendSQL(&encoded, &field, getColumnByIndex(cols, enc.columnIdx[i])); err != nil {
+		datum := field
+		if err := enc.appendSQL(&encoded, &datum, getColumnByIndex(cols, enc.columnIdx[i])); err != nil {
 			logger.Error("tidb encode failed",
 				zap.Array("original", kv.RowArrayMarshaler(row)),
 				zap.Int("originalCol", i),
@@ -319,10 +325,10 @@ func (be *tidbBackend) MaxChunkSize() int {
 }
 
 func (be *tidbBackend) ShouldPostProcess() bool {
-	return false
+	return true
 }
 
-func (be *tidbBackend) CheckRequirements(ctx context.Context) error {
+func (be *tidbBackend) CheckRequirements(ctx context.Context, _ *backend.CheckCtx) error {
 	log.L().Info("skipping check requirements for tidb backend")
 	return nil
 }
@@ -415,8 +421,8 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	// Retry will be done externally, so we're not going to retry here.
 	_, err := be.db.ExecContext(ctx, insertStmt.String())
 	if err != nil {
-		log.L().Error("execute statement failed", log.ZapRedactString("stmt", insertStmt.String()),
-			log.ZapRedactArray("rows", rows), zap.Error(err))
+		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
+			zap.Array("rows", rows), zap.Error(err))
 	}
 	failpoint.Inject("FailIfImportedSomeRows", func() {
 		panic("forcing failure due to FailIfImportedSomeRows, before saving checkpoint")
@@ -424,6 +430,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	return errors.Trace(err)
 }
 
+//nolint:nakedret // TODO: refactor
 func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName string) (tables []*model.TableInfo, err error) {
 	s := common.SQLWithRetry{
 		DB:     be.db,
@@ -521,6 +528,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 					}
 				}
 			}
+
 		}
 		return nil
 	})
@@ -544,19 +552,19 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 }
 
 func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
-	return &TiDBWriter{be: be, engineUUID: engineUUID}, nil
+	return &Writer{be: be, engineUUID: engineUUID}, nil
 }
 
-type TiDBWriter struct {
+type Writer struct {
 	be         *tidbBackend
 	engineUUID uuid.UUID
 }
 
-func (w *TiDBWriter) Close() error {
+func (w *Writer) Close() error {
 	return nil
 }
 
-func (w *TiDBWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
 
@@ -571,7 +579,6 @@ func FetchTableAutoIDInfos(ctx context.Context, exec common.QueryExecutor, table
 	if e != nil {
 		return nil, errors.Trace(e)
 	}
-	defer rows.Close()
 	var autoIDInfos []*TableAutoIDInfo
 	for rows.Next() {
 		var (
@@ -605,6 +612,14 @@ func FetchTableAutoIDInfos(ctx context.Context, exec common.QueryExecutor, table
 			NextID: nextID,
 			Type:   idType,
 		})
+	}
+	// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
+	//nolint:sqlclosecheck
+	if err := rows.Close(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if rows.Err() != nil {
+		return nil, errors.Trace(rows.Err())
 	}
 	return autoIDInfos, nil
 }

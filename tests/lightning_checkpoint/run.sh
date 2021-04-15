@@ -57,7 +57,7 @@ for i in $(seq "$TABLE_COUNT"); do
 done
 PARTIAL_IMPORT_QUERY="SELECT *, $OUTER_QUERY AS s FROM (SELECT $INNER_QUERY) _"
 
-for BACKEND in importer tidb local; do
+for BACKEND in importer local; do
   if [ "$BACKEND" = 'local' ]; then
     check_cluster_version 4 0 0 'local backend' || continue
   fi

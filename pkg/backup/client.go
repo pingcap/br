@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -216,6 +217,20 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
+	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
+		log.Info("failpoint s3-outage-during-writing-file injected, " +
+			"process will sleep for 3s and notify the shell to kill s3 service.")
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
@@ -598,6 +613,21 @@ func (bc *Client) fineGrainedBackup(
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
+	failpoint.Inject("hint-fine-grained-backup", func(v failpoint.Value) {
+		log.Info("failpoint hint-fine-grained-backup injected, "+
+			"process will sleep for 3s and notify the shell.", zap.String("file", v.(string)))
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+			time.Sleep(3 * time.Second)
+		}
+	})
+
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
@@ -749,8 +779,8 @@ func OnBackupResponse(
 		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
 		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
-		if utils.MessageIsRetryableS3Error(resp.GetError().GetMsg()) {
-			log.Warn("backup occur s3 storage error", zap.String("error", resp.GetError().GetMsg()))
+		if utils.MessageIsRetryableStorageError(resp.GetError().GetMsg()) {
+			log.Warn("backup occur storage error", zap.String("error", resp.GetError().GetMsg()))
 			// back off 3000ms, for S3 is 99.99% available (i.e. the max outage time would less than 52.56mins per year),
 			// this time would be probably enough for s3 to resume.
 			return nil, 3000, nil
@@ -794,8 +824,15 @@ func (bc *Client) handleFineGrained(
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
 	if err != nil {
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+
 		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
-		return 0, errors.Trace(err)
+		return 0, errors.Annotatef(err, "failed to connect to store %d", storeID)
 	}
 	err = SendBackup(
 		ctx, storeID, client, req,
@@ -819,7 +856,15 @@ func (bc *Client) handleFineGrained(
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
-		return 0, errors.Trace(err)
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+		log.Error("failed to send fine-grained backup", zap.Uint64("storeID", storeID), logutil.ShortError(err))
+		return 0, errors.Annotatef(err, "failed to send fine-grained backup [%s, %s)",
+			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
 	return max, nil
 }
@@ -852,6 +897,20 @@ backupLoop:
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
+		failpoint.Inject("hint-backup-start", func(v failpoint.Value) {
+			log.Info("failpoint hint-backup-start injected, " +
+				"process will notify the shell.")
+			if sigFile, ok := v.(string); ok {
+				file, err := os.Create(sigFile)
+				if err != nil {
+					log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+				}
+				if file != nil {
+					file.Close()
+				}
+			}
+			time.Sleep(3 * time.Second)
+		})
 		bcli, err := client.Backup(ctx, &req)
 		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
@@ -877,8 +936,9 @@ backupLoop:
 			}
 			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
 				zap.Int("retry time", retry))
-			return errors.Trace(err)
+			return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to create backup stream to store %d", storeID)
 		}
+		defer bcli.CloseSend()
 
 		for {
 			resp, err := bcli.Recv()
@@ -899,8 +959,9 @@ backupLoop:
 					}
 					break
 				}
-				return errors.Annotatef(err, "failed to connect to store: %d with retry times:%d", storeID, retry)
+				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d", storeID, retry)
 			}
+
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
 				logutil.Key("startKey", resp.GetStartKey()),

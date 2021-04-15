@@ -11,10 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
