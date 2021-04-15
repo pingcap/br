@@ -143,7 +143,7 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	resp.Body.Close()
 
 	go func() {
-		s.lightning.RunServer()
+		_ = s.lightning.RunServer()
 	}()
 	time.Sleep(100 * time.Millisecond)
 
