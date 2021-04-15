@@ -20,7 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
@@ -29,6 +31,8 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/manual"
+	"github.com/pingcap/br/pkg/utils"
 
 	"go.uber.org/zap"
 )
@@ -47,18 +51,77 @@ func (*invalidIterator) Valid() bool {
 func (*invalidIterator) Close() {
 }
 
+type bytesBuf struct {
+	buf []byte
+	idx int
+	cap int
+}
+
+func (b *bytesBuf) add(v []byte) []byte {
+	start := b.idx
+	copy(b.buf[b.idx:], v)
+	b.idx += len(v)
+	return b.buf[start:b.idx]
+}
+
+func newBytesBuf(size int) *bytesBuf {
+	return &bytesBuf{
+		buf: manual.New(size),
+		cap: size,
+	}
+}
+
+func (b *bytesBuf) destroy() {
+	if b != nil {
+		manual.Free(b.buf)
+		b.buf = nil
+	}
+}
+
 type kvMemBuf struct {
+	sync.Mutex
 	kv.MemBuffer
-	kvPairs []common.KvPair
-	size    int
+	buf           *bytesBuf
+	availableBufs []*bytesBuf
+	kvParis       *KvPairs
+	capacity      int
+	size          int
+}
+
+func (mb *kvMemBuf) Recycle(buf *bytesBuf) {
+	buf.idx = 0
+	buf.cap = len(buf.buf)
+	mb.Lock()
+	mb.availableBufs = append(mb.availableBufs, buf)
+	mb.Unlock()
+}
+
+func (mb *kvMemBuf) AllocateBuf(size int) {
+	mb.Lock()
+	size = utils.MaxInt(units.MiB, int(utils.NextPowerOfTwo(int64(size)))*2)
+	if len(mb.availableBufs) > 0 && mb.availableBufs[0].cap >= size {
+		mb.buf = mb.availableBufs[0]
+		mb.availableBufs = mb.availableBufs[1:]
+	} else {
+		mb.buf = newBytesBuf(size)
+	}
+	mb.Unlock()
 }
 
 func (mb *kvMemBuf) Set(k kv.Key, v []byte) error {
-	mb.kvPairs = append(mb.kvPairs, common.KvPair{
-		Key: k.Clone(),
-		Val: append([]byte{}, v...),
+	kvPairs := mb.kvParis
+	size := len(k) + len(v)
+	if mb.buf == nil || mb.buf.cap-mb.buf.idx < size {
+		if mb.buf != nil {
+			kvPairs.bytesBuf = mb.buf
+		}
+		mb.AllocateBuf(size)
+	}
+	kvPairs.pairs = append(kvPairs.pairs, common.KvPair{
+		Key: mb.buf.add(k),
+		Val: mb.buf.add(v),
 	})
-	mb.size += len(k) + len(v)
+	mb.size += size
 	return nil
 }
 
@@ -214,19 +277,23 @@ func newSession(options *SessionOptions) *session {
 			log.ShortError(err))
 	}
 	vars.TxnCtx = nil
-
 	s := &session{
 		vars:   vars,
 		values: make(map[fmt.Stringer]interface{}, 1),
 	}
+	s.txn.kvParis = &KvPairs{}
 
 	return s
 }
 
-func (se *session) takeKvPairs() []common.KvPair {
-	pairs := se.txn.kvMemBuf.kvPairs
-	se.txn.kvMemBuf.kvPairs = make([]common.KvPair, 0, len(pairs))
-	se.txn.kvMemBuf.size = 0
+func (se *session) takeKvPairs() *KvPairs {
+	memBuf := &se.txn.kvMemBuf
+	pairs := memBuf.kvParis
+	if pairs.bytesBuf != nil {
+		pairs.memBuf = memBuf
+	}
+	memBuf.kvParis = &KvPairs{pairs: make([]common.KvPair, 0, len(pairs.pairs))}
+	memBuf.size = 0
 	return pairs
 }
 
@@ -252,3 +319,15 @@ func (se *session) Value(key fmt.Stringer) interface{} {
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface
 func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handle) {}
+
+func (se *session) Close() {
+	memBuf := &se.txn.kvMemBuf
+	if memBuf.buf != nil {
+		memBuf.buf.destroy()
+		memBuf.buf = nil
+	}
+	for _, b := range memBuf.availableBufs {
+		b.destroy()
+	}
+	memBuf.availableBufs = nil
+}

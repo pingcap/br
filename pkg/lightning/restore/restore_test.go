@@ -1005,7 +1005,9 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	importer := backend.MakeBackend(mockBackend)
 
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
+	// avoid return the same object at each call
+	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).Times(1)
+	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).Times(1)
 	mockWriter := mock.NewMockEngineWriter(controller)
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 
@@ -1104,7 +1106,6 @@ func (s *chunkRestoreSuite) TestEncodeLoop(c *C) {
 
 	kvs := <-kvsCh
 	c.Assert(kvs, HasLen, 1)
-	c.Assert(kvs[0].kvs, HasLen, 2)
 	c.Assert(kvs[0].rowID, Equals, int64(19))
 	c.Assert(kvs[0].offset, Equals, int64(36))
 
