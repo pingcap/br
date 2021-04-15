@@ -139,7 +139,13 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	c.Assert(data["error"], Equals, "server-mode not enabled")
 	resp.Body.Close()
 
+<<<<<<< HEAD
 	go s.lightning.RunServer()
+=======
+	go func() {
+		_ = s.lightning.RunServer()
+	}()
+>>>>>>> 61e98981... test: fix the unstable unit test  (#1014)
 	time.Sleep(100 * time.Millisecond)
 
 	req, err := http.NewRequest(http.MethodPut, url, nil)
