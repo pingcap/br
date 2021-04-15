@@ -143,8 +143,7 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	resp.Body.Close()
 
 	go func() {
-		err := s.lightning.RunServer()
-		c.Assert(err, IsNil)
+		_ = s.lightning.RunServer()
 	}()
 	time.Sleep(100 * time.Millisecond)
 
@@ -194,8 +193,8 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 			c.Assert(taskCfg.TiDB.Host, Equals, "test.invalid")
 			c.Assert(taskCfg.Mydumper.SourceDir, Equals, fmt.Sprintf("file://demo-path-%d", i))
 			c.Assert(taskCfg.Mydumper.CSV.Separator, Equals, "/")
-		case <-time.After(500 * time.Millisecond):
-			c.Fatalf("task is not queued after 500ms (i = %d)", i)
+		case <-time.After(1500 * time.Millisecond):
+			c.Fatalf("task is not queued after 1500ms (i = %d)", i)
 		}
 	}
 }

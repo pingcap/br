@@ -197,3 +197,11 @@ func WarnTerm(message string, fields ...zap.Field) {
 		loggerToTerm.Warn(message, fields...)
 	}
 }
+
+// RedactAny constructs a redacted field that carries an interface{}.
+func RedactAny(fieldKey string, key interface{}) zap.Field {
+	if redact.NeedRedact() {
+		return zap.String(fieldKey, "?")
+	}
+	return zap.Any(fieldKey, key)
+}
