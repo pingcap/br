@@ -170,6 +170,13 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 	if cfg.Config.Concurrency > maxBackupConcurrency {
 		cfg.Config.Concurrency = maxBackupConcurrency
 	}
+	if cfg.RateLimit != unlimited {
+		// TiKV limits the upload rate by each backup request.
+		// When the backup requests are sent concurrently,
+		// the ratelimit couldn't work as intended.
+		// Degenerating to sequentially sending backup requests to avoid this.
+		cfg.Config.Concurrency = 1
+	}
 
 	if cfg.GCTTL == 0 {
 		cfg.GCTTL = utils.DefaultBRGCSafePointTTL
