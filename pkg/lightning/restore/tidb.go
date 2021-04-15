@@ -244,16 +244,12 @@ func LoadSchemaInfo(
 			return nil, err
 		}
 
-<<<<<<< HEAD
-		dbInfo := &TidbDBInfo{
-=======
 		tableMap := make(map[string]*model.TableInfo, len(tables))
 		for _, tbl := range tables {
 			tableMap[tbl.Name.L] = tbl
 		}
 
-		dbInfo := &checkpoints.TidbDBInfo{
->>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
+		dbInfo := &TidbDBInfo{
 			Name:   schema.Name,
 			Tables: make(map[string]*TidbTableInfo),
 		}
@@ -270,13 +266,8 @@ func LoadSchemaInfo(
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-<<<<<<< HEAD
 			tableInfo := &TidbTableInfo{
-				ID:   tbl.ID,
-=======
-			tableInfo := &checkpoints.TidbTableInfo{
 				ID:   tblInfo.ID,
->>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
 				DB:   schema.Name,
 				Name: tableName,
 				Core: tblInfo,

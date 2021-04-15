@@ -1186,18 +1186,14 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		fakeTableName := fmt.Sprintf("tbl%d", i)
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema.sql", fakeDBName, fakeTableName)
-<<<<<<< HEAD
-		fakeFileContent := []byte(fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName))
-		err = store.Write(ctx, fakeFileName, fakeFileContent)
-=======
+
 		fakeFileContent := fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName)
-		err = store.WriteFile(ctx, fakeFileName, []byte(fakeFileContent))
+		err = store.Write(ctx, fakeFileName, []byte(fakeFileContent))
 		c.Assert(err, IsNil)
 
 		node, err := p.ParseOneStmt(fakeFileContent, "", "")
 		c.Assert(err, IsNil)
 		core, err := ddl.MockTableInfo(se, node.(*ast.CreateTableStmt), 0xabcdef)
->>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
 		c.Assert(err, IsNil)
 		core.State = model.StatePublic
 		tableInfos = append(tableInfos, core)
@@ -1234,14 +1230,9 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 	mockBackend.EXPECT().
 		FetchRemoteTableModels(gomock.Any(), gomock.Any()).
 		AnyTimes().
-<<<<<<< HEAD
-		Return(make([]*model.TableInfo, 0), nil)
-	s.rc.backend = kv.MakeBackend(mockBackend)
-=======
 		Return(s.tableInfos, nil)
 	mockBackend.EXPECT().Close()
-	s.rc.backend = backend.MakeBackend(mockBackend)
->>>>>>> d5e5cdc7... pkg/lightning: fix incorrect table counter (#996)
+	s.rc.backend = kv.MakeBackend(mockBackend)
 	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
 	mockSQLExecutor.EXPECT().
 		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
