@@ -16,7 +16,6 @@ package local
 import (
 	"bytes"
 	"context"
-	"encoding/hex"
 	"regexp"
 	"runtime"
 	"sort"
@@ -35,6 +34,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/logutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -70,8 +70,8 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	waitTime := splitRegionBaseBackOffTime
 	for i := 0; i < SplitRetryTimes; i++ {
 		log.L().Info("split and scatter region",
-			log.ZapRedactBinary("minKey", minKey),
-			log.ZapRedactBinary("maxKey", maxKey),
+			logutil.Key("minKey", minKey),
+			logutil.Key("maxKey", maxKey),
 			zap.Int("retry", i),
 		)
 		err = nil
@@ -89,18 +89,18 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		var regions []*split.RegionInfo
 		regions, err = paginateScanRegion(ctx, local.splitCli, minKey, maxKey, 128)
 		if err != nil {
-			log.L().Warn("paginate scan region failed", log.ZapRedactBinary("minKey", minKey), log.ZapRedactBinary("maxKey", maxKey),
+			log.L().Warn("paginate scan region failed", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
 				log.ShortError(err), zap.Int("retry", i))
 			continue
 		}
 
 		if len(regions) == 0 {
-			log.L().Warn("paginate scan region returns empty result", log.ZapRedactBinary("minKey", minKey), log.ZapRedactBinary("maxKey", maxKey),
+			log.L().Warn("paginate scan region returns empty result", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
 				zap.Int("retry", i))
 			return errors.New("paginate scan region returns empty result")
 		}
 
-		log.L().Info("paginate scan region finished", log.ZapRedactBinary("minKey", minKey), log.ZapRedactBinary("maxKey", maxKey),
+		log.L().Info("paginate scan region finished", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
 			zap.Int("regions", len(regions)))
 
 		if !needSplit {
@@ -119,9 +119,9 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 			lastKeyEnc := codec.EncodeBytes([]byte{}, retryKeys[len(retryKeys)-1])
 			if bytes.Compare(firstKeyEnc, regions[0].Region.StartKey) < 0 || !beforeEnd(lastKeyEnc, regions[len(regions)-1].Region.EndKey) {
 				log.L().Warn("no valid key for split region",
-					log.ZapRedactBinary("firstKey", firstKeyEnc), log.ZapRedactBinary("lastKey", lastKeyEnc),
-					log.ZapRedactBinary("firstRegionStart", regions[0].Region.StartKey),
-					log.ZapRedactBinary("lastRegionEnd", regions[len(regions)-1].Region.EndKey))
+					logutil.Key("firstKey", firstKeyEnc), logutil.Key("lastKey", lastKeyEnc),
+					logutil.Key("firstRegionStart", regions[0].Region.StartKey),
+					logutil.Key("lastRegionEnd", regions[len(regions)-1].Region.EndKey))
 				return errors.New("check split keys failed")
 			}
 			splitKeyMap = getSplitKeys(retryKeys, regions)
@@ -159,18 +159,18 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 						splitRegionEnd := codec.EncodeBytes([]byte{}, keys[end-1])
 						if bytes.Compare(splitRegionStart, splitRegion.Region.StartKey) < 0 || !beforeEnd(splitRegionEnd, splitRegion.Region.EndKey) {
 							log.L().Fatal("no valid key in region",
-								log.ZapRedactBinary("startKey", splitRegionStart), log.ZapRedactBinary("endKey", splitRegionEnd),
-								log.ZapRedactBinary("regionStart", splitRegion.Region.StartKey), log.ZapRedactBinary("regionEnd", splitRegion.Region.EndKey),
-								log.ZapRedactReflect("region", splitRegion))
+								logutil.Key("startKey", splitRegionStart), logutil.Key("endKey", splitRegionEnd),
+								logutil.Key("regionStart", splitRegion.Region.StartKey), logutil.Key("regionEnd", splitRegion.Region.EndKey),
+								logutil.Region(splitRegion.Region), logutil.Leader(splitRegion.Leader))
 						}
 						splitRegion, newRegions, err1 = local.BatchSplitRegions(splitCtx, splitRegion, keys[start:end])
 						if err1 != nil {
 							if strings.Contains(err1.Error(), "no valid key") {
 								for _, key := range keys {
 									log.L().Warn("no valid key",
-										log.ZapRedactBinary("startKey", region.Region.StartKey),
-										log.ZapRedactBinary("endKey", region.Region.EndKey),
-										log.ZapRedactBinary("key", codec.EncodeBytes([]byte{}, key)))
+										logutil.Key("startKey", region.Region.StartKey),
+										logutil.Key("endKey", region.Region.EndKey),
+										logutil.Key("key", codec.EncodeBytes([]byte{}, key)))
 								}
 								return err1
 							} else if common.IsContextCanceledError(err1) {
@@ -266,8 +266,8 @@ func paginateScanRegion(
 ) ([]*split.RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
 		log.L().Error("startKey > endKey when paginating scan region",
-			log.ZapRedactString("startKey", hex.EncodeToString(startKey)),
-			log.ZapRedactString("endKey", hex.EncodeToString(endKey)))
+			logutil.Key("startKey", startKey),
+			logutil.Key("endKey", endKey))
 		return nil, errors.Errorf("startKey > endKey when paginating scan region")
 	}
 
@@ -365,7 +365,7 @@ func (local *local) waitForScatterRegion(ctx context.Context, regionInfo *split.
 		ok, err := local.isScatterRegionFinished(ctx, regionID)
 		if err != nil {
 			log.L().Warn("scatter region failed: do not have the region",
-				log.ZapRedactStringer("region", regionInfo.Region))
+				logutil.Region(regionInfo.Region))
 			return
 		}
 		if ok {

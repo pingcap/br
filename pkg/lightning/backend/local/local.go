@@ -64,6 +64,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/logutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -719,9 +720,9 @@ func (local *local) WriteToTiKV(
 		return nil, nil, stats, errors.Annotate(iter.Error(), "failed to read the first key")
 	}
 	if !iter.Valid() {
-		log.L().Info("keys within region is empty, skip ingest", log.ZapRedactBinary("start", start),
-			log.ZapRedactBinary("regionStart", region.Region.StartKey), log.ZapRedactBinary("end", end),
-			log.ZapRedactBinary("regionEnd", region.Region.EndKey))
+		log.L().Info("keys within region is empty, skip ingest", logutil.Key("start", start),
+			logutil.Key("regionStart", region.Region.StartKey), logutil.Key("end", end),
+			logutil.Key("regionEnd", region.Region.EndKey))
 		return nil, nil, stats, nil
 	}
 
@@ -841,8 +842,8 @@ func (local *local) WriteToTiKV(
 
 	// if there is not leader currently, we should directly return an error
 	if leaderPeerMetas == nil {
-		log.L().Warn("write to tikv no leader", log.ZapRedactReflect("region", region),
-			zap.Uint64("leader_id", leaderID), log.ZapRedactReflect("meta", meta),
+		log.L().Warn("write to tikv no leader", logutil.Region(region.Region), logutil.Leader(region.Leader),
+			zap.Uint64("leader_id", leaderID), logutil.SSTMeta(meta),
 			zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size))
 		return nil, nil, stats, errors.Errorf("write to tikv with no leader returned, region '%d', leader: %d",
 			region.Region.Id, leaderID)
@@ -859,9 +860,9 @@ func (local *local) WriteToTiKV(
 		firstKey := append([]byte{}, iter.Key()...)
 		remainRange = &Range{start: firstKey, end: regionRange.end}
 		log.L().Info("write to tikv partial finish", zap.Int64("count", totalCount),
-			zap.Int64("size", size), log.ZapRedactBinary("startKey", regionRange.start), log.ZapRedactBinary("endKey", regionRange.end),
-			log.ZapRedactBinary("remainStart", remainRange.start), log.ZapRedactBinary("remainEnd", remainRange.end),
-			log.ZapRedactReflect("region", region))
+			zap.Int64("size", size), logutil.Key("startKey", regionRange.start), logutil.Key("endKey", regionRange.end),
+			logutil.Key("remainStart", remainRange.start), logutil.Key("remainEnd", remainRange.end),
+			logutil.Region(region.Region), logutil.Leader(region.Leader))
 	}
 	stats.count = totalCount
 	stats.totalBytes = size
@@ -965,7 +966,7 @@ func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 
 	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.UUID),
 		zap.Int64("totalSize", engineFileTotalSize), zap.Int64("totalCount", engineFileLength),
-		log.ZapRedactBinary("firstKey", firstKey), log.ZapRedactBinary("lastKey", lastKey),
+		logutil.Key("firstKey", firstKey), logutil.Key("lastKey", lastKey),
 		zap.Int("ranges", len(ranges)))
 
 	return ranges, nil
@@ -1083,9 +1084,9 @@ func (local *local) writeAndIngestByRange(
 	}
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
-			log.ZapRedactBinary("start", start),
-			log.ZapRedactBinary("end", end),
-			log.ZapRedactBinary("next end", nextKey(end)))
+			logutil.Key("start", start),
+			logutil.Key("end", end),
+			logutil.Key("next end", nextKey(end)))
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
@@ -1114,7 +1115,7 @@ WriteAndIngest:
 		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, 128)
 		if err != nil || len(regions) == 0 {
 			log.L().Warn("scan region failed", log.ShortError(err), zap.Int("region_len", len(regions)),
-				log.ZapRedactBinary("startKey", startKey), log.ZapRedactBinary("endKey", endKey), zap.Int("retry", retry))
+				logutil.Key("startKey", startKey), logutil.Key("endKey", endKey), zap.Int("retry", retry))
 			retry++
 			continue WriteAndIngest
 		}
@@ -1140,8 +1141,8 @@ WriteAndIngest:
 				} else {
 					retry++
 				}
-				log.L().Info("retry write and ingest kv pairs", log.ZapRedactBinary("startKey", pairStart),
-					log.ZapRedactBinary("endKey", end), log.ShortError(err), zap.Int("retry", retry))
+				log.L().Info("retry write and ingest kv pairs", logutil.Key("startKey", pairStart),
+					logutil.Key("endKey", end), log.ShortError(err), zap.Int("retry", retry))
 				continue WriteAndIngest
 			}
 			if rg != nil {
@@ -1220,8 +1221,8 @@ loopWrite:
 					if common.IsContextCanceledError(err) {
 						return nil, err
 					}
-					log.L().Warn("ingest failed", log.ShortError(err), log.ZapRedactReflect("meta", meta),
-						log.ZapRedactReflect("region", region))
+					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMeta(meta),
+						logutil.Region(region.Region), logutil.Leader(region.Leader))
 					errCnt++
 					continue
 				}
@@ -1237,8 +1238,8 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-					log.L().Warn("ingest failed noretry", log.ShortError(err), log.ZapRedactReflect("meta", meta),
-						log.ZapRedactReflect("region", region))
+					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMeta(meta),
+						logutil.Region(region.Region), logutil.Leader(region.Leader))
 					// met non-retryable error retry whole Write procedure
 					return remainRange, err
 				case retryWrite:
@@ -1253,8 +1254,8 @@ loopWrite:
 
 		if err != nil {
 			log.L().Warn("write and ingest region, will retry import full range", log.ShortError(err),
-				log.ZapRedactStringer("region", region.Region), log.ZapRedactBinary("start", start),
-				log.ZapRedactBinary("end", end))
+				logutil.Region(region.Region), logutil.Key("start", start),
+				logutil.Key("end", end))
 		} else {
 			metric.BytesCounter.WithLabelValues(metric.TableStateImported).Add(float64(rangeStats.totalBytes))
 		}
@@ -1590,7 +1591,7 @@ func (local *local) isIngestRetryable(
 			if newRegion != nil {
 				return newRegion, nil
 			}
-			log.L().Warn("get region by key return nil, will retry", log.ZapRedactReflect("region", region),
+			log.L().Warn("get region by key return nil, will retry", logutil.Region(region.Region), logutil.Leader(region.Leader),
 				zap.Int("retry", i))
 			select {
 			case <-ctx.Done():
@@ -2065,8 +2066,8 @@ func (sw *sstWriter) ingestInto(e *File, desc localIngestDescription) error {
 			zap.Int64("kvs", sw.totalCount),
 			zap.Uint8("description", uint8(desc)),
 			zap.Uint64("sstFileSize", meta.Size),
-			log.ZapRedactBinary("firstKey", meta.SmallestPoint.UserKey),
-			log.ZapRedactBinary("lastKey", meta.LargestPoint.UserKey))
+			logutil.Key("firstKey", meta.SmallestPoint.UserKey),
+			logutil.Key("lastKey", meta.LargestPoint.UserKey))
 
 		if err := e.db.Ingest([]string{sw.path}); err != nil {
 			return errors.Trace(err)
