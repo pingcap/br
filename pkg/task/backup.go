@@ -181,10 +181,9 @@ func (cfg *BackupConfig) adjustBackupConfig() {
 		// Degenerating to sequentially sending backup requests to avoid this.
 		if !usingDefaultConcurrency {
 			logutil.WarnTerm("setting `--ratelimit` and `--concurrency` at the same time, "+
-				"`--concurrency` would be omitted: ratelimit only works with sequentially(i.e. concurrency = 1) backing up",
+				"ignoring `--concurrency`: `--ratelimit` forces sequential (i.e. concurrency = 1) backup",
 				zap.String("ratelimit", units.HumanSize(float64(cfg.RateLimit))+"/s"),
-				zap.Uint32("concurrency-specificated", cfg.Config.Concurrency),
-				zap.Int("concurrency-would-be-used", 1))
+				zap.Uint32("concurrency-specified", cfg.Config.Concurrency))
 		}
 		cfg.Config.Concurrency = 1
 	}
