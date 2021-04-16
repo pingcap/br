@@ -914,144 +914,155 @@ func (rc *Controller) listenCheckpointUpdates() {
 	rc.checkpointsWg.Done()
 }
 
-func (rc *Controller) runPeriodicActions(ctx context.Context, stop <-chan struct{}) {
+func (rc *Controller) buildRunPeriodicActionAndCancelFunc() (func(context.Context, <-chan struct{}), func()) {
+	cancelFuncs := make([]func(), 0)
+
 	// a nil channel blocks forever.
 	// if the cron duration is zero we use the nil channel to skip the action.
 	var logProgressChan <-chan time.Time
 	if rc.cfg.Cron.LogProgress.Duration > 0 {
 		logProgressTicker := time.NewTicker(rc.cfg.Cron.LogProgress.Duration)
-		defer logProgressTicker.Stop()
+		cancelFuncs = append(cancelFuncs, logProgressTicker.Stop)
 		logProgressChan = logProgressTicker.C
 	}
 
 	glueProgressTicker := time.NewTicker(3 * time.Second)
-	defer glueProgressTicker.Stop()
+	cancelFuncs = append(cancelFuncs, glueProgressTicker.Stop)
 
 	var switchModeChan <-chan time.Time
 	// tidb backend don't need to switch tikv to import mode
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
 		switchModeTicker := time.NewTicker(rc.cfg.Cron.SwitchMode.Duration)
-		defer switchModeTicker.Stop()
+		cancelFuncs = append(cancelFuncs, switchModeTicker.Stop)
 		switchModeChan = switchModeTicker.C
 
-		rc.switchToImportMode(ctx)
 	}
 
 	var checkQuotaChan <-chan time.Time
 	// only local storage has disk quota concern.
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal && rc.cfg.Cron.CheckDiskQuota.Duration > 0 {
 		checkQuotaTicker := time.NewTicker(rc.cfg.Cron.CheckDiskQuota.Duration)
-		defer checkQuotaTicker.Stop()
+		cancelFuncs = append(cancelFuncs, checkQuotaTicker.Stop)
 		checkQuotaChan = checkQuotaTicker.C
 	}
 
-	start := time.Now()
-	for {
-		select {
-		case <-ctx.Done():
-			log.L().Warn("stopping periodic actions", log.ShortError(ctx.Err()))
-			return
-		case <-stop:
-			log.L().Info("everything imported, stopping periodic actions")
-			return
-
-		case <-switchModeChan:
-			// periodically switch to import mode, as requested by TiKV 3.0
-			rc.switchToImportMode(ctx)
-
-		case <-logProgressChan:
-			// log the current progress periodically, so OPS will know that we're still working
-			nanoseconds := float64(time.Since(start).Nanoseconds())
-			// the estimated chunk is not accurate(likely under estimated), but the actual count is not accurate
-			// before the last table start, so use the bigger of the two should be a workaround
-			estimated := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateEstimated))
-			pending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
-			if estimated < pending {
-				estimated = pending
+	return func(ctx context.Context, stop <-chan struct{}) {
+			// tidb backend don't need to switch tikv to import mode
+			if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
+				rc.switchToImportMode(ctx)
 			}
-			finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
-			totalTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
-			completedTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStateCompleted, metric.TableResultSuccess))
-			bytesRead := metric.ReadHistogramSum(metric.RowReadBytesHistogram)
-			engineEstimated := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStateEstimated, metric.TableResultSuccess))
-			enginePending := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStatePending, metric.TableResultSuccess))
-			if engineEstimated < enginePending {
-				engineEstimated = enginePending
-			}
-			engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.TableStateImported, metric.TableResultSuccess))
-			bytesWritten := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateWritten))
-			bytesImported := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateImported))
+			start := time.Now()
+			for {
+				select {
+				case <-ctx.Done():
+					log.L().Warn("stopping periodic actions", log.ShortError(ctx.Err()))
+					return
+				case <-stop:
+					log.L().Info("everything imported, stopping periodic actions")
+					return
 
-			var state string
-			var remaining zap.Field
-			switch {
-			case finished >= estimated:
-				if engineFinished < engineEstimated {
-					state = "importing"
-				} else {
-					state = "post-processing"
+				case <-switchModeChan:
+					// periodically switch to import mode, as requested by TiKV 3.0
+					rc.switchToImportMode(ctx)
+
+				case <-logProgressChan:
+					// log the current progress periodically, so OPS will know that we're still working
+					nanoseconds := float64(time.Since(start).Nanoseconds())
+					// the estimated chunk is not accurate(likely under estimated), but the actual count is not accurate
+					// before the last table start, so use the bigger of the two should be a workaround
+					estimated := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateEstimated))
+					pending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+					if estimated < pending {
+						estimated = pending
+					}
+					finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
+					totalTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
+					completedTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStateCompleted, metric.TableResultSuccess))
+					bytesRead := metric.ReadHistogramSum(metric.RowReadBytesHistogram)
+					engineEstimated := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStateEstimated, metric.TableResultSuccess))
+					enginePending := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStatePending, metric.TableResultSuccess))
+					if engineEstimated < enginePending {
+						engineEstimated = enginePending
+					}
+					engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.TableStateImported, metric.TableResultSuccess))
+					bytesWritten := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateWritten))
+					bytesImported := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateImported))
+
+					var state string
+					var remaining zap.Field
+					switch {
+					case finished >= estimated:
+						if engineFinished < engineEstimated {
+							state = "importing"
+						} else {
+							state = "post-processing"
+						}
+					case finished > 0:
+						state = "writing"
+					default:
+						state = "preparing"
+					}
+
+					// since we can't accurately estimate the extra time cost by import after all writing are finished,
+					// so here we use estimatedWritingProgress * 0.8 + estimatedImportingProgress * 0.2 as the total
+					// progress.
+					remaining = zap.Skip()
+					totalPercent := 0.0
+					if finished > 0 {
+						writePercent := math.Min(finished/estimated, 1.0)
+						importPercent := 1.0
+						if bytesWritten > 0 {
+							totalBytes := bytesWritten / writePercent
+							importPercent = math.Min(bytesImported/totalBytes, 1.0)
+						}
+						totalPercent = writePercent*0.8 + importPercent*0.2
+						if totalPercent < 1.0 {
+							remainNanoseconds := (1.0 - totalPercent) / totalPercent * nanoseconds
+							remaining = zap.Duration("remaining", time.Duration(remainNanoseconds).Round(time.Second))
+						}
+					}
+
+					formatPercent := func(finish, estimate float64) string {
+						speed := ""
+						if estimated > 0 {
+							speed = fmt.Sprintf(" (%.1f%%)", finish/estimate*100)
+						}
+						return speed
+					}
+
+					// avoid output bytes speed if there are no unfinished chunks
+					chunkSpeed := zap.Skip()
+					if bytesRead > 0 {
+						chunkSpeed = zap.Float64("speed(MiB/s)", bytesRead/(1048576e-9*nanoseconds))
+					}
+
+					// Note: a speed of 28 MiB/s roughly corresponds to 100 GiB/hour.
+					log.L().Info("progress",
+						zap.String("total", fmt.Sprintf("%.1f%%", totalPercent*100)),
+						// zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
+						zap.String("tables", fmt.Sprintf("%.0f/%.0f%s", completedTables, totalTables, formatPercent(completedTables, totalTables))),
+						zap.String("chunks", fmt.Sprintf("%.0f/%.0f%s", finished, estimated, formatPercent(finished, estimated))),
+						zap.String("engines", fmt.Sprintf("%.f/%.f%s", engineFinished, engineEstimated, formatPercent(engineFinished, engineEstimated))),
+						chunkSpeed,
+						zap.String("state", state),
+						remaining,
+					)
+
+				case <-checkQuotaChan:
+					// verify the total space occupied by sorted-kv-dir is below the quota,
+					// otherwise we perform an emergency import.
+					rc.enforceDiskQuota(ctx)
+
+				case <-glueProgressTicker.C:
+					finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
+					rc.tidbGlue.Record(glue.RecordFinishedChunk, uint64(finished))
 				}
-			case finished > 0:
-				state = "writing"
-			default:
-				state = "preparing"
 			}
-
-			// since we can't accurately estimate the extra time cost by import after all writing are finished,
-			// so here we use estimatedWritingProgress * 0.8 + estimatedImportingProgress * 0.2 as the total
-			// progress.
-			remaining = zap.Skip()
-			totalPercent := 0.0
-			if finished > 0 {
-				writePercent := math.Min(finished/estimated, 1.0)
-				importPercent := 1.0
-				if bytesWritten > 0 {
-					totalBytes := bytesWritten / writePercent
-					importPercent = math.Min(bytesImported/totalBytes, 1.0)
-				}
-				totalPercent = writePercent*0.8 + importPercent*0.2
-				if totalPercent < 1.0 {
-					remainNanoseconds := (1.0 - totalPercent) / totalPercent * nanoseconds
-					remaining = zap.Duration("remaining", time.Duration(remainNanoseconds).Round(time.Second))
-				}
+		}, func() {
+			for _, f := range cancelFuncs {
+				f()
 			}
-
-			formatPercent := func(finish, estimate float64) string {
-				speed := ""
-				if estimated > 0 {
-					speed = fmt.Sprintf(" (%.1f%%)", finish/estimate*100)
-				}
-				return speed
-			}
-
-			// avoid output bytes speed if there are no unfinished chunks
-			chunkSpeed := zap.Skip()
-			if bytesRead > 0 {
-				chunkSpeed = zap.Float64("speed(MiB/s)", bytesRead/(1048576e-9*nanoseconds))
-			}
-
-			// Note: a speed of 28 MiB/s roughly corresponds to 100 GiB/hour.
-			log.L().Info("progress",
-				zap.String("total", fmt.Sprintf("%.1f%%", totalPercent*100)),
-				// zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
-				zap.String("tables", fmt.Sprintf("%.0f/%.0f%s", completedTables, totalTables, formatPercent(completedTables, totalTables))),
-				zap.String("chunks", fmt.Sprintf("%.0f/%.0f%s", finished, estimated, formatPercent(finished, estimated))),
-				zap.String("engines", fmt.Sprintf("%.f/%.f%s", engineFinished, engineEstimated, formatPercent(engineFinished, engineEstimated))),
-				chunkSpeed,
-				zap.String("state", state),
-				remaining,
-			)
-
-		case <-checkQuotaChan:
-			// verify the total space occupied by sorted-kv-dir is below the quota,
-			// otherwise we perform an emergency import.
-			rc.enforceDiskQuota(ctx)
-
-		case <-glueProgressTicker.C:
-			finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
-			rc.tidbGlue.Record(glue.RecordFinishedChunk, uint64(finished))
 		}
-	}
 }
 
 var checksumManagerKey struct{}
@@ -1063,6 +1074,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// make split region and ingest sst more stable
 	// because importer backend is mostly use for v3.x cluster which doesn't support these api,
 	// so we also don't do this for import backend
+	finishSchedulers := func() {}
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
@@ -1072,14 +1084,14 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		}
 		logTask.Info("removing PD leader&region schedulers")
 		restoreFn, e := pdController.RemoveSchedulers(ctx)
-		defer func() {
+		finishSchedulers = func() {
 			// use context.Background to make sure this restore function can still be executed even if ctx is canceled
 			if restoreE := restoreFn(context.Background()); restoreE != nil {
 				logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
-				return
 			}
+			pdController.Close()
 			logTask.Info("add back PD leader&region schedulers")
-		}()
+		}
 		if e != nil {
 			return errors.Trace(err)
 		}
@@ -1100,7 +1112,17 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	var restoreErr common.OnceError
 
 	stopPeriodicActions := make(chan struct{})
-	go rc.runPeriodicActions(ctx, stopPeriodicActions)
+	periodicActions, finishFunc := rc.buildRunPeriodicActionAndCancelFunc()
+	go periodicActions(ctx, stopPeriodicActions)
+	finishFuncCalled := false
+	defer func() {
+		if !finishFuncCalled {
+			finishSchedulers()
+			finishFunc()
+			finishFuncCalled = true
+		}
+	}()
+
 	defer close(stopPeriodicActions)
 
 	taskCh := make(chan task, rc.cfg.App.IndexConcurrency)
@@ -1246,6 +1268,12 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		return err
 	default:
 	}
+
+	// stop periodic tasks for restore table such as pd schedulers and switch-mode tasks.
+	// this can help make cluster switching back to normal state more quickly.
+	finishSchedulers()
+	finishFunc()
+	finishFuncCalled = true
 
 	close(postProcessTaskChan)
 	// otherwise, we should run all tasks in the post-process task chan
