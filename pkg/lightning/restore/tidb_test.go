@@ -27,9 +27,9 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/util/mock"
 
-	"github.com/pingcap/br/pkg/lightning/glue"
-
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 )
 
@@ -284,10 +284,14 @@ func (s *tidbSuite) TestDropTable(c *C) {
 func (s *tidbSuite) TestLoadSchemaInfo(c *C) {
 	ctx := context.Background()
 
+	tableCntBefore := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
+
 	// Prepare the mock reply.
 	nodes, _, err := s.timgr.parser.Parse(
 		"CREATE TABLE `t1` (`a` INT PRIMARY KEY);"+
-			"CREATE TABLE `t2` (`b` VARCHAR(20), `c` BOOL, KEY (`b`, `c`))",
+			"CREATE TABLE `t2` (`b` VARCHAR(20), `c` BOOL, KEY (`b`, `c`));"+
+			// an extra table that not exists in dbMetas
+			"CREATE TABLE `t3` (`d` VARCHAR(20), `e` BOOL);",
 		"", "")
 	c.Assert(err, IsNil)
 	tableInfos := make([]*model.TableInfo, 0, len(nodes))
@@ -300,7 +304,23 @@ func (s *tidbSuite) TestLoadSchemaInfo(c *C) {
 		tableInfos = append(tableInfos, info)
 	}
 
-	loaded, err := LoadSchemaInfo(ctx, []*mydump.MDDatabaseMeta{{Name: "db"}}, func(ctx context.Context, schema string) ([]*model.TableInfo, error) {
+	dbMetas := []*mydump.MDDatabaseMeta{
+		{
+			Name: "db",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:   "db",
+					Name: "t1",
+				},
+				{
+					DB:   "db",
+					Name: "t2",
+				},
+			},
+		},
+	}
+
+	loaded, err := LoadSchemaInfo(ctx, dbMetas, func(ctx context.Context, schema string) ([]*model.TableInfo, error) {
 		c.Assert(schema, Equals, "db")
 		return tableInfos, nil
 	})
@@ -324,6 +344,10 @@ func (s *tidbSuite) TestLoadSchemaInfo(c *C) {
 			},
 		},
 	})
+
+	tableCntAfter := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
+
+	c.Assert(tableCntAfter-tableCntBefore, Equals, 2.0)
 }
 
 func (s *tidbSuite) TestLoadSchemaInfoMissing(c *C) {
