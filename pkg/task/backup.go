@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -24,6 +25,7 @@ import (
 	"github.com/pingcap/br/pkg/backup"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -164,11 +166,26 @@ func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
 // so that both binary and TiDB will use same default value.
 func (cfg *BackupConfig) adjustBackupConfig() {
 	cfg.adjust()
+	usingDefaultConcurrency := false
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
+		usingDefaultConcurrency = true
 	}
 	if cfg.Config.Concurrency > maxBackupConcurrency {
 		cfg.Config.Concurrency = maxBackupConcurrency
+	}
+	if cfg.RateLimit != unlimited {
+		// TiKV limits the upload rate by each backup request.
+		// When the backup requests are sent concurrently,
+		// the ratelimit couldn't work as intended.
+		// Degenerating to sequentially sending backup requests to avoid this.
+		if !usingDefaultConcurrency {
+			logutil.WarnTerm("setting `--ratelimit` and `--concurrency` at the same time, "+
+				"ignoring `--concurrency`: `--ratelimit` forces sequential (i.e. concurrency = 1) backup",
+				zap.String("ratelimit", units.HumanSize(float64(cfg.RateLimit))+"/s"),
+				zap.Uint32("concurrency-specified", cfg.Config.Concurrency))
+		}
+		cfg.Config.Concurrency = 1
 	}
 
 	if cfg.GCTTL == 0 {
