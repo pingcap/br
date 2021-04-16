@@ -69,6 +69,8 @@ const (
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
 	defaultGRPCKeepaliveTimeout = 3 * time.Second
+
+	unlimited = 0
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -146,7 +148,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.Uint(flagChecksumConcurrency, variable.DefChecksumTableConcurrency, "The concurrency of table checksumming")
 	_ = flags.MarkHidden(flagChecksumConcurrency)
 
-	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
+	flags.Uint64(flagRateLimit, unlimited, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
 	flags.Bool(flagRemoveTiFlash, true,
 		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")

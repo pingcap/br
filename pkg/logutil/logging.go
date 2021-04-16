@@ -11,6 +11,7 @@ import (
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -186,3 +187,24 @@ func Keys(keys [][]byte) zap.Field {
 func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
 }
+<<<<<<< HEAD
+=======
+
+var loggerToTerm, _, _ = log.InitLogger(new(log.Config), zap.AddCallerSkip(1))
+
+// WarnTerm put a log both to terminal and to the log file.
+func WarnTerm(message string, fields ...zap.Field) {
+	log.Warn(message, fields...)
+	if loggerToTerm != nil {
+		loggerToTerm.Warn(message, fields...)
+	}
+}
+
+// RedactAny constructs a redacted field that carries an interface{}.
+func RedactAny(fieldKey string, key interface{}) zap.Field {
+	if redact.NeedRedact() {
+		return zap.String(fieldKey, "?")
+	}
+	return zap.Any(fieldKey, key)
+}
+>>>>>>> 0576f071... backup: set concurrency to 1 when ratelimit enabled (#1015)
