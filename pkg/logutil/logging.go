@@ -187,8 +187,6 @@ func Keys(keys [][]byte) zap.Field {
 func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
 }
-<<<<<<< HEAD
-=======
 
 var loggerToTerm, _, _ = log.InitLogger(new(log.Config), zap.AddCallerSkip(1))
 
@@ -207,4 +205,3 @@ func RedactAny(fieldKey string, key interface{}) zap.Field {
 	}
 	return zap.Any(fieldKey, key)
 }
->>>>>>> 0576f071... backup: set concurrency to 1 when ratelimit enabled (#1015)
