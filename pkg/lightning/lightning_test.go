@@ -232,8 +232,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	}
 
 	go func() {
-		err := s.lightning.RunServer()
-		c.Assert(err, IsNil)
+		_ = s.lightning.RunServer()
 	}()
 	time.Sleep(100 * time.Millisecond)
 
