@@ -869,9 +869,11 @@ func (bc *Client) handleFineGrained(
 			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
 
-	// If no progress, backoff 3000ms for debouncing.
-	if !hasProgress && backoffMill < 3000 {
-		backoffMill = 3000
+	// If no progress, backoff 10s for debouncing.
+	// 10s is the default interval o stores sending a heartbeat to the PD.
+	// And is the average new leader election timeout, which would be a reasonable back off time.
+	if !hasProgress && backoffMill < 10000 {
+		backoffMill = 10000
 	}
 	return backoffMill, nil
 }
