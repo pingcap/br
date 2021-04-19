@@ -848,9 +848,11 @@ func (bc *Client) handleFineGrained(
 				backoffMill = shouldBackoff
 			}
 			if response != nil {
-				hasProgress = true
 				respCh <- response
 			}
+			// When meet an error, we need to set hasProgress too, in case of 
+			// overriding the backoffTime of original error.
+			hasProgress = true
 			return nil
 		},
 		func() (backuppb.BackupClient, error) {
