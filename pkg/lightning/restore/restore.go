@@ -914,7 +914,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 	rc.checkpointsWg.Done()
 }
 
-func (rc *Controller) buildRunPeriodicActionAndCancelFunc() (func(context.Context, <-chan struct{}), func()) {
+func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, stop <-chan struct{}) (func(), func()) {
 	cancelFuncs := make([]func(), 0)
 
 	// a nil channel blocks forever.
@@ -934,6 +934,9 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc() (func(context.Contex
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
 		switchModeTicker := time.NewTicker(rc.cfg.Cron.SwitchMode.Duration)
 		cancelFuncs = append(cancelFuncs, switchModeTicker.Stop)
+		cancelFuncs = append(cancelFuncs, func() {
+			_ = rc.switchToNormalMode(ctx)
+		})
 		switchModeChan = switchModeTicker.C
 
 	}
@@ -946,7 +949,7 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc() (func(context.Contex
 		checkQuotaChan = checkQuotaTicker.C
 	}
 
-	return func(ctx context.Context, stop <-chan struct{}) {
+	return func() {
 			// tidb backend don't need to switch tikv to import mode
 			if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
 				rc.switchToImportMode(ctx)
@@ -1112,8 +1115,8 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	var restoreErr common.OnceError
 
 	stopPeriodicActions := make(chan struct{})
-	periodicActions, finishFunc := rc.buildRunPeriodicActionAndCancelFunc()
-	go periodicActions(ctx, stopPeriodicActions)
+	periodicActions, finishFunc := rc.buildRunPeriodicActionAndCancelFunc(ctx, stopPeriodicActions)
+	go periodicActions()
 	finishFuncCalled := false
 	defer func() {
 		if !finishFuncCalled {
