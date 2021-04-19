@@ -807,7 +807,6 @@ func (bc *Client) handleFineGrained(
 		return 0, errors.Trace(pderr)
 	}
 	storeID := leader.GetStoreId()
-	max := 0
 
 	req := backuppb.BackupRequest{
 		ClusterId:        bc.clusterID,
@@ -834,19 +833,22 @@ func (bc *Client) handleFineGrained(
 		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
 		return 0, errors.Annotatef(err, "failed to connect to store %d", storeID)
 	}
+	hasProgress := false
+	backoffMill := 0
 	err = SendBackup(
 		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
 		func(resp *backuppb.BackupResponse) error {
-			response, backoffMs, err1 :=
+			response, shouldBackoff, err1 :=
 				OnBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
-			if max < backoffMs {
-				max = backoffMs
+			if backoffMill < shouldBackoff {
+				backoffMill = shouldBackoff
 			}
 			if response != nil {
+				hasProgress = true
 				respCh <- response
 			}
 			return nil
@@ -866,7 +868,12 @@ func (bc *Client) handleFineGrained(
 		return 0, errors.Annotatef(err, "failed to send fine-grained backup [%s, %s)",
 			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
-	return max, nil
+
+	// If no progress, backoff 3000ms for debouncing.
+	if !hasProgress && backoffMill < 3000 {
+		backoffMill = 3000
+	}
+	return backoffMill, nil
 }
 
 // SendBackup send backup request to the given store.
