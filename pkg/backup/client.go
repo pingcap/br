@@ -870,7 +870,7 @@ func (bc *Client) handleFineGrained(
 	}
 
 	// If no progress, backoff 10s for debouncing.
-	// 10s is the default interval o stores sending a heartbeat to the PD.
+	// 10s is the default interval of stores sending a heartbeat to the PD.
 	// And is the average new leader election timeout, which would be a reasonable back off time.
 	if !hasProgress && backoffMill < 10000 {
 		backoffMill = 10000
