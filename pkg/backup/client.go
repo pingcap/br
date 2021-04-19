@@ -850,7 +850,7 @@ func (bc *Client) handleFineGrained(
 			if response != nil {
 				respCh <- response
 			}
-			// When meet an error, we need to set hasProgress too, in case of 
+			// When meet an error, we need to set hasProgress too, in case of
 			// overriding the backoffTime of original error.
 			hasProgress = true
 			return nil
