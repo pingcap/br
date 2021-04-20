@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -47,6 +48,9 @@ const (
 var (
 	// the max keys count in a batch to split one region
 	maxBatchSplitKeys = 4096
+	// the max total key size in a split region batch.
+	// our threshold should be smaller than TiKV's raft max entry size(default is 8MB).
+	maxBatchSplitSize = 6 * units.MiB
 	// the base exponential backoff time
 	// the variable is only changed in unit test for running test faster.
 	splitRegionBaseBackOffTime = time.Second
@@ -152,6 +156,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 						return bytes.Compare(keys[i], keys[j]) < 0
 					})
 					splitRegion := region
+<<<<<<< HEAD
 					for j := 0; j < (len(keys)+maxBatchSplitKeys-1)/maxBatchSplitKeys; j++ {
 						start := j * maxBatchSplitKeys
 						end := utils.MinInt((j+1)*maxBatchSplitKeys, len(keys))
@@ -176,33 +181,68 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 							} else if common.IsContextCanceledError(err1) {
 								// do not retry on conext.Canceled error
 								return err1
+=======
+					startIdx := 0
+					endIdx := 0
+					batchKeySize := 0
+					for endIdx <= len(keys) {
+						if endIdx == len(keys) || batchKeySize+len(keys[endIdx]) > maxBatchSplitSize || endIdx-startIdx >= maxBatchSplitKeys {
+							splitRegionStart := codec.EncodeBytes([]byte{}, keys[startIdx])
+							splitRegionEnd := codec.EncodeBytes([]byte{}, keys[endIdx-1])
+							if bytes.Compare(splitRegionStart, splitRegion.Region.StartKey) < 0 || !beforeEnd(splitRegionEnd, splitRegion.Region.EndKey) {
+								log.L().Fatal("no valid key in region",
+									logutil.Key("startKey", splitRegionStart), logutil.Key("endKey", splitRegionEnd),
+									logutil.Key("regionStart", splitRegion.Region.StartKey), logutil.Key("regionEnd", splitRegion.Region.EndKey),
+									logutil.Region(splitRegion.Region), logutil.Leader(splitRegion.Leader))
+>>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905)
 							}
-							log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", j+1),
-								zap.Uint64("region_id", region.Region.Id))
+							splitRegion, newRegions, err1 = local.BatchSplitRegions(splitCtx, splitRegion, keys[startIdx:endIdx])
+							if err1 != nil {
+								if strings.Contains(err1.Error(), "no valid key") {
+									for _, key := range keys {
+										log.L().Warn("no valid key",
+											logutil.Key("startKey", region.Region.StartKey),
+											logutil.Key("endKey", region.Region.EndKey),
+											logutil.Key("key", codec.EncodeBytes([]byte{}, key)))
+									}
+									return err1
+								} else if common.IsContextCanceledError(err1) {
+									// do not retry on conext.Canceled error
+									return err1
+								}
+								log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", i),
+									zap.Uint64("region_id", region.Region.Id))
 
-							syncLock.Lock()
-							retryKeys = append(retryKeys, keys[start:]...)
-							// set global error so if we exceed retry limit, the function will return this error
-							if !common.IsContextCanceledError(err1) {
-								err = multierr.Append(err, err1)
+								syncLock.Lock()
+								retryKeys = append(retryKeys, keys[startIdx:]...)
+								// set global error so if we exceed retry limit, the function will return this error
+								if !common.IsContextCanceledError(err1) {
+									err = multierr.Append(err, err1)
+								}
+								syncLock.Unlock()
+								break
+							} else {
+								log.L().Info("batch split region", zap.Uint64("region_id", splitRegion.Region.Id),
+									zap.Int("keys", endIdx-startIdx), zap.Binary("firstKey", keys[startIdx]),
+									zap.Binary("end", keys[endIdx-1]))
+								sort.Slice(newRegions, func(i, j int) bool {
+									return bytes.Compare(newRegions[i].Region.StartKey, newRegions[j].Region.StartKey) < 0
+								})
+								syncLock.Lock()
+								scatterRegions = append(scatterRegions, newRegions...)
+								syncLock.Unlock()
+								// the region with the max start key is the region need to be further split.
+								if bytes.Compare(splitRegion.Region.StartKey, newRegions[len(newRegions)-1].Region.StartKey) < 0 {
+									splitRegion = newRegions[len(newRegions)-1]
+								}
 							}
-							syncLock.Unlock()
-							break
-						} else {
-							log.L().Info("batch split region", zap.Uint64("region_id", splitRegion.Region.Id),
-								zap.Int("keys", end-start), zap.Binary("firstKey", keys[start]),
-								zap.Binary("end", keys[end-1]))
-							sort.Slice(newRegions, func(i, j int) bool {
-								return bytes.Compare(newRegions[i].Region.StartKey, newRegions[j].Region.StartKey) < 0
-							})
-							syncLock.Lock()
-							scatterRegions = append(scatterRegions, newRegions...)
-							syncLock.Unlock()
-							// the region with the max start key is the region need to be further split.
-							if bytes.Compare(splitRegion.Region.StartKey, newRegions[len(newRegions)-1].Region.StartKey) < 0 {
-								splitRegion = newRegions[len(newRegions)-1]
-							}
+							batchKeySize = 0
+							startIdx = endIdx
 						}
+						if endIdx < len(keys) {
+							batchKeySize += len(keys[endIdx])
+						}
+						endIdx++
 					}
 				}
 				return nil
