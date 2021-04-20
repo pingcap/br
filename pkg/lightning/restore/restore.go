@@ -16,6 +16,7 @@ package restore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -83,8 +84,10 @@ const (
 )
 
 const (
-	// CreateBRIESubJobTable stores the per-table sub jobs information used by TiDB Lightning
-	CreateBRIESubJobTable = `CREATE TABLE IF NOT EXISTS mysql.brie_sub_tasks (
+	taskMetaTableName  = "task_meta"
+	tableMetaTableName = "table_meta"
+	// CreateTableMetadataTable stores the per-table sub jobs information used by TiDB Lightning
+	CreateTableMetadataTable = `CREATE TABLE IF NOT EXISTS %s.%s (
 		task_id 			BIGINT(20) UNSIGNED,
 		table_id 			BIGINT(64) NOT NULL,
 		table_name 			VARCHAR(64) NOT NULL,
@@ -98,6 +101,13 @@ const (
 		checksum 			BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		status 				VARCHAR(32) NOT NULL,
 		PRIMARY KEY (table_id, task_id)
+	);`
+	// CreateTaskMetaTable stores the pre-lightning metadata used by TiDB Lightning
+	CreateTaskMetaTable = `CREATE TABLE IF NOT EXISTS %s.%s (
+		task_id BIGINT(20) UNSIGNED NOT NULL,
+		pd_cfgs VARCHAR(2048) NOT NULL DEFAULT '',
+		status  VARCHAR(32) NOT NULL,
+		PRIMARY KEY (task_id)
 	);`
 )
 
@@ -694,8 +704,21 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 
 	// TODO: maybe we should not create this table here since user may not have write permission to the `mysql` db.
 	// ensure meta table exists
-	if err := rc.tidbGlue.GetSQLExecutor().ExecuteWithLog(ctx, CreateBRIESubJobTable, "create meta table", log.L()); err != nil {
-		return errors.Annotate(err, "create meta table failed")
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+		exec := rc.tidbGlue.GetSQLExecutor()
+		logger := log.L()
+		metaDBSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", rc.cfg.App.MetaSchemaName)
+		if err := exec.ExecuteWithLog(ctx, metaDBSQL, "create meta schema", logger); err != nil {
+			return errors.Annotate(err, "create meta schema failed")
+		}
+		taskMetaSQL := fmt.Sprintf(CreateTaskMetaTable, rc.cfg.App.MetaSchemaName, taskMetaTableName)
+		if err := exec.ExecuteWithLog(ctx, taskMetaSQL, "create meta table", log.L()); err != nil {
+			return errors.Annotate(err, "create task meta table failed")
+		}
+		tableMetaSQL := fmt.Sprintf(CreateTableMetadataTable, rc.cfg.App.MetaSchemaName, tableMetaTableName)
+		if err := exec.ExecuteWithLog(ctx, tableMetaSQL, "create meta table", log.L()); err != nil {
+			return errors.Annotate(err, "create table meta table failed")
+		}
 	}
 
 	// Estimate the number of chunks for progress reporting
@@ -945,7 +968,10 @@ func (rc *Controller) listenCheckpointUpdates() {
 	rc.checkpointsWg.Done()
 }
 
-func (rc *Controller) runPeriodicActions(ctx context.Context, stop <-chan struct{}) {
+// buildRunPeriodicActionAndCancelFunc build the runPeriodicAction func and a cancel func
+func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, stop <-chan struct{}) (func(), func(bool)) {
+	cancelFuncs := make([]func(bool), 0)
+
 	// a nil channel blocks forever.
 	// if the cron duration is zero we use the nil channel to skip the action.
 	var logProgressChan <-chan time.Time
@@ -962,127 +988,143 @@ func (rc *Controller) runPeriodicActions(ctx context.Context, stop <-chan struct
 	// tidb backend don't need to switch tikv to import mode
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
 		switchModeTicker := time.NewTicker(rc.cfg.Cron.SwitchMode.Duration)
-		defer switchModeTicker.Stop()
-		switchModeChan = switchModeTicker.C
+		cancelFuncs = append(cancelFuncs, func(bool) { switchModeTicker.Stop() })
+		cancelFuncs = append(cancelFuncs, func(do bool) {
+			if do {
+				if err := rc.switchToNormalMode(ctx); err != nil {
+					log.L().Warn("switch tikv to normal mode failed", zap.Error(err))
+				}
+			}
 
-		rc.switchToImportMode(ctx)
+		})
+		switchModeChan = switchModeTicker.C
 	}
 
 	var checkQuotaChan <-chan time.Time
 	// only local storage has disk quota concern.
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal && rc.cfg.Cron.CheckDiskQuota.Duration > 0 {
 		checkQuotaTicker := time.NewTicker(rc.cfg.Cron.CheckDiskQuota.Duration)
-		defer checkQuotaTicker.Stop()
+		cancelFuncs = append(cancelFuncs, func(bool) { checkQuotaTicker.Stop() })
 		checkQuotaChan = checkQuotaTicker.C
 	}
 
-	start := time.Now()
-	for {
-		select {
-		case <-ctx.Done():
-			log.L().Warn("stopping periodic actions", log.ShortError(ctx.Err()))
-			return
-		case <-stop:
-			log.L().Info("everything imported, stopping periodic actions")
-			return
-
-		case <-switchModeChan:
-			// periodically switch to import mode, as requested by TiKV 3.0
-			rc.switchToImportMode(ctx)
-
-		case <-logProgressChan:
-			// log the current progress periodically, so OPS will know that we're still working
-			nanoseconds := float64(time.Since(start).Nanoseconds())
-			// the estimated chunk is not accurate(likely under estimated), but the actual count is not accurate
-			// before the last table start, so use the bigger of the two should be a workaround
-			estimated := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateEstimated))
-			pending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
-			if estimated < pending {
-				estimated = pending
+	return func() {
+			// tidb backend don't need to switch tikv to import mode
+			if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
+				rc.switchToImportMode(ctx)
 			}
-			finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
-			totalTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
-			completedTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStateCompleted, metric.TableResultSuccess))
-			bytesRead := metric.ReadHistogramSum(metric.RowReadBytesHistogram)
-			engineEstimated := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStateEstimated, metric.TableResultSuccess))
-			enginePending := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStatePending, metric.TableResultSuccess))
-			if engineEstimated < enginePending {
-				engineEstimated = enginePending
-			}
-			engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.TableStateImported, metric.TableResultSuccess))
-			bytesWritten := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateWritten))
-			bytesImported := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateImported))
+			start := time.Now()
+			for {
+				select {
+				case <-ctx.Done():
+					log.L().Warn("stopping periodic actions", log.ShortError(ctx.Err()))
+					return
+				case <-stop:
+					log.L().Info("everything imported, stopping periodic actions")
+					return
 
-			var state string
-			var remaining zap.Field
-			switch {
-			case finished >= estimated:
-				if engineFinished < engineEstimated {
-					state = "importing"
-				} else {
-					state = "post-processing"
+				case <-switchModeChan:
+					// periodically switch to import mode, as requested by TiKV 3.0
+					rc.switchToImportMode(ctx)
+
+				case <-logProgressChan:
+					// log the current progress periodically, so OPS will know that we're still working
+					nanoseconds := float64(time.Since(start).Nanoseconds())
+					// the estimated chunk is not accurate(likely under estimated), but the actual count is not accurate
+					// before the last table start, so use the bigger of the two should be a workaround
+					estimated := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateEstimated))
+					pending := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStatePending))
+					if estimated < pending {
+						estimated = pending
+					}
+					finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
+					totalTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStatePending, metric.TableResultSuccess))
+					completedTables := metric.ReadCounter(metric.TableCounter.WithLabelValues(metric.TableStateCompleted, metric.TableResultSuccess))
+					bytesRead := metric.ReadHistogramSum(metric.RowReadBytesHistogram)
+					engineEstimated := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStateEstimated, metric.TableResultSuccess))
+					enginePending := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.ChunkStatePending, metric.TableResultSuccess))
+					if engineEstimated < enginePending {
+						engineEstimated = enginePending
+					}
+					engineFinished := metric.ReadCounter(metric.ProcessedEngineCounter.WithLabelValues(metric.TableStateImported, metric.TableResultSuccess))
+					bytesWritten := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateWritten))
+					bytesImported := metric.ReadCounter(metric.BytesCounter.WithLabelValues(metric.TableStateImported))
+
+					var state string
+					var remaining zap.Field
+					switch {
+					case finished >= estimated:
+						if engineFinished < engineEstimated {
+							state = "importing"
+						} else {
+							state = "post-processing"
+						}
+					case finished > 0:
+						state = "writing"
+					default:
+						state = "preparing"
+					}
+
+					// since we can't accurately estimate the extra time cost by import after all writing are finished,
+					// so here we use estimatedWritingProgress * 0.8 + estimatedImportingProgress * 0.2 as the total
+					// progress.
+					remaining = zap.Skip()
+					totalPercent := 0.0
+					if finished > 0 {
+						writePercent := math.Min(finished/estimated, 1.0)
+						importPercent := 1.0
+						if bytesWritten > 0 {
+							totalBytes := bytesWritten / writePercent
+							importPercent = math.Min(bytesImported/totalBytes, 1.0)
+						}
+						totalPercent = writePercent*0.8 + importPercent*0.2
+						if totalPercent < 1.0 {
+							remainNanoseconds := (1.0 - totalPercent) / totalPercent * nanoseconds
+							remaining = zap.Duration("remaining", time.Duration(remainNanoseconds).Round(time.Second))
+						}
+					}
+
+					formatPercent := func(finish, estimate float64) string {
+						speed := ""
+						if estimated > 0 {
+							speed = fmt.Sprintf(" (%.1f%%)", finish/estimate*100)
+						}
+						return speed
+					}
+
+					// avoid output bytes speed if there are no unfinished chunks
+					chunkSpeed := zap.Skip()
+					if bytesRead > 0 {
+						chunkSpeed = zap.Float64("speed(MiB/s)", bytesRead/(1048576e-9*nanoseconds))
+					}
+
+					// Note: a speed of 28 MiB/s roughly corresponds to 100 GiB/hour.
+					log.L().Info("progress",
+						zap.String("total", fmt.Sprintf("%.1f%%", totalPercent*100)),
+						// zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
+						zap.String("tables", fmt.Sprintf("%.0f/%.0f%s", completedTables, totalTables, formatPercent(completedTables, totalTables))),
+						zap.String("chunks", fmt.Sprintf("%.0f/%.0f%s", finished, estimated, formatPercent(finished, estimated))),
+						zap.String("engines", fmt.Sprintf("%.f/%.f%s", engineFinished, engineEstimated, formatPercent(engineFinished, engineEstimated))),
+						chunkSpeed,
+						zap.String("state", state),
+						remaining,
+					)
+
+				case <-checkQuotaChan:
+					// verify the total space occupied by sorted-kv-dir is below the quota,
+					// otherwise we perform an emergency import.
+					rc.enforceDiskQuota(ctx)
+
+				case <-glueProgressTicker.C:
+					finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
+					rc.tidbGlue.Record(glue.RecordFinishedChunk, uint64(finished))
 				}
-			case finished > 0:
-				state = "writing"
-			default:
-				state = "preparing"
 			}
-
-			// since we can't accurately estimate the extra time cost by import after all writing are finished,
-			// so here we use estimatedWritingProgress * 0.8 + estimatedImportingProgress * 0.2 as the total
-			// progress.
-			remaining = zap.Skip()
-			totalPercent := 0.0
-			if finished > 0 {
-				writePercent := math.Min(finished/estimated, 1.0)
-				importPercent := 1.0
-				if bytesWritten > 0 {
-					totalBytes := bytesWritten / writePercent
-					importPercent = math.Min(bytesImported/totalBytes, 1.0)
-				}
-				totalPercent = writePercent*0.8 + importPercent*0.2
-				if totalPercent < 1.0 {
-					remainNanoseconds := (1.0 - totalPercent) / totalPercent * nanoseconds
-					remaining = zap.Duration("remaining", time.Duration(remainNanoseconds).Round(time.Second))
-				}
+		}, func(do bool) {
+			for _, f := range cancelFuncs {
+				f(do)
 			}
-
-			formatPercent := func(finish, estimate float64) string {
-				speed := ""
-				if estimated > 0 {
-					speed = fmt.Sprintf(" (%.1f%%)", finish/estimate*100)
-				}
-				return speed
-			}
-
-			// avoid output bytes speed if there are no unfinished chunks
-			chunkSpeed := zap.Skip()
-			if bytesRead > 0 {
-				chunkSpeed = zap.Float64("speed(MiB/s)", bytesRead/(1048576e-9*nanoseconds))
-			}
-
-			// Note: a speed of 28 MiB/s roughly corresponds to 100 GiB/hour.
-			log.L().Info("progress",
-				zap.String("total", fmt.Sprintf("%.1f%%", totalPercent*100)),
-				// zap.String("files", fmt.Sprintf("%.0f/%.0f (%.1f%%)", finished, estimated, finished/estimated*100)),
-				zap.String("tables", fmt.Sprintf("%.0f/%.0f%s", completedTables, totalTables, formatPercent(completedTables, totalTables))),
-				zap.String("chunks", fmt.Sprintf("%.0f/%.0f%s", finished, estimated, formatPercent(finished, estimated))),
-				zap.String("engines", fmt.Sprintf("%.f/%.f%s", engineFinished, engineEstimated, formatPercent(engineFinished, engineEstimated))),
-				chunkSpeed,
-				zap.String("state", state),
-				remaining,
-			)
-
-		case <-checkQuotaChan:
-			// verify the total space occupied by sorted-kv-dir is below the quota,
-			// otherwise we perform an emergency import.
-			rc.enforceDiskQuota(ctx)
-
-		case <-glueProgressTicker.C:
-			finished := metric.ReadCounter(metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished))
-			rc.tidbGlue.Record(glue.RecordFinishedChunk, uint64(finished))
 		}
-	}
 }
 
 var checksumManagerKey struct{}
@@ -1094,6 +1136,10 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// make split region and ingest sst more stable
 	// because importer backend is mostly use for v3.x cluster which doesn't support these api,
 	// so we also don't do this for import backend
+	finishSchedulers := func() {}
+	// if one lightning failed abnormally, and can't determine whether it needs to switch back,
+	// we do not do switch back automatically
+	switchBack := false
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
@@ -1101,17 +1147,52 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
+
+		db, err := rc.tidbGlue.GetDB()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		mgr := taskMetaMgr{
+			pd:         pdController,
+			taskID:     rc.cfg.TaskID,
+			session:    db,
+			schemaName: rc.cfg.App.MetaSchemaName,
+			tableName:  common.UniqueTable(rc.cfg.App.MetaSchemaName, taskMetaTableName),
+		}
+
+		if err = mgr.initTask(ctx); err != nil {
+			return err
+		}
+
 		logTask.Info("removing PD leader&region schedulers")
-		restoreFn, e := pdController.RemoveSchedulers(ctx)
-		defer func() {
-			// use context.Background to make sure this restore function can still be executed even if ctx is canceled
-			if restoreE := restoreFn(context.Background()); restoreE != nil {
-				logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
-				return
+
+		restoreFn, err := mgr.checkAndPausePdSchedulers(ctx)
+		finishSchedulers = func() {
+			if restoreFn != nil {
+				// use context.Background to make sure this restore function can still be executed even if ctx is canceled
+				restoreCtx := context.Background()
+				needSwitchBack, err := mgr.CheckAndFinishRestore(restoreCtx)
+				if err != nil {
+					logTask.Warn("check restore pd schedulers failed", zap.Error(err))
+					return
+				}
+				switchBack = needSwitchBack
+				if needSwitchBack {
+					if restoreE := restoreFn(restoreCtx); restoreE != nil {
+						logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
+					}
+					if cleanupErr := mgr.cleanup(restoreCtx); cleanupErr != nil {
+						logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
+					}
+				}
+
+				logTask.Info("add back PD leader&region schedulers")
 			}
-			logTask.Info("add back PD leader&region schedulers")
-		}()
-		if e != nil {
+
+			pdController.Close()
+		}
+
+		if err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -1131,7 +1212,18 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	var restoreErr common.OnceError
 
 	stopPeriodicActions := make(chan struct{})
-	go rc.runPeriodicActions(ctx, stopPeriodicActions)
+
+	periodicActions, cancelFunc := rc.buildRunPeriodicActionAndCancelFunc(ctx, stopPeriodicActions)
+	go periodicActions()
+	finishFuncCalled := false
+	defer func() {
+		if !finishFuncCalled {
+			finishSchedulers()
+			cancelFunc(switchBack)
+			finishFuncCalled = true
+		}
+	}()
+
 	defer close(stopPeriodicActions)
 
 	taskCh := make(chan task, rc.cfg.App.IndexConcurrency)
@@ -1277,6 +1369,12 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		return err
 	default:
 	}
+
+	// stop periodic tasks for restore table such as pd schedulers and switch-mode tasks.
+	// this can help make cluster switching back to normal state more quickly.
+	finishSchedulers()
+	cancelFunc(switchBack)
+	finishFuncCalled = true
 
 	close(postProcessTaskChan)
 	// TODO: support Lightning via SQL
@@ -2773,9 +2871,10 @@ func (cr *chunkRestore) restore(
 }
 
 type tableMetaMgr struct {
-	session *sql.DB
-	taskID  int64
-	tr      *TableRestore
+	session   *sql.DB
+	taskID    int64
+	tr        *TableRestore
+	tableName string
 }
 
 func (m *tableMetaMgr) InitTableMeta(ctx context.Context) error {
@@ -2784,9 +2883,9 @@ func (m *tableMetaMgr) InitTableMeta(ctx context.Context) error {
 		Logger: m.tr.logger,
 	}
 	// avoid override existing metadata if the meta is already inserted.
-	stmt := `INSERT IGNORE INTO mysql.brie_sub_tasks (task_id, table_id, table_name, status) values (?, ?, ?, ?)`
+	stmt := `INSERT IGNORE INTO ? (task_id, table_id, table_name, status) values (?, ?, ?, ?)`
 	task := m.tr.logger.Begin(zap.DebugLevel, "init table meta")
-	err := exec.Exec(ctx, "init table meta", stmt, m.taskID, m.tr.tableInfo.ID, m.tr.tableName, metaStatusInitial.String())
+	err := exec.Exec(ctx, "init table meta", stmt, m.tableName, m.taskID, m.tr.tableInfo.ID, m.tr.tableName, metaStatusInitial.String())
 	task.End(zap.ErrorLevel, err)
 	return errors.Trace(err)
 }
@@ -2864,8 +2963,8 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 		return nil, 0, errors.Annotate(err, "enable pessimistic transaction failed")
 	}
 	err = exec.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
-		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
+		query := "SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from ? WHERE table_id = ? FOR UPDATE"
+		rows, err := tx.QueryContext(ctx, query, m.tableName, m.tr.tableInfo.ID)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -2959,8 +3058,8 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 			if newRowIDBase == 0 && newStatus < metaStatusRestoreStarted {
 				newStatus = metaStatusRestoreStarted
 			}
-			query = "update mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?"
-			_, err := tx.ExecContext(ctx, query, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, m.taskID)
+			query = "update ? set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?"
+			_, err := tx.ExecContext(ctx, query, m.tableName, newRowIDBase, newRowIDMax, newStatus.String(), m.tr.tableInfo.ID, m.taskID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -3012,9 +3111,9 @@ func (m *tableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *ve
 		DB:     m.session,
 		Logger: m.tr.logger,
 	}
-	query := "update mysql.brie_sub_tasks set total_kvs_base = ?, total_bytes_base = ?, checksum_base = ?, status = ? where table_id = ? and task_id = ?"
+	query := "update ? set total_kvs_base = ?, total_bytes_base = ?, checksum_base = ?, status = ? where table_id = ? and task_id = ?"
 
-	return exec.Exec(ctx, "update base checksum", query, checksum.SumKVS(),
+	return exec.Exec(ctx, "update base checksum", query, m.tableName, checksum.SumKVS(),
 		checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), m.tr.tableInfo.ID, m.taskID)
 }
 
@@ -3023,8 +3122,8 @@ func (m *tableMetaMgr) updateTableStatus(ctx context.Context, status metaStatus)
 		DB:     m.session,
 		Logger: m.tr.logger,
 	}
-	query := "update mysql.brie_sub_tasks set status = ? where table_id = ? and task_id = ?"
-	return exec.Exec(ctx, "update meta status", query, status.String(), m.tr.tableInfo.ID, m.taskID)
+	query := "update ? set status = ? where table_id = ? and task_id = ?"
+	return exec.Exec(ctx, "update meta status", query, m.tableName, status.String(), m.tr.tableInfo.ID, m.taskID)
 }
 
 func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum *verify.KVChecksum) (bool, *verify.KVChecksum, error) {
@@ -3049,8 +3148,8 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 	newStatus := metaStatusChecksuming
 	needChecksum := true
 	err = exec.Transact(ctx, "checksum pre-check", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, total_kvs_base, total_bytes_base, checksum_base, total_kvs, total_bytes, checksum, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE")
-		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
+		query := "SELECT task_id, total_kvs_base, total_bytes_base, checksum_base, total_kvs, total_bytes, checksum, status from ? WHERE table_id = ? FOR UPDATE"
+		rows, err := tx.QueryContext(ctx, query, m.tableName, m.tr.tableInfo.ID)
 		if err != nil {
 			return errors.Annotate(err, "fetch task meta failed")
 		}
@@ -3107,8 +3206,8 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 		rows.Close()
 		closed = true
 
-		query = "update mysql.brie_sub_tasks set total_kvs = ?, total_bytes = ?, checksum = ?, status = ? where table_id = ? and task_id = ?"
-		_, err = tx.ExecContext(ctx, query, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus.String(), m.tr.tableInfo.ID, m.taskID)
+		query = "update ? set total_kvs = ?, total_bytes = ?, checksum = ?, status = ? where table_id = ? and task_id = ?"
+		_, err = tx.ExecContext(ctx, query, m.tableName, checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), newStatus.String(), m.tr.tableInfo.ID, m.taskID)
 		return errors.Annotate(err, "update local checksum failed")
 	})
 	if err != nil {
@@ -3128,6 +3227,264 @@ func (m *tableMetaMgr) FinishTable(ctx context.Context) error {
 		DB:     m.session,
 		Logger: m.tr.logger,
 	}
-	query := "DELETE FROM mysql.brie_sub_tasks where table_id = ? and (status = 'checksuming' or status = 'checksum_skipped')"
-	return exec.Exec(ctx, "clean up metas", query, m.tr.tableInfo.ID)
+	query := "DELETE FROM ? where table_id = ? and (status = 'checksuming' or status = 'checksum_skipped')"
+	return exec.Exec(ctx, "clean up metas", query, m.tableName, m.tr.tableInfo.ID)
+}
+
+type taskMetaMgr struct {
+	session    *sql.DB
+	taskID     int64
+	pd         *pdutil.PdController
+	schemaName string
+	// unique name of task meta table
+	tableName string
+}
+
+func (m *taskMetaMgr) InitTaskMeta(ctx context.Context) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: log.L(),
+	}
+	// avoid override existing metadata if the meta is already inserted.
+	stmt := `INSERT IGNORE INTO ? (task_id, status) values (?, ?)`
+	err := exec.Exec(ctx, "init task meta", stmt, m.tableName, m.taskID, metaStatusInitial.String())
+	return errors.Trace(err)
+}
+
+type taskMetaStatus uint32
+
+const (
+	taskMetaStatusInitial taskMetaStatus = iota
+	taskMetaStatusScheduleSet
+	taskMetaStatusSwitchSkipped
+	taskMetaStatusSwitchBack
+)
+
+func (m taskMetaStatus) String() string {
+	switch m {
+	case taskMetaStatusInitial:
+		return "initialized"
+	case taskMetaStatusScheduleSet:
+		return "schedule_set"
+	case taskMetaStatusSwitchSkipped:
+		return "skip_switch"
+	case taskMetaStatusSwitchBack:
+		return "switched"
+	default:
+		panic(fmt.Sprintf("unexpected metaStatus value '%d'", m))
+	}
+}
+
+func parseTaskMetaStatus(s string) (taskMetaStatus, error) {
+	switch s {
+	case "", "initialized":
+		return taskMetaStatusInitial, nil
+	case "schedule_set":
+		return taskMetaStatusScheduleSet, nil
+	case "skip_switch":
+		return taskMetaStatusSwitchSkipped, nil
+	case "switched":
+		return taskMetaStatusSwitchBack, nil
+	default:
+		return taskMetaStatusInitial, errors.Errorf("invalid meta status '%s'", s)
+	}
+}
+
+type storedCfgs struct {
+	PauseCfg   pdutil.ClusterConfig `json:"paused"`
+	RestoreCFg pdutil.ClusterConfig `json:"restore"`
+}
+
+func (m *taskMetaMgr) initTask(ctx context.Context) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: log.L(),
+	}
+	// avoid override existing metadata if the meta is already inserted.
+	stmt := `INSERT IGNORE INTO ? (task_id, status) values (?, ?)`
+	err := exec.Exec(ctx, "init task meta", stmt, m.tableName, m.taskID, taskMetaStatusInitial.String())
+	return errors.Trace(err)
+}
+
+func (m *taskMetaMgr) checkAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {
+	conn, err := m.session.Conn(ctx)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	defer conn.Close()
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: log.L(),
+	}
+	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
+	if err != nil {
+		return nil, errors.Annotate(err, "enable pessimistic transaction failed")
+	}
+
+	needSwitch := true
+	paused := false
+	var pausedCfg storedCfgs
+	err = exec.Transact(ctx, "check and pause schedulers", func(ctx context.Context, tx *sql.Tx) error {
+		query := "SELECT task_id, pd_cfgs, status from ? FOR UPDATE"
+		rows, err := tx.QueryContext(ctx, query, m.tableName)
+		if err != nil {
+			return errors.Annotate(err, "fetch task meta failed")
+		}
+		closed := false
+		defer func() {
+			if !closed {
+				rows.Close()
+			}
+		}()
+		var (
+			taskID      int64
+			cfg         string
+			statusValue string
+		)
+		var cfgStr string
+		for rows.Next() {
+			if err = rows.Scan(&taskID, &cfg, &statusValue); err != nil {
+				return errors.Trace(err)
+			}
+			status, err := parseTaskMetaStatus(statusValue)
+			if err != nil {
+				return errors.Annotatef(err, "invalid task meta status '%s'", statusValue)
+			}
+
+			if status == taskMetaStatusInitial {
+				continue
+			}
+
+			if taskID == m.taskID {
+				if status >= taskMetaStatusSwitchSkipped {
+					needSwitch = false
+					return nil
+				}
+			}
+
+			if cfg != "" {
+				cfgStr = cfg
+				break
+			}
+		}
+		if err = rows.Close(); err != nil {
+			return errors.Trace(err)
+		}
+		closed = true
+
+		if cfgStr != "" {
+			err = json.Unmarshal([]byte(cfgStr), &pausedCfg)
+			return errors.Trace(err)
+		}
+
+		orig, removed, err := m.pd.RemoveSchedulersAndReturn(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		paused = true
+
+		pausedCfg = storedCfgs{PauseCfg: removed, RestoreCFg: orig}
+		jsonByts, err := json.Marshal(&pausedCfg)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		query = "update ? set pd_cfgs = ?, status = ? where task_id = ?"
+		_, err = tx.ExecContext(ctx, query, m.tableName, string(jsonByts), taskMetaStatusScheduleSet.String(), m.taskID)
+
+		return errors.Annotate(err, "update task pd configs failed")
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if !needSwitch {
+		return nil, nil
+	}
+
+	if !paused {
+		if err = m.pd.RemoveSchedulersWithCfg(ctx, pausedCfg.PauseCfg); err != nil {
+			return nil, err
+		}
+	}
+
+	return m.pd.MakeUndoFunctionByConfig(pausedCfg.RestoreCFg), nil
+}
+
+func (m *taskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
+	conn, err := m.session.Conn(ctx)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+	defer conn.Close()
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: log.L(),
+	}
+	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
+	if err != nil {
+		return false, errors.Annotate(err, "enable pessimistic transaction failed")
+	}
+
+	switchBack := true
+	err = exec.Transact(ctx, "check and finish schedulers", func(ctx context.Context, tx *sql.Tx) error {
+		query := "SELECT task_id, status from ? FOR UPDATE"
+		rows, err := tx.QueryContext(ctx, query, m.tableName)
+		if err != nil {
+			return errors.Annotate(err, "fetch task meta failed")
+		}
+		closed := false
+		defer func() {
+			if !closed {
+				rows.Close()
+			}
+		}()
+		var (
+			taskID      int64
+			statusValue string
+		)
+		newStatus := taskMetaStatusSwitchBack
+		for rows.Next() {
+			if err = rows.Scan(&taskID, &statusValue); err != nil {
+				return errors.Trace(err)
+			}
+			status, err := parseTaskMetaStatus(statusValue)
+			if err != nil {
+				return errors.Annotatef(err, "invalid task meta status '%s'", statusValue)
+			}
+
+			if taskID == m.taskID {
+				continue
+			}
+
+			if status < taskMetaStatusSwitchSkipped {
+				newStatus = taskMetaStatusSwitchSkipped
+				switchBack = false
+				break
+			}
+		}
+		if err = rows.Close(); err != nil {
+			return errors.Trace(err)
+		}
+		closed = true
+
+		query = "update ? set status = ? where task_id = ?"
+		_, err = tx.ExecContext(ctx, query, m.tableName, newStatus.String(), m.taskID)
+
+		return errors.Trace(err)
+	})
+
+	return switchBack, err
+}
+
+func (m *taskMetaMgr) cleanup(ctx context.Context) error {
+	exec := &common.SQLWithRetry{
+		DB:     m.session,
+		Logger: log.L(),
+	}
+	// avoid override existing metadata if the meta is already inserted.
+	if err := exec.Exec(ctx, "cleanup task meta tables", "DROP DATABASE ?;", m.schemaName); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
