@@ -90,7 +90,7 @@ bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
 ## Tiup Quick Start
 
 ```sh
-# Using tiup to start a TiDB cluster.d
+# Using tiup to start a TiDB cluster.
 tiup playgroup
 
 # Using tiup bench to generater test data.
@@ -108,15 +108,16 @@ bin/br backup table --db test \
 					-s local:///mnt/d/backup_test/ \
 					--pd ${PD_ADDR}:2379 \
 					--log-file backup_test.log \
+
 # Let's drop the table.
 mysql -uroot --host 127.0.0.1 -P4000 -E -e "USE test; DROP TABLE order_line; show tables" -u root -p
 
 # Restore from the backup.
 bin/br restore table --db test \
---table oder_line \ 
--s local:///mnt/d/backup_test/ \ 
---pd ${PD_ADDR}:2379 \ 
---log-file restore_test.log
+                     --table oder_line \ 
+                     -s local:///mnt/d/backup_test/ \ 
+                     --pd ${PD_ADDR}:2379 \ 
+                     --log-file restore_test.log
 
 # How many rows do we get after restore? Expected to be 300315 rows.
 mysql --host 127.0.0.1 -P4000 -E -e "SELECT COUNT(*) FROM test.order_line" -uroot -p
