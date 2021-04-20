@@ -71,7 +71,8 @@ const (
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
 
-	defaultMetaSchemaName = "lighting_metadata"
+	// defaultMetaSchemaName is the default database name used to store lightning metadata
+	defaultMetaSchemaName = "lightning_metadata"
 
 	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
 	// millisecond per write thread the local backend may gain on all engines.

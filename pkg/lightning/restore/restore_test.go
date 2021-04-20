@@ -1492,9 +1492,10 @@ func (s *metaMgrSuite) SetUpTest(c *C) {
 	c.Assert(err, IsNil)
 
 	s.mgr = &tableMetaMgr{
-		session: db,
-		taskID:  1,
-		tr:      s.tr,
+		session:   db,
+		taskID:    1,
+		tr:        s.tr,
+		tableName: common.UniqueTable("test", tableMetaTableName),
 	}
 	s.mockDB = m
 	s.checksumMgr = &testChecksumMgr{}
