@@ -852,6 +852,7 @@ func (bc *Client) handleFineGrained(
 			}
 			// When meet an error, we need to set hasProgress too, in case of
 			// overriding the backoffTime of original error.
+			// hasProgress would be false iff there is a early io.EOF from the stream.
 			hasProgress = true
 			return nil
 		},
@@ -874,7 +875,7 @@ func (bc *Client) handleFineGrained(
 	// If no progress, backoff 10s for debouncing.
 	// 10s is the default interval of stores sending a heartbeat to the PD.
 	// And is the average new leader election timeout, which would be a reasonable back off time.
-	if !hasProgress && backoffMill < 10000 {
+	if !hasProgress {
 		backoffMill = 10000
 	}
 	return backoffMill, nil
