@@ -11,7 +11,7 @@ BR_PKG := github.com/pingcap/br
 
 VERSION := v5.0.0-master
 release_version_regex := ^v5\..*$$
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
+release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|*/tags/v[0-9]\.[0-9]\."
 ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 	# If we are in release branch, try to use tag version.
 	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
@@ -126,6 +126,12 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
+compatibility_test_prepare:
+	tests/run_compatible.sh prepare
+
+compatibility_test: br
+	tests/run_compatible.sh run
+
 coverage: tools
 	tools/bin/gocovmerge "$(TEST_DIR)"/cov.* | grep -vE ".*.pb.go|.*__failpoint_binding__.go" > "$(TEST_DIR)/all_cov.out"
 ifeq ("$(JenkinsCI)", "1")
@@ -186,6 +192,8 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
+	@#          errorlint - pingcap/errors is incompatible with std errors.
+	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -206,18 +214,21 @@ static: prepare tools
 		--disable exhaustive \
 		--disable godot \
 		--disable gosec \
-		$$($(PACKAGE_DIRECTORIES) | grep -v "lightning")
+		--disable errorlint \
+		--disable wrapcheck \
+		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
-	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
+	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause|Find".
 	# TODO: check lightning packages.
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --include="*.go" --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" \
 		$$($(PACKAGE_DIRECTORIES) | grep -vE "tests|lightning") | \
-		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled|Find" 2>&1 | $(CHECKER)
 	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
 	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
-	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' | \
+	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' \
+		$$($(PACKAGE_DIRECTORIES)) | \
 		grep -vE "backuppb" | $(CHECKER)
 
 lint: prepare tools

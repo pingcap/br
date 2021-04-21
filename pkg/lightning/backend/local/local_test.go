@@ -25,7 +25,9 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
+	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -40,6 +42,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -74,9 +78,9 @@ func (s *localSuite) TestNextKey(c *C) {
 
 	// test recode key
 	// key with int handle
-	for _, handleId := range []int64{1, 255, math.MaxInt32} {
-		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId))
-		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId+1))))
+	for _, handleID := range []int64{1, 255, math.MaxInt32} {
+		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID))
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID+1))))
 	}
 
 	testDatums := [][]types.Datum{
@@ -320,7 +324,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
 	_, engineUUID := backend.MakeUUID("ww", 0)
-	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
+	f := File{localFileMeta: meta, db: db, UUID: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
@@ -472,11 +476,61 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
+}
+
+func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	glue := mock.NewMockGlue(controller)
+	exec := mock.NewMockSQLExecutor(controller)
+	ctx := context.Background()
+
+	dbMetas := []*mydump.MDDatabaseMeta{
+		{
+			Name: "test",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test",
+					Name:      "t1",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+		{
+			Name: "test1",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test1",
+					Name:      "t",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test1",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+	}
+	checkCtx := &backend.CheckCtx{DBMetas: dbMetas}
+
+	glue.EXPECT().GetSQLExecutor().Return(exec)
+	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
+		Return([][]string{{"db", "tbl"}, {"test", "t1"}, {"test1", "tbl"}}, nil)
+
+	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
+	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
 }
