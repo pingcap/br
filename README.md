@@ -87,7 +87,7 @@ bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
     --s3.endpoint="$S3_ENDPOINT"
 ```
 
-## Tiup Quick Start
+## Quick Start(tiup)
 
 ```sh
 # Using tiup to start a TiDB cluster
