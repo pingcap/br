@@ -131,9 +131,11 @@ type importMutexState uint32
 
 const (
 	importMutexStateImport importMutexState = 1 << iota
-	importMutexStateFlush
 	importMutexStateClose
-	importMutexStateLocalIngest
+	// importMutexStateReadLock is a special state because in this state we lock engine with read lock
+	// and add isImportingAtomic with this value. In other state, we directly store with the state value.
+	// so this must always the last value of this enum.
+	importMutexStateReadLock
 )
 
 // either a sstMeta or a flush message
@@ -235,8 +237,13 @@ func (e *File) getSizeProperties() (*sizeProperties, error) {
 	return sizeProps, nil
 }
 
+func isStateLocked(state importMutexState) bool {
+	return state&(importMutexStateClose|importMutexStateImport) != 0
+}
+
 func (e *File) isLocked() bool {
-	return e.isImportingAtomic.Load() != 0
+	// the engine is locked only in import or close state.
+	return isStateLocked(importMutexState(e.isImportingAtomic.Load()))
 }
 
 func (e *File) getEngineFileSize() backend.EngineFileSize {
@@ -267,16 +274,17 @@ func (e *File) getEngineFileSize() backend.EngineFileSize {
 }
 
 // rLock locks the local file with shard read state. Only used for flush and ingest SST files.
-func (e *File) rLock(state importMutexState) {
+func (e *File) rLock() {
 	e.mutex.RLock()
-	e.isImportingAtomic.Store(uint32(state))
+	e.isImportingAtomic.Add(uint32(importMutexStateReadLock))
 }
 
 func (e *File) rUnlock() {
 	if e == nil {
 		return
 	}
-	e.isImportingAtomic.Store(0)
+
+	e.isImportingAtomic.Sub(uint32(importMutexStateReadLock))
 	e.mutex.RUnlock()
 }
 
@@ -297,14 +305,15 @@ func (e *File) lockUnless(newState, ignoreStateMask importMutexState) bool {
 	return true
 }
 
-// lockUnless tries to lock the local file unless it is already locked into the state given by
+// tryRLock tries to read-lock the local file unless it is already locked into the state given by
 // ignoreStateMask. Returns whether the lock is successful.
-func (e *File) tryRLock(newState importMutexState) bool {
+func (e *File) tryRLock() bool {
 	curState := e.isImportingAtomic.Load()
-	if curState != 0 {
+	// engine is in import/close state.
+	if isStateLocked(importMutexState(curState)) {
 		return false
 	}
-	e.rLock(newState)
+	e.rLock()
 	return true
 }
 
@@ -355,7 +364,8 @@ func (e *File) ingestSSTLoop() {
 	var seqLock sync.Mutex
 	// a flush is finished iff all the compaction&ingest tasks with a lower seq number are finished.
 	flushQueue := make([]flushSeq, 0)
-	// compact seq heap finished with a higher number than running compaction task
+	// inSyncSeqs is a heap that stores all the finished compaction tasks whose seq is bigger than `finishedSeq + 1`
+	// this mean there are still at lease one compaction task with a lower seq unfinished.
 	inSyncSeqs := &intHeap{arr: make([]int32, 0)}
 
 	type metaAndSeq struct {
@@ -409,15 +419,15 @@ func (e *File) ingestSSTLoop() {
 					finSeq := finishedSeq.Load()
 					if metas.seq == finSeq+1 {
 						finSeq = metas.seq
-						if len(inSyncSeqs.arr) > 0 {
-							for inSyncSeqs.arr[0] == finSeq+1 {
+						for len(inSyncSeqs.arr) > 0 {
+							if inSyncSeqs.arr[0] == finSeq+1 {
 								finSeq++
 								heap.Remove(inSyncSeqs, 0)
-								if len(inSyncSeqs.arr) == 0 {
-									break
-								}
+							} else {
+								break
 							}
 						}
+
 						var flushChans []chan struct{}
 						for _, seq := range flushQueue {
 							if seq.seq <= finSeq {
@@ -429,10 +439,8 @@ func (e *File) ingestSSTLoop() {
 						flushQueue = flushQueue[len(flushChans):]
 						finishedSeq.Store(finSeq)
 						seqLock.Unlock()
-						if len(flushChans) > 0 {
-							for _, c := range flushChans {
-								c <- struct{}{}
-							}
+						for _, c := range flushChans {
+							c <- struct{}{}
 						}
 					} else {
 						heap.Push(inSyncSeqs, metas.seq)
@@ -874,10 +882,10 @@ func NewLocalBackend(
 }
 
 // rlock locks a local file and returns the File instance if it exists.
-func (local *local) rLockEngine(engineId uuid.UUID, state importMutexState) *File {
+func (local *local) rLockEngine(engineId uuid.UUID) *File {
 	if e, ok := local.engines.Load(engineId); ok {
 		engine := e.(*File)
-		engine.rLock(state)
+		engine.rLock()
 		return engine
 	}
 	return nil
@@ -893,13 +901,12 @@ func (local *local) lockEngine(engineID uuid.UUID, state importMutexState) *File
 	return nil
 }
 
-// rLockAllEnginesIfNotLock tries to rlock all engines, unless those which are already locked in the
-// state given by ignoreStateMask. Returns the list of locked engines.
-func (local *local) rLockAllEnginesIfNotLock(newState importMutexState) []*File {
+// rLockAllEnginesIfNotLock tries to rlock all engines, unless those which are already read locked.
+func (local *local) rLockAllEnginesIfNotLock() []*File {
 	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
-		if engine.tryRLock(newState) {
+		if engine.tryRLock() {
 			allEngines = append(allEngines, engine)
 		}
 		return true
@@ -989,7 +996,7 @@ func (local *local) Close() {
 
 // FlushEngine ensure the written data is saved successfully, to make sure no data lose after restart
 func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
-	engineFile := local.rLockEngine(engineID, importMutexStateFlush)
+	engineFile := local.rLockEngine(engineID)
 
 	// the engine cannot be deleted after while we've acquired the lock identified by UUID.
 	if engineFile == nil {
@@ -1000,7 +1007,7 @@ func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
 }
 
 func (local *local) FlushAllEngines(parentCtx context.Context) (err error) {
-	allEngines := local.rLockAllEnginesIfNotLock(importMutexStateFlush)
+	allEngines := local.rLockAllEnginesIfNotLock()
 	defer func() {
 		for _, engine := range allEngines {
 			engine.rUnlock()
@@ -1127,7 +1134,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	}
 
 	engineFile := engine.(*File)
-	engineFile.rLock(importMutexStateFlush)
+	engineFile.rLock()
 	err := engineFile.flushEngineWithoutLock(ctx)
 	engineFile.rUnlock()
 	close(engineFile.sstMetasChan)
