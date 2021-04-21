@@ -336,30 +336,52 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	// The number of regions need to backup
-	approximateRegions := 0
-	for _, r := range ranges {
-		var regionCount int
-		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
-		if err != nil {
-			return errors.Trace(err)
+	summary.CollectInt("backup total ranges", len(ranges))
+
+	var RangeUpdateCh glue.Progress
+	var RegionUpdateCh glue.Progress
+	if len(ranges) < 100 {
+		// The number of regions need to backup
+		approximateRegions := 0
+		for _, r := range ranges {
+			var regionCount int
+			regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			approximateRegions += regionCount
 		}
-		approximateRegions += regionCount
+		// Redirect to log if there is no log file to avoid unreadable output.
+		RegionUpdateCh = g.StartProgress(
+			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
+		summary.CollectInt("backup total regions", approximateRegions)
+	} else {
+		// To reduce the costs, we can use the range as unit of progress.
+		RangeUpdateCh = g.StartProgress(
+			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
-	summary.CollectInt("backup total regions", approximateRegions)
+	progressCallBack := func(isRangeUnit bool) {
+		if isRangeUnit && RangeUpdateCh != nil {
+			// if we finish the range backup and we use the range as the unit of progress.
+			RangeUpdateCh.Inc()
+		} else if !isRangeUnit && RegionUpdateCh != nil {
+			// if we finish backup a region to file and we use the region as the unit of progress.
+			RegionUpdateCh.Inc()
+		}
+	}
 
-	// Backup
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := g.StartProgress(
-		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
-
-	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
+	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
-	updateCh.Close()
+	if RangeUpdateCh != nil {
+		RangeUpdateCh.Close()
+	}
+	if RegionUpdateCh != nil {
+		RegionUpdateCh.Close()
+	}
 
 	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
 	if err != nil {
@@ -378,7 +400,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Info("Skip fast checksum")
 		}
 	}
-	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
+	updateCh := g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
 	backupMeta.Schemas, err = schemas.BackupSchemas(
 		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
