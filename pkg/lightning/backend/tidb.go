@@ -51,15 +51,9 @@ type tidbRow string
 type tidbRows []tidbRow
 
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface
-<<<<<<< HEAD:pkg/lightning/backend/tidb.go
-func (row tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
-	for _, r := range row {
-		encoder.AppendString(string(r))
-=======
 func (rows tidbRows) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, r := range rows {
 		encoder.AppendString(redact.String(string(r)))
->>>>>>> 921e0da6... log: delete lightning's redact package (#1003):pkg/lightning/backend/tidb/tidb.go
 	}
 	return nil
 }
