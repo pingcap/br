@@ -38,7 +38,7 @@ Notice BR supports building with Go version `Go >= 1.13`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
-## Quick start
+## Quick start(docker-compose)
 
 ```sh
 # Start TiDB cluster
