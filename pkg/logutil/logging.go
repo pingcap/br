@@ -188,7 +188,6 @@ func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
 }
 
-<<<<<<< HEAD
 var loggerToTerm, _, _ = log.InitLogger(new(log.Config), zap.AddCallerSkip(1))
 
 // WarnTerm put a log both to terminal and to the log file.
@@ -199,8 +198,6 @@ func WarnTerm(message string, fields ...zap.Field) {
 	}
 }
 
-=======
->>>>>>> 921e0da6... log: delete lightning's redact package (#1003)
 // RedactAny constructs a redacted field that carries an interface{}.
 func RedactAny(fieldKey string, key interface{}) zap.Field {
 	if redact.NeedRedact() {
