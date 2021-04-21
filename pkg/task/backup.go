@@ -338,8 +338,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	summary.CollectInt("backup total ranges", len(ranges))
 
-	var RangeUpdateCh glue.Progress
-	var RegionUpdateCh glue.Progress
+	var rangeUpdateCh glue.Progress
+	var regionUpdateCh glue.Progress
 	if len(ranges) < 100 {
 		// The number of regions need to backup
 		approximateRegions := 0
@@ -352,22 +352,27 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			approximateRegions += regionCount
 		}
 		// Redirect to log if there is no log file to avoid unreadable output.
-		RegionUpdateCh = g.StartProgress(
+		regionUpdateCh = g.StartProgress(
 			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 		summary.CollectInt("backup total regions", approximateRegions)
 	} else {
 		// To reduce the costs, we can use the range as unit of progress.
-		RangeUpdateCh = g.StartProgress(
+		rangeUpdateCh = g.StartProgress(
 			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
-	progressCallBack := func(isRangeUnit bool) {
-		if isRangeUnit && RangeUpdateCh != nil {
+	progressCallBack := func(unit backup.ProgressUnit) {
+		switch unit {
+		case backup.RangeUint:
 			// if we finish the range backup and we use the range as the unit of progress.
-			RangeUpdateCh.Inc()
-		} else if !isRangeUnit && RegionUpdateCh != nil {
-			// if we finish backup a region to file and we use the region as the unit of progress.
-			RegionUpdateCh.Inc()
+			if rangeUpdateCh != nil {
+				rangeUpdateCh.Inc()
+			}
+		case backup.RegionUint:
+			if regionUpdateCh != nil {
+				// if we finish backup a region to file and we use the region as the unit of progress.
+				regionUpdateCh.Inc()
+			}
 		}
 	}
 
@@ -376,11 +381,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 	// Backup has finished
-	if RangeUpdateCh != nil {
-		RangeUpdateCh.Close()
+	if rangeUpdateCh != nil {
+		rangeUpdateCh.Close()
 	}
-	if RegionUpdateCh != nil {
-		RegionUpdateCh.Close()
+	if regionUpdateCh != nil {
+		regionUpdateCh.Close()
 	}
 
 	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)

@@ -193,8 +193,8 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
-	progressCallBack := func(isRangeUnit bool) {
-		if isRangeUnit {
+	progressCallBack := func(unit backup.ProgressUnit) {
+		if unit == backup.RangeUint {
 			return
 		}
 		updateCh.Inc()

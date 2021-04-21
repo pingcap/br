@@ -69,6 +69,16 @@ const (
 	backupRetryTimes            = 5
 )
 
+// ProgressUnit represents the unit of progress.
+type ProgressUnit string
+
+const (
+	// RangeUnit represents the progress updated counter when a range finished.
+	RangeUint ProgressUnit = "range"
+	// RegionUnit represents the progress updated counter when a region finished.
+	RegionUint ProgressUnit = "region"
+)
+
 // Client is a client instructs TiKV how to do a backup.
 type Client struct {
 	mgr       ClientMgr
@@ -432,7 +442,7 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
-	progressCallBack func(bool),
+	progressCallBack func(ProgressUnit),
 ) ([]*backuppb.File, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
@@ -500,7 +510,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
-	progressCallBack func(bool),
+	progressCallBack func(ProgressUnit),
 ) (files []*backuppb.File, err error) {
 	start := time.Now()
 	defer func() {
@@ -546,7 +556,7 @@ func (bc *Client) BackupRange(
 	}
 
 	// update progress of range unit
-	progressCallBack(true)
+	progressCallBack(RangeUint)
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
@@ -607,7 +617,7 @@ func (bc *Client) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
-	progressCallBack func(bool),
+	progressCallBack func(ProgressUnit),
 ) error {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.fineGrainedBackup", opentracing.ChildOf(span.Context()))
@@ -704,7 +714,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				progressCallBack(false)
+				progressCallBack(RegionUint)
 			}
 		}
 

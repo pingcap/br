@@ -42,7 +42,7 @@ func (push *pushDown) pushBackup(
 	ctx context.Context,
 	req backuppb.BackupRequest,
 	stores []*metapb.Store,
-	progressCallBack func(bool),
+	progressCallBack func(ProgressUnit),
 ) (rtree.RangeTree, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("pushDown.pushBackup", opentracing.ChildOf(span.Context()))
@@ -119,7 +119,7 @@ func (push *pushDown) pushBackup(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				progressCallBack(false)
+				progressCallBack(RegionUint)
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
