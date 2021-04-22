@@ -71,9 +71,9 @@ const (
 	backupFineGrainedMaxBackoff = 80000
 	backupRetryTimes            = 5
 	// RangeUnit represents the progress updated counter when a range finished.
-	RangeUint ProgressUnit = "range"
+	RangeUnit ProgressUnit = "range"
 	// RegionUnit represents the progress updated counter when a region finished.
-	RegionUint ProgressUnit = "region"
+	RegionUnit ProgressUnit = "region"
 )
 
 // Client is a client instructs TiKV how to do a backup.
