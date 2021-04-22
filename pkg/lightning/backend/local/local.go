@@ -73,7 +73,7 @@ import (
 const (
 	dialTimeout             = 5 * time.Second
 	bigValueSize            = 1 << 16 // 64K
-	maxRetryTimes           = 3
+	maxRetryTimes           = 5
 	defaultRetryBackoffTime = 3 * time.Second
 
 	gRPCKeepAliveTime    = 10 * time.Second
@@ -154,6 +154,7 @@ type File struct {
 	// This should not be used as a "spin lock" indicator.
 	isImportingAtomic atomic.Uint32
 	mutex             sync.Mutex
+	finishedRanges    syncedRanges
 }
 
 func (e *File) Close() error {
@@ -706,7 +707,7 @@ func (local *local) WriteToTiKV(
 	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
-) ([]*sst.SSTMeta, *Range, rangeStats, error) {
+) ([]*sst.SSTMeta, Range, rangeStats, error) {
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
@@ -717,19 +718,19 @@ func (local *local) WriteToTiKV(
 
 	iter.First()
 	if iter.Error() != nil {
-		return nil, nil, stats, errors.Annotate(iter.Error(), "failed to read the first key")
+		return nil, Range{}, stats, errors.Annotate(iter.Error(), "failed to read the first key")
 	}
 	if !iter.Valid() {
 		log.L().Info("keys within region is empty, skip ingest", logutil.Key("start", start),
 			logutil.Key("regionStart", region.Region.StartKey), logutil.Key("end", end),
 			logutil.Key("regionEnd", region.Region.EndKey))
-		return nil, nil, stats, nil
+		return nil, regionRange, stats, nil
 	}
 
 	firstKey := codec.EncodeBytes([]byte{}, iter.Key())
 	iter.Last()
 	if iter.Error() != nil {
-		return nil, nil, stats, errors.Annotate(iter.Error(), "failed to seek to the last key")
+		return nil, Range{}, stats, errors.Annotate(iter.Error(), "failed to seek to the last key")
 	}
 	lastKey := codec.EncodeBytes([]byte{}, iter.Key())
 
@@ -750,12 +751,12 @@ func (local *local) WriteToTiKV(
 	for _, peer := range region.Region.GetPeers() {
 		cli, err := local.getImportClient(ctx, peer)
 		if err != nil {
-			return nil, nil, stats, err
+			return nil, Range{}, stats, err
 		}
 
 		wstream, err := cli.Write(ctx)
 		if err != nil {
-			return nil, nil, stats, errors.Trace(err)
+			return nil, Range{}, stats, errors.Trace(err)
 		}
 
 		// Bind uuid for this write request
@@ -765,7 +766,7 @@ func (local *local) WriteToTiKV(
 			},
 		}
 		if err = wstream.Send(req); err != nil {
-			return nil, nil, stats, errors.Trace(err)
+			return nil, Range{}, stats, errors.Trace(err)
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
@@ -805,7 +806,7 @@ func (local *local) WriteToTiKV(
 			for i := range clients {
 				requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs[:count]
 				if err := clients[i].Send(requests[i]); err != nil {
-					return nil, nil, stats, err
+					return nil, Range{}, stats, errors.Trace(err)
 				}
 			}
 			count = 0
@@ -818,14 +819,14 @@ func (local *local) WriteToTiKV(
 	}
 
 	if iter.Error() != nil {
-		return nil, nil, stats, errors.Trace(iter.Error())
+		return nil, Range{}, stats, errors.Trace(iter.Error())
 	}
 
 	if count > 0 {
 		for i := range clients {
 			requests[i].Chunk.(*sst.WriteRequest_Batch).Batch.Pairs = pairs[:count]
 			if err := clients[i].Send(requests[i]); err != nil {
-				return nil, nil, stats, err
+				return nil, Range{}, stats, errors.Trace(err)
 			}
 		}
 	}
@@ -833,7 +834,7 @@ func (local *local) WriteToTiKV(
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
 		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
-			return nil, nil, stats, closeErr
+			return nil, Range{}, stats, errors.Trace(closeErr)
 		} else if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
 			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
@@ -845,7 +846,7 @@ func (local *local) WriteToTiKV(
 		log.L().Warn("write to tikv no leader", logutil.Region(region.Region), logutil.Leader(region.Leader),
 			zap.Uint64("leader_id", leaderID), logutil.SSTMeta(meta),
 			zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size))
-		return nil, nil, stats, errors.Errorf("write to tikv with no leader returned, region '%d', leader: %d",
+		return nil, Range{}, stats, errors.Errorf("write to tikv with no leader returned, region '%d', leader: %d",
 			region.Region.Id, leaderID)
 	}
 
@@ -855,19 +856,19 @@ func (local *local) WriteToTiKV(
 		zap.Int64("buf_size", bytesBuf.totalSize()),
 		zap.Stringer("takeTime", time.Since(begin)))
 
-	var remainRange *Range
+	finishedRange := regionRange
 	if iter.Valid() && iter.Next() {
 		firstKey := append([]byte{}, iter.Key()...)
-		remainRange = &Range{start: firstKey, end: regionRange.end}
+		finishedRange = Range{start: regionRange.start, end: firstKey}
 		log.L().Info("write to tikv partial finish", zap.Int64("count", totalCount),
 			zap.Int64("size", size), logutil.Key("startKey", regionRange.start), logutil.Key("endKey", regionRange.end),
-			logutil.Key("remainStart", remainRange.start), logutil.Key("remainEnd", remainRange.end),
+			logutil.Key("remainStart", firstKey), logutil.Key("remainEnd", regionRange.end),
 			logutil.Region(region.Region), logutil.Leader(region.Leader))
 	}
 	stats.count = totalCount
 	stats.totalBytes = size
 
-	return leaderPeerMetas, remainRange, stats, nil
+	return leaderPeerMetas, finishedRange, stats, nil
 }
 
 func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split.RegionInfo) (*sst.IngestResponse, error) {
@@ -892,7 +893,7 @@ func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split
 	}
 	resp, err := cli.Ingest(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 	return resp, nil
 }
@@ -903,11 +904,19 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	curKeys := uint64(0)
 	curKey := fullRange.start
 	sizeProps.iter(func(p *rangeProperty) bool {
+		if bytes.Equal(p.Key, engineMetaKey) {
+			return true
+		}
 		curSize += p.Size
 		curKeys += p.Keys
 		if int64(curSize) >= sizeLimit || int64(curKeys) >= keysLimit {
-			ranges = append(ranges, Range{start: curKey, end: p.Key})
-			curKey = p.Key
+			// in case the sizeLimit or keysLimit is too small
+			endKey := p.Key
+			if bytes.Equal(curKey, endKey) {
+				endKey = nextKey(endKey)
+			}
+			ranges = append(ranges, Range{start: curKey, end: endKey})
+			curKey = endKey
 			curSize = 0
 			curKeys = 0
 		}
@@ -1068,7 +1077,6 @@ func (local *local) writeAndIngestByRange(
 	ctxt context.Context,
 	engineFile *File,
 	start, end []byte,
-	remainRanges *syncdRanges,
 ) error {
 	ito := &pebble.IterOptions{
 		LowerBound: start,
@@ -1087,6 +1095,7 @@ func (local *local) writeAndIngestByRange(
 			logutil.Key("start", start),
 			logutil.Key("end", end),
 			logutil.Key("next end", nextKey(end)))
+		engineFile.finishedRanges.add(Range{start: start, end: end})
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
@@ -1127,8 +1136,7 @@ WriteAndIngest:
 				zap.Binary("end", region.Region.GetEndKey()), zap.Reflect("peers", region.Region.GetPeers()))
 
 			w := local.ingestConcurrency.Apply()
-			var rg *Range
-			rg, err = local.writeAndIngestPairs(ctx, engineFile, region, pairStart, end)
+			err = local.writeAndIngestPairs(ctx, engineFile, region, pairStart, end)
 			local.ingestConcurrency.Recycle(w)
 			if err != nil {
 				if common.IsContextCanceledError(err) {
@@ -1144,9 +1152,6 @@ WriteAndIngest:
 				log.L().Info("retry write and ingest kv pairs", logutil.Key("startKey", pairStart),
 					logutil.Key("endKey", end), log.ShortError(err), zap.Int("retry", retry))
 				continue WriteAndIngest
-			}
-			if rg != nil {
-				remainRanges.add(*rg)
 			}
 		}
 
@@ -1169,19 +1174,22 @@ func (local *local) writeAndIngestPairs(
 	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
-) (*Range, error) {
+) error {
 	var err error
-	var remainRange *Range
-	var rangeStats rangeStats
+
 loopWrite:
 	for i := 0; i < maxRetryTimes; i++ {
 		var metas []*sst.SSTMeta
-		metas, remainRange, rangeStats, err = local.WriteToTiKV(ctx, engineFile, region, start, end)
+		var finishedRange Range
+		var rangeStats rangeStats
+		metas, finishedRange, rangeStats, err = local.WriteToTiKV(ctx, engineFile, region, start, end)
 		if err != nil {
-			if !common.IsContextCanceledError(err) {
-				log.L().Warn("write to tikv failed", log.ShortError(err))
+			if common.IsContextCanceledError(err) {
+				return err
 			}
-			return nil, err
+
+			log.L().Warn("write to tikv failed", log.ShortError(err), zap.Int("retry", i))
+			continue loopWrite
 		}
 
 		for _, meta := range metas {
@@ -1219,7 +1227,7 @@ loopWrite:
 				}
 				if err != nil {
 					if common.IsContextCanceledError(err) {
-						return nil, err
+						return err
 					}
 					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMeta(meta),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
@@ -1230,7 +1238,7 @@ loopWrite:
 				var newRegion *split.RegionInfo
 				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
 				if common.IsContextCanceledError(err) {
-					return nil, err
+					return err
 				}
 				if err == nil {
 					// ingest next meta
@@ -1241,7 +1249,7 @@ loopWrite:
 					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMeta(meta),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
 					// met non-retryable error retry whole Write procedure
-					return remainRange, err
+					return err
 				case retryWrite:
 					region = newRegion
 					continue loopWrite
@@ -1257,15 +1265,16 @@ loopWrite:
 				logutil.Region(region.Region), logutil.Key("start", start),
 				logutil.Key("end", end))
 		} else {
+			engineFile.finishedRanges.add(finishedRange)
 			metric.BytesCounter.WithLabelValues(metric.TableStateImported).Add(float64(rangeStats.totalBytes))
 		}
-		return remainRange, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
-	return remainRange, errors.Trace(err)
+	return errors.Trace(err)
 }
 
-func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File, ranges []Range, remainRanges *syncdRanges) error {
+func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File, ranges []Range) error {
 	if engineFile.Length.Load() == 0 {
 		// engine is empty, this is likes because it's a index engine but the table contains no index
 		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.UUID))
@@ -1289,13 +1298,21 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 				wg.Done()
 			}()
 			var err error
+			// max retry backoff time: 2+4+8+16=30s
+			backOffTime := time.Second
 			for i := 0; i < maxRetryTimes; i++ {
-				err = local.writeAndIngestByRange(ctx, engineFile, startKey, endKey, remainRanges)
-				if err == nil || errors.Cause(err) == context.Canceled {
+				err = local.writeAndIngestByRange(ctx, engineFile, startKey, endKey)
+				if err == nil || common.IsContextCanceledError(err) {
 					return
 				}
 				log.L().Warn("write and ingest by range failed",
 					zap.Int("retry time", i+1), log.ShortError(err))
+				backOffTime *= 2
+				select {
+				case <-time.After(backOffTime):
+				case <-ctx.Done():
+					return
+				}
 			}
 
 			allErrLock.Lock()
@@ -1310,28 +1327,21 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 	return allErr
 }
 
-type syncdRanges struct {
+type syncedRanges struct {
 	sync.Mutex
 	ranges []Range
 }
 
-func (r *syncdRanges) add(g Range) {
+func (r *syncedRanges) add(g Range) {
 	r.Lock()
 	r.ranges = append(r.ranges, g)
 	r.Unlock()
 }
 
-func (r *syncdRanges) take() []Range {
+func (r *syncedRanges) reset() {
 	r.Lock()
-	rg := r.ranges
-	r.ranges = []Range{}
+	r.ranges = r.ranges[:0]
 	r.Unlock()
-	if len(rg) > 0 {
-		sort.Slice(rg, func(i, j int) bool {
-			return bytes.Compare(rg[i].start, rg[j].start) < 0
-		})
-	}
-	return rg
 }
 
 func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -1344,7 +1354,6 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 
 	lfTotalSize := lf.TotalSize.Load()
 	lfLength := lf.Length.Load()
-
 	if lfTotalSize == 0 {
 		log.L().Info("engine contains no kv, skip import", zap.Stringer("engine", engineUUID))
 		return nil
@@ -1355,19 +1364,22 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	if err != nil {
 		return err
 	}
-	remains := &syncdRanges{}
 
+	log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
+		zap.Int("ranges", len(ranges)))
 	for {
-		log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
-			zap.Int("ranges", len(ranges)))
+		unfinishedRanges := lf.unfinishedRanges(ranges)
+		if len(unfinishedRanges) == 0 {
+			break
+		}
+		log.L().Info("import engine unfinished ranges", zap.Int("count", len(unfinishedRanges)))
 
 		// if all the kv can fit in one region, skip split regions. TiDB will split one region for
 		// the table when table is created.
-		needSplit := len(ranges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
-
+		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
-			err = local.SplitAndScatterRegionByRanges(ctx, ranges, needSplit)
+			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)
 			if err == nil || common.IsContextCanceledError(err) {
 				break
 			}
@@ -1381,23 +1393,94 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		}
 
 		// start to write to kv and ingest
-		err = local.writeAndIngestByRanges(ctx, lf, ranges, remains)
+		err = local.writeAndIngestByRanges(ctx, lf, unfinishedRanges)
 		if err != nil {
 			log.L().Error("write and ingest engine failed", log.ShortError(err))
 			return err
 		}
-
-		unfinishedRanges := remains.take()
-		if len(unfinishedRanges) == 0 {
-			break
-		}
-		log.L().Info("ingest ranges unfinished", zap.Int("remain ranges", len(unfinishedRanges)))
-		ranges = unfinishedRanges
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
 		zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength))
 	return nil
+}
+
+func (engine *File) unfinishedRanges(ranges []Range) []Range {
+	engine.finishedRanges.Lock()
+	defer engine.finishedRanges.Unlock()
+
+	engine.finishedRanges.ranges = sortAndMergeRanges(engine.finishedRanges.ranges)
+
+	return filterOverlapRange(ranges, engine.finishedRanges.ranges)
+}
+
+// sortAndMergeRanges sort the ranges and merge range that overlaps with each other into a single range.
+func sortAndMergeRanges(ranges []Range) []Range {
+	if len(ranges) == 0 {
+		return ranges
+	}
+
+	sort.Slice(ranges, func(i, j int) bool {
+		return bytes.Compare(ranges[i].start, ranges[j].start) < 0
+	})
+
+	curEnd := ranges[0].end
+	i := 0
+	for j := 1; j < len(ranges); j++ {
+		if bytes.Compare(curEnd, ranges[j].start) >= 0 {
+			if bytes.Compare(curEnd, ranges[j].end) < 0 {
+				curEnd = ranges[j].end
+			}
+		} else {
+			ranges[i].end = curEnd
+			i++
+			ranges[i].start = ranges[j].start
+			curEnd = ranges[j].end
+		}
+	}
+	ranges[i].end = curEnd
+	return ranges[:i+1]
+}
+
+func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
+	if len(finishedRanges) == 0 {
+		return ranges
+	}
+
+	result := make([]Range, 0, len(ranges))
+	rIdx := 0
+	fIdx := 0
+	for rIdx < len(ranges) && fIdx < len(finishedRanges) {
+		if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].start) <= 0 {
+			result = append(result, ranges[rIdx])
+			rIdx++
+		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].end) >= 0 {
+			fIdx++
+		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].start) < 0 {
+			result = append(result, Range{start: ranges[rIdx].start, end: finishedRanges[fIdx].start})
+			switch bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) {
+			case -1:
+				rIdx++
+			case 0:
+				rIdx++
+				fIdx++
+			case 1:
+				ranges[rIdx].start = finishedRanges[fIdx].end
+				fIdx++
+			}
+		} else if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) > 0 {
+			ranges[rIdx].start = finishedRanges[fIdx].end
+			fIdx++
+		} else {
+			rIdx++
+		}
+	}
+
+	if rIdx < len(ranges) {
+		result = append(result, ranges[rIdx:]...)
+	}
+
+	return result
 }
 
 func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -1419,6 +1502,8 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 		localEngine.db = db
 		localEngine.localFileMeta = localFileMeta{}
 	}
+	localEngine.finishedRanges.reset()
+
 	return err
 }
 
