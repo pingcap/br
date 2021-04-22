@@ -25,7 +25,9 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
+	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -40,6 +42,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -74,9 +78,9 @@ func (s *localSuite) TestNextKey(c *C) {
 
 	// test recode key
 	// key with int handle
-	for _, handleId := range []int64{1, 255, math.MaxInt32} {
-		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId))
-		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId+1))))
+	for _, handleID := range []int64{1, 255, math.MaxInt32} {
+		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID))
+		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID+1))))
 	}
 
 	testDatums := [][]types.Datum{
@@ -320,7 +324,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
 	_, engineUUID := backend.MakeUUID("ww", 0)
-	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
+	f := File{localFileMeta: meta, db: db, UUID: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
@@ -472,11 +476,143 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
+}
+
+func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	glue := mock.NewMockGlue(controller)
+	exec := mock.NewMockSQLExecutor(controller)
+	ctx := context.Background()
+
+	dbMetas := []*mydump.MDDatabaseMeta{
+		{
+			Name: "test",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test",
+					Name:      "t1",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+		{
+			Name: "test1",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test1",
+					Name:      "t",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test1",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+	}
+	checkCtx := &backend.CheckCtx{DBMetas: dbMetas}
+
+	glue.EXPECT().GetSQLExecutor().Return(exec)
+	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
+		Return([][]string{{"db", "tbl"}, {"test", "t1"}, {"test1", "tbl"}}, nil)
+
+	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
+	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
+}
+
+func makeRanges(input []string) []Range {
+	ranges := make([]Range, 0, len(input)/2)
+	for i := 0; i < len(input)-1; i += 2 {
+		ranges = append(ranges, Range{start: []byte(input[i]), end: []byte(input[i+1])})
+	}
+	return ranges
+}
+
+func (s *localSuite) TestDedupAndMergeRanges(c *C) {
+	cases := [][]string{
+		// empty
+		{},
+		{},
+		// without overlap
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		// merge all as one
+		{"1", "12", "12", "13", "13", "14", "14", "15", "15", "999"},
+		{"1", "999"},
+		// overlap
+		{"1", "12", "12", "13", "121", "129", "122", "133", "14", "15", "15", "999"},
+		{"1", "133", "14", "999"},
+
+		// out of order, same as test 3
+		{"15", "999", "1", "12", "121", "129", "12", "13", "122", "133", "14", "15"},
+		{"1", "133", "14", "999"},
+
+		// not continuous
+		{"000", "001", "002", "004", "100", "108", "107", "200", "255", "300"},
+		{"000", "001", "002", "004", "100", "200", "255", "300"},
+	}
+
+	for i := 0; i < len(cases)-1; i += 2 {
+		input := makeRanges(cases[i])
+		output := makeRanges(cases[i+1])
+
+		c.Assert(sortAndMergeRanges(input), DeepEquals, output)
+	}
+}
+
+func (s *localSuite) TestFilterOverlapRange(c *C) {
+	cases := [][]string{
+		// both empty input
+		{},
+		{},
+		{},
+
+		// ranges are empty
+		{},
+		{"0", "1"},
+		{},
+
+		// finished ranges are empty
+		{"0", "1", "2", "3"},
+		{},
+		{"0", "1", "2", "3"},
+
+		// single big finished range
+		{"00", "10", "20", "30", "40", "50", "60", "70"},
+		{"25", "65"},
+		{"00", "10", "20", "25", "65", "70"},
+
+		// single big input
+		{"10", "99"},
+		{"00", "10", "15", "30", "45", "60"},
+		{"10", "15", "30", "45", "60", "99"},
+
+		// multi input and finished
+		{"00", "05", "05", "10", "10", "20", "30", "45", "50", "70", "70", "90"},
+		{"07", "12", "14", "16", "17", "30", "45", "70"},
+		{"00", "05", "05", "07", "12", "14", "16", "17", "30", "45", "70", "90"},
+	}
+
+	for i := 0; i < len(cases)-2; i += 3 {
+		input := makeRanges(cases[i])
+		finished := makeRanges(cases[i+1])
+		output := makeRanges(cases[i+2])
+
+		c.Assert(filterOverlapRange(input, finished), DeepEquals, output)
+	}
 }

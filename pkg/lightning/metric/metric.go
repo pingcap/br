@@ -197,6 +197,7 @@ var (
 	)
 )
 
+//nolint:gochecknoinits // TODO: refactor
 func init() {
 	prometheus.MustRegister(IdleWorkersGauge)
 	prometheus.MustRegister(ImporterEngineCounter)
