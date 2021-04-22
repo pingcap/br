@@ -553,7 +553,7 @@ func (bc *Client) BackupRange(
 	}
 
 	// update progress of range unit
-	progressCallBack(RangeUint)
+	progressCallBack(RangeUnit)
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
@@ -711,7 +711,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				progressCallBack(RegionUint)
+				progressCallBack(RegionUnit)
 			}
 		}
 

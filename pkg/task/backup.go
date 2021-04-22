@@ -4,6 +4,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -361,17 +364,38 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
+	progressCount := 0
+	failpointInjectFn := func(unit backup.ProgressUnit) {
+		failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+			progressCount ++
+			log.Info("failpoint progress-call-back injected")
+			if fileName, ok := v.(string); ok {
+				f, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND, 0666)
+				if err != nil {
+					log.Warn("failed to create file", zap.Error(err))
+				}
+				msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
+				_, err = f.Write(msg)
+				if err != nil {
+					log.Warn("failed to write data to file", zap.Error(err))
+				}
+			}
+		})
+	}
+
 	progressCallBack := func(unit backup.ProgressUnit) {
 		switch unit {
-		case backup.RangeUint:
+		case backup.RangeUnit:
 			// if we finish the range backup and we use the range as the unit of progress.
 			if rangeUpdateCh != nil {
 				rangeUpdateCh.Inc()
+				failpointInjectFn(unit)
 			}
-		case backup.RegionUint:
+		case backup.RegionUnit:
 			if regionUpdateCh != nil {
 				// if we finish backup a region to file and we use the region as the unit of progress.
 				regionUpdateCh.Inc()
+				failpointInjectFn(unit)
 			}
 		}
 	}

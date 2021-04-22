@@ -17,6 +17,9 @@ set -eu
 DB="$TEST_NAME"
 TABLES_COUNT=300
 
+PROGRESS_FILE="$TEST_DIR/progress_file"
+rm -rf $PROGRESS_FILE
+
 run_sql "create schema $DB;"
 
 # generate 300 tables with 1 row content.
@@ -29,7 +32,22 @@ done
 
 # backup db
 echo "backup start..."
+
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=1*return(\"$PROGRESS_FILE\")"
 run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+export GO_FAILPOINTS=""
+
+if [ grep -q "range" $PROGRESS_FILE ]
+then
+  echo "use the correct progress unit"
+  total=awk -F ":" '{sum+=$1;}END{print sum;}' $PROGRESS_FILE
+  echo total
+else
+  echo "use the wrong progress unit, expect range"
+  exit 1
+fi
+
+rm -rf $PROGRESS_FILE
 
 # truncate every table
 # (FIXME: drop instead of truncate. if we drop then create-table will still be executed and wastes time executing DDLs)

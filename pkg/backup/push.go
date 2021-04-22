@@ -119,7 +119,7 @@ func (push *pushDown) pushBackup(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				progressCallBack(RegionUint)
+				progressCallBack(RegionUnit)
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
