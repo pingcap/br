@@ -12,9 +12,7 @@ import (
 	"github.com/pingcap/log"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
-
 	"github.com/pingcap/kvproto/pkg/metapb"
-
 	"github.com/coreos/go-semver/semver"
 	"github.com/pingcap/errors"
 
