@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/logutil"
-	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -16,6 +13,10 @@ import (
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
+
+	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // RestoreSystemSchemas restores the system schema(i.e. the `mysql` schema).
