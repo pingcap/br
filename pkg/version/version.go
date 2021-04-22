@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/coreos/go-semver/semver"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
-	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/coreos/go-semver/semver"
-	"github.com/pingcap/errors"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/version/build"
