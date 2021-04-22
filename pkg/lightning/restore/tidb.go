@@ -31,7 +31,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/glue"
 
-	. "github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -236,22 +236,28 @@ func LoadSchemaInfo(
 	ctx context.Context,
 	schemas []*mydump.MDDatabaseMeta,
 	getTables func(context.Context, string) ([]*model.TableInfo, error),
-) (map[string]*TidbDBInfo, error) {
-	result := make(map[string]*TidbDBInfo, len(schemas))
+) (map[string]*checkpoints.TidbDBInfo, error) {
+	result := make(map[string]*checkpoints.TidbDBInfo, len(schemas))
 	for _, schema := range schemas {
 		tables, err := getTables(ctx, schema.Name)
 		if err != nil {
 			return nil, err
 		}
 
-		dbInfo := &TidbDBInfo{
-			Name:   schema.Name,
-			Tables: make(map[string]*TidbTableInfo),
+		tableMap := make(map[string]*model.TableInfo, len(tables))
+		for _, tbl := range tables {
+			tableMap[tbl.Name.L] = tbl
 		}
 
-		for _, tbl := range tables {
-			tableName := tbl.Name.String()
-			if tbl.State != model.StatePublic {
+		dbInfo := &checkpoints.TidbDBInfo{
+			Name:   schema.Name,
+			Tables: make(map[string]*checkpoints.TidbTableInfo),
+		}
+
+		for _, tbl := range schema.Tables {
+			tblInfo := tableMap[strings.ToLower(tbl.Name)]
+			tableName := tblInfo.Name.String()
+			if tblInfo.State != model.StatePublic {
 				err := errors.Errorf("table [%s.%s] state is not public", schema.Name, tableName)
 				metric.RecordTableCount(metric.TableStatePending, err)
 				return nil, err
@@ -260,11 +266,11 @@ func LoadSchemaInfo(
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			tableInfo := &TidbTableInfo{
-				ID:   tbl.ID,
+			tableInfo := &checkpoints.TidbTableInfo{
+				ID:   tblInfo.ID,
 				DB:   schema.Name,
 				Name: tableName,
-				Core: tbl,
+				Core: tblInfo,
 			}
 			dbInfo.Tables[tableName] = tableInfo
 		}

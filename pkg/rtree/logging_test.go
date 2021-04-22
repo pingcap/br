@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -38,7 +38,7 @@ func (s *testLoggingSuite) TestLogRanges(c *C) {
 		ranges := make([]rtree.Range, cs.count)
 		for j := 0; j < cs.count; j++ {
 			ranges[j] = *newRange([]byte(fmt.Sprintf("%d", j)), []byte(fmt.Sprintf("%d", j+1)))
-			ranges[j].Files = append(ranges[j].Files, &backup.File{TotalKvs: uint64(j), TotalBytes: uint64(j)})
+			ranges[j].Files = append(ranges[j].Files, &backuppb.File{TotalKvs: uint64(j), TotalBytes: uint64(j)})
 		}
 		out, err := encoder.EncodeEntry(zapcore.Entry{}, []zap.Field{rtree.ZapRanges(ranges)})
 		c.Assert(err, IsNil)

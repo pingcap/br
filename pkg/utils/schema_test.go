@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
@@ -17,8 +17,8 @@ type testSchemaSuite struct{}
 
 var _ = Suite(&testSchemaSuite{})
 
-func mockBackupMeta(mockSchemas []*backup.Schema, mockFiles []*backup.File) *backup.BackupMeta {
-	return &backup.BackupMeta{
+func mockBackupMeta(mockSchemas []*backuppb.Schema, mockFiles []*backuppb.File) *backuppb.BackupMeta {
+	return &backuppb.BackupMeta{
 		Files:   mockFiles,
 		Schemas: mockSchemas,
 	}
@@ -50,7 +50,7 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 	statsBytes, err := json.Marshal(mockStats)
 	c.Assert(err, IsNil)
 
-	mockSchemas := []*backup.Schema{
+	mockSchemas := []*backuppb.Schema{
 		{
 			Db:    dbBytes,
 			Table: tblBytes,
@@ -58,7 +58,7 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 		},
 	}
 
-	mockFiles := []*backup.File{
+	mockFiles := []*backuppb.File{
 		// should include 1.sst
 		{
 			Name:     "1.sst",
@@ -115,7 +115,7 @@ func (r *testSchemaSuite) TestLoadBackupMetaPartionTable(c *C) {
 	statsBytes, err := json.Marshal(mockStats)
 	c.Assert(err, IsNil)
 
-	mockSchemas := []*backup.Schema{
+	mockSchemas := []*backuppb.Schema{
 		{
 			Db:    dbBytes,
 			Table: tblBytes,
@@ -123,7 +123,7 @@ func (r *testSchemaSuite) TestLoadBackupMetaPartionTable(c *C) {
 		},
 	}
 
-	mockFiles := []*backup.File{
+	mockFiles := []*backuppb.File{
 		// should include 1.sst - 3.sst
 		{
 			Name:     "1.sst",
@@ -166,7 +166,7 @@ func (r *testSchemaSuite) TestLoadBackupMetaPartionTable(c *C) {
 	c.Assert(contains("3.sst"), IsTrue)
 }
 
-func buildTableAndFiles(name string, tableID, fileCount int) (*model.TableInfo, []*backup.File) {
+func buildTableAndFiles(name string, tableID, fileCount int) (*model.TableInfo, []*backuppb.File) {
 	tblName := model.NewCIStr(name)
 	tblID := int64(tableID)
 	mockTbl := &model.TableInfo{
@@ -174,9 +174,9 @@ func buildTableAndFiles(name string, tableID, fileCount int) (*model.TableInfo, 
 		Name: tblName,
 	}
 
-	mockFiles := make([]*backup.File, 0, fileCount)
+	mockFiles := make([]*backuppb.File, 0, fileCount)
 	for i := 0; i < fileCount; i++ {
-		mockFiles = append(mockFiles, &backup.File{
+		mockFiles = append(mockFiles, &backuppb.File{
 			Name:     fmt.Sprintf("%d-%d.sst", tableID, i),
 			StartKey: tablecodec.EncodeRowKey(tblID, []byte(fmt.Sprintf("%09d", i))),
 			EndKey:   tablecodec.EncodeRowKey(tblID, []byte(fmt.Sprintf("%09d", i+1))),
@@ -185,9 +185,9 @@ func buildTableAndFiles(name string, tableID, fileCount int) (*model.TableInfo, 
 	return mockTbl, mockFiles
 }
 
-func buildBenchmarkBackupmeta(c *C, dbName string, tableCount, fileCountPerTable int) *backup.BackupMeta {
-	mockFiles := make([]*backup.File, 0, tableCount*fileCountPerTable)
-	mockSchemas := make([]*backup.Schema, 0, tableCount)
+func buildBenchmarkBackupmeta(c *C, dbName string, tableCount, fileCountPerTable int) *backuppb.BackupMeta {
+	mockFiles := make([]*backuppb.File, 0, tableCount*fileCountPerTable)
+	mockSchemas := make([]*backuppb.Schema, 0, tableCount)
 	for i := 1; i <= tableCount; i++ {
 		mockTbl, files := buildTableAndFiles(fmt.Sprintf("mock%d", i), i, fileCountPerTable)
 		mockFiles = append(mockFiles, files...)
@@ -203,7 +203,7 @@ func buildBenchmarkBackupmeta(c *C, dbName string, tableCount, fileCountPerTable
 		c.Assert(err, IsNil)
 		tblBytes, err := json.Marshal(mockTbl)
 		c.Assert(err, IsNil)
-		mockSchemas = append(mockSchemas, &backup.Schema{
+		mockSchemas = append(mockSchemas, &backuppb.Schema{
 			Db:    dbBytes,
 			Table: tblBytes,
 		})

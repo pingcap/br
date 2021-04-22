@@ -2,6 +2,7 @@
 backend = 'local'
 disk-quota = '75MB'
 max-kv-pairs = 50
+local-writer-mem-cache-size = '75MB'
 
 [cron]
 check-disk-quota = '1s'

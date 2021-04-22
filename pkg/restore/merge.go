@@ -5,20 +5,20 @@ package restore
 import (
 	"strings"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/tablecodec"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
 	// DefaultMergeRegionSizeBytes is the default region split size, 96MB.
 	// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
-	DefaultMergeRegionSizeBytes uint64 = 96 * utils.MB
+	DefaultMergeRegionSizeBytes uint64 = 96 * units.MB
 
 	// DefaultMergeRegionKeyCount is the default region key count, 960000.
 	DefaultMergeRegionKeyCount uint64 = 960000
@@ -46,7 +46,7 @@ type MergeRangesStat struct {
 // By merging small ranges, it speeds up restoring a backup that contains many
 // small ranges (regions) as it reduces split region and scatter region.
 func MergeFileRanges(
-	files []*kvproto.File, splitSizeBytes, splitKeyCount uint64,
+	files []*backuppb.File, splitSizeBytes, splitKeyCount uint64,
 ) ([]rtree.Range, *MergeRangesStat, error) {
 	if len(files) == 0 {
 		return []rtree.Range{}, &MergeRangesStat{}, nil
@@ -57,7 +57,7 @@ func MergeFileRanges(
 	writeCFFile := 0
 	defaultCFFile := 0
 
-	filesMap := make(map[string][]*kvproto.File)
+	filesMap := make(map[string][]*backuppb.File)
 	for _, file := range files {
 		filesMap[string(file.StartKey)] = append(filesMap[string(file.StartKey)], file)
 

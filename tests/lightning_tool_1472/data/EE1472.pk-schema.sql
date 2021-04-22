@@ -1,3 +1,3 @@
 create table `pk` (
-    a tinyint primary key auto_increment
+    a tinyint primary key clustered auto_increment
 );

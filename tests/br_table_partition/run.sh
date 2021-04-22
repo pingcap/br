@@ -19,9 +19,6 @@ TABLE="usertable"
 TABLE_COUNT=16
 PATH="tests/$TEST_NAME:bin:$PATH"
 
-run_sql "set @@global.tidb_enable_table_partition ='nightly'"
-sleep 3
-
 echo "load data..."
 DB=$DB TABLE=$TABLE TABLE_COUNT=$TABLE_COUNT prepare.sh
 

@@ -13,15 +13,18 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/client"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -39,7 +42,7 @@ const (
 	s3ProviderOption     = "s3.provider"
 	notFound             = "NotFound"
 	// number of retries to make of operations.
-	maxRetries = 6
+	maxRetries = 7
 	// max number of retries when meets error
 	maxErrorRetries = 3
 
@@ -54,7 +57,7 @@ const (
 type S3Storage struct {
 	session *session.Session
 	svc     s3iface.S3API
-	options *backup.S3
+	options *backuppb.S3
 }
 
 // S3Uploader does multi-part upload to s3.
@@ -116,8 +119,8 @@ type S3BackendOptions struct {
 	UseAccelerateEndpoint bool   `json:"use-accelerate-endpoint" toml:"use-accelerate-endpoint"`
 }
 
-// Apply apply s3 options on backup.S3.
-func (options *S3BackendOptions) Apply(s3 *backup.S3) error {
+// Apply apply s3 options on backuppb.S3.
+func (options *S3BackendOptions) Apply(s3 *backuppb.S3) error {
 	if options.Region == "" {
 		options.Region = "us-east-1"
 	}
@@ -209,7 +212,7 @@ func (options *S3BackendOptions) parseFromFlags(flags *pflag.FlagSet) error {
 }
 
 // NewS3StorageForTest creates a new S3Storage for testing only.
-func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
+func NewS3StorageForTest(svc s3iface.S3API, options *backuppb.S3) *S3Storage {
 	return &S3Storage{
 		session: nil,
 		svc:     svc,
@@ -221,7 +224,7 @@ func NewS3StorageForTest(svc s3iface.S3API, options *backup.S3) *S3Storage {
 //
 // Deprecated: Create the storage via `New()` instead of using this.
 func NewS3Storage( // revive:disable-line:flag-parameter
-	backend *backup.S3,
+	backend *backuppb.S3,
 	sendCredential bool,
 ) (*S3Storage, error) {
 	return newS3Storage(backend, &ExternalStorageOptions{
@@ -230,12 +233,12 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	})
 }
 
-func newS3Storage(backend *backup.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
+func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storage, error) {
 	qs := *backend
 	awsConfig := aws.NewConfig().
-		WithMaxRetries(maxRetries).
 		WithS3ForcePathStyle(qs.ForcePathStyle).
 		WithRegion(qs.Region)
+	request.WithRetryer(awsConfig, defaultS3Retryer())
 	if qs.Endpoint != "" {
 		awsConfig.WithEndpoint(qs.Endpoint)
 	}
@@ -670,4 +673,27 @@ func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWrite
 	}
 	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
 	return uploaderWriter, nil
+}
+
+// retryerWithLog wrappes the client.DefaultRetryer, and logging when retry triggered.
+type retryerWithLog struct {
+	client.DefaultRetryer
+}
+
+func (rl retryerWithLog) RetryRules(r *request.Request) time.Duration {
+	backoffTime := rl.DefaultRetryer.RetryRules(r)
+	if backoffTime > 0 {
+		log.Warn("failed to request s3, retrying", zap.Error(r.Error), zap.Duration("backoff", backoffTime))
+	}
+	return backoffTime
+}
+
+func defaultS3Retryer() request.Retryer {
+	return retryerWithLog{
+		DefaultRetryer: client.DefaultRetryer{
+			NumMaxRetries:    maxRetries,
+			MinRetryDelay:    1 * time.Second,
+			MinThrottleDelay: 2 * time.Second,
+		},
+	}
 }

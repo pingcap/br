@@ -116,7 +116,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 
 	ts, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
 	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
-	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Domain, lastTS, ts)
+	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Storage, lastTS, ts)
 	c.Assert(err, IsNil, Commentf("Error get ddl jobs: %s", err))
 	infoSchema, err := s.mock.Domain.GetSnapshotInfoSchema(ts)
 	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))

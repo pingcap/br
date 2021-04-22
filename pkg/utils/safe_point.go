@@ -74,13 +74,11 @@ func CheckGCSafePoint(ctx context.Context, pdClient pd.Client, ts uint64) error 
 	return nil
 }
 
-// UpdateServiceSafePoint register BackupTS to PD, to lock down BackupTS as safePoint with TTL seconds.
-func UpdateServiceSafePoint(ctx context.Context, pdClient pd.Client, sp BRServiceSafePoint) error {
-	log.Debug("update PD safePoint limit with TTL",
-		zap.Object("safePoint", sp))
+// updateServiceSafePoint register BackupTS to PD, to lock down BackupTS as safePoint with TTL seconds.
+func updateServiceSafePoint(ctx context.Context, pdClient pd.Client, sp BRServiceSafePoint) error {
+	log.Debug("update PD safePoint limit with TTL", zap.Object("safePoint", sp))
 
-	lastSafePoint, err := pdClient.UpdateServiceGCSafePoint(ctx,
-		sp.ID, sp.TTL, sp.BackupTS-1)
+	lastSafePoint, err := pdClient.UpdateServiceGCSafePoint(ctx, sp.ID, sp.TTL, sp.BackupTS-1)
 	if lastSafePoint > sp.BackupTS-1 {
 		log.Warn("service GC safe point lost, we may fail to back up if GC lifetime isn't long enough",
 			zap.Uint64("lastSafePoint", lastSafePoint),
@@ -96,27 +94,23 @@ func StartServiceSafePointKeeper(
 	ctx context.Context,
 	pdClient pd.Client,
 	sp BRServiceSafePoint,
-) {
+) error {
+	if sp.ID == "" || sp.TTL <= 0 {
+		return errors.Annotatef(berrors.ErrInvalidArgument, "invalid service safe point %v", sp)
+	}
+	if err := CheckGCSafePoint(ctx, pdClient, sp.BackupTS); err != nil {
+		return errors.Trace(err)
+	}
+	// Update service safe point immediately to cover the gap between starting
+	// update goroutine and updating service safe point.
+	if err := updateServiceSafePoint(ctx, pdClient, sp); err != nil {
+		return errors.Trace(err)
+	}
+
 	// It would be OK since TTL won't be zero, so gapTime should > `0.
 	updateGapTime := time.Duration(sp.TTL) * time.Second / preUpdateServiceSafePointFactor
-	update := func(ctx context.Context) {
-		if err := UpdateServiceSafePoint(ctx, pdClient, sp); err != nil {
-			log.Warn("failed to update service safe point, backup may fail if gc triggered",
-				zap.Error(err),
-			)
-		}
-	}
-	check := func(ctx context.Context) {
-		if err := CheckGCSafePoint(ctx, pdClient, sp.BackupTS); err != nil {
-			log.Panic("cannot pass gc safe point check, aborting",
-				zap.Error(err),
-				zap.Object("safePoint", sp),
-			)
-		}
-	}
 	updateTick := time.NewTicker(updateGapTime)
 	checkTick := time.NewTicker(checkGCSafePointGapTime)
-	update(ctx)
 	go func() {
 		defer updateTick.Stop()
 		defer checkTick.Stop()
@@ -126,10 +120,20 @@ func StartServiceSafePointKeeper(
 				log.Debug("service safe point keeper exited")
 				return
 			case <-updateTick.C:
-				update(ctx)
+				if err := updateServiceSafePoint(ctx, pdClient, sp); err != nil {
+					log.Warn("failed to update service safe point, backup may fail if gc triggered",
+						zap.Error(err),
+					)
+				}
 			case <-checkTick.C:
-				check(ctx)
+				if err := CheckGCSafePoint(ctx, pdClient, sp.BackupTS); err != nil {
+					log.Panic("cannot pass gc safe point check, aborting",
+						zap.Error(err),
+						zap.Object("safePoint", sp),
+					)
+				}
 			}
 		}
 	}()
+	return nil
 }

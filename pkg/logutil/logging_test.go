@@ -9,7 +9,7 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"go.uber.org/zap"
@@ -34,8 +34,8 @@ func assertTrimEqual(c *C, f zapcore.Field, expect string) {
 	c.Assert(strings.TrimRight(out.String(), "\n"), Equals, expect)
 }
 
-func newFile(j int) *backup.File {
-	return &backup.File{
+func newFile(j int) *backuppb.File {
+	return &backuppb.File{
 		Name:         fmt.Sprint(j),
 		StartKey:     []byte(fmt.Sprint(j)),
 		EndKey:       []byte(fmt.Sprint(j + 1)),
@@ -71,7 +71,7 @@ func (s *testLoggingSuite) TestFiles(c *C) {
 	}
 
 	for _, cs := range cases {
-		ranges := make([]*backup.File, cs.count)
+		ranges := make([]*backuppb.File, cs.count)
 		for j := 0; j < cs.count; j++ {
 			ranges[j] = newFile(j)
 		}

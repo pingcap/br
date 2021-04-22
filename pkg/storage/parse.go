@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 )
@@ -37,7 +37,7 @@ func ParseRawURL(rawURL string) (*url.URL, error) {
 
 // ParseBackend constructs a structured backend description from the
 // storage URL.
-func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBackend, error) {
+func ParseBackend(rawURL string, options *BackendOptions) (*backuppb.StorageBackend, error) {
 	if len(rawURL) == 0 {
 		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
@@ -51,38 +51,38 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		if err != nil {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "covert data-source-dir '%s' to absolute path failed", rawURL)
 		}
-		local := &backup.Local{Path: absPath}
-		return &backup.StorageBackend{Backend: &backup.StorageBackend_Local{Local: local}}, nil
+		local := &backuppb.Local{Path: absPath}
+		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Local{Local: local}}, nil
 
 	case "local", "file":
-		local := &backup.Local{Path: u.Path}
-		return &backup.StorageBackend{Backend: &backup.StorageBackend_Local{Local: local}}, nil
+		local := &backuppb.Local{Path: u.Path}
+		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Local{Local: local}}, nil
 
 	case "noop":
-		noop := &backup.Noop{}
-		return &backup.StorageBackend{Backend: &backup.StorageBackend_Noop{Noop: noop}}, nil
+		noop := &backuppb.Noop{}
+		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Noop{Noop: noop}}, nil
 
 	case "s3":
 		if u.Host == "" {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for s3 in %s", rawURL)
 		}
 		prefix := strings.Trim(u.Path, "/")
-		s3 := &backup.S3{Bucket: u.Host, Prefix: prefix}
+		s3 := &backuppb.S3{Bucket: u.Host, Prefix: prefix}
 		if options == nil {
-			options = &BackendOptions{}
+			options = &BackendOptions{S3: S3BackendOptions{ForcePathStyle: true}}
 		}
 		ExtractQueryParameters(u, &options.S3)
 		if err := options.S3.Apply(s3); err != nil {
 			return nil, errors.Trace(err)
 		}
-		return &backup.StorageBackend{Backend: &backup.StorageBackend_S3{S3: s3}}, nil
+		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_S3{S3: s3}}, nil
 
 	case "gs", "gcs":
 		if u.Host == "" {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "please specify the bucket for gcs in %s", rawURL)
 		}
 		prefix := strings.Trim(u.Path, "/")
-		gcs := &backup.GCS{Bucket: u.Host, Prefix: prefix}
+		gcs := &backuppb.GCS{Bucket: u.Host, Prefix: prefix}
 		if options == nil {
 			options = &BackendOptions{}
 		}
@@ -90,7 +90,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backup.StorageBacken
 		if err := options.GCS.apply(gcs); err != nil {
 			return nil, errors.Trace(err)
 		}
-		return &backup.StorageBackend{Backend: &backup.StorageBackend_Gcs{Gcs: gcs}}, nil
+		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Gcs{Gcs: gcs}}, nil
 
 	default:
 		return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "storage %s not support yet", u.Scheme)
@@ -151,19 +151,19 @@ func ExtractQueryParameters(u *url.URL, options interface{}) {
 // FormatBackendURL obtains the raw URL which can be used the reconstruct the
 // backend. The returned URL does not contain options for further configurating
 // the backend. This is to avoid exposing secret tokens.
-func FormatBackendURL(backend *backup.StorageBackend) (u url.URL) {
+func FormatBackendURL(backend *backuppb.StorageBackend) (u url.URL) {
 	switch b := backend.Backend.(type) {
-	case *backup.StorageBackend_Local:
+	case *backuppb.StorageBackend_Local:
 		u.Scheme = "local"
 		u.Path = b.Local.Path
-	case *backup.StorageBackend_Noop:
+	case *backuppb.StorageBackend_Noop:
 		u.Scheme = "noop"
 		u.Path = "/"
-	case *backup.StorageBackend_S3:
+	case *backuppb.StorageBackend_S3:
 		u.Scheme = "s3"
 		u.Host = b.S3.Bucket
 		u.Path = b.S3.Prefix
-	case *backup.StorageBackend_Gcs:
+	case *backuppb.StorageBackend_Gcs:
 		u.Scheme = "gcs"
 		u.Host = b.Gcs.Bucket
 		u.Path = b.Gcs.Prefix

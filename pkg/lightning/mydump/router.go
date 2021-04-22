@@ -196,7 +196,6 @@ func (p regexRouterParser) Parse(r *config.FileRouteRule) (*RegexRouter, error) 
 		r.Type = quoteTmplFn(r.Type)
 		r.Compression = quoteTmplFn(r.Compression)
 		r.Key = quoteTmplFn(r.Key)
-
 	}
 	pattern, err := regexp.Compile(r.Pattern)
 	if err != nil {

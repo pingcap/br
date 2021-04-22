@@ -7,7 +7,7 @@ import (
 	"time"
 
 	. "github.com/pingcap/check"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 )
 
 var _ = Suite(&testBackupSuite{})
@@ -40,7 +40,7 @@ func (s *testBackupSuite) TestParseTSString(c *C) {
 
 func (s *testBackupSuite) TestParseCompressionType(c *C) {
 	var (
-		ct  kvproto.CompressionType
+		ct  backuppb.CompressionType
 		err error
 	)
 	ct, err = parseCompressionType("lz4")

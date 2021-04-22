@@ -33,14 +33,16 @@ bin/minio server --address $S3_ENDPOINT "$TEST_DIR/$DB" &
 i=0
 while ! curl -o /dev/null -s "http://$S3_ENDPOINT/"; do
     i=$(($i+1))
-    if [ $i -gt 7 ]; then
+    if [ $i -gt 30 ]; then
         echo 'Failed to start minio'
         exit 1
     fi
     sleep 2
 done
 
-s3cmd --access_key=$MINIO_ACCESS_KEY --secret_key=$MINIO_SECRET_KEY --host=$S3_ENDPOINT --host-bucket=$S3_ENDPOINT --no-ssl mb s3://$BUCKET
+bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
+    host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
+bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 
 # Start cdc servers
 run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
@@ -103,7 +105,7 @@ run_sql "DROP DATABASE ${DB}_DDL1"
 run_sql "DROP DATABASE ${DB}_DDL2"
 
 # restore full
-export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/FailIngestMeta=return("notleader")'
+export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=return("notleader")'
 echo "restore start..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
     --log-file "restore.log" --log-level "info" --start-ts $start_ts --end-ts $end_ts
@@ -127,7 +129,7 @@ if [ "$row_count" -ne "0" ]; then
     echo "TEST: [$TEST_NAME] fail on ts range test."
 fi
 
-export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/FailIngestMeta=return("epochnotmatch")'
+export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=return("epochnotmatch")'
 echo "restore again to restore a=5 record..."
 run_br restore cdclog -s "s3://$BUCKET/$DB" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
     --log-file "restore.log" --log-level "info" --start-ts $end_ts

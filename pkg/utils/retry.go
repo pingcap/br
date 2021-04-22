@@ -4,10 +4,22 @@ package utils
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"go.uber.org/multierr"
 )
+
+var retryableServerError = []string{
+	"server closed",
+	"connection refused",
+	"connection reset by peer",
+	"channel closed",
+	"error trying to connect",
+	"connection closed before message completed",
+	"body write aborted",
+	"error during dispatch",
+}
 
 // RetryableFunc presents a retryable operation.
 type RetryableFunc func() error
@@ -44,4 +56,16 @@ func WithRetry(
 		}
 	}
 	return allErrors // nolint:wrapcheck
+}
+
+// MessageIsRetryableStorageError checks whether the message returning from TiKV is retryable ExternalStorageError.
+func MessageIsRetryableStorageError(msg string) bool {
+	msgLower := strings.ToLower(msg)
+	// UNSAFE! TODO: Add a error type for retryable connection error.
+	for _, errStr := range retryableServerError {
+		if strings.Contains(msgLower, errStr) {
+			return true
+		}
+	}
+	return false
 }
