@@ -370,7 +370,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			progressCount ++
 			log.Info("failpoint progress-call-back injected")
 			if fileName, ok := v.(string); ok {
-				f, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND, 0666)
+				f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
 				if err != nil {
 					log.Warn("failed to create file", zap.Error(err))
 				}

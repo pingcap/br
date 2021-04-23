@@ -33,17 +33,17 @@ done
 # backup db
 echo "backup start..."
 
-export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=1*return(\"$PROGRESS_FILE\")"
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\"$PROGRESS_FILE\")"
 run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 export GO_FAILPOINTS=""
 
-if [ grep -q "range" $PROGRESS_FILE ]
+# check if we have 300 range, because we have 300 tables
+if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ $(grep -q "range:300" $PROGRESS_FILE) ]];
 then
   echo "use the correct progress unit"
-  total=awk -F ":" '{sum+=$1;}END{print sum;}' $PROGRESS_FILE
-  echo total
 else
   echo "use the wrong progress unit, expect range"
+  cat $PROGRESS_FILE
   exit 1
 fi
 
