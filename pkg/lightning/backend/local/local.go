@@ -306,8 +306,8 @@ func (e *File) lockUnless(newState, ignoreStateMask importMutexState) bool {
 	return true
 }
 
-// tryRLock tries to read-lock the local file unless it is already locked into the state given by
-// ignoreStateMask. Returns whether the lock is successful.
+// tryRLock tries to read-lock the local file unless it is already write locked.
+// Returns whether the lock is successful.
 func (e *File) tryRLock() bool {
 	curState := e.isImportingAtomic.Load()
 	// engine is in import/close state.
@@ -882,7 +882,7 @@ func NewLocalBackend(
 	return backend.MakeBackend(local), nil
 }
 
-// rlock locks a local file and returns the File instance if it exists.
+// rlock read locks a local file and returns the File instance if it exists.
 func (local *local) rLockEngine(engineId uuid.UUID) *File {
 	if e, ok := local.engines.Load(engineId); ok {
 		engine := e.(*File)
@@ -902,8 +902,8 @@ func (local *local) lockEngine(engineID uuid.UUID, state importMutexState) *File
 	return nil
 }
 
-// rLockAllEnginesIfNotLock tries to rlock all engines, unless those which are already read locked.
-func (local *local) rLockAllEnginesIfNotLock() []*File {
+// tryRLockAllEngines tries to read lock all engines, return all `File`s that are successfully locked.
+func (local *local) tryRLockAllEngines() []*File {
 	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
@@ -1008,7 +1008,7 @@ func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
 }
 
 func (local *local) FlushAllEngines(parentCtx context.Context) (err error) {
-	allEngines := local.rLockAllEnginesIfNotLock()
+	allEngines := local.tryRLockAllEngines()
 	defer func() {
 		for _, engine := range allEngines {
 			engine.rUnlock()
@@ -2543,7 +2543,7 @@ func (w *Writer) Close(ctx context.Context) error {
 	defer w.kvBuffer.destroy()
 	defer w.local.localWriters.Delete(w)
 	err := w.flush(ctx)
-	// FIXME: in theory this line is useless, but I our test with go1.15
+	// FIXME: in theory this line is useless, but In our benchmark with go1.15
 	// this can resolve the memory consistently increasing issue.
 	// maybe this is a bug related to go GC mechanism.
 	w.writeBatch = nil

@@ -1557,10 +1557,12 @@ func (tr *TableRestore) restoreEngine(
 	}
 
 	// if the key are ordered, LocalWrite can optimize the writing.
-	// table has auto_incremented _tidb_rowid must satisfy following restriction
+	// table has auto-incremented _tidb_rowid must satisfy following restrictions:
 	// - clustered index disable and primary key is not number
 	// - no auto random bits (auto random or shard rowid)
 	// - no partition table
+	// - no explicit _tidb_rowid field (A this time we can't determine if the soure file contains _tidb_rowid field,
+	//   so we will do this check in LocalWriter when the first row is received.)
 	hasAutoIncrementAutoID := common.TableHasAutoRowID(tr.tableInfo.Core) &&
 		tr.tableInfo.Core.AutoRandomBits == 0 && tr.tableInfo.Core.ShardRowIDBits == 0 &&
 		tr.tableInfo.Core.Partition == nil
