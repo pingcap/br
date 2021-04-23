@@ -367,7 +367,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	progressCount := 0
 	failpointInjectFn := func(unit backup.ProgressUnit) {
 		failpoint.Inject("progress-call-back", func(v failpoint.Value) {
-			progressCount ++
+			progressCount++
 			log.Info("failpoint progress-call-back injected")
 			if fileName, ok := v.(string); ok {
 				f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
