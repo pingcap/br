@@ -16,6 +16,9 @@
 set -eu
 DB="$TEST_NAME"
 
+PROGRESS_FILE="$TEST_DIR/progress_unit_file"
+rm -rf $PROGRESS_FILE
+
 run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \
@@ -41,7 +44,7 @@ run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit
 export GO_FAILPOINTS=""
 
 # check if we use the region unit
-if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ $(grep -q "region" $PROGRESS_FILE) ]];
+if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ !$(grep -q "region" $PROGRESS_FILE) ]];
 then
   echo "use the correct progress unit"
 else
@@ -49,6 +52,7 @@ else
   cat $PROGRESS_FILE
   exit 1
 fi
+rm -rf $PROGRESS_FILE
 
 run_sql "DROP DATABASE $DB;"
 
