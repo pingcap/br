@@ -36,14 +36,12 @@ rollback_modify() {
 check() {
     run_sql "SELECT count(*) from mysql.foo;" | grep 11
     run_sql "SELECT count(*) from mysql.usertable;" | grep 1000
-    ! run_sql "USE mysql; SHOW TABLES;" | grep bar
-    [ $? -eq 0 ]
+    run_sql "SHOW TABLES IN mysql;" | grep -v bar
 
     # TODO remove this after supporting auto flush.
     run_sql "FLUSH PRIVILEGES;"
     run_sql "SELECT CURRENT_USER();" -u'Alyssa P. Hacker' -p'password' | grep 'Alyssa P. Hacker'
-    ! run_sql "SHOW DATABASES" | grep '__TiDB_BR_Temporary_'
-    [ $? -eq 0 ]
+    run_sql "SHOW DATABASES" | grep -v '__TiDB_BR_Temporary_'
     # TODO check stats after supportting.
 }
 
