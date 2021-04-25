@@ -1,0 +1,22 @@
+name: arm build check
+on: [push, pull_request]
+
+jobs:
+  armv7_job:
+    runs-on: ubuntu-18.04
+    name: Build on ubuntu-18.04 armv7
+    steps:
+      - uses: actions/checkout@v2.1.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: build
+        id: runcmd
+        with:
+          arch: armv7
+          distro: ubuntu18.04
+          run: |
+            make test
