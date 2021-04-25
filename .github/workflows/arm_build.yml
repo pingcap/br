@@ -10,25 +10,20 @@ on:
       - 'release-[0-9].[0-9]*'
 
 jobs:
-  build:
+  compile:
+    name: ${{ matrix.os }} / ${{ matrix.target}}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: macos-latest
-            TARGET: x86_64-apple-darwin
-            COMPILER: clang
-            LINKER: clang
+            target: x86_64-apple-darwin
 
           - os: ubuntu-latest
-            TARGET: armv7-unknown-linux-musleabihf
-            COMPILER: arm-linux-gnueabihf-gcc-5
-            LINKER: gcc-5-arm-linux-gnueabihf
+            target: aarch64-unknown-linux-gnu
 
-          - os: ubuntu-latest
-            TARGET: x86_64-unknown-linux-musl
-            COMPILER: gcc
-            LINKER: gcc
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@v2.1.0
 
