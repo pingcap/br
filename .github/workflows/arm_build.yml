@@ -1,4 +1,4 @@
-name: arm build check
+name: build check
 on:
   push:
     branches:
@@ -10,9 +10,25 @@ on:
       - 'release-[0-9].[0-9]*'
 
 jobs:
-  armv7_job:
-    runs-on: ubuntu-18.04
-    name: Build on ubuntu-18.04 armv7
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            TARGET: x86_64-apple-darwin
+            COMPILER: clang
+            LINKER: clang
+
+          - os: ubuntu-latest
+            TARGET: armv7-unknown-linux-musleabihf
+            COMPILER: arm-linux-gnueabihf-gcc-5
+            LINKER: gcc-5-arm-linux-gnueabihf
+
+          - os: ubuntu-latest
+            TARGET: x86_64-unknown-linux-musl
+            COMPILER: gcc
+            LINKER: gcc
     steps:
       - uses: actions/checkout@v2.1.0
 
@@ -21,10 +37,5 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Run Test
-        id: runcmd
-        with:
-          arch: armv7
-          distro: ubuntu18.04
-          run: |
-            make test
+      - name: Run build
+        run: make
