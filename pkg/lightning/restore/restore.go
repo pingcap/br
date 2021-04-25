@@ -1334,7 +1334,7 @@ func (tr *TableRestore) restoreTable(
 // with a higher compression threshold, the compression time increases, but the iteration time decreases.
 // Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
 // we set the upper bound to 32GB to avoid too long compression time.
-// factor is the kv count per row.
+// factor is the non-clustered(1 for data engine and number of non-clustered index count for index engine).
 func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) int64 {
 	totalRawFileSize := int64(0)
 	var lastFile string
@@ -1395,8 +1395,9 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 		engineCfg := &backend.EngineConfig{}
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
+			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
-			if tr.tableInfo.Core.PKIsHandle {
+			if common.TableHasAutoRowID(tr.tableInfo.Core) {
 				idxCnt--
 			}
 			threshold := estimateCompactionThreshold(cp, int64(idxCnt))
