@@ -1,5 +1,13 @@
 name: arm build check
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+      - 'release-[0-9].[0-9]*'
+  pull_request:
+    branches:
+      - master
+      - 'release-[0-9].[0-9]*'
 
 jobs:
   armv7_job:
@@ -13,7 +21,7 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: build
+      - name: Run Test
         id: runcmd
         with:
           arch: armv7
