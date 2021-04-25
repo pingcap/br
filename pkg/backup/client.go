@@ -354,10 +354,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				logger.Info("change table AutoRandID",
+				logger.Debug("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			logger.Info("change table AutoIncID",
+			logger.Debug("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
