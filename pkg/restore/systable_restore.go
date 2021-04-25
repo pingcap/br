@@ -148,7 +148,7 @@ func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName
 	// TODO:
 	// 	1   ) Rewrite the table IDs via `UPDATE _temporary_mysql.stats_xxx SET table_id = new_table_id WHERE table_id = old_table_id`
 	//		BEFORE replacing into and then execute `rc.statsHandler.Update(rc.dom.InfoSchema())`.
-	//  1.5 ) (Optional) The UPDATE statement may cost many time, the whole system restore step into the restore pipeline.
+	//  1.5 ) (Optional) The UPDATE statement sometimes costs, the whole system tables restore step can be place into the restore pipeline.
 	//  2   ) Deprecate the origin interface for backing up statistics.
 	if isStatsTable(tableName) {
 		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring stats via `mysql` schema isn't support yet: " +
