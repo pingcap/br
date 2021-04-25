@@ -15,7 +15,6 @@ package mydump_test
 
 import (
 	"context"
-	"github.com/pingcap/br/pkg/storage"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/config"
 	md "github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var _ = Suite(&testMydumpLoaderSuite{})
