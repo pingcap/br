@@ -5,7 +5,6 @@ package restore
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -19,6 +18,21 @@ import (
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/utils"
 )
+
+var statsTables = map[string]struct{}{
+	"stats_buckets":    {},
+	"stats_extended":   {},
+	"stats_feedback":   {},
+	"stats_fm_sketch":  {},
+	"stats_histograms": {},
+	"stats_meta":       {},
+	"stats_top_n":      {},
+}
+
+func isStatsTable(tableName string) bool {
+	_, ok := statsTables[tableName]
+	return ok
+}
 
 // RestoreSystemSchemas restores the system schema(i.e. the `mysql` schema).
 // Detail see https://github.com/pingcap/br/issues/679#issuecomment-762592254.
@@ -48,13 +62,18 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	for _, table := range originDatabase.Tables {
 		tableName := table.Info.Name
 		if f.MatchTable(sysDB, tableName.O) {
-			rc.replaceTemporaryTableToSystable(ctx, tableName.L, db)
+			if err := rc.replaceTemporaryTableToSystable(ctx, tableName.L, db); err != nil {
+				logutil.WarnTerm("error during merging temporary tables into system tables",
+					logutil.ShortError(err),
+					zap.Stringer("table", tableName),
+				)
+			}
 		}
 		tablesRestored = append(tablesRestored, tableName.L)
 	}
 	if err := rc.afterSystemTablesReplaced(ctx, tablesRestored); err != nil {
 		for _, e := range multierr.Errors(err) {
-			logutil.WarnTerm("error during winding up the restoration of system table", zap.String("database", sysDB), logutil.ShortError(e))
+			logutil.WarnTerm("error during reconfigurating the system tables", zap.String("database", sysDB), logutil.ShortError(e))
 		}
 	}
 }
@@ -88,7 +107,6 @@ func (rc *Client) getDatabaseByName(name string) (*database, bool) {
 // afterSystemTablesReplaced do some extra work for special system tables.
 // e.g. after inserting to the table mysql.user, we must execute `FLUSH PRIVILEGES` to allow it take effect.
 func (rc *Client) afterSystemTablesReplaced(ctx context.Context, tables []string) error {
-	needFlushStat := false
 	var err error
 	for _, table := range tables {
 		switch {
@@ -98,41 +116,45 @@ func (rc *Client) afterSystemTablesReplaced(ctx context.Context, tables []string
 			// TODO: update the glue type and allow we retrive a session context from it.
 			err = multierr.Append(err, errors.Annotatef(berrors.ErrUnsupportedSystemTable,
 				"restored user info may not take effect, until you should execute `FLUSH PRIVILEGES` manually"))
-		case strings.HasPrefix(table, "stats_"):
-			needFlushStat = true
 		}
-	}
-	if needFlushStat {
-		// The newly created tables have different table IDs with original tables,
-		// 	hence the old statistics are invalid.
-		//
-		// TODO:
-		// 	Plan A) rewrite the IDs in the `rc.statsHandler.Update(rc.dom.InfoSchema())`.
-		//  Plan B) give the user a SQL to let him update it manually.
-		//  If plan A applied, we can deprecate the origin interface for backing up statistics.
-		err = multierr.Append(err, errors.Annotatef(berrors.ErrUnsupportedSystemTable,
-			"table ID has been changed, old statistics would not be valid anymore"))
 	}
 	return err
 }
 
 // replaceTemporaryTableToSystable replaces the temporary table to real system table.
-func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName string, db *database) {
-	execSQL := func(sql string) {
+func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName string, db *database) error {
+	execSQL := func(sql string) error {
+		// SQLs here only contain table name and database name, seems it is no need to redact them.
 		if err := rc.db.se.Execute(ctx, sql); err != nil {
-			logutil.WarnTerm("failed to restore system table",
-				logutil.ShortError(err),
-				zap.String("table", tableName),
-				zap.Stringer("database", db.Name),
-				zap.String("sql", sql))
-		} else {
-			log.Info("successfully restore system database",
+			log.Warn("failed to execute SQL restore system database",
 				zap.String("table", tableName),
 				zap.Stringer("database", db.Name),
 				zap.String("sql", sql),
+				zap.Error(err),
 			)
+			return berrors.ErrFailedToExecute.Wrap(err).GenWithStack("failed to execute %s", sql)
 		}
+		log.Info("successfully restore system database",
+			zap.String("table", tableName),
+			zap.Stringer("database", db.Name),
+			zap.String("sql", sql),
+		)
+		return nil
 	}
+
+	// The newly created tables have different table IDs with original tables,
+	// 	hence the old statistics are invalid.
+	//
+	// TODO:
+	// 	1   ) Rewrite the table IDs via `UPDATE _temporary_mysql.stats_xxx SET table_id = new_table_id WHERE table_id = old_table_id`
+	//		BEFORE replacing into and then execute `rc.statsHandler.Update(rc.dom.InfoSchema())`.
+	//  1.5 ) (Optional) The UPDATE statement may cost many time, the whole system restore step into the restore pipeline.
+	//  2   ) Deprecate the origin interface for backing up statistics.
+	if isStatsTable(tableName) {
+		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring stats via `mysql` schema isn't support yet: " +
+			"the table ID is out-of-date and may corrupt existing statistics")
+	}
+
 	if db.ExistingTables[tableName] != nil {
 		log.Info("table existing, using replace into for restore",
 			zap.String("table", tableName),
@@ -140,14 +162,14 @@ func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName
 		replaceIntoSQL := fmt.Sprintf("REPLACE INTO %s SELECT * FROM %s;",
 			utils.EncloseDBAndTable(db.Name.L, tableName),
 			utils.EncloseDBAndTable(db.TemporaryName.L, tableName))
-		execSQL(replaceIntoSQL)
-		return
+		return execSQL(replaceIntoSQL)
 	}
+
 	renameSQL := fmt.Sprintf("RENAME TABLE %s TO %s;",
 		utils.EncloseDBAndTable(db.TemporaryName.L, tableName),
 		utils.EncloseDBAndTable(db.Name.L, tableName),
 	)
-	execSQL(renameSQL)
+	return execSQL(renameSQL)
 }
 
 func (rc *Client) cleanTemporaryDatabase(ctx context.Context, originDB string) {

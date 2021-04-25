@@ -26,6 +26,11 @@ error = '''
 failed to make gRPC channels
 '''
 
+["BR:Common:ErrFailedToExecute"]
+error = '''
+failed to execute SQL
+'''
+
 ["BR:Common:ErrInvalidArgument"]
 error = '''
 invalid argument
@@ -195,3 +200,4 @@ failed to write and ingest
 error = '''
 the system table isn't supported for restoring yet
 '''
+
