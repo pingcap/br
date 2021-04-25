@@ -16,13 +16,10 @@
 set -eu
 DB="$TEST_NAME"
 
-<<<<<<< HEAD
 old_conf=$(run_sql "show config where name = 'alter-primary-key'" | awk '/Value/{print $2}')
-=======
 PROGRESS_FILE="$TEST_DIR/progress_unit_file"
 rm -rf $PROGRESS_FILE
 
->>>>>>> 6d3e3c9a... backup: optimize progress update logic (#1047)
 run_sql "CREATE DATABASE $DB;"
 
 run_sql "CREATE TABLE $DB.usertable1 ( \

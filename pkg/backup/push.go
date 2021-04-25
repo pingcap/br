@@ -13,12 +13,6 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-<<<<<<< HEAD
-	"github.com/pingcap/br/pkg/glue"
-=======
-	"github.com/pingcap/br/pkg/logutil"
-	"github.com/pingcap/br/pkg/redact"
->>>>>>> 6d3e3c9a... backup: optimize progress update logic (#1047)
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
