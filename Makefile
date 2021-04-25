@@ -9,17 +9,20 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
-VERSION := v5.0.0-master
-release_version_regex := ^v5\..*$$
-release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|*/tags/v[0-9]\.[0-9]\."
-ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, try to use tag version.
-	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
-		VERSION := $(shell git describe --tags --dirty)
+VERSION =
+ifeq ($(VERSION),)
+	VERSION := v5.0.0-master
+	release_version_regex := ^v5\..*$$
+	release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|^.*/*tags/v[0-9]\.[0-9]\..*$$"
+	ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
+		# If we are in release branch, try to use tag version.
+		ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
+			VERSION := $(shell git describe --tags --dirty)
+		endif
+	else ifneq ($(shell git status --porcelain),)
+		# Add -dirty if the working tree is dirty for non release branch.
+		VERSION := $(VERSION)-dirty
 	endif
-else ifneq ($(shell git status --porcelain),)
-	# Add -dirty if the working tree is dirty for non release branch.
-	VERSION := $(VERSION)-dirty
 endif
 
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
