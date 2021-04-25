@@ -26,11 +26,6 @@ error = '''
 failed to make gRPC channels
 '''
 
-["BR:Common:ErrFailedToExecute"]
-error = '''
-failed to execute SQL
-'''
-
 ["BR:Common:ErrInvalidArgument"]
 error = '''
 invalid argument

@@ -132,7 +132,7 @@ func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName
 				zap.String("sql", sql),
 				zap.Error(err),
 			)
-			return berrors.ErrFailedToExecute.Wrap(err).GenWithStack("failed to execute %s", sql)
+			return berrors.ErrUnknown.Wrap(err).GenWithStack("failed to execute %s", sql)
 		}
 		log.Info("successfully restore system database",
 			zap.String("table", tableName),
