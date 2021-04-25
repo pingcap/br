@@ -37,7 +37,7 @@ export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\
 run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
 export GO_FAILPOINTS=""
 
-if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ !$(grep -q "range" $PROGRESS_FILE) ]];
+if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ $(grep -c "range" $PROGRESS_FILE) == "1" ]];
 then
   echo "use the correct progress unit"
 else

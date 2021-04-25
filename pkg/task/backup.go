@@ -341,9 +341,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	summary.CollectInt("backup total ranges", len(ranges))
 
-	var rangeUpdateCh glue.Progress
-	var regionUpdateCh glue.Progress
+	var updateCh glue.Progress
+	var unit backup.ProgressUnit
 	if len(ranges) < 100 {
+		unit = backup.RegionUnit
 		// The number of regions need to backup
 		approximateRegions := 0
 		for _, r := range ranges {
@@ -355,48 +356,35 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			approximateRegions += regionCount
 		}
 		// Redirect to log if there is no log file to avoid unreadable output.
-		regionUpdateCh = g.StartProgress(
+		updateCh = g.StartProgress(
 			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 		summary.CollectInt("backup total regions", approximateRegions)
 	} else {
+		unit = backup.RangeUnit
 		// To reduce the costs, we can use the range as unit of progress.
-		rangeUpdateCh = g.StartProgress(
+		updateCh = g.StartProgress(
 			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
 	progressCount := 0
-	failpointInjectFn := func(unit backup.ProgressUnit) {
-		failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+	progressCallBack := func(callBackUnit backup.ProgressUnit) {
+		if unit == callBackUnit {
+			updateCh.Inc()
 			progressCount++
-			log.Info("failpoint progress-call-back injected")
-			if fileName, ok := v.(string); ok {
-				f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
-				if err != nil {
-					log.Warn("failed to create file", zap.Error(err))
+			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+				log.Info("failpoint progress-call-back injected")
+				if fileName, ok := v.(string); ok {
+					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+					if err != nil {
+						log.Warn("failed to create file", zap.Error(err))
+					}
+					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
+					_, err = f.Write(msg)
+					if err != nil {
+						log.Warn("failed to write data to file", zap.Error(err))
+					}
 				}
-				msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
-				_, err = f.Write(msg)
-				if err != nil {
-					log.Warn("failed to write data to file", zap.Error(err))
-				}
-			}
-		})
-	}
-
-	progressCallBack := func(unit backup.ProgressUnit) {
-		switch unit {
-		case backup.RangeUnit:
-			// if we finish the range backup and we use the range as the unit of progress.
-			if rangeUpdateCh != nil {
-				rangeUpdateCh.Inc()
-				failpointInjectFn(unit)
-			}
-		case backup.RegionUnit:
-			if regionUpdateCh != nil {
-				// if we finish backup a region to file and we use the region as the unit of progress.
-				regionUpdateCh.Inc()
-				failpointInjectFn(unit)
-			}
+			})
 		}
 	}
 
@@ -405,12 +393,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 	// Backup has finished
-	if rangeUpdateCh != nil {
-		rangeUpdateCh.Close()
-	}
-	if regionUpdateCh != nil {
-		regionUpdateCh.Close()
-	}
+	updateCh.Close()
 
 	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
 	if err != nil {
@@ -429,7 +412,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Info("Skip fast checksum")
 		}
 	}
-	updateCh := g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
+	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
 	backupMeta.Schemas, err = schemas.BackupSchemas(
 		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
