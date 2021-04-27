@@ -9,7 +9,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/fujiwara/shapeio"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -17,11 +21,40 @@ const (
 	localFilePerm os.FileMode = 0o644
 )
 
+const (
+	localRateLimitOption = "local.ratelimit"
+)
+
 // LocalStorage represents local file system storage.
 //
 // export for using in tests.
 type LocalStorage struct {
-	base string
+	base      string
+	rateLimit uint64
+}
+
+// defineS3Flags defines the command line flags for S3BackendOptions.
+func DefineLocalFlags(flags *pflag.FlagSet) {
+	flags.Uint64(localRateLimitOption, 0, "rate limit for dump/load data, unit is byte")
+}
+
+type LocalOptions struct {
+	RateLimit uint64 `json:"ratelimit"`
+}
+
+// Apply apply s3 options on backuppb.S3.
+func (options *LocalOptions) Apply(local *backuppb.Local) error {
+	local.RateLimit = options.RateLimit
+	return nil
+}
+
+func (options *LocalOptions) parseFromFlags(flags *pflag.FlagSet) error {
+	var err error
+	options.RateLimit, err = flags.GetUint64(localRateLimitOption)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 // WriteFile writes data to a file to storage.
@@ -97,7 +130,13 @@ func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWri
 		return nil, errors.Trace(err)
 	}
 	buf := bufio.NewWriter(file)
-	return newFlushStorageWriter(buf, buf, file), nil
+	if l.rateLimit > 0 {
+		writer := shapeio.NewWriterWithContext(buf, ctx)
+		writer.SetRateLimit(float64(l.rateLimit)) // Byte/sec
+		return newFlushStorageWriter(writer, buf, file), nil
+	} else {
+		return newFlushStorageWriter(buf, buf, file), nil
+	}
 }
 
 func pathExists(_path string) (bool, error) {
@@ -126,4 +165,18 @@ func NewLocalStorage(base string) (*LocalStorage, error) {
 		}
 	}
 	return &LocalStorage{base: base}, nil
+}
+
+func newLocalStorage(backend *backup.Local, opts *ExternalStorageOptions) (*LocalStorage, error) {
+	ok, err := pathExists(backend.Path)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if !ok {
+		err := mkdirAll(backend.Path)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
+	return &LocalStorage{base: backend.Path, rateLimit: backend.RateLimit}, nil
 }
