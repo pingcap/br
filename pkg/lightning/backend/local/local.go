@@ -684,7 +684,7 @@ func (e *File) flushEngineWithoutLock(ctx context.Context) error {
 
 	flushFinishedCh, err := e.db.AsyncFlush()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 	select {
 	case <-flushFinishedCh:
@@ -2666,7 +2666,8 @@ func (i *sstIter) Close() error {
 	if err := i.iter.Close(); err != nil {
 		return errors.Trace(err)
 	}
-	return i.reader.Close()
+	err := i.reader.Close()
+	return errors.Trace(err)
 }
 
 type sstIterHeap struct {
