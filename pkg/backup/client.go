@@ -39,7 +39,6 @@ import (
 
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
@@ -64,10 +63,17 @@ type Checksum struct {
 	TotalBytes uint64
 }
 
+// ProgressUnit represents the unit of progress.
+type ProgressUnit string
+
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
 	backupRetryTimes            = 5
+	// RangeUnit represents the progress updated counter when a range finished.
+	RangeUnit ProgressUnit = "range"
+	// RegionUnit represents the progress updated counter when a region finished.
+	RegionUnit ProgressUnit = "region"
 )
 
 // Client is a client instructs TiKV how to do a backup.
@@ -223,7 +229,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 		if sigFile, ok := v.(string); ok {
 			file, err := os.Create(sigFile)
 			if err != nil {
-				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
 			}
 			if file != nil {
 				file.Close()
@@ -348,10 +354,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				logger.Info("change table AutoRandID",
+				logger.Debug("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			logger.Info("change table AutoIncID",
+			logger.Debug("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -433,7 +439,7 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) ([]*backuppb.File, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
@@ -467,7 +473,7 @@ func (bc *Client) BackupRanges(
 		for _, r := range ranges {
 			sk, ek := r.StartKey, r.EndKey
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				files, err := bc.BackupRange(ectx, sk, ek, req, updateCh)
+				files, err := bc.BackupRange(ectx, sk, ek, req, progressCallBack)
 				if err == nil {
 					filesCh <- files
 				}
@@ -501,7 +507,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (files []*backuppb.File, err error) {
 	start := time.Now()
 	defer func() {
@@ -531,7 +537,7 @@ func (bc *Client) BackupRange(
 	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(ctx, req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -541,10 +547,13 @@ func (bc *Client) BackupRange(
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
-		req.RateLimit, req.Concurrency, results, updateCh)
+		req.RateLimit, req.Concurrency, results, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	// update progress of range unit
+	progressCallBack(RangeUnit)
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
@@ -605,13 +614,28 @@ func (bc *Client) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) error {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.fineGrainedBackup", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
+
+	failpoint.Inject("hint-fine-grained-backup", func(v failpoint.Value) {
+		log.Info("failpoint hint-fine-grained-backup injected, "+
+			"process will sleep for 3s and notify the shell.", zap.String("file", v.(string)))
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+			time.Sleep(3 * time.Second)
+		}
+	})
 
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
@@ -687,7 +711,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			}
 		}
 
@@ -792,7 +816,6 @@ func (bc *Client) handleFineGrained(
 		return 0, errors.Trace(pderr)
 	}
 	storeID := leader.GetStoreId()
-	max := 0
 
 	req := backuppb.BackupRequest{
 		ClusterId:        bc.clusterID,
@@ -809,24 +832,37 @@ func (bc *Client) handleFineGrained(
 	lockResolver := bc.mgr.GetLockResolver()
 	client, err := bc.mgr.GetBackupClient(ctx, storeID)
 	if err != nil {
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+
 		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
-		return 0, errors.Trace(err)
+		return 0, errors.Annotatef(err, "failed to connect to store %d", storeID)
 	}
+	hasProgress := false
+	backoffMill := 0
 	err = SendBackup(
 		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
 		func(resp *backuppb.BackupResponse) error {
-			response, backoffMs, err1 :=
+			response, shouldBackoff, err1 :=
 				OnBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
-			if max < backoffMs {
-				max = backoffMs
+			if backoffMill < shouldBackoff {
+				backoffMill = shouldBackoff
 			}
 			if response != nil {
 				respCh <- response
 			}
+			// When meet an error, we need to set hasProgress too, in case of
+			// overriding the backoffTime of original error.
+			// hasProgress would be false iff there is a early io.EOF from the stream.
+			hasProgress = true
 			return nil
 		},
 		func() (backuppb.BackupClient, error) {
@@ -834,9 +870,24 @@ func (bc *Client) handleFineGrained(
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
-		return 0, errors.Trace(err)
+		if berrors.Is(err, berrors.ErrFailedToConnect) {
+			// When the leader store is died,
+			// 20s for the default max duration before the raft election timer fires.
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			return 20000, nil
+		}
+		log.Error("failed to send fine-grained backup", zap.Uint64("storeID", storeID), logutil.ShortError(err))
+		return 0, errors.Annotatef(err, "failed to send fine-grained backup [%s, %s)",
+			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
-	return max, nil
+
+	// If no progress, backoff 10s for debouncing.
+	// 10s is the default interval of stores sending a heartbeat to the PD.
+	// And is the average new leader election timeout, which would be a reasonable back off time.
+	if !hasProgress {
+		backoffMill = 10000
+	}
+	return backoffMill, nil
 }
 
 // SendBackup send backup request to the given store.
@@ -867,6 +918,20 @@ backupLoop:
 			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
+		failpoint.Inject("hint-backup-start", func(v failpoint.Value) {
+			log.Info("failpoint hint-backup-start injected, " +
+				"process will notify the shell.")
+			if sigFile, ok := v.(string); ok {
+				file, err := os.Create(sigFile)
+				if err != nil {
+					log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+				}
+				if file != nil {
+					file.Close()
+				}
+			}
+			time.Sleep(3 * time.Second)
+		})
 		bcli, err := client.Backup(ctx, &req)
 		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
@@ -892,8 +957,9 @@ backupLoop:
 			}
 			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
 				zap.Int("retry time", retry))
-			return errors.Trace(err)
+			return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to create backup stream to store %d", storeID)
 		}
+		defer bcli.CloseSend()
 
 		for {
 			resp, err := bcli.Recv()
@@ -914,8 +980,9 @@ backupLoop:
 					}
 					break
 				}
-				return errors.Annotatef(err, "failed to connect to store: %d with retry times:%d", storeID, retry)
+				return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to connect to store: %d with retry times:%d", storeID, retry)
 			}
+
 			// TODO: handle errors in the resp.
 			log.Info("range backuped",
 				logutil.Key("startKey", resp.GetStartKey()),

@@ -9,20 +9,23 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
-VERSION := v5.0.0-master
-release_version_regex := ^v5\..*$$
-release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|*/tags/v[0-9]\.[0-9]\."
-ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, try to use tag version.
-	ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
-		VERSION := $(shell git describe --tags --dirty)
+RELEASE_VERSION =
+ifeq ($(RELEASE_VERSION),)
+	RELEASE_VERSION := v5.0.0-master
+	release_version_regex := ^v5\..*$$
+	release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|^.*/*tags/v[0-9]\.[0-9]\..*$$"
+	ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
+		# If we are in release branch, try to use tag version.
+		ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
+			RELEASE_VERSION := $(shell git describe --tags --dirty)
+		endif
+	else ifneq ($(shell git status --porcelain),)
+		# Add -dirty if the working tree is dirty for non release branch.
+		RELEASE_VERSION := $(RELEASE_VERSION)-dirty
 	endif
-else ifneq ($(shell git status --porcelain),)
-	# Add -dirty if the working tree is dirty for non release branch.
-	VERSION := $(VERSION)-dirty
 endif
 
-LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(RELEASE_VERSION)"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
@@ -126,6 +129,12 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
+compatibility_test_prepare:
+	tests/run_compatible.sh prepare
+
+compatibility_test: br
+	tests/run_compatible.sh run
+
 coverage: tools
 	tools/bin/gocovmerge "$(TEST_DIR)"/cov.* | grep -vE ".*.pb.go|.*__failpoint_binding__.go" > "$(TEST_DIR)/all_cov.out"
 ifeq ("$(JenkinsCI)", "1")
@@ -213,12 +222,12 @@ static: prepare tools
 		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
-	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
+	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause|Find".
 	# TODO: check lightning packages.
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --include="*.go" --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" \
 		$$($(PACKAGE_DIRECTORIES) | grep -vE "tests|lightning") | \
-		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled|Find" 2>&1 | $(CHECKER)
 	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
 	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
 	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' \
