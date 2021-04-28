@@ -113,6 +113,13 @@ func (push *pushDown) pushBackup(
 					Msg: msg,
 				}
 			})
+			failpoint.Inject("tikv-rw-error", func(val failpoint.Value) {
+				msg := val.(string)
+				log.Debug("failpoint tikv-rw-error injected.", zap.String("msg", msg))
+				resp.Error = &backuppb.Error{
+					Msg: msg,
+				}
+			})
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
 				res.Put(

@@ -53,7 +53,7 @@ var (
 	ErrStorageInvalidConfig = errors.Normalize("invalid external storage config", errors.RFCCodeText("BR:ExternalStorage:ErrStorageInvalidConfig"))
 
 	// Errors reported from TiKV.
-	ErrKVUnknown           = errors.Normalize("unknown error occur on tikv, please ensure tikv is permitted to read & write to backup storage.", errors.RFCCodeText("BR:KV:ErrKVUnknown"))
+	ErrKVUnknown           = errors.Normalize("unknown error occur on tikv, please ensure tikv is permitted to read from & write to backup storage.", errors.RFCCodeText("BR:KV:ErrKVUnknown"))
 	ErrKVClusterIDMismatch = errors.Normalize("tikv cluster ID mismatch", errors.RFCCodeText("BR:KV:ErrKVClusterIDMismatch"))
 	ErrKVNotHealth         = errors.Normalize("tikv cluster not health", errors.RFCCodeText("BR:KV:ErrKVNotHealth"))
 	ErrKVNotLeader         = errors.Normalize("not leader", errors.RFCCodeText("BR:KV:ErrKVNotLeader"))
