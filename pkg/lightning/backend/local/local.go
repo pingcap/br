@@ -488,6 +488,7 @@ func (e *File) ingestSSTLoop() {
 		}
 	}
 	metasTmp := make([]*sstMeta, 0)
+readMetaLoop:
 	for {
 		closed := false
 		select {
@@ -499,13 +500,17 @@ func (e *File) ingestSSTLoop() {
 				closed = true
 				break
 			}
-			msg := m
-		processMsg:
-			if msg.flushCh != nil {
+			if m.flushCh != nil {
+				// meet a flush event, we should trigger a ingest task if there are pending metas,
+				// and then waiting for all the running flush tasks to be done.
+				if len(metasTmp) > 0 {
+					addMetas(metasTmp)
+					metasTmp = make([]*sstMeta, 0, len(metasTmp))
+				}
 				if len(pendingMetas) > 0 {
 					seqLock.Lock()
 					metaSeq := seq.Add(1)
-					flushQueue = append(flushQueue, flushSeq{ch: msg.flushCh, seq: metaSeq})
+					flushQueue = append(flushQueue, flushSeq{ch: m.flushCh, seq: metaSeq})
 					seqLock.Unlock()
 					select {
 					case metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}:
@@ -524,37 +529,21 @@ func (e *File) ingestSSTLoop() {
 					// if all pending SST files are written, directly do a db.Flush
 					if curSeq == finSeq {
 						seqLock.Unlock()
-						msg.flushCh <- struct{}{}
+						m.flushCh <- struct{}{}
 					} else {
 						// waiting for pending compaction tasks
-						flushQueue = append(flushQueue, flushSeq{ch: msg.flushCh, seq: curSeq})
+						flushQueue = append(flushQueue, flushSeq{ch: m.flushCh, seq: curSeq})
 						seqLock.Unlock()
 					}
 				}
-				break
+				continue readMetaLoop
 			}
-			metasTmp = append(metasTmp, msg.meta)
-			// drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
-		inner:
-			for {
-				select {
-				case m, ok := <-e.sstMetasChan:
-					if !ok {
-						closed = true
-						break inner
-					}
-					if m.flushCh != nil {
-						addMetas(metasTmp)
-						metasTmp = make([]*sstMeta, 0, len(metasTmp))
-						// meet a flush message
-						msg = m
-						goto processMsg
-					}
-					metasTmp = append(metasTmp, m.meta)
-				default:
-					break inner
-				}
+			metasTmp = append(metasTmp, m.meta)
+			// try to drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
+			if len(e.sstMetasChan) > 0 {
+				continue readMetaLoop
 			}
+
 			addMetas(metasTmp)
 			metasTmp = make([]*sstMeta, 0, len(metasTmp))
 		}
