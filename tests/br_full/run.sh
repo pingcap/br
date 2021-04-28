@@ -55,9 +55,14 @@ size_lz4=$(du -d 0 $TEST_DIR/$DB-lz4 | awk '{print $1}')
 
 echo "backup with tikv error start..." 
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/tikv-rw-error=return(\"tikv read or write error\")"
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-tikverr" --concurrency 4 
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-tikverr" --concurrency 4 &
+pid=$!
 export GO_FAILPOINTS=""
-size_tikverr=$(du -d 0 $TEST_DIR/$DB-tikverr | awk '{print $1}')
+sleep 15
+if ps -q $pid ; then 
+    echo "After failed 15 seconds, BR doesn't gracefully shutdown..."
+    exit 1
+fi
 
 echo "backup with zstd start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-zstd" --concurrency 4 --compression zstd --compression-level 6
@@ -68,7 +73,7 @@ if [ "$size_lz4" -le "$size_zstd" ]; then
   exit -1
 fi
 
-for ct in limit lz4 zstd tikverr; do
+for ct in limit lz4 zstd; do
   for i in $(seq $DB_COUNT); do
       run_sql "DROP DATABASE $DB${i};"
   done
