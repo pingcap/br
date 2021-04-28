@@ -57,6 +57,8 @@ type Iter interface {
 	Value() []byte
 	// Close close this iter.
 	Close() error
+	// KeyIsDelete
+	KeyIsDelete() bool
 }
 
 // IterProducer produces iterator with given range.
@@ -169,6 +171,14 @@ func (s *SimpleKVIter) Value() []byte {
 // Close implements Iter.Close.
 func (s *SimpleKVIter) Close() error {
 	return nil
+}
+
+// KeyIsDelete implements Iter.KeyIsDelete.
+func (s *SimpleKVIter) KeyIsDelete() bool {
+	if s.Valid() {
+		return s.pairs[s.index].IsDelete
+	}
+	return false
 }
 
 // Encoder encodes a row of SQL values into some opaque type which can be
