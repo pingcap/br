@@ -387,12 +387,16 @@ func (i *Ingester) writeToTiKV(
 	regionMaxSize := i.regionSplitSize * 4 / 3
 
 	for iter.Seek(regionRange.Start); iter.Valid() && bytes.Compare(iter.Key(), regionRange.End) <= 0; iter.Next() {
-		size += int64(len(iter.Key()) + len(iter.Value()))
+		op := sst.Pair_Put
+		if iter.KeyIsDelete() {
+			op = sst.Pair_Delete
+		}
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
 			pair := &sst.Pair{
 				Key:   bytesBuf.AddBytes(iter.Key()),
 				Value: bytesBuf.AddBytes(iter.Value()),
+				Op: op,
 			}
 			pairs = append(pairs, pair)
 		} else {
