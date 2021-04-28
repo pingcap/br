@@ -26,6 +26,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/config"
 	md "github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var _ = Suite(&testMydumpLoaderSuite{})
@@ -162,6 +163,46 @@ func (s *testMydumpLoaderSuite) TestDuplicatedTable(c *C) {
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
 	c.Assert(err, ErrorMatches, `invalid table schema file, duplicated item - .*db\.tbl-schema\.sql`)
+}
+
+func (s *testMydumpLoaderSuite) TestTableInfoNotFound(c *C) {
+	s.cfg.Mydumper.CharacterSet = "auto"
+
+	s.touch(c, "db-schema-create.sql")
+	s.touch(c, "db.tbl-schema.sql")
+
+	ctx := context.Background()
+	store, err := storage.NewLocalStorage(s.sourceDir)
+	c.Assert(err, IsNil)
+
+	loader, err := md.NewMyDumpLoader(ctx, s.cfg)
+	c.Assert(err, IsNil)
+	for _, dbMeta := range loader.GetDatabases() {
+		for _, tblMeta := range dbMeta.Tables {
+			sql, err := tblMeta.GetSchema(ctx, store)
+			c.Assert(sql, Equals, "")
+			c.Assert(err, IsNil)
+		}
+	}
+}
+
+func (s *testMydumpLoaderSuite) TestTableUnexpectedError(c *C) {
+	s.touch(c, "db-schema-create.sql")
+	s.touch(c, "db.tbl-schema.sql")
+
+	ctx := context.Background()
+	store, err := storage.NewLocalStorage(s.sourceDir)
+	c.Assert(err, IsNil)
+
+	loader, err := md.NewMyDumpLoader(ctx, s.cfg)
+	c.Assert(err, IsNil)
+	for _, dbMeta := range loader.GetDatabases() {
+		for _, tblMeta := range dbMeta.Tables {
+			sql, err := tblMeta.GetSchema(ctx, store)
+			c.Assert(sql, Equals, "")
+			c.Assert(err, ErrorMatches, "failed to decode db.tbl-schema.sql as : Unsupported encoding ")
+		}
+	}
 }
 
 func (s *testMydumpLoaderSuite) TestDataNoHostDB(c *C) {
