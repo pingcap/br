@@ -39,7 +39,7 @@ const (
 	RejectStoreCheckInterval    = 100 * time.Millisecond
 	RejectStoreMaxCheckInterval = 2 * time.Second
 
-	DefaultRegionSize = 96 << 20 // 96M
+	DefaultRegionSize = 96 * units.MB
 	DefaultRegionKVs  = 960000
 )
 
