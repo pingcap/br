@@ -25,7 +25,7 @@ type Range struct {
 
 // String formats a range to a string.
 func (rg *Range) String() string {
-	return fmt.Sprintf("[%x %x %d %d]", rg.StartKey, rg.EndKey, rg.TotalKVs, rg.TotalBytes)
+	return fmt.Sprintf("[%x %x %dkvs %dbytes]", rg.StartKey, rg.EndKey, rg.TotalKVs, rg.TotalBytes)
 }
 
 // Intersect returns intersect range in the tree.
