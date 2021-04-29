@@ -820,7 +820,7 @@ func NewLocalBackend(
 	g glue.Glue,
 	maxOpenFiles int,
 ) (backend.Backend, error) {
-	File := cfg.SortedKVDir
+	localFile := cfg.SortedKVDir
 	rangeConcurrency := cfg.RangeConcurrency
 
 	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
@@ -831,7 +831,7 @@ func NewLocalBackend(
 
 	shouldCreate := true
 	if enableCheckpoint {
-		if info, err := os.Stat(File); err != nil {
+		if info, err := os.Stat(localFile); err != nil {
 			if !os.IsNotExist(err) {
 				return backend.MakeBackend(nil), err
 			}
@@ -841,7 +841,7 @@ func NewLocalBackend(
 	}
 
 	if shouldCreate {
-		err = os.Mkdir(File, 0o700)
+		err = os.Mkdir(localFile, 0o700)
 		if err != nil {
 			return backend.MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
 		}
@@ -854,7 +854,7 @@ func NewLocalBackend(
 		pdAddr:   pdAddr,
 		g:        g,
 
-		localStoreDir:   File,
+		localStoreDir:   localFile,
 		regionSplitSize: int64(cfg.RegionSplitSize),
 
 		rangeConcurrency:  worker.NewPool(ctx, rangeConcurrency, "range"),
@@ -1036,7 +1036,7 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		// set threshold to half of the max open files to avoid trigger compaction
 		L0CompactionThreshold: math.MaxInt32,
 		L0StopWritesThreshold: math.MaxInt32,
-		LBaseMaxBytes:         16 << 40,
+		LBaseMaxBytes:         16 * units.TiB,
 		MaxOpenFiles:          local.maxOpenFiles,
 		DisableWAL:            true,
 		ReadOnly:              readOnly,
@@ -1047,8 +1047,7 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 	// set level target file size to avoid pebble auto triggering compaction that split ingest SST files into small SST.
 	opt.Levels = []pebble.LevelOptions{
 		{
-			// 16GB
-			TargetFileSize: 16 << 30,
+			TargetFileSize: 16 * units.GiB,
 		},
 	}
 
@@ -2749,7 +2748,7 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		key, val := iter.SeekGE([]byte{'t'})
+		key, val := iter.Next()
 		if key == nil {
 			continue
 		}

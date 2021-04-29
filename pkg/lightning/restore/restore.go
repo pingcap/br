@@ -81,8 +81,8 @@ const (
 )
 
 const (
-	compactionLowerThreshold = 512 << 20 // 512M
-	compactionUpperThreshold = 32 << 30  // 32GB
+	compactionLowerThreshold = 512 * units.MiB
+	compactionUpperThreshold = 32 * units.GiB
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
