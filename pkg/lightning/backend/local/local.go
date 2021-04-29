@@ -466,10 +466,13 @@ func (e *File) ingestSSTLoop() {
 
 	pendingMetas := make([]*sstMeta, 0, 16)
 	totalSize := int64(0)
-	addMetas := func(metas []*sstMeta) {
-		if len(metas) == 0 {
+	metasTmp := make([]*sstMeta, 0)
+	addMetas := func() {
+		if len(metasTmp) == 0 {
 			return
 		}
+		metas := metasTmp
+		metasTmp = make([]*sstMeta, 0, len(metas))
 		if !e.config.Compact {
 			compactAndIngestSSTs(metas)
 			return
@@ -487,7 +490,6 @@ func (e *File) ingestSSTLoop() {
 			}
 		}
 	}
-	metasTmp := make([]*sstMeta, 0)
 readMetaLoop:
 	for {
 		closed := false
@@ -504,8 +506,7 @@ readMetaLoop:
 				// meet a flush event, we should trigger a ingest task if there are pending metas,
 				// and then waiting for all the running flush tasks to be done.
 				if len(metasTmp) > 0 {
-					addMetas(metasTmp)
-					metasTmp = make([]*sstMeta, 0, len(metasTmp))
+					addMetas()
 				}
 				if len(pendingMetas) > 0 {
 					seqLock.Lock()
@@ -544,8 +545,7 @@ readMetaLoop:
 				continue readMetaLoop
 			}
 
-			addMetas(metasTmp)
-			metasTmp = make([]*sstMeta, 0, len(metasTmp))
+			addMetas()
 		}
 		if closed {
 			compactAndIngestSSTs(pendingMetas)
