@@ -127,7 +127,7 @@ func isIgnorableOpenCloseEngineError(err error) bool {
 	return err == nil || strings.Contains(err.Error(), "FileExists")
 }
 
-func (importer *importer) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	req := &import_kvpb.OpenEngineRequest{
 		Uuid: engineUUID[:],
 	}
@@ -326,7 +326,7 @@ func (importer *importer) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in importer backend")
 }
 
-func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (importer *importer) LocalWriter(_ context.Context, _ *backend.LocalWriterConfig, engineUUID uuid.UUID) (backend.EngineWriter, error) {
 	return &Writer{importer: importer, engineUUID: engineUUID}, nil
 }
 
@@ -335,7 +335,7 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
-func (w *Writer) Close() error {
+func (w *Writer) Close(ctx context.Context) error {
 	return nil
 }
 

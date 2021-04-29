@@ -342,7 +342,7 @@ func (be *tidbBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil
 }
 
-func (be *tidbBackend) OpenEngine(context.Context, uuid.UUID) error {
+func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -582,7 +582,11 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
-func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (be *tidbBackend) LocalWriter(
+	ctx context.Context,
+	cfg *backend.LocalWriterConfig,
+	engineUUID uuid.UUID,
+) (backend.EngineWriter, error) {
 	return &Writer{be: be, engineUUID: engineUUID}, nil
 }
 
@@ -591,7 +595,7 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
-func (w *Writer) Close() error {
+func (w *Writer) Close(ctx context.Context) error {
 	return nil
 }
 
