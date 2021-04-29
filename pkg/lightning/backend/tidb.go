@@ -329,7 +329,7 @@ func (be *tidbBackend) NewEncoder(tbl table.Table, options *SessionOptions) (Enc
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil
 }
 
-func (be *tidbBackend) OpenEngine(context.Context, uuid.UUID) error {
+func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -564,8 +564,17 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/tidb.go
 func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	return &TiDBWriter{be: be, engineUUID: engineUUID}, nil
+=======
+func (be *tidbBackend) LocalWriter(
+	ctx context.Context,
+	cfg *backend.LocalWriterConfig,
+	engineUUID uuid.UUID,
+) (backend.EngineWriter, error) {
+	return &Writer{be: be, engineUUID: engineUUID}, nil
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753):pkg/lightning/backend/tidb/tidb.go
 }
 
 type TiDBWriter struct {
@@ -573,7 +582,11 @@ type TiDBWriter struct {
 	engineUUID uuid.UUID
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/tidb.go
 func (w *TiDBWriter) Close() error {
+=======
+func (w *Writer) Close(ctx context.Context) error {
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753):pkg/lightning/backend/tidb/tidb.go
 	return nil
 }
 

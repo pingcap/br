@@ -124,8 +124,13 @@ func isIgnorableOpenCloseEngineError(err error) bool {
 	return err == nil || strings.Contains(err.Error(), "FileExists")
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/importer.go
 func (importer *importer) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	req := &kv.OpenEngineRequest{
+=======
+func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
+	req := &import_kvpb.OpenEngineRequest{
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753):pkg/lightning/backend/importer/importer.go
 		Uuid: engineUUID[:],
 	}
 
@@ -392,8 +397,13 @@ func (importer *importer) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in importer backend")
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/importer.go
 func (importer *importer) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
 	return &ImporterWriter{importer: importer, engineUUID: engineUUID}, nil
+=======
+func (importer *importer) LocalWriter(_ context.Context, _ *backend.LocalWriterConfig, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+	return &Writer{importer: importer, engineUUID: engineUUID}, nil
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753):pkg/lightning/backend/importer/importer.go
 }
 
 type ImporterWriter struct {
@@ -401,7 +411,11 @@ type ImporterWriter struct {
 	engineUUID uuid.UUID
 }
 
+<<<<<<< HEAD:pkg/lightning/backend/importer.go
 func (w *ImporterWriter) Close() error {
+=======
+func (w *Writer) Close(ctx context.Context) error {
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753):pkg/lightning/backend/importer/importer.go
 	return nil
 }
 

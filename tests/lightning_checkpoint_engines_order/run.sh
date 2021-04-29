@@ -20,7 +20,12 @@ for i in $(seq 5); do
     run_lightning --enable-checkpoint=1 2> /dev/null
     [ $? -ne 0 ] || exit 1
     set -e
+<<<<<<< HEAD
     [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | fgrep -v .sst | wc -l) -eq 2 ]
+=======
+    # engine sorted kv dir name is 36 length (UUID4).
+    [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 2 ]
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753)
 done
 
 # allow one file to be written at a time,
@@ -31,7 +36,12 @@ set +e
 run_lightning --enable-checkpoint=1 2> /dev/null
 [ $? -ne 0 ] || exit 1
 set -e
+<<<<<<< HEAD
 [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | fgrep -v .sst | wc -l) -eq 3 ]
+=======
+# engine sorted kv dir name is 36 length (UUID4).
+[ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 3 ]
+>>>>>>> 6fd7b9ab... linghtning/backend: optimize local writer concurrency and memory usage (#753)
 
 # allow everything to be written,
 export GO_FAILPOINTS=''
