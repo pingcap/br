@@ -9,19 +9,9 @@ CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
-<<<<<<< HEAD
-VERSION := v4.0.0-dev
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
-ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, use tag version.
-	VERSION := $(shell git describe --tags --dirty)
-else ifneq ($(shell git status --porcelain),)
-	# Add -dirty if the working tree is dirty for non release branch.
-	VERSION := $(VERSION)-dirty
-=======
 RELEASE_VERSION =
 ifeq ($(RELEASE_VERSION),)
-	RELEASE_VERSION := v5.0.0-master
+	RELEASE_VERSION := v4.0.0-dev
 	release_version_regex := ^v5\..*$$
 	release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|^.*/*tags/v[0-9]\.[0-9]\..*$$"
 	ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
@@ -33,7 +23,6 @@ ifeq ($(RELEASE_VERSION),)
 		# Add -dirty if the working tree is dirty for non release branch.
 		RELEASE_VERSION := $(RELEASE_VERSION)-dirty
 	endif
->>>>>>> 19832ee3... Makefile: fix version number on macOS (#1052)
 endif
 
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(RELEASE_VERSION)"
