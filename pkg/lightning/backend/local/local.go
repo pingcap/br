@@ -2744,7 +2744,7 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		iter, err := reader.NewIter([]byte{'t'}, []byte{'u'})
+		iter, err := reader.NewIter(nil, nil)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
