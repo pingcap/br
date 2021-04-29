@@ -55,7 +55,15 @@ size_lz4=$(du -d 0 $TEST_DIR/$DB-lz4 | awk '{print $1}')
 
 echo "backup with tikv error start..." 
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/tikv-rw-error=return(\"tikv read or write error\")"
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-tikverr" --concurrency 4 &
+error_msg=$(run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-tikverr" --concurrency 4 |  awk '{match($0,/.+(\[BR:KV:ErrKVUnknown\]unknown error occur on tikv, please ensure tikv is permitted to read from & write to the storage.)/,a);if (a[1] != "") print a[1]}')
+if [ "$error_msg" = ""]
+then 
+    echo "error_msg is not set, tikv error message test fail"
+    exit 1
+else 
+    echo "error_msg is set, and error_msg is $error_msg"
+fi
+
 pid=$!
 export GO_FAILPOINTS=""
 sleep 15
