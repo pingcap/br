@@ -81,8 +81,8 @@ const (
 )
 
 const (
-	compactionLowerThreshold = 512 << 20 // 512M
-	compactionUpperThreshold = 32 << 30  // 32GB
+	compactionLowerThreshold = 512 * units.MiB
+	compactionUpperThreshold = 32 * units.GiB
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
@@ -419,7 +419,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 2. restore tables, execute statements concurrency
 	for _, dbMeta := range dbMetas {
 		for _, tblMeta := range dbMeta.Tables {
-			sql := tblMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := tblMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, tblMeta.Name)
 				if err != nil {
@@ -441,6 +441,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 					return err
 				}
 			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	err = worker.wait()
@@ -450,7 +453,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 3. restore views. Since views can cross database we must restore views after all table schemas are restored.
 	for _, dbMeta := range dbMetas {
 		for _, viewMeta := range dbMeta.Views {
-			sql := viewMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := viewMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, viewMeta.Name)
 				if err != nil {
@@ -476,6 +479,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 				if err != nil {
 					return err
 				}
+			}
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -1334,7 +1340,7 @@ func (tr *TableRestore) restoreTable(
 // with a higher compression threshold, the compression time increases, but the iteration time decreases.
 // Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
 // we set the upper bound to 32GB to avoid too long compression time.
-// factor is the kv count per row.
+// factor is the non-clustered(1 for data engine and number of non-clustered index count for index engine).
 func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) int64 {
 	totalRawFileSize := int64(0)
 	var lastFile string
@@ -1395,8 +1401,9 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 		engineCfg := &backend.EngineConfig{}
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
+			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
-			if tr.tableInfo.Core.PKIsHandle {
+			if !common.TableHasAutoRowID(tr.tableInfo.Core) {
 				idxCnt--
 			}
 			threshold := estimateCompactionThreshold(cp, int64(idxCnt))
@@ -1557,10 +1564,12 @@ func (tr *TableRestore) restoreEngine(
 	}
 
 	// if the key are ordered, LocalWrite can optimize the writing.
-	// table has auto_incremented _tidb_rowid must satisfy following restriction
+	// table has auto-incremented _tidb_rowid must satisfy following restrictions:
 	// - clustered index disable and primary key is not number
 	// - no auto random bits (auto random or shard rowid)
 	// - no partition table
+	// - no explicit _tidb_rowid field (At this time we can't determine if the soure file contains _tidb_rowid field,
+	//   so we will do this check in LocalWriter when the first row is received.)
 	hasAutoIncrementAutoID := common.TableHasAutoRowID(tr.tableInfo.Core) &&
 		tr.tableInfo.Core.AutoRandomBits == 0 && tr.tableInfo.Core.ShardRowIDBits == 0 &&
 		tr.tableInfo.Core.Partition == nil
@@ -2459,11 +2468,16 @@ func (cr *chunkRestore) deliverLoop(
 			start := time.Now()
 
 			if err = dataEngine.WriteRows(ctx, columns, dataKVs); err != nil {
-				deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				}
+
 				return errors.Trace(err)
 			}
 			if err = indexEngine.WriteRows(ctx, columns, indexKVs); err != nil {
-				deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				}
 				return errors.Trace(err)
 			}
 
