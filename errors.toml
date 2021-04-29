@@ -98,7 +98,7 @@ rewrite rule not found
 
 ["BR:KV:ErrKVUnknown"]
 error = '''
-unknown tikv error
+unknown error occur on tikv, please ensure tikv is permitted to read from & write to the storage.
 '''
 
 ["BR:KV:ErrNotTiKVStorage"]
