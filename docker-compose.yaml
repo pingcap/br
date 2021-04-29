@@ -209,8 +209,6 @@ services:
     env_file:
       - ./docker/minio.env
 
-<<<<<<< HEAD
-=======
   gcs:
     image: fsouza/fake-gcs-server
     ports:
@@ -224,4 +222,3 @@ services:
     image: 3pointer/fake-gcs-oauth
     ports:
       - 5000:5000
->>>>>>> 92e7b321... Compatibility test: create github actions for test (#708)
