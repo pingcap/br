@@ -73,7 +73,8 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(backupSchemas, IsNil)
 
 	// Empty database.
-	noFilter, err := filter.Parse([]string{"*.*"})
+	// Filter out system tables manually.
+	noFilter, err := filter.Parse([]string{"*.*", "!mysql.*"})
 	c.Assert(err, IsNil)
 	_, backupSchemas, err = backup.BuildBackupRangeAndSchema(
 		s.mock.Storage, noFilter, math.MaxUint64)
