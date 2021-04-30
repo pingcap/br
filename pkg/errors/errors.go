@@ -9,6 +9,7 @@ import (
 // Is tests whether the specificated error causes the error `err`.
 func Is(err error, is *errors.Error) bool {
 	errorFound := errors.Find(err, func(e error) bool {
+		//nolint:errorlint
 		normalizedErr, ok := e.(*errors.Error)
 		return ok && normalizedErr.ID() == is.ID()
 	})

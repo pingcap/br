@@ -11,12 +11,9 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-<<<<<<< HEAD
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
-=======
-	"github.com/pingcap/failpoint"
->>>>>>> 264059b7... backup: allow backup tolerate minor TiKV failure (#997) (#1019)
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/store/tikv"

@@ -39,6 +39,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -600,14 +601,6 @@ func (bc *Client) fineGrainedBackup(
 	rangeTree rtree.RangeTree,
 	updateCh glue.Progress,
 ) error {
-<<<<<<< HEAD
-=======
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Client.fineGrainedBackup", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
 	failpoint.Inject("hint-fine-grained-backup", func(v failpoint.Value) {
 		log.Info("failpoint hint-fine-grained-backup injected, "+
 			"process will sleep for 3s and notify the shell.", zap.String("file", v.(string)))
@@ -623,7 +616,6 @@ func (bc *Client) fineGrainedBackup(
 		}
 	})
 
->>>>>>> 264059b7... backup: allow backup tolerate minor TiKV failure (#997) (#1019)
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
 		// Step1, check whether there is any incomplete range
@@ -925,6 +917,8 @@ backupLoop:
 				zap.Int("retry time", retry))
 			return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to create backup stream to store %d", storeID)
 		}
+		// It's strange this can pass errcheck in both release-5.0 and master
+		// nolint:errcheck
 		defer bcli.CloseSend()
 
 		for {
