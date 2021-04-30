@@ -22,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cockroachdb/pebble"
@@ -29,6 +31,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -319,13 +322,27 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	}
 	db, err := pebble.Open(filepath.Join(dir, "test"), opt)
 	c.Assert(err, IsNil)
-	tmpPath := filepath.Join(dir, "tmp")
+	defer db.Close()
+	tmpPath := filepath.Join(dir, "test.sst")
 	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
-	meta := localFileMeta{}
+
 	_, engineUUID := backend.MakeUUID("ww", 0)
-	f := File{localFileMeta: meta, db: db, UUID: engineUUID}
-	w := openLocalWriter(&f, tmpPath, 1024*1024)
+	engineCtx, cancel := context.WithCancel(context.Background())
+	f := &File{
+		db:           db,
+		UUID:         engineUUID,
+		sstDir:       tmpPath,
+		ctx:          engineCtx,
+		cancel:       cancel,
+		sstMetasChan: make(chan metaOrFlush, 64),
+	}
+	f.sstIngester = dbSSTIngester{e: f}
+	f.wg.Add(1)
+	go f.ingestSSTLoop()
+	sorted := needSort && !partitialSort
+	w, err := openLocalWriter(context.Background(), &backend.LocalWriterConfig{IsKVSorted: sorted}, f, 1<<20)
+	c.Assert(err, IsNil)
 
 	ctx := context.Background()
 	var kvs []common.KvPair
@@ -372,10 +389,9 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
-	err = w.Close()
+	err = w.Close(context.Background())
 	c.Assert(err, IsNil)
-	err = db.Flush()
-	c.Assert(err, IsNil)
+	c.Assert(f.flushEngineWithoutLock(ctx), IsNil)
 	o := &pebble.IterOptions{}
 	it := db.NewIter(o)
 
@@ -390,6 +406,8 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		c.Assert(it.Key(), DeepEquals, k)
 		it.Next()
 	}
+	close(f.sstMetasChan)
+	f.wg.Wait()
 }
 
 func (s *localSuite) TestLocalWriterWithSort(c *C) {
@@ -486,6 +504,102 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
 
+type testIngester struct{}
+
+func (i testIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
+	if len(metas) == 0 {
+		return nil, errors.New("sst metas is empty")
+	} else if len(metas) == 1 {
+		return metas[0], nil
+	}
+
+	newMeta := &sstMeta{}
+	for _, m := range metas {
+		newMeta.totalSize += m.totalSize
+		newMeta.totalCount += m.totalCount
+	}
+	return newMeta, nil
+}
+
+func (i testIngester) ingest([]*sstMeta) error {
+	return nil
+}
+
+func (s *localSuite) TestLocalIngestLoop(c *C) {
+	dir := c.MkDir()
+	opt := &pebble.Options{
+		MemTableSize:             1024 * 1024,
+		MaxConcurrentCompactions: 16,
+		L0CompactionThreshold:    math.MaxInt32, // set to max try to disable compaction
+		L0StopWritesThreshold:    math.MaxInt32, // set to max try to disable compaction
+		DisableWAL:               true,
+		ReadOnly:                 false,
+	}
+	db, err := pebble.Open(filepath.Join(dir, "test"), opt)
+	c.Assert(err, IsNil)
+	defer db.Close()
+	tmpPath := filepath.Join(dir, "test.sst")
+	err = os.Mkdir(tmpPath, 0o755)
+	c.Assert(err, IsNil)
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	engineCtx, cancel := context.WithCancel(context.Background())
+	f := File{
+		db:           db,
+		UUID:         engineUUID,
+		sstDir:       "",
+		ctx:          engineCtx,
+		cancel:       cancel,
+		sstMetasChan: make(chan metaOrFlush, 64),
+		config: backend.LocalEngineConfig{
+			Compact:            true,
+			CompactThreshold:   100,
+			CompactConcurrency: 4,
+		},
+	}
+	f.sstIngester = testIngester{}
+	f.wg.Add(1)
+	go f.ingestSSTLoop()
+
+	// add some routines to add ssts
+	var wg sync.WaitGroup
+	wg.Add(4)
+	totalSize := int64(0)
+	concurrency := 4
+	count := 500
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			flushCnt := rand.Int31n(10) + 1
+			for i := 0; i < count; i++ {
+				size := int64(rand.Int31n(50) + 1)
+				m := &sstMeta{totalSize: size, totalCount: 1}
+				atomic.AddInt64(&totalSize, size)
+				err := f.addSST(engineCtx, m)
+				c.Assert(err, IsNil)
+				if int32(i) >= flushCnt {
+					f.mutex.RLock()
+					err = f.flushEngineWithoutLock(engineCtx)
+					c.Assert(err, IsNil)
+					f.mutex.RUnlock()
+					flushCnt += rand.Int31n(10) + 1
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	f.mutex.RLock()
+	err = f.flushEngineWithoutLock(engineCtx)
+	c.Assert(err, IsNil)
+	f.mutex.RUnlock()
+
+	close(f.sstMetasChan)
+	f.wg.Wait()
+	c.Assert(f.ingestErr.Get(), IsNil)
+	c.Assert(totalSize, Equals, f.TotalSize.Load())
+	c.Assert(f.Length.Load(), Equals, int64(concurrency*count))
+}
+
 func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
@@ -533,4 +647,86 @@ func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 
 	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
 	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
+}
+
+func makeRanges(input []string) []Range {
+	ranges := make([]Range, 0, len(input)/2)
+	for i := 0; i < len(input)-1; i += 2 {
+		ranges = append(ranges, Range{start: []byte(input[i]), end: []byte(input[i+1])})
+	}
+	return ranges
+}
+
+func (s *localSuite) TestDedupAndMergeRanges(c *C) {
+	cases := [][]string{
+		// empty
+		{},
+		{},
+		// without overlap
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		{"1", "2", "3", "4", "5", "6", "7", "8"},
+		// merge all as one
+		{"1", "12", "12", "13", "13", "14", "14", "15", "15", "999"},
+		{"1", "999"},
+		// overlap
+		{"1", "12", "12", "13", "121", "129", "122", "133", "14", "15", "15", "999"},
+		{"1", "133", "14", "999"},
+
+		// out of order, same as test 3
+		{"15", "999", "1", "12", "121", "129", "12", "13", "122", "133", "14", "15"},
+		{"1", "133", "14", "999"},
+
+		// not continuous
+		{"000", "001", "002", "004", "100", "108", "107", "200", "255", "300"},
+		{"000", "001", "002", "004", "100", "200", "255", "300"},
+	}
+
+	for i := 0; i < len(cases)-1; i += 2 {
+		input := makeRanges(cases[i])
+		output := makeRanges(cases[i+1])
+
+		c.Assert(sortAndMergeRanges(input), DeepEquals, output)
+	}
+}
+
+func (s *localSuite) TestFilterOverlapRange(c *C) {
+	cases := [][]string{
+		// both empty input
+		{},
+		{},
+		{},
+
+		// ranges are empty
+		{},
+		{"0", "1"},
+		{},
+
+		// finished ranges are empty
+		{"0", "1", "2", "3"},
+		{},
+		{"0", "1", "2", "3"},
+
+		// single big finished range
+		{"00", "10", "20", "30", "40", "50", "60", "70"},
+		{"25", "65"},
+		{"00", "10", "20", "25", "65", "70"},
+
+		// single big input
+		{"10", "99"},
+		{"00", "10", "15", "30", "45", "60"},
+		{"10", "15", "30", "45", "60", "99"},
+
+		// multi input and finished
+		{"00", "05", "05", "10", "10", "20", "30", "45", "50", "70", "70", "90"},
+		{"07", "12", "14", "16", "17", "30", "45", "70"},
+		{"00", "05", "05", "07", "12", "14", "16", "17", "30", "45", "70", "90"},
+	}
+
+	for i := 0; i < len(cases)-2; i += 3 {
+		input := makeRanges(cases[i])
+		finished := makeRanges(cases[i+1])
+		output := makeRanges(cases[i+2])
+
+		c.Assert(filterOverlapRange(input, finished), DeepEquals, output)
+	}
 }

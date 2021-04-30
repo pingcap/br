@@ -343,7 +343,7 @@ func (be *tidbBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil
 }
 
-func (be *tidbBackend) OpenEngine(context.Context, uuid.UUID) error {
+func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -420,7 +420,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 
 	// Retry will be done externally, so we're not going to retry here.
 	_, err := be.db.ExecContext(ctx, insertStmt.String())
-	if err != nil {
+	if err != nil && !common.IsContextCanceledError(err) {
 		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
 			zap.Array("rows", rows), zap.Error(err))
 	}
@@ -551,7 +551,11 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
-func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (be *tidbBackend) LocalWriter(
+	ctx context.Context,
+	cfg *backend.LocalWriterConfig,
+	engineUUID uuid.UUID,
+) (backend.EngineWriter, error) {
 	return &Writer{be: be, engineUUID: engineUUID}, nil
 }
 
@@ -560,7 +564,7 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
-func (w *Writer) Close() error {
+func (w *Writer) Close(ctx context.Context) error {
 	return nil
 }
 
