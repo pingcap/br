@@ -1566,9 +1566,9 @@ func (tr *TableRestore) restoreEngine(
 	// if the key are ordered, LocalWrite can optimize the writing.
 	// table has auto-incremented _tidb_rowid must satisfy following restrictions:
 	// - clustered index disable and primary key is not number
-	// - no auto random bits (auto random or shard rowid)
+	// - no auto random bits (auto random or shard row id)
 	// - no partition table
-	// - no explicit _tidb_rowid field (A this time we can't determine if the soure file contains _tidb_rowid field,
+	// - no explicit _tidb_rowid field (A this time we can't determine if the source files contain _tidb_rowid field,
 	//   so we will do this check in LocalWriter when the first row is received.)
 	hasAutoIncrementAutoID := common.TableHasAutoRowID(tr.tableInfo.Core) &&
 		tr.tableInfo.Core.AutoRandomBits == 0 && tr.tableInfo.Core.ShardRowIDBits == 0 &&
@@ -1586,11 +1586,36 @@ func (tr *TableRestore) restoreEngine(
 	var wg sync.WaitGroup
 	var chunkErr common.OnceError
 
+	type chunkFlushStatus struct {
+		dataStatus  backend.ChunkFlushStatus
+		indexStatus backend.ChunkFlushStatus
+		chunkCp     *checkpoints.ChunkCheckpoint
+	}
+
+	// chunks that are finished writing, but checkpoints are not finished due to flush not finished.
+	var checkFlushLock sync.Mutex
+	flushPendingChunks := make([]chunkFlushStatus, 0, 16)
+
 	// Restore table data
 	for chunkIndex, chunk := range cp.Chunks {
 		if chunk.Chunk.Offset >= chunk.Chunk.EndOffset {
 			continue
 		}
+
+		checkFlushLock.Lock()
+		finished := 0
+		for _, c := range flushPendingChunks {
+			if c.indexStatus.Flushed() && c.dataStatus.Flushed() {
+				saveCheckpoint(rc, tr, engineID, c.chunkCp)
+				finished++
+			} else {
+				break
+			}
+		}
+		if finished > 0 {
+			flushPendingChunks = flushPendingChunks[finished:]
+		}
+		checkFlushLock.Unlock()
 
 		select {
 		case <-ctx.Done():
@@ -1639,15 +1664,26 @@ func (tr *TableRestore) restoreEngine(
 			}()
 			metric.ChunkCounter.WithLabelValues(metric.ChunkStateRunning).Add(remainChunkCnt)
 			err := cr.restore(ctx, tr, engineID, dataWriter, indexWriter, rc)
+			var dataFlushStatus, indexFlushStaus backend.ChunkFlushStatus
 			if err == nil {
-				err = dataWriter.Close(ctx)
+				dataFlushStatus, err = dataWriter.Close(ctx)
 			}
 			if err == nil {
-				err = indexWriter.Close(ctx)
+				indexFlushStaus, err = indexWriter.Close(ctx)
 			}
 			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
+				if dataFlushStatus != nil && !dataFlushStatus.Flushed() &&
+					indexFlushStaus != nil && !indexFlushStaus.Flushed() {
+					checkFlushLock.Lock()
+					flushPendingChunks = append(flushPendingChunks, chunkFlushStatus{
+						dataStatus:  dataFlushStatus,
+						indexStatus: indexFlushStaus,
+						chunkCp:     cr.chunk,
+					})
+					checkFlushLock.Unlock()
+				}
 			} else {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFailed).Add(remainChunkCnt)
 				chunkErr.Set(err)

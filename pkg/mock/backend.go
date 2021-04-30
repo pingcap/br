@@ -305,11 +305,12 @@ func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3, arg4 
 }
 
 // Close mocks base method.
-func (m *MockEngineWriter) Close(arg0 context.Context) error {
+func (m *MockEngineWriter) Close(arg0 context.Context) (backend.ChunkFlushStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Close", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(backend.ChunkFlushStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Close indicates an expected call of Close.

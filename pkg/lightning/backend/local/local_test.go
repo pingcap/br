@@ -389,9 +389,10 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
-	err = w.Close(context.Background())
+	flushStatus, err := w.Close(context.Background())
 	c.Assert(err, IsNil)
 	c.Assert(f.flushEngineWithoutLock(ctx), IsNil)
+	c.Assert(flushStatus.Flushed(), IsTrue)
 	o := &pebble.IterOptions{}
 	it := db.NewIter(o)
 
@@ -574,7 +575,7 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 				size := int64(rand.Int31n(50) + 1)
 				m := &sstMeta{totalSize: size, totalCount: 1}
 				atomic.AddInt64(&totalSize, size)
-				err := f.addSST(engineCtx, m)
+				_, err := f.addSST(engineCtx, m)
 				c.Assert(err, IsNil)
 				if int32(i) >= flushCnt {
 					f.mutex.RLock()

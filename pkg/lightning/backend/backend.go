@@ -375,7 +375,7 @@ func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string,
 	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
 }
 
-func (w *LocalEngineWriter) Close(ctx context.Context) error {
+func (w *LocalEngineWriter) Close(ctx context.Context) (ChunkFlushStatus, error) {
 	return w.writer.Close(ctx)
 }
 
@@ -442,6 +442,10 @@ func (engine *ClosedEngine) Logger() log.Logger {
 	return engine.logger
 }
 
+type ChunkFlushStatus interface {
+	Flushed() bool
+}
+
 type EngineWriter interface {
 	AppendRows(
 		ctx context.Context,
@@ -450,5 +454,5 @@ type EngineWriter interface {
 		commitTS uint64,
 		rows kv.Rows,
 	) error
-	Close(ctx context.Context) error
+	Close(ctx context.Context) (ChunkFlushStatus, error)
 }
