@@ -120,7 +120,7 @@ func newFullRestoreCommand() *cobra.Command {
 			return runRestoreCommand(cmd, "Full restore")
 		},
 	}
-	task.DefineFilterFlags(command)
+	task.DefineFilterFlags(command, filterOutSysAndMemTables)
 	return command
 }
 
@@ -159,7 +159,7 @@ func newLogRestoreCommand() *cobra.Command {
 			return runLogRestoreCommand(cmd)
 		},
 	}
-	task.DefineFilterFlags(command)
+	task.DefineFilterFlags(command, filterOutSysAndMemTables)
 	task.DefineLogRestoreFlags(command)
 	return command
 }
