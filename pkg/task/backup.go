@@ -8,13 +8,7 @@ import (
 	"strings"
 	"time"
 
-<<<<<<< HEAD
-	"github.com/pingcap/br/pkg/utils"
-
-=======
 	"github.com/docker/go-units"
-	"github.com/opentracing/opentracing-go"
->>>>>>> 0576f071... backup: set concurrency to 1 when ratelimit enabled (#1015)
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
@@ -26,6 +20,8 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/utils"
 
 	"github.com/pingcap/br/pkg/backup"
 	berrors "github.com/pingcap/br/pkg/errors"
