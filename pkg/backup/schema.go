@@ -123,6 +123,9 @@ func (ss *Schemas) BackupSchemas(
 
 	schemas := make([]*backuppb.Schema, 0, len(ss.schemas))
 	for name, schema := range ss.schemas {
+		if utils.IsSysDB(schema.dbInfo.Name.L) {
+			schema.dbInfo.Name = utils.TemporaryDBName(schema.dbInfo.Name.O)
+		}
 		dbBytes, err := json.Marshal(schema.dbInfo)
 		if err != nil {
 			return nil, errors.Trace(err)
