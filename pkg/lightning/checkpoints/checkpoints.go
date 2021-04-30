@@ -652,7 +652,7 @@ func (cpdb *MySQLCheckpointsDB) Initialize(ctx context.Context, cfg *config.Conf
 		for _, db := range dbInfo {
 			for _, table := range db.Tables {
 				tableName := common.UniqueTable(db.Name, table.Name)
-				_, err = stmt.ExecContext(c, cfg.TaskID, tableName, 0, table.ID)
+				_, err = stmt.ExecContext(c, cfg.TaskID, tableName, CheckpointStatusLoaded, table.ID)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -770,6 +770,9 @@ func (cpdb *MySQLCheckpointsDB) Get(ctx context.Context, tableName string) (*Tab
 
 		var status uint8
 		if err := tableRow.Scan(&status, &cp.AllocBase, &cp.TableID); err != nil {
+			if err == sql.ErrNoRows {
+				return errors.NotFoundf("checkpoint for table %s", tableName)
+			}
 			return errors.Trace(err)
 		}
 		cp.Status = CheckpointStatus(status)
@@ -1032,7 +1035,7 @@ func (cpdb *FileCheckpointsDB) Get(_ context.Context, tableName string) (*TableC
 
 	tableModel, ok := cpdb.checkpoints.Checkpoints[tableName]
 	if !ok {
-		tableModel = &TableCheckpointModel{}
+		return nil, errors.NotFoundf("checkpoint for table %s", tableName)
 	}
 
 	cp := &TableCheckpoint{
