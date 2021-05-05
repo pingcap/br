@@ -37,7 +37,6 @@ import (
 
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
@@ -62,10 +61,17 @@ type Checksum struct {
 	TotalBytes uint64
 }
 
+// ProgressUnit represents the unit of progress.
+type ProgressUnit string
+
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
 	backupRetryTimes            = 5
+	// RangeUnit represents the progress updated counter when a range finished.
+	RangeUnit ProgressUnit = "range"
+	// RegionUnit represents the progress updated counter when a region finished.
+	RegionUnit ProgressUnit = "region"
 )
 
 // Client is a client instructs TiKV how to do a backup.
@@ -341,10 +347,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				logger.Info("change table AutoRandID",
+				logger.Debug("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			logger.Info("change table AutoIncID",
+			logger.Debug("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -432,7 +438,7 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) ([]*backuppb.File, error) {
 	errCh := make(chan error)
 
@@ -460,7 +466,7 @@ func (bc *Client) BackupRanges(
 		for _, r := range ranges {
 			sk, ek := r.StartKey, r.EndKey
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				files, err := bc.BackupRange(ectx, sk, ek, req, updateCh)
+				files, err := bc.BackupRange(ectx, sk, ek, req, progressCallBack)
 				if err == nil {
 					filesCh <- files
 				}
@@ -494,7 +500,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (files []*backuppb.File, err error) {
 	start := time.Now()
 	defer func() {
@@ -524,7 +530,7 @@ func (bc *Client) BackupRange(
 	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(ctx, req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -534,10 +540,13 @@ func (bc *Client) BackupRange(
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
-		req.RateLimit, req.Concurrency, results, updateCh)
+		req.RateLimit, req.Concurrency, results, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	// update progress of range unit
+	progressCallBack(RangeUnit)
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
@@ -598,7 +607,7 @@ func (bc *Client) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) error {
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
@@ -674,7 +683,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			}
 		}
 
@@ -751,8 +760,8 @@ func OnBackupResponse(
 		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
 		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
-		if utils.MessageIsRetryableS3Error(resp.GetError().GetMsg()) {
-			log.Warn("backup occur s3 storage error", zap.String("error", resp.GetError().GetMsg()))
+		if utils.MessageIsRetryableStorageError(resp.GetError().GetMsg()) {
+			log.Warn("backup occur storage error", zap.String("error", resp.GetError().GetMsg()))
 			// back off 3000ms, for S3 is 99.99% available (i.e. the max outage time would less than 52.56mins per year),
 			// this time would be probably enough for s3 to resume.
 			return nil, 3000, nil

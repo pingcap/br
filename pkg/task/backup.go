@@ -4,6 +4,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/pingcap/br/pkg/utils"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -308,25 +311,56 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	// The number of regions need to backup
-	approximateRegions := 0
-	for _, r := range ranges {
-		var regionCount int
-		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
-		if err != nil {
-			return errors.Trace(err)
+	summary.CollectInt("backup total ranges", len(ranges))
+
+	var updateCh glue.Progress
+	var unit backup.ProgressUnit
+	if len(ranges) < 100 {
+		unit = backup.RegionUnit
+		// The number of regions need to backup
+		approximateRegions := 0
+		for _, r := range ranges {
+			var regionCount int
+			regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			approximateRegions += regionCount
 		}
-		approximateRegions += regionCount
+		// Redirect to log if there is no log file to avoid unreadable output.
+		updateCh = g.StartProgress(
+			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
+		summary.CollectInt("backup total regions", approximateRegions)
+	} else {
+		unit = backup.RangeUnit
+		// To reduce the costs, we can use the range as unit of progress.
+		updateCh = g.StartProgress(
+			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
-	summary.CollectInt("backup total regions", approximateRegions)
+	progressCount := 0
+	progressCallBack := func(callBackUnit backup.ProgressUnit) {
+		if unit == callBackUnit {
+			updateCh.Inc()
+			progressCount++
+			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+				log.Info("failpoint progress-call-back injected")
+				if fileName, ok := v.(string); ok {
+					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+					if err != nil {
+						log.Warn("failed to create file", zap.Error(err))
+					}
+					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
+					_, err = f.Write(msg)
+					if err != nil {
+						log.Warn("failed to write data to file", zap.Error(err))
+					}
+				}
+			})
+		}
+	}
 
-	// Backup
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := g.StartProgress(
-		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
-
-	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
+	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}
