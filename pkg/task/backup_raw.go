@@ -181,6 +181,13 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
+	progressCallBack := func(unit backup.ProgressUnit) {
+		if unit == backup.RangeUnit {
+			return
+		}
+		updateCh.Inc()
+	}
+
 	req := backuppb.BackupRequest{
 		ClusterId:        client.GetClusterID(),
 		StartVersion:     0,
@@ -192,7 +199,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
 	}
-	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
+	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}

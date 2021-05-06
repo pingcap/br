@@ -53,16 +53,16 @@ type SourceFileMeta struct {
 	FileSize    int64
 }
 
-func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStorage) string {
+func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStorage) (string, error) {
 	schema, err := ExportStatement(ctx, store, m.SchemaFile, m.charSet)
 	if err != nil {
 		log.L().Error("failed to extract table schema",
 			zap.String("Path", m.SchemaFile.FileMeta.Path),
 			log.ShortError(err),
 		)
-		return ""
+		return "", err
 	}
-	return string(schema)
+	return string(schema), nil
 }
 
 /*
@@ -295,7 +295,7 @@ func (s *mdLoaderSetup) listFiles(ctx context.Context, store storage.ExternalSto
 			return errors.Annotatef(err, "apply file routing on file '%s' failed", path)
 		}
 		if res == nil {
-			logger.Debug("[loader] file is filtered by file router")
+			logger.Info("[loader] file is filtered by file router")
 			return nil
 		}
 
