@@ -964,21 +964,21 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockBackend := mock.NewMockBackend(controller)
 	importer := backend.MakeBackend(mockBackend)
 
-	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
+	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Deliver nothing.
@@ -1004,19 +1004,19 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend := mock.NewMockBackend(controller)
 	importer := backend.MakeBackend(mockBackend)
 
-	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
+	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
 
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Set up the expected API calls to the data engine...
@@ -1224,13 +1224,13 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Expected API sequence
