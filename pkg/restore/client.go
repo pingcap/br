@@ -354,8 +354,7 @@ func (rc *Client) CreateTables(
 	newTS uint64,
 ) (*RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &RewriteRules{
-		Table: make([]*import_sstpb.RewriteRule, 0),
-		Data:  make([]*import_sstpb.RewriteRule, 0),
+		Data: make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	errCh := make(chan error, 1)
@@ -366,7 +365,6 @@ func (rc *Client) CreateTables(
 	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, nil, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
-		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
