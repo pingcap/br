@@ -10,6 +10,17 @@ import (
 	"go.uber.org/multierr"
 )
 
+var retryableServerError = []string{
+	"server closed",
+	"connection refused",
+	"connection reset by peer",
+	"channel closed",
+	"error trying to connect",
+	"connection closed before message completed",
+	"body write aborted",
+	"error during dispatch",
+}
+
 // RetryableFunc presents a retryable operation.
 type RetryableFunc func() error
 
@@ -47,13 +58,14 @@ func WithRetry(
 	return allErrors // nolint:wrapcheck
 }
 
-// MessageIsRetryableS3Error checks whether the message returning from TiKV is retryable ExternalStorageError.
-func MessageIsRetryableS3Error(msg string) bool {
+// MessageIsRetryableStorageError checks whether the message returning from TiKV is retryable ExternalStorageError.
+func MessageIsRetryableStorageError(msg string) bool {
 	msgLower := strings.ToLower(msg)
-	// If failed to read/write to S3.
-	failed := strings.Contains(msgLower, "failed to put object") || strings.Contains(msgLower, "failed to get object")
-	// If s3 stop or not start.
-	closedOrRefused := strings.Contains(msgLower, "server closed") || strings.Contains(msgLower, "connection refused")
-	// Those conditions are retryable.
-	return failed && closedOrRefused
+	// UNSAFE! TODO: Add a error type for retryable connection error.
+	for _, errStr := range retryableServerError {
+		if strings.Contains(msgLower, errStr) {
+			return true
+		}
+	}
+	return false
 }
