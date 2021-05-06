@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -31,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+	"go.uber.org/atomic"
 
 	"github.com/pingcap/br/pkg/restore"
 )
@@ -41,7 +41,7 @@ type testClient struct {
 	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
-	splitCount   int
+	splitCount   atomic.Int32
 	hook         clientHook
 }
 
@@ -158,7 +158,7 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	default:
 	}
 
-	c.splitCount++
+	c.splitCount.Inc()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	newRegions := make([]*restore.RegionInfo, 0)
@@ -406,7 +406,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, h
 	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
 
 	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(client.splitCount >= 7, IsTrue)
+	c.Assert(client.splitCount.Load() >= 7, IsTrue)
 
 	// check split ranges
 	regions, err = paginateScanRegion(ctx, client, rangeStart, rangeEnd, 5)
@@ -462,12 +462,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
 // return epoch not match error in every other call
 type splitRegionEpochNotMatchHookRandom struct {
 	noopHook
-	cnt int32
+	cnt atomic.Int32
 }
 
 func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	cnt := atomic.AddInt32(&h.cnt, 1)
+	cnt := h.cnt.Inc()
 	if cnt%2 != 0 {
 		return regionInfo, keys
 	}
@@ -484,12 +484,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
 type splitRegionNoValidKeyHook struct {
 	noopHook
 	returnErrTimes int32
-	errorCnt       int32
+	errorCnt       atomic.Int32
 }
 
 func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	if atomic.AddInt32(&h.errorCnt, 1) <= h.returnErrTimes {
+	if h.errorCnt.Inc() <= h.returnErrTimes {
 		// clean keys to trigger "no valid keys" error
 		keys = keys[:0]
 	}
