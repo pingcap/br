@@ -1689,15 +1689,18 @@ func (tr *TableRestore) restoreEngine(
 			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
-				if dataFlushStatus != nil && !dataFlushStatus.Flushed() &&
-					indexFlushStaus != nil && !indexFlushStaus.Flushed() {
-					checkFlushLock.Lock()
-					flushPendingChunks = append(flushPendingChunks, chunkFlushStatus{
-						dataStatus:  dataFlushStatus,
-						indexStatus: indexFlushStaus,
-						chunkCp:     cr.chunk,
-					})
-					checkFlushLock.Unlock()
+				if dataFlushStatus != nil && indexFlushStaus != nil {
+					if dataFlushStatus.Flushed() && indexFlushStaus.Flushed() {
+						saveCheckpoint(rc, tr, engineID, cr.chunk)
+					} else {
+						checkFlushLock.Lock()
+						flushPendingChunks = append(flushPendingChunks, chunkFlushStatus{
+							dataStatus:  dataFlushStatus,
+							indexStatus: indexFlushStaus,
+							chunkCp:     cr.chunk,
+						})
+						checkFlushLock.Unlock()
+					}
 				}
 			} else {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFailed).Add(remainChunkCnt)
