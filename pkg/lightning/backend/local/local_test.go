@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"testing"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/coreos/go-semver/semver"
@@ -34,6 +35,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/hack"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/mock"
@@ -43,6 +46,10 @@ import (
 type localSuite struct{}
 
 var _ = Suite(&localSuite{})
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 func (s *localSuite) TestNextKey(c *C) {
 	c.Assert(nextKey([]byte{}), DeepEquals, []byte{})
@@ -289,13 +296,12 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
-	_, engineUUID := MakeUUID("ww", 0)
-	f := LocalFile{localFileMeta: meta, db: db, Uuid: engineUUID}
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
-	// kvs := make(kvPairs, 1000)
-	var kvs kvPairs
+	var kvs []common.KvPair
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {
 		binary.BigEndian.PutUint64(value[i*8:], uint64(i))
@@ -312,9 +318,9 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		kvs = append(kvs, kv)
 		keys = append(keys, kv.Key)
 	}
-	var rows1 kvPairs
-	var rows2 kvPairs
-	var rows3 kvPairs
+	var rows1 []common.KvPair
+	var rows2 []common.KvPair
+	var rows3 []common.KvPair
 	rows4 := kvs[:12000]
 	if partitialSort {
 		sort.Slice(rows4, func(i, j int) bool {
@@ -333,11 +339,11 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		rows2 = kvs[6000:12000]
 		rows3 = kvs[12000:]
 	}
-	err = w.AppendRows(ctx, "", []string{}, 1, rows1)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows1))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows2)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows2))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows3)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
 	err = w.Close()
 	c.Assert(err, IsNil)

@@ -26,11 +26,14 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/importer"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/restore"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 )
 
 func main() {
@@ -133,12 +136,12 @@ func run() error {
 }
 
 func compactCluster(ctx context.Context, cfg *config.Config, tls *common.TLS) error {
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls.WithHost(cfg.TiDB.PdAddr),
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			return kv.Compact(c, tls, store.Address, restore.FullLevelCompact)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.Compact(c, tls, store.Address, restore.FullLevelCompact)
 		},
 	)
 }
@@ -154,23 +157,23 @@ func switchMode(ctx context.Context, cfg *config.Config, tls *common.TLS, mode s
 		return errors.Errorf("invalid mode %s, must use %s or %s", mode, config.ImportMode, config.NormalMode)
 	}
 
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls.WithHost(cfg.TiDB.PdAddr),
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			return kv.SwitchMode(c, tls, store.Address, m)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.SwitchMode(c, tls, store.Address, m)
 		},
 	)
 }
 
 func fetchMode(ctx context.Context, cfg *config.Config, tls *common.TLS) error {
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls.WithHost(cfg.TiDB.PdAddr),
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			mode, err := kv.FetchMode(c, tls, store.Address)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			mode, err := tikv.FetchMode(c, tls, store.Address)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%-30s | Error: %v\n", store.Address, err)
 			} else {
@@ -231,7 +234,7 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 	}
 
 	if cfg.TikvImporter.Backend == "importer" {
-		importer, err := kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+		importer, err := importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -259,8 +262,8 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 		for _, table := range targetTables {
 			for engineID := table.MinEngineID; engineID <= table.MaxEngineID; engineID++ {
 				fmt.Fprintln(os.Stderr, "Closing and cleaning up engine:", table.TableName, engineID)
-				_, eID := kv.MakeUUID(table.TableName, engineID)
-				file := kv.LocalFile{Uuid: eID}
+				_, eID := backend.MakeUUID(table.TableName, engineID)
+				file := local.File{Uuid: eID}
 				err := file.Cleanup(cfg.TikvImporter.SortedKVDir)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "* Encountered error while cleanup engine:", err)
@@ -357,7 +360,7 @@ func getLocalStoringTables(ctx context.Context, cfg *config.Config) (err2 error)
 	return nil
 }
 
-func unsafeCloseEngine(ctx context.Context, importer kv.Backend, engine string) (*kv.ClosedEngine, error) {
+func unsafeCloseEngine(ctx context.Context, importer backend.Backend, engine string) (*backend.ClosedEngine, error) {
 	if index := strings.LastIndexByte(engine, ':'); index >= 0 {
 		tableName := engine[:index]
 		engineID, err := strconv.Atoi(engine[index+1:])
@@ -378,7 +381,7 @@ func unsafeCloseEngine(ctx context.Context, importer kv.Backend, engine string) 
 }
 
 func importEngine(ctx context.Context, cfg *config.Config, tls *common.TLS, engine string) error {
-	importer, err := kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+	importer, err := importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -392,7 +395,7 @@ func importEngine(ctx context.Context, cfg *config.Config, tls *common.TLS, engi
 }
 
 func cleanupEngine(ctx context.Context, cfg *config.Config, tls *common.TLS, engine string) error {
-	importer, err := kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+	importer, err := importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 	if err != nil {
 		return errors.Trace(err)
 	}

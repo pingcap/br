@@ -37,7 +37,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -645,11 +645,6 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 }
 
 func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
-	if !cfg.App.CheckRequirements {
-		log.L().Info("check-requirement is disabled, skip check system rlimit")
-		return nil
-	}
-
 	// in local mode, we need to read&write a lot of L0 sst files, so we need to check system max open files limit
 	if cfg.TikvImporter.Backend == config.BackendLocal {
 		// estimate max open files = {top N(TableConcurrency) table sizes} / {MemoryTableSize}
@@ -670,7 +665,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 		// region-concurrency: number of LocalWriters writing SST files.
 		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
 		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
-		if err := backend.VerifyRLimit(estimateMaxFiles); err != nil {
+		if err := local.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}
 	}

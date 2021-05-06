@@ -11,12 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend_test
+package tidb_test
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"testing"
 
 	"github.com/pingcap/parser/charset"
 
@@ -28,18 +29,24 @@ import (
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/types"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/verification"
 )
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 var _ = Suite(&mysqlSuite{})
 
 type mysqlSuite struct {
 	dbHandle *sql.DB
 	mockDB   sqlmock.Sqlmock
-	backend  kv.Backend
+	backend  backend.Backend
 	tbl      table.Table
 }
 
@@ -62,7 +69,7 @@ func (s *mysqlSuite) SetUpTest(c *C) {
 
 	s.dbHandle = db
 	s.mockDB = mock
-	s.backend = kv.NewTiDBBackend(db, config.ReplaceOnDup)
+	s.backend = tidb.NewTiDBBackend(db, config.ReplaceOnDup)
 	s.tbl = tbl
 }
 
@@ -129,7 +136,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	ignoreBackend := kv.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup)
+	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup)
 	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
@@ -171,7 +178,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	ignoreBackend := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
@@ -209,7 +216,7 @@ func (s *mysqlSuite) testStrictMode(c *C) {
 	tbl, err := tables.TableFromMeta(kv.NewPanickingAllocators(0), tblInfo)
 	c.Assert(err, IsNil)
 
-	bk := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	encoder, err := bk.NewEncoder(tbl, &kv.SessionOptions{SQLMode: mysql.ModeStrictAllTables})
 	c.Assert(err, IsNil)
 
@@ -244,7 +251,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_3_x(c *C) {
 			AddRow("t", "id", "int(10)", "auto_increment"))
 	s.mockDB.ExpectCommit()
 
-	bk := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -279,7 +286,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_0(c *C) {
 			AddRow("test", "t", "id", int64(1)))
 	s.mockDB.ExpectCommit()
 
-	bk := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -314,7 +321,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_increment(c *C) {
 			AddRow("test", "t", "id", int64(1), "AUTO_INCREMENT"))
 	s.mockDB.ExpectCommit()
 
-	bk := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -349,7 +356,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_random(c *C) {
 			AddRow("test", "t", "id", int64(1), "AUTO_RANDOM"))
 	s.mockDB.ExpectCommit()
 
-	bk := kv.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{

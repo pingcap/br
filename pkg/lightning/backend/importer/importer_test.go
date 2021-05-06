@@ -11,10 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend_test
+package importer
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -22,11 +25,10 @@ import (
 	"github.com/google/uuid"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/import_kvpb"
-
 	kvpb "github.com/pingcap/kvproto/pkg/import_kvpb"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/mock"
 )
@@ -37,7 +39,7 @@ type importerSuite struct {
 	mockWriter *mock.MockImportKV_WriteEngineClient
 	ctx        context.Context
 	engineUUID []byte
-	engine     *kv.OpenedEngine
+	engine     *backend.OpenedEngine
 	kvPairs    kv.Rows
 }
 
@@ -52,7 +54,7 @@ func (s *importerSuite) setUpTest(c *C) {
 	s.controller = gomock.NewController(c)
 	s.mockClient = mock.NewMockImportKVClient(s.controller)
 	s.mockWriter = mock.NewMockImportKV_WriteEngineClient(s.controller)
-	importer := kv.NewMockImporter(s.mockClient, testPDAddr)
+	importer := NewMockImporter(s.mockClient, testPDAddr)
 
 	s.ctx = context.Background()
 	engineUUID := uuid.MustParse("7e3f3a3c-67ce-506d-af34-417ec138fbcb")
@@ -69,7 +71,7 @@ func (s *importerSuite) setUpTest(c *C) {
 	})
 
 	s.mockClient.EXPECT().
-		OpenEngine(s.ctx, &import_kvpb.OpenEngineRequest{Uuid: s.engineUUID}).
+		OpenEngine(s.ctx, &kvpb.OpenEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
 	var err error
@@ -88,18 +90,18 @@ func (s *importerSuite) TestWriteRows(c *C) {
 	s.mockClient.EXPECT().WriteEngine(s.ctx).Return(s.mockWriter, nil)
 
 	headSendCall := s.mockWriter.EXPECT().
-		Send(&import_kvpb.WriteEngineRequest{
-			Chunk: &import_kvpb.WriteEngineRequest_Head{
-				Head: &import_kvpb.WriteHead{Uuid: s.engineUUID},
+		Send(&kvpb.WriteEngineRequest{
+			Chunk: &kvpb.WriteEngineRequest_Head{
+				Head: &kvpb.WriteHead{Uuid: s.engineUUID},
 			},
 		}).
 		Return(nil)
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
-			c.Assert(x.GetBatch().GetMutations(), DeepEquals, []*import_kvpb.Mutation{
-				{Op: import_kvpb.Mutation_Put, Key: []byte("k1"), Value: []byte("v1")},
-				{Op: import_kvpb.Mutation_Put, Key: []byte("k2"), Value: []byte("v2")},
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
+			c.Assert(x.GetBatch().GetMutations(), DeepEquals, []*kvpb.Mutation{
+				{Op: kvpb.Mutation_Put, Key: []byte("k1"), Value: []byte("v1")},
+				{Op: kvpb.Mutation_Put, Key: []byte("k2"), Value: []byte("v2")},
 			})
 			return nil
 		}).
@@ -125,7 +127,7 @@ func (s *importerSuite) TestWriteHeadSendFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return errors.Annotate(context.Canceled, "fake unrecoverable write head error")
 		})
@@ -148,13 +150,13 @@ func (s *importerSuite) TestWriteBatchSendFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return nil
 		})
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetBatch(), NotNil)
 			return errors.Annotate(context.Canceled, "fake unrecoverable write batch error")
 		}).
@@ -178,13 +180,13 @@ func (s *importerSuite) TestWriteCloseFailed(c *C) {
 
 	headSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetHead(), NotNil)
 			return nil
 		})
 	batchSendCall := s.mockWriter.EXPECT().
 		Send(gomock.Any()).
-		DoAndReturn(func(x *import_kvpb.WriteEngineRequest) error {
+		DoAndReturn(func(x *kvpb.WriteEngineRequest) error {
 			c.Assert(x.GetBatch(), NotNil)
 			return nil
 		}).
@@ -205,13 +207,13 @@ func (s *importerSuite) TestCloseImportCleanupEngine(c *C) {
 	defer s.tearDownTest()
 
 	s.mockClient.EXPECT().
-		CloseEngine(s.ctx, &import_kvpb.CloseEngineRequest{Uuid: s.engineUUID}).
+		CloseEngine(s.ctx, &kvpb.CloseEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 	s.mockClient.EXPECT().
-		ImportEngine(s.ctx, &import_kvpb.ImportEngineRequest{Uuid: s.engineUUID, PdAddr: testPDAddr}).
+		ImportEngine(s.ctx, &kvpb.ImportEngineRequest{Uuid: s.engineUUID, PdAddr: testPDAddr}).
 		Return(nil, nil)
 	s.mockClient.EXPECT().
-		CleanupEngine(s.ctx, &import_kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
+		CleanupEngine(s.ctx, &kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
 	engine, err := s.engine.Close(s.ctx)
@@ -256,4 +258,35 @@ func BenchmarkMutationPool(b *testing.B) {
 	}
 
 	_ = g
+}
+
+func (s *importerSuite) TestCheckTiDBVersion(c *C) {
+	var version string
+	ctx := context.Background()
+
+	mockServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		c.Assert(req.URL.Path, Equals, "/status")
+		w.WriteHeader(http.StatusOK)
+		err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"version": version,
+		})
+		c.Assert(err, IsNil)
+	}))
+
+	tls := common.NewTLSFromMockServer(mockServer)
+
+	version = "5.7.25-TiDB-v4.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), IsNil)
+
+	version = "5.7.25-TiDB-v9999.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v6.0.0-beta"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too new.*")
+
+	version = "5.7.25-TiDB-v1.0.0"
+	c.Assert(checkTiDBVersionByTLS(ctx, tls, requiredMinTiDBVersion, requiredMaxTiDBVersion), ErrorMatches, "TiDB version too old.*")
 }
