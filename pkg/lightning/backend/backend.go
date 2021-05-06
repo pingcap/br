@@ -30,11 +30,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
-<<<<<<< HEAD
-	"github.com/pingcap/br/pkg/lightning/verification"
-=======
 	"github.com/pingcap/br/pkg/lightning/mydump"
->>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968)
+	"github.com/pingcap/br/pkg/lightning/verification"
 )
 
 const (

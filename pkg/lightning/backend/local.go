@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"github.com/pingcap/tidb/kv"
 	"io"
 	"os"
 	"path/filepath"
@@ -1451,7 +1452,7 @@ func (local *local) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) err
 	return nil
 }
 
-func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.CheckCtx) error {
+func (local *local) CheckRequirements(ctx context.Context, checkCtx *CheckCtx) error {
 	versionStr, err := local.g.GetSQLExecutor().ObtainStringWithLog(
 		ctx,
 		"SELECT version();",
@@ -1460,7 +1461,7 @@ func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.Che
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err := checkTiDBVersion(ctx, versionStr, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
+	if err := checkTiDBVersion(versionStr, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
 		return err
 	}
 	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
@@ -1473,12 +1474,6 @@ func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.Che
 	tidbVersion, _ := version.ExtractTiDBVersion(versionStr)
 
 	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
-}
-
-<<<<<<< HEAD:pkg/lightning/backend/local.go
-=======
-func checkTiDBVersion(ctx context.Context, versionStr string, requiredMinVersion, requiredMaxVersion semver.Version) error {
-	return version.CheckTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
 }
 
 var tiFlashReplicaQuery = "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TIFLASH_REPLICA WHERE REPLICA_COUNT > 0;"
@@ -1505,7 +1500,7 @@ func (t tblNames) String() string {
 
 // check TiFlash replicas.
 // local backend doesn't support TiFlash before tidb v4.0.5
-func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.CheckCtx, tidbVersion semver.Version) error {
+func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *CheckCtx, tidbVersion semver.Version) error {
 	if tidbVersion.Compare(tiFlashMinVersion) >= 0 {
 		return nil
 	}
@@ -1541,7 +1536,6 @@ func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.Che
 	return nil
 }
 
->>>>>>> 76934268... pkg/lightning: check compatibility with  tiflash (#968):pkg/lightning/backend/local/local.go
 func (local *local) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
 	return fetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
 }
@@ -1684,7 +1678,7 @@ func nextKey(key []byte) []byte {
 	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
 	if isRecordKey(key) {
 		tableId, handle, _ := tablecodec.DecodeRecordKey(key)
-		return tablecodec.EncodeRowKeyWithHandle(tableId, handle+1)
+		return tablecodec.EncodeRowKeyWithHandle(tableId, kv.IntHandle(handle.IntValue()+1))
 	}
 
 	// if key is an index, directly append a 0x00 to the key.
