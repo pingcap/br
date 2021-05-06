@@ -24,15 +24,28 @@ import (
 // pushDown wraps a backup task.
 type pushDown struct {
 	mgr    ClientMgr
-	respCh chan *backuppb.BackupResponse
+	respCh chan responseAndStore
 	errCh  chan error
+}
+
+type responseAndStore struct {
+	Resp  *backuppb.BackupResponse
+	Store *metapb.Store
+}
+
+func (r responseAndStore) GetResponse() *backuppb.BackupResponse {
+	return r.Resp
+}
+
+func (r responseAndStore) GetStore() *metapb.Store {
+	return r.Store
 }
 
 // newPushDown creates a push down backup.
 func newPushDown(mgr ClientMgr, cap int) *pushDown {
 	return &pushDown{
 		mgr:    mgr,
-		respCh: make(chan *backuppb.BackupResponse, cap),
+		respCh: make(chan responseAndStore, cap),
 		errCh:  make(chan error, cap),
 	}
 }
@@ -59,6 +72,7 @@ func (push *pushDown) pushBackup(
 
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
+		store := s
 		storeID := s.GetId()
 		if s.GetState() != metapb.StoreState_Up {
 			log.Warn("skip store", zap.Uint64("StoreID", storeID), zap.Stringer("State", s.GetState()))
@@ -78,7 +92,10 @@ func (push *pushDown) pushBackup(
 				ctx, storeID, client, req,
 				func(resp *backuppb.BackupResponse) error {
 					// Forward all responses (including error).
-					push.respCh <- resp
+					push.respCh <- responseAndStore{
+						Resp:  resp,
+						Store: store,
+					}
 					return nil
 				},
 				func() (backuppb.BackupClient, error) {
@@ -101,7 +118,9 @@ func (push *pushDown) pushBackup(
 
 	for {
 		select {
-		case resp, ok := <-push.respCh:
+		case respAndStore, ok := <-push.respCh:
+			resp := respAndStore.GetResponse()
+			store := respAndStore.GetStore()
 			if !ok {
 				// Finished.
 				return res, nil
@@ -145,7 +164,11 @@ func (push *pushDown) pushBackup(
 						continue
 					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
-					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
+					return res, errors.Annotatef(berrors.ErrKVUnknown, "error occurs in the TiKV Node %v(@%s): %v",
+						store.GetId(),
+						redact.String(store.GetAddress()), // The net address might be sensitive, so we might need to redact them.
+						errPb)
+
 				}
 			}
 		case err := <-push.errCh:
