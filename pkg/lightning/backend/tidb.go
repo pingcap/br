@@ -18,6 +18,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/pingcap/br/pkg/redact"
 	"strconv"
 	"strings"
 	"time"
@@ -406,15 +407,9 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 
 	// Retry will be done externally, so we're not going to retry here.
 	_, err := be.db.ExecContext(ctx, insertStmt.String())
-<<<<<<< HEAD:pkg/lightning/backend/tidb.go
-	if err != nil {
-		log.L().Error("execute statement failed", log.ZapRedactString("stmt", insertStmt.String()),
-			log.ZapRedactArray("rows", rows), zap.Error(err))
-=======
 	if err != nil && !common.IsContextCanceledError(err) {
 		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
 			zap.Array("rows", rows), zap.Error(err))
->>>>>>> 31e539ce... test: fix unstable test lightning_fail_fast (#1030):pkg/lightning/backend/tidb/tidb.go
 	}
 	failpoint.Inject("FailIfImportedSomeRows", func() {
 		panic("forcing failure due to FailIfImportedSomeRows, before saving checkpoint")

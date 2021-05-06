@@ -188,13 +188,8 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 			c.Assert(taskCfg.TiDB.Host, Equals, "test.invalid")
 			c.Assert(taskCfg.Mydumper.SourceDir, Equals, fmt.Sprintf("file://demo-path-%d", i))
 			c.Assert(taskCfg.Mydumper.CSV.Separator, Equals, "/")
-<<<<<<< HEAD
-		case <-time.After(500 * time.Millisecond):
-			c.Fatalf("task is not queued after 500ms (i = %d)", i)
-=======
 		case <-time.After(5 * time.Second):
 			c.Fatalf("task is not queued after 5 seconds (i = %d)", i)
->>>>>>> 31e539ce... test: fix unstable test lightning_fail_fast (#1030)
 		}
 	}
 }
@@ -231,13 +226,9 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 		return result.ID
 	}
 
-<<<<<<< HEAD
-	go s.lightning.RunServer()
-=======
 	go func() {
 		_ = s.lightning.RunServer()
 	}()
->>>>>>> 31e539ce... test: fix unstable test lightning_fail_fast (#1030)
 	time.Sleep(100 * time.Millisecond)
 
 	// Check `GET /tasks` without any active tasks
