@@ -379,6 +379,10 @@ func (w *LocalEngineWriter) Close(ctx context.Context) (ChunkFlushStatus, error)
 	return w.writer.Close(ctx)
 }
 
+func (w *LocalEngineWriter) IsSynced() bool {
+	return w.writer.IsSynced()
+}
+
 // UnsafeCloseEngine closes the engine without first opening it.
 // This method is "unsafe" as it does not follow the normal operation sequence
 // (Open -> Write -> Close -> Import). This method should only be used when one
@@ -454,5 +458,6 @@ type EngineWriter interface {
 		commitTS uint64,
 		rows kv.Rows,
 	) error
+	IsSynced() bool
 	Close(ctx context.Context) (ChunkFlushStatus, error)
 }

@@ -163,6 +163,10 @@ func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Row
 	return nil
 }
 
+func (w noopWriter) IsSynced() bool {
+	return true
+}
+
 func (w noopWriter) Close(context.Context) (backend.ChunkFlushStatus, error) {
 	return nil, nil
 }

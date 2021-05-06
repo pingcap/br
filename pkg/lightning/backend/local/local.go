@@ -2570,6 +2570,10 @@ func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	return flushStatus{local: w.local, seq: w.lastMetaSeq}, err
 }
 
+func (w *Writer) IsSynced() bool {
+	return w.batchCount == 0 && w.lastMetaSeq <= w.local.finishedMetaSeq.Load()
+}
+
 func (w *Writer) flushKVs(ctx context.Context) error {
 	writer, err := w.createSSTWriter()
 	if err != nil {
