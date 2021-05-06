@@ -30,11 +30,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
-<<<<<<< HEAD:pkg/lightning/backend/local_test.go
-=======
-	tidbkv "github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/sessionctx/stmtctx"
->>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/local/local_test.go
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/hack"
 
@@ -76,36 +71,8 @@ func (s *localSuite) TestNextKey(c *C) {
 	// test recode key
 	// key with int handle
 	for _, handleId := range []int64{1, 255, math.MaxInt32} {
-<<<<<<< HEAD:pkg/lightning/backend/local_test.go
 		key := tablecodec.EncodeRowKeyWithHandle(1, handleId)
 		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, handleId+1)))
-=======
-		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId))
-		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleId+1))))
-	}
-
-	testDatums := [][]types.Datum{
-		{types.NewIntDatum(1), types.NewIntDatum(2)},
-		{types.NewIntDatum(255), types.NewIntDatum(256)},
-		{types.NewIntDatum(math.MaxInt32), types.NewIntDatum(math.MaxInt32 + 1)},
-		{types.NewStringDatum("test"), types.NewStringDatum("test\000")},
-		{types.NewStringDatum("test\255"), types.NewStringDatum("test\255\000")},
-	}
-
-	stmtCtx := new(stmtctx.StatementContext)
-	for _, datums := range testDatums {
-		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[0])
-		c.Assert(err, IsNil)
-		h, err := tidbkv.NewCommonHandle(keyBytes)
-		c.Assert(err, IsNil)
-		key := tablecodec.EncodeRowKeyWithHandle(1, h)
-		nextKeyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(123), datums[1])
-		c.Assert(err, IsNil)
-		nextHdl, err := tidbkv.NewCommonHandle(nextKeyBytes)
-		c.Assert(err, IsNil)
-		expectNextKey := []byte(tablecodec.EncodeRowKeyWithHandle(1, nextHdl))
-		c.Assert(nextKey(key), DeepEquals, expectNextKey)
->>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/local/local_test.go
 	}
 
 	// dIAAAAAAAAD/PV9pgAAAAAD/AAABA4AAAAD/AAAAAQOAAAD/AAAAAAEAAAD8

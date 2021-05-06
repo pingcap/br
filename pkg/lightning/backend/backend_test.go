@@ -12,14 +12,9 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 
-<<<<<<< HEAD
-	kv "github.com/pingcap/br/pkg/lightning/backend"
-	"github.com/pingcap/br/pkg/lightning/mock"
-=======
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/mock"
->>>>>>> 2652f252... lightning: refactor the `backend` package (#877)
 )
 
 type backendSuite struct {

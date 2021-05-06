@@ -1820,14 +1820,9 @@ type LocalWriter struct {
 	writer            *sstWriter
 }
 
-<<<<<<< HEAD:pkg/lightning/backend/local.go
 // TODO: temporarily replace this async append rows with the former write-batch approach before addressing the performance issue.
-func (w *LocalWriter) AppendRowsAsync(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
-	kvs := rows.(kvPairs)
-=======
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *LocalWriter) AppendRowsAsync(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
 	kvs := kv.KvPairsFromRows(rows)
->>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/local/local.go
 	if len(kvs) == 0 {
 		return nil
 	}
@@ -1840,8 +1835,8 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 }
 
 // TODO: replace the implementation back with `AppendRowsAsync` after addressing the performance issue.
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
-	kvs := rows.(kvPairs)
+func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
 	}

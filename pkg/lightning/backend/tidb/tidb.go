@@ -330,12 +330,7 @@ func (be *tidbBackend) CheckRequirements(ctx context.Context) error {
 func (be *tidbBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error) {
 	se := kv.NewSession(options)
 	if options.SQLMode.HasStrictMode() {
-<<<<<<< HEAD:pkg/lightning/backend/tidb.go
-		se.vars.SkipUTF8Check = false
-=======
 		se.GetSessionVars().SkipUTF8Check = false
-		se.GetSessionVars().SkipASCIICheck = false
->>>>>>> 2652f252... lightning: refactor the `backend` package (#877):pkg/lightning/backend/tidb/tidb.go
 	}
 
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil

@@ -6,6 +6,7 @@ import (
 
 	. "github.com/pingcap/check"
 
+	"github.com/pingcap/br/pkg/lightning/checkpoints/checkpointspb"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
 )
@@ -294,9 +295,9 @@ func (s *checkpointSuite) TestApplyDiff(c *C) {
 func (s *checkpointSuite) TestCheckpointMarshallUnmarshall(c *C) {
 	path := filepath.Join(c.MkDir(), "filecheckpoint")
 	fileChkp := NewFileCheckpointsDB(path)
-	fileChkp.checkpoints.Checkpoints["a"] = &TableCheckpointModel{
+	fileChkp.checkpoints.Checkpoints["a"] = &checkpointspb.TableCheckpointModel{
 		Status:  uint32(CheckpointStatusLoaded),
-		Engines: map[int32]*EngineCheckpointModel{},
+		Engines: map[int32]*checkpointspb.EngineCheckpointModel{},
 	}
 	fileChkp.Close()
 
