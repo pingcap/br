@@ -46,8 +46,7 @@ func (s *testRangeSuite) TestSortRange(c *C) {
 		{OldKeyPrefix: tablecodec.GenTableRecordPrefix(2), NewKeyPrefix: tablecodec.GenTableRecordPrefix(5)},
 	}
 	rewriteRules := &restore.RewriteRules{
-		Table: make([]*import_sstpb.RewriteRule, 0),
-		Data:  dataRules,
+		Data: dataRules,
 	}
 	ranges1 := []rtree.Range{
 		{
