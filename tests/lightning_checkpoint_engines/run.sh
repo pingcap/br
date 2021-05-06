@@ -28,6 +28,8 @@ for BACKEND in importer local; do
   rm -f "$TEST_DIR/lightning-checkpoint-engines.log"
   rm -f "/tmp/tidb_lightning_checkpoint.pb"
   run_sql 'DROP DATABASE IF EXISTS cpeng;'
+  rm -rf $TEST_DIR/importer/*
+  
   export GO_FAILPOINTS=""
 
   do_run_lightning $BACKEND config
@@ -79,7 +81,7 @@ for BACKEND in importer local; do
   run_sql 'DROP DATABASE cpeng;'
   run_sql 'DROP DATABASE IF EXISTS tidb_lightning_checkpoint;'
   rm -rf $TEST_DIR/lightning_checkpoint_engines.sorted
-  rm -rf $TEST_DIR/imported/*
+  rm -rf $TEST_DIR/importer/*
 
   set +e
   for i in $(seq "$ENGINE_COUNT"); do
