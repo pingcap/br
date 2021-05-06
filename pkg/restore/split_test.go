@@ -291,8 +291,7 @@ func initRewriteRules() *restore.RewriteRules {
 		NewKeyPrefix: []byte("bb"),
 	}
 	return &restore.RewriteRules{
-		Table: rules[:],
-		Data:  rules[:],
+		Data: rules[:],
 	}
 }
 

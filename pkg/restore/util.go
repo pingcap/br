@@ -59,14 +59,8 @@ func GetRewriteRules(
 		}
 	}
 
-	tableRules := make([]*import_sstpb.RewriteRule, 0)
 	dataRules := make([]*import_sstpb.RewriteRule, 0)
 	for oldTableID, newTableID := range tableIDs {
-		tableRules = append(tableRules, &import_sstpb.RewriteRule{
-			OldKeyPrefix: tablecodec.EncodeTablePrefix(oldTableID),
-			NewKeyPrefix: tablecodec.EncodeTablePrefix(newTableID),
-			NewTimestamp: newTimeStamp,
-		})
 		dataRules = append(dataRules, &import_sstpb.RewriteRule{
 			OldKeyPrefix: append(tablecodec.EncodeTablePrefix(oldTableID), recordPrefixSep...),
 			NewKeyPrefix: append(tablecodec.EncodeTablePrefix(newTableID), recordPrefixSep...),
