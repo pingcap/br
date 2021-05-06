@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -20,7 +21,6 @@ import (
 	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/distsql"
-	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
@@ -37,7 +37,6 @@ import (
 
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
@@ -62,10 +61,17 @@ type Checksum struct {
 	TotalBytes uint64
 }
 
+// ProgressUnit represents the unit of progress.
+type ProgressUnit string
+
 // Maximum total sleep time(in ms) for kv/cop commands.
 const (
 	backupFineGrainedMaxBackoff = 80000
 	backupRetryTimes            = 5
+	// RangeUnit represents the progress updated counter when a range finished.
+	RangeUnit ProgressUnit = "range"
+	// RegionUnit represents the progress updated counter when a region finished.
+	RegionUnit ProgressUnit = "region"
 )
 
 // Client is a client instructs TiKV how to do a backup.
@@ -209,6 +215,20 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
 	backendURL := storage.FormatBackendURL(bc.backend)
 	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
+	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
+		log.Info("failpoint s3-outage-during-writing-file injected, " +
+			"process will sleep for 3s and notify the shell to kill s3 service.")
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to find shell to notify, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
 }
 
@@ -256,38 +276,45 @@ func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
 
 // BuildBackupRangeAndSchema gets the range and schema of tables.
 func BuildBackupRangeAndSchema(
-	dom *domain.Domain,
 	storage kv.Storage,
 	tableFilter filter.Filter,
 	backupTS uint64,
-	ignoreStats bool,
 ) ([]rtree.Range, *Schemas, error) {
-	info, err := dom.GetSnapshotInfoSchema(backupTS)
+	snapshot, err := storage.GetSnapshot(kv.NewVersion(backupTS))
+	if err != nil {
+		return nil, nil, errors.Trace(err)
+	}
+	m := meta.NewSnapshotMeta(snapshot)
+
+	ranges := make([]rtree.Range, 0)
+	backupSchemas := newBackupSchemas()
+	dbs, err := m.ListDatabases()
 	if err != nil {
 		return nil, nil, errors.Trace(err)
 	}
 
-	h := dom.StatsHandle()
-
-	ranges := make([]rtree.Range, 0)
-	backupSchemas := newBackupSchemas()
-	for _, dbInfo := range info.AllSchemas() {
+	for _, dbInfo := range dbs {
 		// skip system databases
 		if util.IsMemOrSysDB(dbInfo.Name.L) {
 			continue
 		}
 
-		var dbData []byte
 		idAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.RowIDAllocType)
 		seqAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.SequenceType)
 		randAlloc := autoid.NewAllocator(storage, dbInfo.ID, false, autoid.AutoRandomType)
 
-		if len(dbInfo.Tables) == 0 {
+		tables, err := m.ListTables(dbInfo.ID)
+		if err != nil {
+			return nil, nil, errors.Trace(err)
+		}
+
+		if len(tables) == 0 {
 			log.Warn("It's not necessary for backing up empty database",
 				zap.Stringer("db", dbInfo.Name))
 			continue
 		}
-		for _, tableInfo := range dbInfo.Tables {
+
+		for _, tableInfo := range tables {
 			if !tableFilter.MatchTable(dbInfo.Name.O, tableInfo.Name.O) {
 				// Skip tables other than the given table.
 				continue
@@ -320,10 +347,10 @@ func BuildBackupRangeAndSchema(
 					return nil, nil, errors.Trace(err)
 				}
 				tableInfo.AutoRandID = globalAutoRandID
-				logger.Info("change table AutoRandID",
+				logger.Debug("change table AutoRandID",
 					zap.Int64("AutoRandID", globalAutoRandID))
 			}
-			logger.Info("change table AutoIncID",
+			logger.Debug("change table AutoIncID",
 				zap.Int64("AutoIncID", globalAutoID))
 
 			// remove all non-public indices
@@ -336,36 +363,7 @@ func BuildBackupRangeAndSchema(
 			}
 			tableInfo.Indices = tableInfo.Indices[:n]
 
-			if dbData == nil {
-				dbData, err = json.Marshal(dbInfo)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-			}
-			tableData, err := json.Marshal(tableInfo)
-			if err != nil {
-				return nil, nil, errors.Trace(err)
-			}
-
-			var stats []byte
-			if !ignoreStats {
-				jsonTable, err := h.DumpStatsToJSON(dbInfo.Name.String(), tableInfo, nil)
-				if err != nil {
-					logger.Error("dump table stats failed", logutil.ShortError(err))
-				} else {
-					stats, err = json.Marshal(jsonTable)
-					if err != nil {
-						logger.Error("dump table stats failed (cannot serialize)", logutil.ShortError(err))
-					}
-				}
-			}
-
-			schema := backuppb.Schema{
-				Db:    dbData,
-				Table: tableData,
-				Stats: stats,
-			}
-			backupSchemas.pushPending(schema, dbInfo.Name.L, tableInfo.Name.L)
+			backupSchemas.addSchema(dbInfo, tableInfo)
 
 			tableRanges, err := BuildTableRanges(tableInfo)
 			if err != nil {
@@ -388,15 +386,17 @@ func BuildBackupRangeAndSchema(
 }
 
 // GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
-func GetBackupDDLJobs(dom *domain.Domain, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
-	snapMeta, err := dom.GetSnapshotMeta(backupTS)
+func GetBackupDDLJobs(store kv.Storage, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
+	snapshot, err := store.GetSnapshot(kv.NewVersion(backupTS))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	lastSnapMeta, err := dom.GetSnapshotMeta(lastBackupTS)
+	snapMeta := meta.NewSnapshotMeta(snapshot)
+	lastSnapshot, err := store.GetSnapshot(kv.NewVersion(lastBackupTS))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	lastSnapMeta := meta.NewSnapshotMeta(lastSnapshot)
 	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -438,7 +438,7 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) ([]*backuppb.File, error) {
 	errCh := make(chan error)
 
@@ -466,7 +466,7 @@ func (bc *Client) BackupRanges(
 		for _, r := range ranges {
 			sk, ek := r.StartKey, r.EndKey
 			workerPool.ApplyOnErrorGroup(eg, func() error {
-				files, err := bc.BackupRange(ectx, sk, ek, req, updateCh)
+				files, err := bc.BackupRange(ectx, sk, ek, req, progressCallBack)
 				if err == nil {
 					filesCh <- files
 				}
@@ -500,7 +500,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (files []*backuppb.File, err error) {
 	start := time.Now()
 	defer func() {
@@ -530,7 +530,7 @@ func (bc *Client) BackupRange(
 	push := newPushDown(bc.mgr, len(allStores))
 
 	var results rtree.RangeTree
-	results, err = push.pushBackup(ctx, req, allStores, updateCh)
+	results, err = push.pushBackup(ctx, req, allStores, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -540,10 +540,13 @@ func (bc *Client) BackupRange(
 	// TODO: test fine grained backup.
 	err = bc.fineGrainedBackup(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
-		req.RateLimit, req.Concurrency, results, updateCh)
+		req.RateLimit, req.Concurrency, results, progressCallBack)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	// update progress of range unit
+	progressCallBack(RangeUnit)
 
 	if req.IsRawKv {
 		log.Info("backup raw ranges",
@@ -604,7 +607,7 @@ func (bc *Client) fineGrainedBackup(
 	rateLimit uint64,
 	concurrency uint32,
 	rangeTree rtree.RangeTree,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) error {
 	bo := tikv.NewBackoffer(ctx, backupFineGrainedMaxBackoff)
 	for {
@@ -680,7 +683,7 @@ func (bc *Client) fineGrainedBackup(
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			}
 		}
 
@@ -757,8 +760,8 @@ func OnBackupResponse(
 		return nil, 0, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v on storeID: %d", resp.Error, storeID)
 	default:
 		// UNSAFE! TODO: use meaningful error code instead of unstructured message to find failed to write error.
-		if utils.MessageIsRetryableS3Error(resp.GetError().GetMsg()) {
-			log.Warn("backup occur s3 storage error", zap.String("error", resp.GetError().GetMsg()))
+		if utils.MessageIsRetryableStorageError(resp.GetError().GetMsg()) {
+			log.Warn("backup occur storage error", zap.String("error", resp.GetError().GetMsg()))
 			// back off 3000ms, for S3 is 99.99% available (i.e. the max outage time would less than 52.56mins per year),
 			// this time would be probably enough for s3 to resume.
 			return nil, 3000, nil
@@ -785,7 +788,6 @@ func (bc *Client) handleFineGrained(
 		return 0, errors.Trace(pderr)
 	}
 	storeID := leader.GetStoreId()
-	max := 0
 
 	req := backuppb.BackupRequest{
 		ClusterId:        bc.clusterID,
@@ -805,21 +807,27 @@ func (bc *Client) handleFineGrained(
 		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
 		return 0, errors.Trace(err)
 	}
+	hasProgress := false
+	backoffMill := 0
 	err = SendBackup(
 		ctx, storeID, client, req,
 		// Handle responses with the same backoffer.
 		func(resp *backuppb.BackupResponse) error {
-			response, backoffMs, err1 :=
+			response, shouldBackoff, err1 :=
 				OnBackupResponse(storeID, bo, backupTS, lockResolver, resp)
 			if err1 != nil {
 				return err1
 			}
-			if max < backoffMs {
-				max = backoffMs
+			if backoffMill < shouldBackoff {
+				backoffMill = shouldBackoff
 			}
 			if response != nil {
 				respCh <- response
 			}
+			// When meet an error, we need to set hasProgress too, in case of
+			// overriding the backoffTime of original error.
+			// hasProgress would be false iff there is a early io.EOF from the stream.
+			hasProgress = true
 			return nil
 		},
 		func() (backuppb.BackupClient, error) {
@@ -829,7 +837,14 @@ func (bc *Client) handleFineGrained(
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	return max, nil
+
+	// If no progress, backoff 10s for debouncing.
+	// 10s is the default interval of stores sending a heartbeat to the PD.
+	// And is the average new leader election timeout, which would be a reasonable back off time.
+	if !hasProgress {
+		backoffMill = 10000
+	}
+	return backoffMill, nil
 }
 
 // SendBackup send backup request to the given store.

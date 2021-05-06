@@ -128,7 +128,9 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Backup raw does not need domain.
+	needDomain := false
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -179,6 +181,13 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
+	progressCallBack := func(unit backup.ProgressUnit) {
+		if unit == backup.RangeUnit {
+			return
+		}
+		updateCh.Inc()
+	}
+
 	req := backuppb.BackupRequest{
 		ClusterId:        client.GetClusterID(),
 		StartVersion:     0,
@@ -190,7 +199,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
 	}
-	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
+	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}

@@ -15,15 +15,18 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -232,8 +235,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, int64(cfg.TikvImporter.RegionSplitSize),
-			cfg.TikvImporter.SortedKVDir, cfg.TikvImporter.RangeConcurrency, cfg.TikvImporter.SendKVPairs,
+		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -408,7 +410,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 2. restore tables, execute statements concurrency
 	for _, dbMeta := range dbMetas {
 		for _, tblMeta := range dbMeta.Tables {
-			sql := tblMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := tblMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, tblMeta.Name)
 				if err != nil {
@@ -430,6 +432,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 					return err
 				}
 			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	err = worker.wait()
@@ -439,7 +444,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 3. restore views. Since views can cross database we must restore views after all table schemas are restored.
 	for _, dbMeta := range dbMetas {
 		for _, viewMeta := range dbMeta.Views {
-			sql := viewMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := viewMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, viewMeta.Name)
 				if err != nil {
@@ -465,6 +470,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 				if err != nil {
 					return err
 				}
+			}
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -570,6 +578,26 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
+func (rc *RestoreController) checkTableEmpty(ctx context.Context, tableName string) error {
+	db, err := rc.tidbGlue.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := "select 1 from " + tableName + " limit 1"
+	var dump int
+	err = db.QueryRowContext(ctx, query).Scan(&dump)
+
+	switch {
+	case err == sql.ErrNoRows:
+		return nil
+	case err != nil:
+		return errors.AddStack(err)
+	default:
+		return errors.Errorf("table %s not empty, please clean up the table first", tableName)
+	}
+}
+
 func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
@@ -601,6 +629,31 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	rc.dbInfos = dbInfos
+
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+		for _, dbMeta := range rc.dbMetas {
+			for _, tableMeta := range dbMeta.Tables {
+				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+
+				// if checkpoint enable and not missing, we skip the check table empty progress.
+				if rc.cfg.Checkpoint.Enable {
+					_, err := rc.checkpointsDB.Get(ctx, tableName)
+					switch {
+					case err == nil:
+						continue
+					case errors.IsNotFound(err):
+					default:
+						return err
+					}
+				}
+
+				err := rc.checkTableEmpty(ctx, tableName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
@@ -1311,7 +1364,19 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 			cancel()
 		}
 
+		type engineCheckpoint struct {
+			engineID   int32
+			checkpoint *EngineCheckpoint
+		}
+		allEngines := make([]engineCheckpoint, 0, len(cp.Engines))
 		for engineID, engine := range cp.Engines {
+			allEngines = append(allEngines, engineCheckpoint{engineID: engineID, checkpoint: engine})
+		}
+		sort.Slice(allEngines, func(i, j int) bool { return allEngines[i].engineID < allEngines[j].engineID })
+
+		for _, ecp := range allEngines {
+			engineID := ecp.engineID
+			engine := ecp.checkpoint
 			select {
 			case <-ctx.Done():
 				// Set engineErr and break this for loop to wait all the sub-routines done before return.
@@ -1426,23 +1491,6 @@ func (t *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
-	// In Local backend, the local writer will produce an SST file for batch
-	// ingest into the local DB every 1000 KV pairs or up to 512 MiB.
-	// There are (region-concurrency) data writers, and (index-concurrency) index writers.
-	// Thus, the disk size occupied by these writers are up to
-	// (region-concurrency + index-concurrency) * 512 MiB.
-	// This number should not exceed the disk quota.
-	// Therefore, we need to reduce that "512 MiB" to respect the disk quota:
-	localWriterMaxCacheSize := int64(rc.cfg.TikvImporter.DiskQuota) // int64(rc.cfg.App.IndexConcurrency+rc.cfg.App.RegionConcurrency)
-	if localWriterMaxCacheSize > config.LocalMemoryTableSize {
-		localWriterMaxCacheSize = config.LocalMemoryTableSize
-	}
-
-	indexWriter, err := indexEngine.LocalWriter(ctx, localWriterMaxCacheSize)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	logTask := t.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
 	dataEngine, err := rc.backend.OpenEngine(ctx, t.tableName, engineID, rc.ts)
@@ -1486,7 +1534,11 @@ func (t *TableRestore) restoreEngine(
 
 		restoreWorker := rc.regionWorkers.Apply()
 		wg.Add(1)
-		dataWriter, err := dataEngine.LocalWriter(ctx, localWriterMaxCacheSize)
+		dataWriter, err := dataEngine.LocalWriter(ctx)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		indexWriter, err := indexEngine.LocalWriter(ctx)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -1503,6 +1555,9 @@ func (t *TableRestore) restoreEngine(
 				err = dataWriter.Close()
 			}
 			if err == nil {
+				err = indexWriter.Close()
+			}
+			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
 			} else {
@@ -1514,9 +1569,6 @@ func (t *TableRestore) restoreEngine(
 	}
 
 	wg.Wait()
-	if err := indexWriter.Close(); err != nil {
-		return nil, errors.Trace(err)
-	}
 
 	// Report some statistics into the log for debugging.
 	totalKVSize := uint64(0)
@@ -2252,8 +2304,8 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 ////////////////////////////////////////////////////////////////
 
 var (
-	maxKVQueueSize         = 128   // Cache at most this number of rows before blocking the encode loop
-	minDeliverBytes uint64 = 65536 // 64 KB. batch at least this amount of bytes to reduce number of messages
+	maxKVQueueSize         = 128            // Cache at most this number of rows before blocking the encode loop
+	minDeliverBytes uint64 = 96 * units.KiB // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
 )
 
 type deliveredKVs struct {
@@ -2298,7 +2350,7 @@ func (cr *chunkRestore) deliverLoop(
 		indexKVs := rc.backend.MakeEmptyRows()
 
 	populate:
-		for dataChecksum.SumSize() < minDeliverBytes {
+		for dataChecksum.SumSize()+indexChecksum.SumSize() < minDeliverBytes {
 			select {
 			case kvPacket = <-kvsCh:
 				if len(kvPacket) == 0 {
@@ -2562,14 +2614,18 @@ func (cr *chunkRestore) restore(
 	}
 
 	select {
-	case deliverResult := <-deliverCompleteCh:
-		logTask.End(zap.ErrorLevel, deliverResult.err,
-			zap.Duration("readDur", readTotalDur),
-			zap.Duration("encodeDur", encodeTotalDur),
-			zap.Duration("deliverDur", deliverResult.totalDur),
-			zap.Object("checksum", &cr.chunk.Checksum),
-		)
-		return errors.Trace(deliverResult.err)
+	case deliverResult, ok := <-deliverCompleteCh:
+		if ok {
+			logTask.End(zap.ErrorLevel, deliverResult.err,
+				zap.Duration("readDur", readTotalDur),
+				zap.Duration("encodeDur", encodeTotalDur),
+				zap.Duration("deliverDur", deliverResult.totalDur),
+				zap.Object("checksum", &cr.chunk.Checksum),
+			)
+			return errors.Trace(deliverResult.err)
+		}
+		// else, this must cause by ctx cancel
+		return ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	}

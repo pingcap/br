@@ -13,12 +13,14 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -29,115 +31,132 @@ const (
 	DefaultSchemaConcurrency = 64
 )
 
+type scheamInfo struct {
+	tableInfo  *model.TableInfo
+	dbInfo     *model.DBInfo
+	crc64xor   uint64
+	totalKvs   uint64
+	totalBytes uint64
+	stats      *handle.JSONTable
+}
+
 // Schemas is task for backuping schemas.
 type Schemas struct {
 	// name -> schema
-	schemas        map[string]backuppb.Schema
-	backupSchemaCh chan backuppb.Schema
-	errCh          chan error
+	schemas map[string]*scheamInfo
 }
 
 func newBackupSchemas() *Schemas {
 	return &Schemas{
-		schemas:        make(map[string]backuppb.Schema),
-		backupSchemaCh: make(chan backuppb.Schema),
-		errCh:          make(chan error),
+		schemas: make(map[string]*scheamInfo),
 	}
 }
 
-func (pending *Schemas) pushPending(
-	schema backuppb.Schema,
-	dbName, tableName string,
+func (ss *Schemas) addSchema(
+	dbInfo *model.DBInfo, tableInfo *model.TableInfo,
 ) {
 	name := fmt.Sprintf("%s.%s",
-		utils.EncloseName(dbName), utils.EncloseName(tableName))
-	pending.schemas[name] = schema
+		utils.EncloseName(dbInfo.Name.L), utils.EncloseName(tableInfo.Name.L))
+	ss.schemas[name] = &scheamInfo{
+		tableInfo: tableInfo,
+		dbInfo:    dbInfo,
+	}
 }
 
-// Start backups schemas.
-func (pending *Schemas) Start(
+// BackupSchemas backups table info, including checksum and stats.
+func (ss *Schemas) BackupSchemas(
 	ctx context.Context,
 	store kv.Storage,
+	statsHandle *handle.Handle,
 	backupTS uint64,
 	concurrency uint,
 	copConcurrency uint,
+	skipChecksum bool,
 	updateCh glue.Progress,
-) {
+) ([]*backuppb.Schema, error) {
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
-	go func() {
-		startAll := time.Now()
-		for n, s := range pending.schemas {
-			log.Info("table checksum start", zap.String("table", n))
-			name := n
-			schema := s
-			workerPool.ApplyOnErrorGroup(errg, func() error {
+	startAll := time.Now()
+	for _, s := range ss.schemas {
+		schema := s
+		workerPool.ApplyOnErrorGroup(errg, func() error {
+			logger := log.With(
+				zap.String("db", schema.dbInfo.Name.O),
+				zap.String("table", schema.tableInfo.Name.O),
+			)
+
+			if !skipChecksum {
+				logger.Info("table checksum start")
 				start := time.Now()
-				table := model.TableInfo{}
-				err := json.Unmarshal(schema.Table, &table)
-				if err != nil {
-					return errors.Trace(err)
-				}
 				checksumResp, err := calculateChecksum(
-					ectx, &table, store.GetClient(), backupTS, copConcurrency)
+					ectx, schema.tableInfo, store.GetClient(), backupTS, copConcurrency)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				schema.Crc64Xor = checksumResp.Checksum
-				schema.TotalKvs = checksumResp.TotalKvs
-				schema.TotalBytes = checksumResp.TotalBytes
-				log.Info("table checksum finished",
-					zap.String("table", name),
+				schema.crc64xor = checksumResp.Checksum
+				schema.totalKvs = checksumResp.TotalKvs
+				schema.totalBytes = checksumResp.TotalBytes
+				logger.Info("table checksum finished",
 					zap.Uint64("Crc64Xor", checksumResp.Checksum),
 					zap.Uint64("TotalKvs", checksumResp.TotalKvs),
 					zap.Uint64("TotalBytes", checksumResp.TotalBytes),
 					zap.Duration("take", time.Since(start)))
-				pending.backupSchemaCh <- schema
-
-				updateCh.Inc()
-				return nil
-			})
-		}
-		if err := errg.Wait(); err != nil {
-			pending.errCh <- err
-		}
-		close(pending.backupSchemaCh)
-		log.Info("backup checksum",
-			zap.Duration("take", time.Since(startAll)))
-		summary.CollectDuration("backup checksum", time.Since(startAll))
-	}()
-}
-
-// FinishTableChecksum waits until all schemas' checksums are verified.
-func (pending *Schemas) FinishTableChecksum() ([]*backuppb.Schema, error) {
-	schemas := make([]*backuppb.Schema, 0, len(pending.schemas))
-	for {
-		select {
-		case s, ok := <-pending.backupSchemaCh:
-			if !ok {
-				return schemas, nil
 			}
-			schemas = append(schemas, &s)
-		case err := <-pending.errCh:
+			if statsHandle != nil {
+				jsonTable, err := statsHandle.DumpStatsToJSON(
+					schema.dbInfo.Name.String(), schema.tableInfo, nil)
+				if err != nil {
+					logger.Error("dump table stats failed", logutil.ShortError(err))
+				}
+				schema.stats = jsonTable
+			}
+
+			updateCh.Inc()
+			return nil
+		})
+	}
+	if err := errg.Wait(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
+	summary.CollectDuration("backup checksum", time.Since(startAll))
+
+	schemas := make([]*backuppb.Schema, 0, len(ss.schemas))
+	for name, schema := range ss.schemas {
+		dbBytes, err := json.Marshal(schema.dbInfo)
+		if err != nil {
 			return nil, errors.Trace(err)
 		}
-	}
-}
+		tableBytes, err := json.Marshal(schema.tableInfo)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		var statsBytes []byte
+		if schema.stats != nil {
+			statsBytes, err = json.Marshal(schema.stats)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+		}
+		s := &backuppb.Schema{
+			Db:         dbBytes,
+			Table:      tableBytes,
+			Crc64Xor:   schema.crc64xor,
+			TotalKvs:   schema.totalKvs,
+			TotalBytes: schema.totalBytes,
+			Stats:      statsBytes,
+		}
+		// Delete scheme ASAP to help GC.
+		delete(ss.schemas, name)
 
-// CopyMeta copies schema metadata directly from pending backupSchemas, without calculating checksum.
-// use this when user skip the checksum generating.
-func (pending *Schemas) CopyMeta() []*backuppb.Schema {
-	schemas := make([]*backuppb.Schema, 0, len(pending.schemas))
-	for _, v := range pending.schemas {
-		schema := v
-		schemas = append(schemas, &schema)
+		schemas = append(schemas, s)
 	}
-	return schemas
+	return schemas, nil
 }
 
 // Len returns the number of schemas.
-func (pending *Schemas) Len() int {
-	return len(pending.schemas)
+func (ss *Schemas) Len() int {
+	return len(ss.schemas)
 }
 
 func calculateChecksum(

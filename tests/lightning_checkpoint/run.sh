@@ -22,7 +22,8 @@ CHUNK_COUNT=50
 
 mkdir -p $DBPATH
 echo 'CREATE DATABASE cppk_tsr;' > "$DBPATH/cppk_tsr-schema-create.sql"
-PARTIAL_IMPORT_QUERY='SELECT 0'
+INNER_QUERY='0'
+OUTER_QUERY='0'
 for i in $(seq "$TABLE_COUNT"); do
     case $i in
         1)
@@ -48,12 +49,13 @@ for i in $(seq "$TABLE_COUNT"); do
             ;;
     esac
     echo "CREATE TABLE tbl$i(i TINYINT, j INT $INDICES);" > "$DBPATH/cppk_tsr.tbl$i-schema.sql"
-    PARTIAL_IMPORT_QUERY="$PARTIAL_IMPORT_QUERY + coalesce((SELECT sum(j) FROM cppk_tsr.tbl$i), 0)"
+    INNER_QUERY="$INNER_QUERY, (SELECT sum(j) FROM cppk_tsr.tbl$i) as s$i"
+    OUTER_QUERY="$OUTER_QUERY + coalesce(s$i, 0)"
     for j in $(seq "$CHUNK_COUNT"); do
         echo "INSERT INTO tbl$i VALUES ($i,${j}000),($i,${j}001);" > "$DBPATH/cppk_tsr.tbl$i.$j.sql"
     done
 done
-PARTIAL_IMPORT_QUERY="$PARTIAL_IMPORT_QUERY AS s;"
+PARTIAL_IMPORT_QUERY="SELECT *, $OUTER_QUERY AS s FROM (SELECT $INNER_QUERY) _"
 
 for BACKEND in importer tidb local; do
   if [ "$BACKEND" = 'local' ]; then

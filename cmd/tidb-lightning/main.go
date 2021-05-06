@@ -83,7 +83,7 @@ func main() {
 			if err := cfg.LoadFromGlobal(globalCfg); err != nil {
 				return err
 			}
-			return app.RunOnce(context.Background(), cfg, nil, nil)
+			return app.RunOnce(context.Background(), cfg, nil)
 		}
 	}()
 

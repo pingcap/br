@@ -162,7 +162,7 @@ type AbstractBackend interface {
 	ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-	LocalWriter(ctx context.Context, engineUUID uuid.UUID, maxCacheSize int64) (EngineWriter, error)
+	LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error)
 }
 
 func fetchRemoteTableModelsFromTLS(ctx context.Context, tls *common.TLS, schema string) ([]*model.TableInfo, error) {
@@ -344,21 +344,8 @@ func (engine *OpenedEngine) Flush(ctx context.Context) error {
 	return engine.backend.FlushEngine(ctx, engine.uuid)
 }
 
-// WriteRows writes a collection of encoded rows into the engine.
-func (engine *OpenedEngine) WriteRows(ctx context.Context, columnNames []string, rows Rows) error {
-	writer, err := engine.backend.LocalWriter(ctx, engine.uuid, LocalMemoryTableSize)
-	if err != nil {
-		return err
-	}
-	if err = writer.AppendRows(ctx, engine.tableName, columnNames, engine.ts, rows); err != nil {
-		writer.Close()
-		return err
-	}
-	return writer.Close()
-}
-
-func (engine *OpenedEngine) LocalWriter(ctx context.Context, maxCacheSize int64) (*LocalEngineWriter, error) {
-	w, err := engine.backend.LocalWriter(ctx, engine.uuid, maxCacheSize)
+func (engine *OpenedEngine) LocalWriter(ctx context.Context) (*LocalEngineWriter, error) {
+	w, err := engine.backend.LocalWriter(ctx, engine.uuid)
 	if err != nil {
 		return nil, err
 	}
