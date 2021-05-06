@@ -11,7 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+// TODO combine with the pkg/kv package outside.
+
+package kv
 
 import (
 	"math/rand"
@@ -39,7 +41,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/verification"
 )
 
-var extraHandleColumnInfo = model.NewExtraHandleColInfo()
+var ExtraHandleColumnInfo = model.NewExtraHandleColInfo()
 
 type genCol struct {
 	index int
@@ -165,7 +167,8 @@ func (kvcodec *tableKVEncoder) Close() {
 	metric.KvEncoderCounter.WithLabelValues("closed").Inc()
 }
 
-type rowArrayMarshaler []types.Datum
+// RowArrayMarshaler wraps a slice of types.Datum for logging the content into zap.
+type RowArrayMarshaler []types.Datum
 
 var kindStr = [...]string{
 	types.KindNull:          "null",
@@ -190,7 +193,7 @@ var kindStr = [...]string{
 }
 
 // MarshalLogArray implements the zapcore.ArrayMarshaler interface
-func (row rowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+func (row RowArrayMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
 	for _, datum := range row {
 		kind := datum.Kind()
 		var str string
@@ -225,7 +228,7 @@ func logKVConvertFailed(logger log.Logger, row []types.Datum, j int, colInfo *mo
 	}
 
 	logger.Error("kv convert failed",
-		zap.Array("original", rowArrayMarshaler(row)),
+		zap.Array("original", RowArrayMarshaler(row)),
 		zap.Int("originalCol", j),
 		zap.String("colName", colInfo.Name.O),
 		zap.Stringer("colType", &colInfo.FieldType),
@@ -243,7 +246,7 @@ func logKVConvertFailed(logger log.Logger, row []types.Datum, j int, colInfo *mo
 
 func logEvalGenExprFailed(logger log.Logger, row []types.Datum, colInfo *model.ColumnInfo, err error) error {
 	logger.Error("kv convert failed: cannot evaluate generated column expression",
-		zap.Array("original", rowArrayMarshaler(row)),
+		zap.Array("original", RowArrayMarshaler(row)),
 		zap.String("colName", colInfo.Name.O),
 		log.ShortError(err),
 	)
@@ -269,6 +272,13 @@ func MakeRowsFromKvPairs(pairs []common.KvPair) Rows {
 // for the importer backend.
 func MakeRowFromKvPairs(pairs []common.KvPair) Row {
 	return kvPairs(pairs)
+}
+
+// KvPairsFromRows converts a Rows instance constructed from MakeRowsFromKvPairs
+// back into a slice of KvPair. This method panics if the Rows is not
+// constructed in such way.
+func KvPairsFromRows(rows Rows) []common.KvPair {
+	return []common.KvPair(rows.(kvPairs))
 }
 
 // Encode a row of data into KV pairs.
@@ -339,12 +349,12 @@ func (kvcodec *tableKVEncoder) Encode(
 	if common.TableHasAutoRowID(kvcodec.tbl.Meta()) {
 		j := columnPermutation[len(cols)]
 		if j >= 0 && j < len(row) {
-			value, err = table.CastValue(kvcodec.se, row[j], extraHandleColumnInfo, false, false)
+			value, err = table.CastValue(kvcodec.se, row[j], ExtraHandleColumnInfo, false, false)
 		} else {
 			value, err = types.NewIntDatum(rowID), nil
 		}
 		if err != nil {
-			return nil, logKVConvertFailed(logger, row, j, extraHandleColumnInfo, err)
+			return nil, logKVConvertFailed(logger, row, j, ExtraHandleColumnInfo, err)
 		}
 		record = append(record, value)
 		kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
@@ -370,8 +380,8 @@ func (kvcodec *tableKVEncoder) Encode(
 	_, err = kvcodec.tbl.AddRecord(kvcodec.se, record)
 	if err != nil {
 		logger.Error("kv encode failed",
-			zap.Array("originalRow", rowArrayMarshaler(row)),
-			zap.Array("convertedRow", rowArrayMarshaler(record)),
+			zap.Array("originalRow", RowArrayMarshaler(row)),
+			zap.Array("convertedRow", RowArrayMarshaler(record)),
 			log.ShortError(err),
 		)
 		return nil, errors.Trace(err)
