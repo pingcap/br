@@ -12,7 +12,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv/oracle"
 
 	kv "github.com/pingcap/br/pkg/lightning/backend"
-	"github.com/pingcap/br/pkg/lightning/mock"
+	"github.com/pingcap/br/pkg/mock"
 )
 
 type backendSuite struct {

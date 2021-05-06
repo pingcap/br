@@ -53,16 +53,16 @@ type SourceFileMeta struct {
 	FileSize    int64
 }
 
-func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStorage) string {
+func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStorage) (string, error) {
 	schema, err := ExportStatement(ctx, store, m.SchemaFile, m.charSet)
 	if err != nil {
 		log.L().Error("failed to extract table schema",
 			zap.String("Path", m.SchemaFile.FileMeta.Path),
 			log.ShortError(err),
 		)
-		return ""
+		return "", err
 	}
-	return string(schema)
+	return string(schema), nil
 }
 
 /*
@@ -93,7 +93,7 @@ func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error)
 	if err != nil {
 		return nil, err
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{SkipCheckPath: true})
 	if err != nil {
 		return nil, err
 	}

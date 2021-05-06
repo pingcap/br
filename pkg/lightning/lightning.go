@@ -271,7 +271,11 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
-	s, err := storage.Create(ctx, u, true)
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{
+		// we skip check path in favor of delaying the error to when we actually access the file.
+		// on S3, performing "check path" requires the additional "s3:ListBucket" permission.
+		SkipCheckPath: true,
+	})
 	if err != nil {
 		return errors.Annotate(err, "create storage failed")
 	}
