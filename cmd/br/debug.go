@@ -209,8 +209,7 @@ func newBackupMetaValidateCommand() *cobra.Command {
 				_, _ = tableIDAllocator.Alloc() // Ignore error
 			}
 			rewriteRules := &restore.RewriteRules{
-				Table: make([]*import_sstpb.RewriteRule, 0),
-				Data:  make([]*import_sstpb.RewriteRule, 0),
+				Data: make([]*import_sstpb.RewriteRule, 0),
 			}
 			tableIDMap := make(map[int64]int64)
 			// Simulate to create table
@@ -229,7 +228,6 @@ func newBackupMetaValidateCommand() *cobra.Command {
 					}
 				}
 				rules := restore.GetRewriteRules(newTable, table.Info, 0)
-				rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 				rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 				tableIDMap[table.Info.ID] = int64(tableID)
 			}

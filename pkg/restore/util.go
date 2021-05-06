@@ -82,8 +82,7 @@ func GetRewriteRules(
 	}
 
 	return &RewriteRules{
-		Table: tableRules,
-		Data:  dataRules,
+		Data: dataRules,
 	}
 }
 
@@ -341,21 +340,11 @@ func matchOldPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 			return rule
 		}
 	}
-	for _, rule := range rewriteRules.Table {
-		if bytes.HasPrefix(key, rule.GetOldKeyPrefix()) {
-			return rule
-		}
-	}
 	return nil
 }
 
 func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
 	for _, rule := range rewriteRules.Data {
-		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
-			return rule
-		}
-	}
-	for _, rule := range rewriteRules.Table {
 		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
 			return rule
 		}
@@ -403,7 +392,6 @@ func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey,
 		if rewriteRules != nil && rule == nil {
 			log.Error("cannot find rewrite rule",
 				logutil.Key("startKey", file.GetStartKey()),
-				zap.Reflect("rewrite table", rewriteRules.Table),
 				zap.Reflect("rewrite data", rewriteRules.Data))
 			err = errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule for start key")
 			return
