@@ -19,6 +19,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -623,10 +624,9 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		// the default threshold value may cause write stall.
 		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
-		// set to half of the max open files so that if open files is more that estimation, trigger compaction
-		// to avoid failure due to open files exceeded limit
-		L0CompactionThreshold: local.maxOpenFiles / 2,
-		L0StopWritesThreshold: local.maxOpenFiles / 2,
+		// set threshold to half of the max open files to avoid trigger compaction
+		L0CompactionThreshold: math.MaxInt32,
+		L0StopWritesThreshold: math.MaxInt32,
 		MaxOpenFiles:          local.maxOpenFiles,
 		DisableWAL:            true,
 		ReadOnly:              readOnly,
