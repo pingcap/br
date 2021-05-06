@@ -1322,7 +1322,7 @@ func (local *local) WriteToTiKV(
 	return leaderPeerMetas, finishedRange, stats, nil
 }
 
-func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split.RegionInfo) (*sst.IngestResponse, error) {
+func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *split.RegionInfo) (*sst.IngestResponse, error) {
 	leader := region.Leader
 	if leader == nil {
 		leader = region.Region.GetPeers()[0]
@@ -1338,11 +1338,11 @@ func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split
 		Peer:        leader,
 	}
 
-	req := &sst.IngestRequest{
+	req := &sst.MultiIngestRequest{
 		Context: reqCtx,
-		Sst:     meta,
+		Ssts:    metas,
 	}
-	resp, err := cli.Ingest(ctx, req)
+	resp, err := cli.MultiIngest(ctx, req)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1643,75 +1643,76 @@ loopWrite:
 			continue loopWrite
 		}
 
-		for _, meta := range metas {
-			errCnt := 0
-			for errCnt < maxRetryTimes {
-				log.L().Debug("ingest meta", zap.Reflect("meta", meta))
-				var resp *sst.IngestResponse
-				failpoint.Inject("FailIngestMeta", func(val failpoint.Value) {
-					// only inject the error once
-					switch val.(string) {
-					case "notleader":
-						resp = &sst.IngestResponse{
-							Error: &errorpb.Error{
-								NotLeader: &errorpb.NotLeader{
-									RegionId: region.Region.Id,
-									Leader:   region.Leader,
-								},
-							},
-						}
-					case "epochnotmatch":
-						resp = &sst.IngestResponse{
-							Error: &errorpb.Error{
-								EpochNotMatch: &errorpb.EpochNotMatch{
-									CurrentRegions: []*metapb.Region{region.Region},
-								},
-							},
-						}
-					}
-					if resp != nil {
-						err = nil
-					}
-				})
-				if resp == nil {
-					resp, err = local.Ingest(ctx, meta, region)
-				}
-				if err != nil {
-					if common.IsContextCanceledError(err) {
-						return err
-					}
-					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMeta(meta),
-						logutil.Region(region.Region), logutil.Leader(region.Leader))
-					errCnt++
-					continue
-				}
+		if len(metas) == 0 {
+			return errors.New("sst metas is empty")
+		}
 
-				var retryTy retryType
-				var newRegion *split.RegionInfo
-				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+		errCnt := 0
+		for errCnt < maxRetryTimes {
+			log.L().Debug("ingest meta", zap.Reflect("metas", metas))
+			var resp *sst.IngestResponse
+			failpoint.Inject("FailIngestMeta", func(val failpoint.Value) {
+				// only inject the error once
+				switch val.(string) {
+				case "notleader":
+					resp = &sst.IngestResponse{
+						Error: &errorpb.Error{
+							NotLeader: &errorpb.NotLeader{
+								RegionId: region.Region.Id,
+								Leader:   region.Leader,
+							},
+						},
+					}
+				case "epochnotmatch":
+					resp = &sst.IngestResponse{
+						Error: &errorpb.Error{
+							EpochNotMatch: &errorpb.EpochNotMatch{
+								CurrentRegions: []*metapb.Region{region.Region},
+							},
+						},
+					}
+				}
+				if resp != nil {
+					err = nil
+				}
+			})
+			if resp == nil {
+				resp, err = local.Ingest(ctx, metas, region)
+			}
+			if err != nil {
 				if common.IsContextCanceledError(err) {
 					return err
 				}
-				if err == nil {
-					// ingest next meta
-					break
-				}
-				switch retryTy {
-				case retryNone:
-					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMeta(meta),
-						logutil.Region(region.Region), logutil.Leader(region.Leader))
-					// met non-retryable error retry whole Write procedure
-					return err
-				case retryWrite:
-					region = newRegion
-					continue loopWrite
-				case retryIngest:
-					region = newRegion
-					continue
-				}
+				log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMetas(metas),
+					logutil.Region(region.Region), logutil.Leader(region.Leader))
+				errCnt++
+				continue
+			}
+
+			var retryTy retryType
+			var newRegion *split.RegionInfo
+			retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, metas[0])
+			if common.IsContextCanceledError(err) {
+				return err
+			}
+			if err == nil {
+				// ingest next meta
+				break
+			}
+			switch retryTy {
+			case retryNone:
+				log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMetas(metas),
+					logutil.Region(region.Region), logutil.Leader(region.Leader))
+				// met non-retryable error retry whole Write procedure
+				return err
+			case retryWrite:
+				region = newRegion
+				continue loopWrite
+			case retryIngest:
+				region = newRegion
+				continue
 			}
 		}
-
 		if err != nil {
 			log.L().Warn("write and ingest region, will retry import full range", log.ShortError(err),
 				logutil.Region(region.Region), logutil.Key("start", start),

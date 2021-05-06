@@ -5,6 +5,7 @@ package logutil
 import (
 	"encoding/hex"
 	"fmt"
+	"github.com/pingcap/errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -158,6 +159,22 @@ func (sstMeta zapSSTMetaMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) e
 // SSTMeta make the zap fields for a SST meta.
 func SSTMeta(sstMeta *import_sstpb.SSTMeta) zap.Field {
 	return zap.Object("sstMeta", zapSSTMetaMarshaler{sstMeta})
+}
+
+type zapSSTMetasMarshaler []*import_sstpb.SSTMeta
+
+func (m zapSSTMetasMarshaler) MarshalLogArray(encoder zapcore.ArrayEncoder) error {
+	for _, meta := range m {
+		if err := encoder.AppendObject(zapSSTMetaMarshaler{meta}); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// SSTMetas make the zap fields for SST metas.
+func SSTMetas(sstMetas []*import_sstpb.SSTMeta) zap.Field {
+	return zap.Array("sstMetas", zapSSTMetasMarshaler(sstMetas))
 }
 
 type zapKeysMarshaler [][]byte
