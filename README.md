@@ -83,8 +83,6 @@ bin/br restore full --pd pd0:2379 --storage "s3://mybucket/full" \
     --s3.endpoint="$S3_ENDPOINT"
 ```
 
-<<<<<<< HEAD
-=======
 ## Quick Start(tiup)
 
 ```sh
@@ -121,11 +119,6 @@ bin/br restore table --db test \
 mysql --host 127.0.0.1 -P4000 -E -e "SELECT COUNT(*) FROM test.order_line" -uroot -p
 ```
 
-## Compatible test
-
-See [COMPATBILE_TEST](./COMPATIBLE_TEST.md)
-
->>>>>>> 6a6a58bc... doc: add tiup Quick Start in README.md (#1038)
 ## Contributing
 
 Contributions are welcomed and greatly appreciated. See [CONTRIBUTING](./CONTRIBUTING.md)
