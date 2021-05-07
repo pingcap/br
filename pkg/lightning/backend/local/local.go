@@ -168,7 +168,7 @@ type File struct {
 	// sst seq lock
 	seqLock sync.Mutex
 	// seq number for incoming sst meta
-	nextSeq atomic.Int32
+	nextSeq int32
 	// max seq of sst metas ingested into pebble
 	finishedMetaSeq atomic.Int32
 
@@ -576,7 +576,8 @@ func (e *File) addSST(ctx context.Context, m *sstMeta) (int32, error) {
 	// make sure sstMeta is sent into the chan in order
 	e.seqLock.Lock()
 	defer e.seqLock.Unlock()
-	seq := e.nextSeq.Add(1)
+	e.nextSeq++
+	seq := e.nextSeq
 	m.seq = seq
 	select {
 	case e.sstMetasChan <- metaOrFlush{meta: m}:
