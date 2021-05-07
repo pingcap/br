@@ -24,6 +24,7 @@ import (
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/backup"
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -341,8 +342,15 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	summary.CollectInt("backup total ranges", len(ranges))
 
-	var updateCh glue.Progress
 	var unit backup.ProgressUnit
+	skipChecksum := !cfg.Checksum || isIncrementalBackup
+	backupUnit := 0
+	checksumUnit := 0
+	if !skipChecksum {
+		cmdName += "+ checksum"
+		checksumUnit += schemas.Len()
+		summary.CollectInt("checksum schemas", checksumUnit)
+	}
 	if len(ranges) < 100 {
 		unit = backup.RegionUnit
 		// The number of regions need to backup
@@ -355,72 +363,84 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			}
 			approximateRegions += regionCount
 		}
-		// Redirect to log if there is no log file to avoid unreadable output.
-		updateCh = g.StartProgress(
-			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
+		backupUnit = approximateRegions + checksumUnit
 		summary.CollectInt("backup total regions", approximateRegions)
 	} else {
 		unit = backup.RangeUnit
 		// To reduce the costs, we can use the range as unit of progress.
-		updateCh = g.StartProgress(
-			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
+		backupUnit = len(ranges) + checksumUnit
+		summary.CollectInt("backup total ranges", len(ranges))
 	}
 
-	progressCount := 0
-	progressCallBack := func(callBackUnit backup.ProgressUnit) {
-		if unit == callBackUnit {
-			updateCh.Inc()
-			progressCount++
-			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
-				log.Info("failpoint progress-call-back injected")
-				if fileName, ok := v.(string); ok {
-					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
-					if err != nil {
-						log.Warn("failed to create file", zap.Error(err))
-					}
-					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
-					_, err = f.Write(msg)
-					if err != nil {
-						log.Warn("failed to write data to file", zap.Error(err))
-					}
-				}
-			})
+	// Redirect to log if there is no log file to avoid unreadable output.
+	updateCh := g.StartProgress(ctx, cmdName, int64(backupUnit), !cfg.LogProgress)
+
+	var backupMeta backuppb.BackupMeta
+	eg := errgroup.Group{}
+	eg.Go(func() error {
+		if skipChecksum {
+			if isIncrementalBackup {
+				// Since we don't support checksum for incremental data, fast checksum should be skipped.
+				log.Info("Skip fast checksum in incremental backup")
+			} else {
+				// When user specified not to calculate checksum, don't calculate checksum.
+				log.Info("Skip fast checksum")
+			}
 		}
-	}
-
-	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), progressCallBack)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	// Backup has finished
-	updateCh.Close()
-
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	skipChecksum := !cfg.Checksum || isIncrementalBackup
-	checksumProgress := int64(schemas.Len())
-	if skipChecksum {
-		checksumProgress = 1
-		if isIncrementalBackup {
-			// Since we don't support checksum for incremental data, fast checksum should be skipped.
-			log.Info("Skip fast checksum in incremental backup")
-		} else {
-			// When user specified not to calculate checksum, don't calculate checksum.
-			log.Info("Skip fast checksum")
+		schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
+		backupMeta.Schemas, err = schemas.BackupSchemas(
+			ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+		if err != nil {
+			return errors.Trace(err)
 		}
-	}
-	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
-	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
-	backupMeta.Schemas, err = schemas.BackupSchemas(
-		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+		return nil
+	})
+
+	eg.Go(func() error {
+		progressCount := 0
+		progressCallBack := func(callBackUnit backup.ProgressUnit) {
+			if unit == callBackUnit {
+				updateCh.Inc()
+				progressCount++
+				failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+					log.Info("failpoint progress-call-back injected")
+					if fileName, ok := v.(string); ok {
+						f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+						if err != nil {
+							log.Warn("failed to create file", zap.Error(err))
+						}
+						msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
+						_, err = f.Write(msg)
+						if err != nil {
+							log.Warn("failed to write data to file", zap.Error(err))
+						}
+					}
+				})
+			}
+		}
+
+		var files []*backuppb.File
+		files, err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), progressCallBack)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// Backup has finished
+		updateCh.Close()
+
+		backupMeta, err = backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		return nil
+	})
+	// Wait for
+	// 1. coprocessor checksum finished
+	// 2. backup ranges finished
+	err = eg.Wait()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// Checksum has finished, close checksum progress.
-	updateCh.Close()
+
 	if !skipChecksum {
 		// Check if checksum from files matches checksum from coprocessor.
 		err = checkChecksums(&backupMeta)
