@@ -297,7 +297,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
 	_, engineUUID := backend.MakeUUID("ww", 0)
-	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
+	f := File{localFileMeta: meta, db: db, UUID: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
@@ -449,11 +449,12 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryWrite)
+	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
