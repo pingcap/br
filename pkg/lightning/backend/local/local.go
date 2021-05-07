@@ -53,8 +53,10 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -750,6 +752,7 @@ type local struct {
 
 	engineMemCacheSize      int
 	localWriterMemCacheSize int64
+	supportMultiIngest      bool
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -868,7 +871,37 @@ func NewLocalBackend(
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
+	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
+		return backend.MakeBackend(nil), err
+	}
+
 	return backend.MakeBackend(local), nil
+}
+
+func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
+	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for _, s := range stores {
+		client, err := local.getImportClient(ctx, s.Id)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		_, err = client.MultiIngest(ctx, &sst.MultiIngestRequest{})
+		if err != nil {
+			if s, ok := status.FromError(err); ok {
+				if s.Code() == codes.Unimplemented {
+					local.supportMultiIngest = false
+					return nil
+				}
+			}
+			return errors.Trace(err)
+		}
+	}
+
+	local.supportMultiIngest = true
+	return nil
 }
 
 // rlock read locks a local file and returns the File instance if it exists.
@@ -1134,11 +1167,11 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	return engineFile.ingestErr.Get()
 }
 
-func (local *local) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.ImportSSTClient, error) {
+func (local *local) getImportClient(ctx context.Context, storeID uint64) (sst.ImportSSTClient, error) {
 	local.conns.mu.Lock()
 	defer local.conns.mu.Unlock()
 
-	conn, err := local.getGrpcConnLocked(ctx, peer.GetStoreId())
+	conn, err := local.getGrpcConnLocked(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1200,7 +1233,7 @@ func (local *local) WriteToTiKV(
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
 	for _, peer := range region.Region.GetPeers() {
-		cli, err := local.getImportClient(ctx, peer)
+		cli, err := local.getImportClient(ctx, peer.StoreId)
 		if err != nil {
 			return nil, Range{}, stats, err
 		}
@@ -1328,7 +1361,7 @@ func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *sp
 		leader = region.Region.GetPeers()[0]
 	}
 
-	cli, err := local.getImportClient(ctx, leader)
+	cli, err := local.getImportClient(ctx, leader.StoreId)
 	if err != nil {
 		return nil, err
 	}
@@ -1338,15 +1371,24 @@ func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *sp
 		Peer:        leader,
 	}
 
+	if !local.supportMultiIngest {
+		if len(metas) > 0 {
+			return nil, errors.New("batch ingest is not support")
+		}
+		req := &sst.IngestRequest{
+			Context: reqCtx,
+			Sst:     metas[0],
+		}
+		resp, err := cli.Ingest(ctx, req)
+		return resp, errors.Trace(err)
+	}
+
 	req := &sst.MultiIngestRequest{
 		Context: reqCtx,
 		Ssts:    metas,
 	}
 	resp, err := cli.MultiIngest(ctx, req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return resp, nil
+	return resp, errors.Trace(err)
 }
 
 func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit int64, keysLimit int64) []Range {
@@ -1647,72 +1689,83 @@ loopWrite:
 			return errors.New("sst metas is empty")
 		}
 
-		errCnt := 0
-		for errCnt < maxRetryTimes {
-			log.L().Debug("ingest meta", zap.Reflect("metas", metas))
-			var resp *sst.IngestResponse
-			failpoint.Inject("FailIngestMeta", func(val failpoint.Value) {
-				// only inject the error once
-				switch val.(string) {
-				case "notleader":
-					resp = &sst.IngestResponse{
-						Error: &errorpb.Error{
-							NotLeader: &errorpb.NotLeader{
-								RegionId: region.Region.Id,
-								Leader:   region.Leader,
+		batch := 1
+		if local.supportMultiIngest {
+			batch = len(metas)
+		}
+
+		for i := 0; i < len(metas); i += batch {
+			start := i * batch
+			end := utils.MinInt((i+1)*batch, len(metas))
+			ingestMetas := metas[start:end]
+			errCnt := 0
+			for errCnt < maxRetryTimes {
+				log.L().Debug("ingest meta", zap.Reflect("meta", ingestMetas))
+				var resp *sst.IngestResponse
+				failpoint.Inject("FailIngestMeta", func(val failpoint.Value) {
+					// only inject the error once
+					switch val.(string) {
+					case "notleader":
+						resp = &sst.IngestResponse{
+							Error: &errorpb.Error{
+								NotLeader: &errorpb.NotLeader{
+									RegionId: region.Region.Id,
+									Leader:   region.Leader,
+								},
 							},
-						},
-					}
-				case "epochnotmatch":
-					resp = &sst.IngestResponse{
-						Error: &errorpb.Error{
-							EpochNotMatch: &errorpb.EpochNotMatch{
-								CurrentRegions: []*metapb.Region{region.Region},
+						}
+					case "epochnotmatch":
+						resp = &sst.IngestResponse{
+							Error: &errorpb.Error{
+								EpochNotMatch: &errorpb.EpochNotMatch{
+									CurrentRegions: []*metapb.Region{region.Region},
+								},
 							},
-						},
+						}
 					}
+					if resp != nil {
+						err = nil
+					}
+				})
+				if resp == nil {
+					resp, err = local.Ingest(ctx, ingestMetas, region)
 				}
-				if resp != nil {
-					err = nil
+				if err != nil {
+					if common.IsContextCanceledError(err) {
+						return err
+					}
+					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMetas(ingestMetas),
+						logutil.Region(region.Region), logutil.Leader(region.Leader))
+					errCnt++
+					continue
 				}
-			})
-			if resp == nil {
-				resp, err = local.Ingest(ctx, metas, region)
-			}
-			if err != nil {
+
+				var retryTy retryType
+				var newRegion *split.RegionInfo
+				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, ingestMetas)
 				if common.IsContextCanceledError(err) {
 					return err
 				}
-				log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMetas(metas),
-					logutil.Region(region.Region), logutil.Leader(region.Leader))
-				errCnt++
-				continue
-			}
-
-			var retryTy retryType
-			var newRegion *split.RegionInfo
-			retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, metas[0])
-			if common.IsContextCanceledError(err) {
-				return err
-			}
-			if err == nil {
-				// ingest next meta
-				break
-			}
-			switch retryTy {
-			case retryNone:
-				log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMetas(metas),
-					logutil.Region(region.Region), logutil.Leader(region.Leader))
-				// met non-retryable error retry whole Write procedure
-				return err
-			case retryWrite:
-				region = newRegion
-				continue loopWrite
-			case retryIngest:
-				region = newRegion
-				continue
+				if err == nil {
+					// ingest next meta
+					break
+				}
+				switch retryTy {
+				case retryNone:
+					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMetas(ingestMetas),
+						logutil.Region(region.Region), logutil.Leader(region.Leader))
+					// met non-retryable error retry whole Write procedure
+					return err
+				case retryWrite:
+					region = newRegion
+					continue loopWrite
+				case retryIngest:
+					region = newRegion
+					continue
+				}
 			}
 		}
+
 		if err != nil {
 			log.L().Warn("write and ingest region, will retry import full range", log.ShortError(err),
 				logutil.Region(region.Region), logutil.Key("start", start),
@@ -2124,7 +2177,7 @@ func (local *local) isIngestRetryable(
 	ctx context.Context,
 	resp *sst.IngestResponse,
 	region *split.RegionInfo,
-	meta *sst.SSTMeta,
+	metas []*sst.SSTMeta,
 ) (retryType, *split.RegionInfo, error) {
 	if resp.GetError() == nil {
 		return retryNone, nil, nil
@@ -2173,7 +2226,7 @@ func (local *local) isIngestRetryable(
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
 			var currentRegion *metapb.Region
 			for _, r := range currentRegions {
-				if insideRegion(r, meta) {
+				if insideRegion(r, metas) {
 					currentRegion = r
 					break
 				}

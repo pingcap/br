@@ -210,7 +210,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
 
-	if err = client.InitBackupMeta(backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}
 

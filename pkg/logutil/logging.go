@@ -5,10 +5,10 @@ package logutil
 import (
 	"encoding/hex"
 	"fmt"
-	"github.com/pingcap/errors"
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"

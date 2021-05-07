@@ -24,7 +24,7 @@ require (
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20210316064728-7acb0f0a3dfd
-	github.com/pingcap/kvproto v0.0.0-20210308063835-39b884695fb8
+	github.com/pingcap/kvproto v0.0.0-20210507074444-0ec2d0dc2e4b
 	github.com/pingcap/log v0.0.0-20210317133921-96f4fcab92a4
 	github.com/pingcap/parser v0.0.0-20210330190622-f959a136fc19
 	github.com/pingcap/tidb v1.1.0-beta.0.20210419040752-76ba3c84acbc
@@ -55,5 +55,3 @@ require (
 )
 
 replace cloud.google.com/go/storage => github.com/3pointer/google-cloud-go/storage v1.6.1-0.20210108125931-b59bfa0720b2
-
-replace github.com/pingcap/kvproto => github.com/Little-Wallace/kvproto v0.0.0-20210430082408-3c390efa277e
