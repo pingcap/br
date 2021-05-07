@@ -540,6 +540,8 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 			cfg.App.TableConcurrency = cfg.App.RegionConcurrency
 		}
 		mustHaveInternalConnections = false
+		cfg.PostRestore.Checksum = OpLevelOff
+		cfg.PostRestore.Analyze = OpLevelOff
 	case BackendImporter, BackendLocal:
 		if cfg.App.IndexConcurrency == 0 {
 			cfg.App.IndexConcurrency = 2
