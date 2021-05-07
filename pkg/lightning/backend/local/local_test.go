@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -22,9 +22,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"testing"
 
 	"github.com/cockroachdb/pebble"
+	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
+	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -32,13 +35,21 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/hack"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
 )
 
 type localSuite struct{}
 
 var _ = Suite(&localSuite{})
+
+func Test(t *testing.T) {
+	TestingT(t)
+}
 
 func (s *localSuite) TestNextKey(c *C) {
 	c.Assert(nextKey([]byte{}), DeepEquals, []byte{})
@@ -285,13 +296,12 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	err = os.Mkdir(tmpPath, 0o755)
 	c.Assert(err, IsNil)
 	meta := localFileMeta{}
-	_, engineUUID := MakeUUID("ww", 0)
-	f := LocalFile{localFileMeta: meta, db: db, Uuid: engineUUID}
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	f := File{localFileMeta: meta, db: db, Uuid: engineUUID}
 	w := openLocalWriter(&f, tmpPath, 1024*1024)
 
 	ctx := context.Background()
-	// kvs := make(kvPairs, 1000)
-	var kvs kvPairs
+	var kvs []common.KvPair
 	value := make([]byte, 128)
 	for i := 0; i < 16; i++ {
 		binary.BigEndian.PutUint64(value[i*8:], uint64(i))
@@ -308,9 +318,9 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		kvs = append(kvs, kv)
 		keys = append(keys, kv.Key)
 	}
-	var rows1 kvPairs
-	var rows2 kvPairs
-	var rows3 kvPairs
+	var rows1 []common.KvPair
+	var rows2 []common.KvPair
+	var rows3 []common.KvPair
 	rows4 := kvs[:12000]
 	if partitialSort {
 		sort.Slice(rows4, func(i, j int) bool {
@@ -329,11 +339,11 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		rows2 = kvs[6000:12000]
 		rows3 = kvs[12000:]
 	}
-	err = w.AppendRows(ctx, "", []string{}, 1, rows1)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows1))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows2)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows2))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, rows3)
+	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
 	err = w.Close()
 	c.Assert(err, IsNil)
@@ -446,4 +456,53 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
+}
+
+func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
+	controller := gomock.NewController(c)
+	defer controller.Finish()
+	glue := mock.NewMockGlue(controller)
+	exec := mock.NewMockSQLExecutor(controller)
+	ctx := context.Background()
+
+	dbMetas := []*mydump.MDDatabaseMeta{
+		{
+			Name: "test",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test",
+					Name:      "t1",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+		{
+			Name: "test1",
+			Tables: []*mydump.MDTableMeta{
+				{
+					DB:        "test1",
+					Name:      "t",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+				{
+					DB:        "test1",
+					Name:      "tbl",
+					DataFiles: []mydump.FileInfo{{}},
+				},
+			},
+		},
+	}
+	checkCtx := &backend.CheckCtx{DBMetas: dbMetas}
+
+	glue.EXPECT().GetSQLExecutor().Return(exec)
+	exec.EXPECT().QueryStringsWithLog(ctx, tiFlashReplicaQuery, gomock.Any(), gomock.Any()).
+		Return([][]string{{"db", "tbl"}, {"test", "t1"}, {"test1", "tbl"}}, nil)
+
+	err := checkTiFlashVersion(ctx, glue, checkCtx, *semver.New("4.0.2"))
+	c.Assert(err, ErrorMatches, "lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: \\[`test`.`t1`, `test1`.`tbl`\\].*")
 }

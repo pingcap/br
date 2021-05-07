@@ -671,7 +671,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err := grpc.DialContext(
+		connection, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
@@ -683,14 +683,14 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		if err != nil {
 			return errors.Trace(err)
 		}
-		client := import_sstpb.NewImportSSTClient(conn)
+		client := import_sstpb.NewImportSSTClient(connection)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		})
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = conn.Close()
+		err = connection.Close()
 		if err != nil {
 			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
@@ -713,16 +713,12 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		start := time.Now()
 		wg, ectx := errgroup.WithContext(ctx)
 		defer func() {
 			log.Info("all checksum ended")
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
-			elapsed := time.Since(start)
-			summary.CollectDuration("restore checksum", elapsed)
-			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -736,6 +732,12 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
+					start := time.Now()
+					defer func() {
+						elapsed := time.Since(start)
+						summary.CollectDuration("restore checksum", elapsed)
+						summary.CollectSuccessUnit("table checksum", 1, elapsed)
+					}()
 					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return errors.Trace(err)
@@ -971,4 +973,25 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+// PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
+func (rc *Client) PreCheckTableTiFlashReplica(
+	ctx context.Context,
+	tables []*utils.Table,
+) error {
+	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tiFlashStoreCount := len(tiFlashStores)
+	for _, table := range tables {
+		if table.Info.TiFlashReplica != nil && table.Info.TiFlashReplica.Count > uint64(tiFlashStoreCount) {
+			// we cannot satisfy TiFlash replica in restore cluster. so we should
+			// set TiFlashReplica to unavailable in tableInfo, to avoid TiDB cannot sense TiFlash and make plan to TiFlash
+			// see details at https://github.com/pingcap/br/issues/931
+			table.Info.TiFlashReplica = nil
+		}
+	}
+	return nil
 }
