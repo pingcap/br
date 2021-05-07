@@ -158,16 +158,15 @@ func pdRequest(
 			time.Sleep(time.Duration(i) * time.Second)
 			continue
 		}
-		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			res, _ := ioutil.ReadAll(resp.Body)
 			return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 		}
-
 		r, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
+		resp.Body.Close()
 		return r, nil
 	}
 	return nil, errors.Trace(reqErr)
