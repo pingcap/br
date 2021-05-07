@@ -532,85 +532,6 @@ func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
 	close(ch)
 }
 
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-=======
-func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clientHook) {
-	oldLimit := maxBatchSplitKeys
-	oldSplitBackoffTime := splitRegionBaseBackOffTime
-	maxBatchSplitKeys = 10
-	splitRegionBaseBackOffTime = time.Millisecond
-	defer func() {
-		maxBatchSplitKeys = oldLimit
-		splitRegionBaseBackOffTime = oldSplitBackoffTime
-	}()
-
-	stmtCtx := new(stmtctx.StatementContext)
-
-	tableID := int64(1)
-	tableStartKey := tablecodec.EncodeTablePrefix(tableID)
-	tableEndKey := tablecodec.EncodeTablePrefix(tableID + 1)
-	keys := [][]byte{[]byte(""), tableStartKey}
-	// pre split 2 regions
-	for i := int64(0); i < 2; i++ {
-		keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(i))
-		c.Assert(err, IsNil)
-		h, err := kv.NewCommonHandle(keyBytes)
-		c.Assert(err, IsNil)
-		key := tablecodec.EncodeRowKeyWithHandle(tableID, h)
-		keys = append(keys, key)
-	}
-	keys = append(keys, tableEndKey, []byte(""))
-	client := initTestClient(keys, hook)
-	local := &local{
-		splitCli: client,
-	}
-	ctx := context.Background()
-
-	// we batch generate a batch of row keys for table 1 with common handle
-	rangeKeys := make([][]byte, 0, 20+1)
-	for i := int64(0); i < 2; i++ {
-		for j := int64(0); j < 10; j++ {
-			keyBytes, err := codec.EncodeKey(stmtCtx, nil, types.NewIntDatum(i), types.NewIntDatum(j*10000))
-			c.Assert(err, IsNil)
-			h, err := kv.NewCommonHandle(keyBytes)
-			c.Assert(err, IsNil)
-			key := tablecodec.EncodeRowKeyWithHandle(tableID, h)
-			rangeKeys = append(rangeKeys, key)
-		}
-	}
-
-	start := rangeKeys[0]
-	ranges := make([]Range, 0, len(rangeKeys)-1)
-	for _, e := range rangeKeys[1:] {
-		ranges = append(ranges, Range{start: start, end: e})
-		start = e
-	}
-
-	err := local.SplitAndScatterRegionByRanges(ctx, ranges, true)
-	c.Assert(err, IsNil)
-
-	startKey := codec.EncodeBytes([]byte{}, rangeKeys[0])
-	endKey := codec.EncodeBytes([]byte{}, rangeKeys[len(rangeKeys)-1])
-	// check split ranges
-	regions, err := paginateScanRegion(ctx, client, startKey, endKey, 5)
-	c.Assert(err, IsNil)
-	c.Assert(len(regions), Equals, len(ranges)+1)
-
-	checkKeys := append([][]byte{}, rangeKeys[:10]...)
-	checkKeys = append(checkKeys, keys[3])
-	checkKeys = append(checkKeys, rangeKeys[10:]...)
-	checkRegionRanges(c, regions, checkKeys)
-}
-
-func (s *localSuite) TestBatchSplitByRangesWithClusteredIndex(c *C) {
-	s.doTestBatchSplitByRangesWithClusteredIndex(c, nil)
-}
-
-func (s *localSuite) TestBatchSplitByRangesWithClusteredIndexEpochNotMatch(c *C) {
-	s.doTestBatchSplitByRangesWithClusteredIndex(c, &splitRegionEpochNotMatchHookRandom{})
-}
-
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/localhelper_test.go
 func (s *localSuite) TestNeedSplit(c *C) {
 	tableID := int64(1)
 	peers := make([]*metapb.Peer, 1)
@@ -619,21 +540,13 @@ func (s *localSuite) TestNeedSplit(c *C) {
 		StoreId: 1,
 	}
 	keys := []int64{10, 100, 500, 1000, 999999, -1}
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	start := tablecodec.EncodeRowKeyWithHandle(tableId, 0)
-=======
-	start := tablecodec.EncodeRowKeyWithHandle(tableID, kv.IntHandle(0))
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/localhelper_test.go
+	start := tablecodec.EncodeRowKeyWithHandle(tableID, 0)
 	regionStart := codec.EncodeBytes([]byte{}, start)
 	regions := make([]*restore.RegionInfo, 0)
 	for _, end := range keys {
 		var regionEndKey []byte
 		if end >= 0 {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-			endKey := tablecodec.EncodeRowKeyWithHandle(tableId, end)
-=======
-			endKey := tablecodec.EncodeRowKeyWithHandle(tableID, kv.IntHandle(end))
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/localhelper_test.go
+			endKey := tablecodec.EncodeRowKeyWithHandle(tableID, end)
 			regionEndKey = codec.EncodeBytes([]byte{}, endKey)
 		}
 		region := &restore.RegionInfo{
@@ -661,11 +574,7 @@ func (s *localSuite) TestNeedSplit(c *C) {
 	}
 
 	for hdl, idx := range checkMap {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-		checkKey := tablecodec.EncodeRowKeyWithHandle(tableId, hdl)
-=======
-		checkKey := tablecodec.EncodeRowKeyWithHandle(tableID, kv.IntHandle(hdl))
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/local/localhelper_test.go
+		checkKey := tablecodec.EncodeRowKeyWithHandle(tableID, hdl)
 		res := needSplit(checkKey, regions)
 		if idx < 0 {
 			c.Assert(res, IsNil)
