@@ -11,7 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+// TODO combine with the pkg/kv package outside.
+
+package kv
 
 import (
 	"context"
@@ -91,15 +93,12 @@ type transaction struct {
 	kvMemBuf
 }
 
-<<<<<<< HEAD:pkg/lightning/backend/session.go
 var _ kv.Transaction = &transaction{}
 
 func (t *transaction) NewStagingBuffer() kv.MemBuffer {
 	return &t.kvMemBuf
 }
 
-=======
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766):pkg/lightning/backend/kv/session.go
 func (t *transaction) GetMemBuffer() kv.MemBuffer {
 	return &t.kvMemBuf
 }
@@ -165,6 +164,11 @@ type SessionOptions struct {
 	SysVars   map[string]string
 	// a seed used for tableKvEncoder's auto random bits value
 	AutoRandomSeed int64
+}
+
+// NewSession creates a new trimmed down Session matching the options.
+func NewSession(options *SessionOptions) sessionctx.Context {
+	return newSession(options)
 }
 
 func newSession(options *SessionOptions) *session {

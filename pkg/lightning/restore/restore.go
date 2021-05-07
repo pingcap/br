@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -39,23 +40,19 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-<<<<<<< HEAD
-	kv "github.com/pingcap/br/pkg/lightning/backend"
-	. "github.com/pingcap/br/pkg/lightning/checkpoints"
-=======
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
@@ -146,25 +143,6 @@ const (
 	diskQuotaStateImporting
 )
 
-<<<<<<< HEAD
-type RestoreController struct {
-	cfg             *config.Config
-	dbMetas         []*mydump.MDDatabaseMeta
-	dbInfos         map[string]*TidbDBInfo
-	tableWorkers    *worker.Pool
-	indexWorkers    *worker.Pool
-	regionWorkers   *worker.Pool
-	ioWorkers       *worker.Pool
-	checksumWorks   *worker.Pool
-	pauser          *common.Pauser
-	backend         kv.Backend
-	tidbGlue        glue.Glue
-	postProcessLock sync.Mutex // a simple way to ensure post-processing is not concurrent without using complicated goroutines
-	alterTableLock  sync.Mutex
-	compactState    int32
-	sysVars         map[string]string
-	tls             *common.TLS
-=======
 type Controller struct {
 	cfg           *config.Config
 	dbMetas       []*mydump.MDDatabaseMeta
@@ -181,7 +159,6 @@ type Controller struct {
 	alterTableLock sync.Mutex
 	sysVars        map[string]string
 	tls            *common.TLS
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 
 	errorSummaries errorSummaries
 
@@ -236,11 +213,11 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.Trace(err)
 	}
 
-	var backend kv.Backend
+	var backend backend.Backend
 	switch cfg.TikvImporter.Backend {
 	case config.BackendImporter:
 		var err error
-		backend, err = kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+		backend, err = importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 		if err != nil {
 			return nil, errors.Annotate(err, "open importer backend failed")
 		}
@@ -249,10 +226,10 @@ func NewRestoreControllerWithPauser(
 		if err != nil {
 			return nil, errors.Annotate(err, "open tidb backend failed")
 		}
-		backend = kv.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
+		backend = tidb.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
 	case config.BackendLocal:
 		var rLimit uint64
-		rLimit, err = kv.GetSystemRLimit()
+		rLimit, err = local.GetSystemRLimit()
 		if err != nil {
 			return nil, err
 		}
@@ -262,7 +239,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
+		backend, err = local.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -437,7 +414,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 2. restore tables, execute statements concurrency
 	for _, dbMeta := range dbMetas {
 		for _, tblMeta := range dbMeta.Tables {
-			sql := tblMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := tblMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, tblMeta.Name)
 				if err != nil {
@@ -459,6 +436,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 					return err
 				}
 			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	err = worker.wait()
@@ -468,7 +448,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 3. restore views. Since views can cross database we must restore views after all table schemas are restored.
 	for _, dbMeta := range dbMetas {
 		for _, viewMeta := range dbMeta.Views {
-			sql := viewMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := viewMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, viewMeta.Name)
 				if err != nil {
@@ -494,6 +474,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 				if err != nil {
 					return err
 				}
+			}
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -599,9 +582,6 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
-<<<<<<< HEAD
-func (rc *RestoreController) restoreSchema(ctx context.Context) error {
-=======
 func (rc *Controller) checkTableEmpty(ctx context.Context, tableName string) error {
 	db, err := rc.tidbGlue.GetDB()
 	if err != nil {
@@ -623,7 +603,6 @@ func (rc *Controller) checkTableEmpty(ctx context.Context, tableName string) err
 }
 
 func (rc *Controller) restoreSchema(ctx context.Context) error {
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
 		concurrency := utils.MinInt(rc.cfg.App.RegionConcurrency, 8)
@@ -655,6 +634,31 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+		for _, dbMeta := range rc.dbMetas {
+			for _, tableMeta := range dbMeta.Tables {
+				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+
+				// if checkpoint enable and not missing, we skip the check table empty progress.
+				if rc.cfg.Checkpoint.Enable {
+					_, err := rc.checkpointsDB.Get(ctx, tableName)
+					switch {
+					case err == nil:
+						continue
+					case errors.IsNotFound(err):
+					default:
+						return err
+					}
+				}
+
+				err := rc.checkTableEmpty(ctx, tableName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
 	if err != nil {
@@ -665,8 +669,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		os.Exit(0)
 	})
 
-<<<<<<< HEAD
-=======
 	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
 		for _, dbMeta := range rc.dbMetas {
 			for _, tableMeta := range dbMeta.Tables {
@@ -692,7 +694,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		}
 	}
 
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	go rc.listenCheckpointUpdates()
 
 	rc.sysVars = ObtainImportantVariables(ctx, rc.tidbGlue.GetSQLExecutor())
@@ -766,13 +767,8 @@ func verifyLocalFile(ctx context.Context, cpdb checkpoints.DB, dir string) error
 	}
 	for tableName, engineIDs := range targetTables {
 		for _, engineID := range engineIDs {
-<<<<<<< HEAD
-			_, eID := kv.MakeUUID(tableName, engineID)
-			file := kv.LocalFile{Uuid: eID}
-=======
 			_, eID := backend.MakeUUID(tableName, engineID)
 			file := local.File{UUID: eID}
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 			err := file.Exist(dir)
 			if err != nil {
 				log.L().Error("can't find local file",
@@ -1376,29 +1372,11 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 	// but `indexEngineCp.Status == CheckpointStatusImported` could happen
 	// when kill lightning after saving index engine checkpoint status before saving
 	// table checkpoint status.
-	var closedIndexEngine *kv.ClosedEngine
+	var closedIndexEngine *backend.ClosedEngine
 	var restoreErr error
 	// if index-engine checkpoint is lower than `CheckpointStatusClosed`, there must be
 	// data-engines that need to be restore or import. Otherwise, all data-engines should
 	// be finished already.
-<<<<<<< HEAD
-	if indexEngineCp.Status < CheckpointStatusClosed {
-		indexWorker := rc.indexWorkers.Apply()
-		defer rc.indexWorkers.Recycle(indexWorker)
-
-		indexEngine, err := rc.backend.OpenEngine(ctx, t.tableName, indexEngineID, rc.ts)
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		// The table checkpoint status less than `CheckpointStatusIndexImported` implies
-		// that index engine checkpoint status less than `CheckpointStatusImported`.
-		// So the index engine must be found in above process
-		if indexEngine == nil {
-			return errors.Errorf("table checkpoint status %v incompitable with index engine checkpoint status %v",
-				cp.Status, indexEngineCp.Status)
-=======
-
 	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
@@ -1418,7 +1396,6 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				}
 				break
 			}
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 		}
 
 		logTask := tr.logger.Begin(zap.InfoLevel, "import whole table")
@@ -1501,11 +1478,6 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 			return errors.Trace(restoreErr)
 		}
 
-<<<<<<< HEAD
-		closedIndexEngine, restoreErr = indexEngine.Close(ctx)
-		rc.saveStatusCheckpoint(t.tableName, indexEngineID, err, CheckpointStatusClosed)
-	} else if indexEngineCp.Status == CheckpointStatusClosed {
-=======
 		if indexEngine != nil {
 			closedIndexEngine, restoreErr = indexEngine.Close(ctx)
 		} else {
@@ -1514,7 +1486,6 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 		rc.saveStatusCheckpoint(tr.tableName, indexEngineID, restoreErr, checkpoints.CheckpointStatusClosed)
 	} else if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
 		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
@@ -1525,21 +1496,8 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 	if cp.Status < checkpoints.CheckpointStatusIndexImported {
 		var err error
-<<<<<<< HEAD
-		if indexEngineCp.Status < CheckpointStatusImported {
-			// the lock ensures the import() step will not be concurrent.
-			if !rc.isLocalBackend() {
-				rc.postProcessLock.Lock()
-			}
-			err = t.importKV(ctx, closedIndexEngine, rc, indexEngineID)
-			rc.saveStatusCheckpoint(t.tableName, indexEngineID, err, CheckpointStatusImported)
-			if !rc.isLocalBackend() {
-				rc.postProcessLock.Unlock()
-			}
-=======
 		if indexEngineCp.Status < checkpoints.CheckpointStatusImported {
 			err = tr.importKV(ctx, closedIndexEngine, rc, indexEngineID)
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 		}
 
 		failpoint.Inject("FailBeforeIndexEngineImported", func() {
@@ -1556,19 +1514,11 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 func (tr *TableRestore) restoreEngine(
 	pCtx context.Context,
-<<<<<<< HEAD
-	rc *RestoreController,
-	indexEngine *kv.OpenedEngine,
-	engineID int32,
-	cp *EngineCheckpoint,
-) (*kv.ClosedEngine, error) {
-=======
 	rc *Controller,
 	indexEngine *backend.OpenedEngine,
 	engineID int32,
 	cp *checkpoints.EngineCheckpoint,
 ) (*backend.ClosedEngine, error) {
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	ctx, cancel := context.WithCancel(pCtx)
 	defer cancel()
 	// all data has finished written, we can close the engine directly.
@@ -1729,13 +1679,8 @@ func (tr *TableRestore) restoreEngine(
 
 func (tr *TableRestore) importEngine(
 	ctx context.Context,
-<<<<<<< HEAD
-	closedEngine *kv.ClosedEngine,
-	rc *RestoreController,
-=======
 	closedEngine *backend.ClosedEngine,
 	rc *Controller,
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	engineID int32,
 	cp *checkpoints.EngineCheckpoint,
 ) error {
@@ -1743,24 +1688,8 @@ func (tr *TableRestore) importEngine(
 		return nil
 	}
 
-<<<<<<< HEAD
-	// 1. close engine, then calling import
-	// FIXME: flush is an asynchronous operation, what if flush failed?
-
-	// the lock ensures the import() step will not be concurrent.
-	if !rc.isLocalBackend() {
-		rc.postProcessLock.Lock()
-	}
-	err := t.importKV(ctx, closedEngine, rc, engineID)
-	rc.saveStatusCheckpoint(t.tableName, engineID, err, CheckpointStatusImported)
-	if !rc.isLocalBackend() {
-		rc.postProcessLock.Unlock()
-	}
-	if err != nil {
-=======
 	// 1. calling import
 	if err := tr.importKV(ctx, closedEngine, rc, engineID); err != nil {
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 		return errors.Trace(err)
 	}
 
@@ -1909,12 +1838,12 @@ func (rc *Controller) fullCompact(ctx context.Context) error {
 
 func (rc *Controller) doCompact(ctx context.Context, level int32) error {
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls,
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			return kv.Compact(c, tls, store.Address, level)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.Compact(c, tls, store.Address, level)
 		},
 	)
 }
@@ -1933,21 +1862,21 @@ func (rc *Controller) switchTiKVMode(ctx context.Context, mode sstpb.SwitchMode)
 	// since we're running it periodically, so we exclude disconnected stores.
 	// But it is essential all stores be switched back to Normal mode to allow
 	// normal operation.
-	var minState kv.StoreState
+	var minState tikv.StoreState
 	if mode == sstpb.SwitchMode_Import {
-		minState = kv.StoreStateOffline
+		minState = tikv.StoreStateOffline
 	} else {
-		minState = kv.StoreStateDisconnected
+		minState = tikv.StoreStateDisconnected
 	}
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
 	// we ignore switch mode failure since it is not fatal.
 	// no need log the error, it is done in kv.SwitchMode already.
-	_ = kv.ForAllStores(
+	_ = tikv.ForAllStores(
 		ctx,
 		tls,
 		minState,
-		func(c context.Context, store *kv.Store) error {
-			return kv.SwitchMode(c, tls, store.Address, mode)
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.SwitchMode(c, tls, store.Address, mode)
 		},
 	)
 }
@@ -2042,7 +1971,13 @@ func (rc *Controller) checkRequirements(ctx context.Context) error {
 	if !rc.cfg.App.CheckRequirements {
 		return nil
 	}
-	return rc.backend.CheckRequirements(ctx)
+	checkCtx := &backend.CheckCtx{
+		DBMetas: rc.dbMetas,
+	}
+	if err := rc.backend.CheckRequirements(ctx, checkCtx); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (rc *Controller) setGlobalVariables(ctx context.Context) error {
@@ -2349,13 +2284,8 @@ func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
 
 func (tr *TableRestore) importKV(
 	ctx context.Context,
-<<<<<<< HEAD
-	closedEngine *kv.ClosedEngine,
-	rc *RestoreController,
-=======
 	closedEngine *backend.ClosedEngine,
 	rc *Controller,
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 	engineID int32,
 ) error {
 	task := closedEngine.Logger().Begin(zap.InfoLevel, "import and cleanup engine")
@@ -2430,13 +2360,8 @@ func (cr *chunkRestore) deliverLoop(
 	kvsCh <-chan []deliveredKVs,
 	t *TableRestore,
 	engineID int32,
-<<<<<<< HEAD
-	dataEngine, indexEngine *kv.LocalEngineWriter,
-	rc *RestoreController,
-=======
 	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *Controller,
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
 
@@ -2680,13 +2605,8 @@ func (cr *chunkRestore) restore(
 	ctx context.Context,
 	t *TableRestore,
 	engineID int32,
-<<<<<<< HEAD
-	dataEngine, indexEngine *kv.LocalEngineWriter,
-	rc *RestoreController,
-=======
 	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *Controller,
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 ) error {
 	// Create the encoder.
 	kvEncoder, err := rc.backend.NewEncoder(t.encTable, &kv.SessionOptions{

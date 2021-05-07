@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -200,10 +201,8 @@ func (s *cpFileSuite) TestGet(c *C) {
 	})
 
 	cp, err = s.cpdb.Get(ctx, "`db3`.`not-exists`")
-	c.Assert(err, IsNil)
-	c.Assert(cp, DeepEquals, &checkpoints.TableCheckpoint{
-		Engines: make(map[int32]*checkpoints.EngineCheckpoint),
-	})
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 }
 
 func (s *cpFileSuite) TestRemoveAllCheckpoints(c *C) {
@@ -213,12 +212,12 @@ func (s *cpFileSuite) TestRemoveAllCheckpoints(c *C) {
 	c.Assert(err, IsNil)
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 
 	cp, err = s.cpdb.Get(ctx, "`db2`.`t3`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 }
 
 func (s *cpFileSuite) TestRemoveOneCheckpoint(c *C) {
@@ -228,8 +227,8 @@ func (s *cpFileSuite) TestRemoveOneCheckpoint(c *C) {
 	c.Assert(err, IsNil)
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 
 	cp, err = s.cpdb.Get(ctx, "`db2`.`t3`")
 	c.Assert(err, IsNil)
@@ -292,12 +291,12 @@ func (s *cpFileSuite) TestDestroyAllErrorCheckpoints(c *C) {
 	})
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 
 	cp, err = s.cpdb.Get(ctx, "`db2`.`t3`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 }
 
 func (s *cpFileSuite) TestDestroyOneErrorCheckpoint(c *C) {
@@ -316,8 +315,8 @@ func (s *cpFileSuite) TestDestroyOneErrorCheckpoint(c *C) {
 	})
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
-	c.Assert(err, IsNil)
-	c.Assert(cp.Status, Equals, checkpoints.CheckpointStatusMissing)
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 
 	cp, err = s.cpdb.Get(ctx, "`db2`.`t3`")
 	c.Assert(err, IsNil)

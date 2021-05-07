@@ -35,16 +35,22 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	tmock "github.com/pingcap/tidb/util/mock"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/importer"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/backend/noop"
+	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/lightning/mock"
+	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/version/build"
 )
@@ -749,7 +755,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 	mockBackend := mock.NewMockBackend(controller)
-	importer := kv.MakeBackend(mockBackend)
+	importer := backend.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
 	rc := &Controller{saveCpCh: chptCh}
@@ -781,7 +787,7 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 	mockBackend := mock.NewMockBackend(controller)
-	importer := kv.MakeBackend(mockBackend)
+	importer := backend.MakeBackend(mockBackend)
 	chptCh := make(chan saveCp)
 	defer close(chptCh)
 	rc := &Controller{saveCpCh: chptCh}
@@ -810,12 +816,12 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 	mockBackend := mock.NewMockBackend(controller)
-	backend := kv.MakeBackend(mockBackend)
+	backend := backend.MakeBackend(mockBackend)
 
 	ctx := context.Background()
 
 	mockBackend.EXPECT().
-		CheckRequirements(ctx).
+		CheckRequirements(ctx, gomock.Any()).
 		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
 	rc := &Controller{
 		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
@@ -826,8 +832,6 @@ func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
 	c.Assert(err, ErrorMatches, "fake check requirement error.*")
 }
 
-<<<<<<< HEAD
-=======
 func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
@@ -907,7 +911,6 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
 }
 
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
 var _ = Suite(&chunkRestoreSuite{})
 
 type chunkRestoreSuite struct {
@@ -942,12 +945,7 @@ func (s *chunkRestoreSuite) TearDownTest(c *C) {
 }
 
 func (s *chunkRestoreSuite) TestDeliverLoopCancel(c *C) {
-<<<<<<< HEAD
-	rc := &RestoreController{backend: kv.NewMockImporter(nil, "")}
-=======
 	rc := &Controller{backend: importer.NewMockImporter(nil, "")}
->>>>>>> 4c77b100... lightning: Fix lints for lightning (#766)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	kvsCh := make(chan []deliveredKVs)
 	go cancel()
@@ -963,7 +961,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 	mockBackend := mock.NewMockBackend(controller)
-	importer := kv.MakeBackend(mockBackend)
+	importer := backend.MakeBackend(mockBackend)
 
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
@@ -1003,7 +1001,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
 	mockBackend := mock.NewMockBackend(controller)
-	importer := kv.MakeBackend(mockBackend)
+	importer := backend.MakeBackend(mockBackend)
 
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
@@ -1197,7 +1195,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 
 	kvsCh := make(chan []deliveredKVs, 2)
 	deliverCompleteCh := make(chan deliverResult)
-	kvEncoder, err := kv.NewTiDBBackend(nil, config.ReplaceOnDup).NewEncoder(
+	kvEncoder, err := tidb.NewTiDBBackend(nil, config.ReplaceOnDup).NewEncoder(
 		s.tr.encTable,
 		&kv.SessionOptions{
 			SQLMode:   s.cfg.TiDB.SQLMode,
@@ -1220,7 +1218,7 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient := mock.NewMockImportKVClient(controller)
 	mockDataWriter := mock.NewMockImportKV_WriteEngineClient(controller)
 	mockIndexWriter := mock.NewMockImportKV_WriteEngineClient(controller)
-	importer := kv.NewMockImporter(mockClient, "127.0.0.1:2379")
+	importer := importer.NewMockImporter(mockClient, "127.0.0.1:2379")
 
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
@@ -1329,7 +1327,7 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		FetchRemoteTableModels(gomock.Any(), gomock.Any()).
 		AnyTimes().
 		Return(make([]*model.TableInfo, 0), nil)
-	s.rc.backend = kv.MakeBackend(mockBackend)
+	s.rc.backend = backend.MakeBackend(mockBackend)
 	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
 	mockSQLExecutor.EXPECT().
 		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
