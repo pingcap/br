@@ -15,7 +15,6 @@ package restore
 
 import (
 	"context"
-	"net/http"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -37,10 +36,9 @@ import (
 var _ = Suite(&tidbSuite{})
 
 type tidbSuite struct {
-	mockDB  sqlmock.Sqlmock
-	handler http.Handler
-	timgr   *TiDBManager
-	tiGlue  glue.Glue
+	mockDB sqlmock.Sqlmock
+	timgr  *TiDBManager
+	tiGlue glue.Glue
 }
 
 func TestTiDB(t *testing.T) {

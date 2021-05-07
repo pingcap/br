@@ -41,21 +41,6 @@ func (s *testMydumpRegionSuite) TearDownSuite(c *C) {}
 // 	"tbl_multi_index":       10000,
 // }
 
-func getFileSize(file string) (int64, error) {
-	fd, err := os.Open(file)
-	if err != nil {
-		return -1, err
-	}
-	defer fd.Close()
-
-	fstat, err := fd.Stat()
-	if err != nil {
-		return -1, err
-	}
-
-	return fstat.Size(), nil
-}
-
 /*
 	TODO : test with specified 'regionBlockSize' ...
 */

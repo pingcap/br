@@ -31,7 +31,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/glue"
 
-	. "github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -236,8 +236,8 @@ func LoadSchemaInfo(
 	ctx context.Context,
 	schemas []*mydump.MDDatabaseMeta,
 	getTables func(context.Context, string) ([]*model.TableInfo, error),
-) (map[string]*TidbDBInfo, error) {
-	result := make(map[string]*TidbDBInfo, len(schemas))
+) (map[string]*checkpoints.TidbDBInfo, error) {
+	result := make(map[string]*checkpoints.TidbDBInfo, len(schemas))
 	for _, schema := range schemas {
 		tables, err := getTables(ctx, schema.Name)
 		if err != nil {
@@ -249,9 +249,9 @@ func LoadSchemaInfo(
 			tableMap[tbl.Name.L] = tbl
 		}
 
-		dbInfo := &TidbDBInfo{
+		dbInfo := &checkpoints.TidbDBInfo{
 			Name:   schema.Name,
-			Tables: make(map[string]*TidbTableInfo),
+			Tables: make(map[string]*checkpoints.TidbTableInfo),
 		}
 
 		for _, tbl := range schema.Tables {
@@ -266,7 +266,7 @@ func LoadSchemaInfo(
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
-			tableInfo := &TidbTableInfo{
+			tableInfo := &checkpoints.TidbTableInfo{
 				ID:   tblInfo.ID,
 				DB:   schema.Name,
 				Name: tableName,
