@@ -903,8 +903,12 @@ func (local *local) tryRLockAllEngines() []*File {
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
 		// skip closed engine
-		if engine.tryRLock() && !engine.closed.Load() {
-			allEngines = append(allEngines, engine)
+		if engine.tryRLock() {
+			if !engine.closed.Load() {
+				allEngines = append(allEngines, engine)
+			} else {
+				engine.rUnlock()
+			}
 		}
 		return true
 	})
@@ -1132,10 +1136,9 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	engineFile := engine.(*File)
 	engineFile.lock(importMutexStateClose)
 	defer engineFile.unlock()
-	if engineFile.closed.Load() {
+	if engineFile.closed.Swap(true) {
 		return nil
 	}
-	engineFile.closed.Store(true)
 
 	err := engineFile.flushEngineWithoutLock(ctx)
 	engineFile.unlock()
