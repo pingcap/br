@@ -146,11 +146,15 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	var resp *http.Response
+	var (
+		resp   *http.Response
+		reqErr error
+	)
+
 	for i := 0; i < pdRequestRetryTime; i++ {
-		resp, err = cli.Do(req)
+		resp, reqErr = cli.Do(req)
 		if err != nil {
-			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(err))
+			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(reqErr))
 			time.Sleep(time.Duration(i) * time.Second)
 			continue
 		}
@@ -166,7 +170,7 @@ func pdRequest(
 		}
 		return r, nil
 	}
-	return nil, errors.Trace(err)
+	return nil, errors.Trace(reqErr)
 }
 
 // PdController manage get/update config from pd.
