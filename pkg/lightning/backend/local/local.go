@@ -334,8 +334,12 @@ func (e *File) unlock() {
 }
 
 type metaSeq struct {
+	// the sequence for this flush message, a flush call can return only if
+	// all the other flush will lower `flushSeq` are done
 	flushSeq int32
-	metaSeq  int32
+	// the max sstMeta sequence number in this flush, after the flush is done (all SSTs are ingested),
+	// we can save chunks will a lower meta sequence number safely.
+	metaSeq int32
 }
 
 type metaSeqHeap struct {
