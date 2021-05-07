@@ -355,7 +355,7 @@ func (h *noopHook) AfterScanRegions(res []*restore.RegionInfo, err error) ([]*re
 	return res, err
 }
 
-func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, hook clientHook, errPat string) {
+func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, hook clientHook, errPat string) {
 	oldLimit := maxBatchSplitKeys
 	oldSplitBackoffTime := splitRegionBaseBackOffTime
 	maxBatchSplitKeys = 4
@@ -422,7 +422,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, h
 }
 
 func (s *localSuite) TestBatchSplitRegionByRanges(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "")
 }
 
 type scanRegionEmptyHook struct {
@@ -440,7 +440,7 @@ func (h *scanRegionEmptyHook) AfterScanRegions(res []*restore.RegionInfo, err er
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesScanFailed(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &scanRegionEmptyHook{}, "paginate scan region returns empty result")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &scanRegionEmptyHook{}, "paginate scan region returns empty result")
 }
 
 type splitRegionEpochNotMatchHook struct {
@@ -456,7 +456,7 @@ func (h *splitRegionEpochNotMatchHook) BeforeSplitRegion(ctx context.Context, re
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*")
 }
 
 // return epoch not match error in every other call
@@ -478,7 +478,7 @@ func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Conte
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHookRandom{}, "")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionEpochNotMatchHookRandom{}, "")
 }
 
 type splitRegionNoValidKeyHook struct {
@@ -497,11 +497,11 @@ func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, region
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*")
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*")
 }
 
 type reportAfterSplitHook struct {
@@ -528,25 +528,25 @@ func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
 		}
 	}()
 
-	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
+	s.doTestBatchSplitRegionByRanges(ctx, c, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
 	close(ch)
 }
 
 func (s *localSuite) TestNeedSplit(c *C) {
-	tableId := int64(1)
+	tableID := int64(1)
 	peers := make([]*metapb.Peer, 1)
 	peers[0] = &metapb.Peer{
 		Id:      1,
 		StoreId: 1,
 	}
 	keys := []int64{10, 100, 500, 1000, 999999, -1}
-	start := tablecodec.EncodeRowKeyWithHandle(tableId, 0)
+	start := tablecodec.EncodeRowKeyWithHandle(tableID, 0)
 	regionStart := codec.EncodeBytes([]byte{}, start)
 	regions := make([]*restore.RegionInfo, 0)
 	for _, end := range keys {
 		var regionEndKey []byte
 		if end >= 0 {
-			endKey := tablecodec.EncodeRowKeyWithHandle(tableId, end)
+			endKey := tablecodec.EncodeRowKeyWithHandle(tableID, end)
 			regionEndKey = codec.EncodeBytes([]byte{}, endKey)
 		}
 		region := &restore.RegionInfo{
@@ -574,7 +574,7 @@ func (s *localSuite) TestNeedSplit(c *C) {
 	}
 
 	for hdl, idx := range checkMap {
-		checkKey := tablecodec.EncodeRowKeyWithHandle(tableId, hdl)
+		checkKey := tablecodec.EncodeRowKeyWithHandle(tableID, hdl)
 		res := needSplit(checkKey, regions)
 		if idx < 0 {
 			c.Assert(res, IsNil)
