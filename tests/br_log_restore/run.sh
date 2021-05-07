@@ -141,6 +141,14 @@ if [ "$row_count" -ne "1" ]; then
     echo "TEST: [$TEST_NAME] fail on recover ts range test."
 fi
 
+# record a=3 should be deleted
+row_count=$(run_sql "SELECT COUNT(*) FROM ${DB}_DDL2.t2 WHERE a=3;" | awk '/COUNT/{print $2}')
+if [ "$row_count" -ne "0" ]; then
+    fail=true
+    echo "TEST: [$TEST_NAME] fail on key not deleted."
+fi
+
+
 for i in $(seq $DB_COUNT); do
     if [ "${row_count_ori[i]}" != "${row_count_new[i]}" ];then
         fail=true
