@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -31,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+	"go.uber.org/atomic"
 
 	"github.com/pingcap/br/pkg/restore"
 )
@@ -41,7 +41,7 @@ type testClient struct {
 	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
-	splitCount   int
+	splitCount   atomic.Int32
 	hook         clientHook
 }
 
@@ -158,7 +158,7 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	default:
 	}
 
-	c.splitCount++
+	c.splitCount.Inc()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	newRegions := make([]*restore.RegionInfo, 0)
@@ -355,9 +355,6 @@ func (h *noopHook) AfterScanRegions(res []*restore.RegionInfo, err error) ([]*re
 	return res, err
 }
 
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-func (s *localSuite) doTestBatchSplitRegionByRanges(c *C, ctx context.Context, hook clientHook, errPat string) {
-=======
 type batchSplitHook interface {
 	setup(c *C) func()
 	check(c *C, cli *testClient)
@@ -366,7 +363,6 @@ type batchSplitHook interface {
 type defaultHook struct{}
 
 func (d defaultHook) setup(*C) func() {
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 	oldLimit := maxBatchSplitKeys
 	oldSplitBackoffTime := splitRegionBaseBackOffTime
 	maxBatchSplitKeys = 4
@@ -388,7 +384,7 @@ func (d defaultHook) check(c *C, cli *testClient) {
 	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
 
 	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(cli.splitCount >= 7, IsTrue)
+	c.Assert(cli.splitCount.Load() >= 7, IsTrue)
 }
 
 func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, hook clientHook, errPat string, splitHook batchSplitHook) {
@@ -445,9 +441,6 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 }
 
 func (s *localSuite) TestBatchSplitRegionByRanges(c *C) {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), nil, "")
-=======
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "", nil)
 }
 
@@ -477,12 +470,11 @@ func (h batchSizeHook) check(c *C, cli *testClient) {
 	// 10. region: [bv, cca), keys: [bx, by, bz]
 
 	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(cli.splitCount, Equals, 9)
+	c.Assert(cli.splitCount.Load(), Equals, int32(9))
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesKeySizeLimit(c *C) {
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "", batchSizeHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 }
 
 type scanRegionEmptyHook struct {
@@ -500,11 +492,7 @@ func (h *scanRegionEmptyHook) AfterScanRegions(res []*restore.RegionInfo, err er
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesScanFailed(c *C) {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &scanRegionEmptyHook{}, "paginate scan region returns empty result")
-=======
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, &scanRegionEmptyHook{}, "paginate scan region returns empty result", defaultHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 }
 
 type splitRegionEpochNotMatchHook struct {
@@ -520,22 +508,18 @@ func (h *splitRegionEpochNotMatchHook) BeforeSplitRegion(ctx context.Context, re
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*")
-=======
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionEpochNotMatchHook{}, "batch split regions failed: epoch not match.*", defaultHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 }
 
 // return epoch not match error in every other call
 type splitRegionEpochNotMatchHookRandom struct {
 	noopHook
-	cnt int32
+	cnt atomic.Int32
 }
 
 func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	cnt := atomic.AddInt32(&h.cnt, 1)
+	cnt := h.cnt.Inc()
 	if cnt%2 != 0 {
 		return regionInfo, keys
 	}
@@ -546,22 +530,18 @@ func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Conte
 }
 
 func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionEpochNotMatchHookRandom{}, "")
-=======
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionEpochNotMatchHookRandom{}, "", defaultHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 }
 
 type splitRegionNoValidKeyHook struct {
 	noopHook
 	returnErrTimes int32
-	errorCnt       int32
+	errorCnt       atomic.Int32
 }
 
 func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	if atomic.AddInt32(&h.errorCnt, 1) <= h.returnErrTimes {
+	if h.errorCnt.Inc() <= h.returnErrTimes {
 		// clean keys to trigger "no valid keys" error
 		keys = keys[:0]
 	}
@@ -569,19 +549,11 @@ func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, region
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
-}
-
-func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
-	s.doTestBatchSplitRegionByRanges(c, context.Background(), &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*")
-=======
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*", defaultHook{})
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: math.MaxInt32}, ".*no valid key.*", defaultHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 }
 
 type reportAfterSplitHook struct {
@@ -608,29 +580,25 @@ func (s *localSuite) TestBatchSplitByRangeCtxCanceled(c *C) {
 		}
 	}()
 
-<<<<<<< HEAD:pkg/lightning/backend/localhelper_test.go
-	s.doTestBatchSplitRegionByRanges(c, ctx, &reportAfterSplitHook{ch: ch}, ".*context canceled.*")
-=======
 	s.doTestBatchSplitRegionByRanges(ctx, c, &reportAfterSplitHook{ch: ch}, ".*context canceled.*", defaultHook{})
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper_test.go
 	close(ch)
 }
 
 func (s *localSuite) TestNeedSplit(c *C) {
-	tableId := int64(1)
+	tableID := int64(1)
 	peers := make([]*metapb.Peer, 1)
 	peers[0] = &metapb.Peer{
 		Id:      1,
 		StoreId: 1,
 	}
 	keys := []int64{10, 100, 500, 1000, 999999, -1}
-	start := tablecodec.EncodeRowKeyWithHandle(tableId, 0)
+	start := tablecodec.EncodeRowKeyWithHandle(tableID, 0)
 	regionStart := codec.EncodeBytes([]byte{}, start)
 	regions := make([]*restore.RegionInfo, 0)
 	for _, end := range keys {
 		var regionEndKey []byte
 		if end >= 0 {
-			endKey := tablecodec.EncodeRowKeyWithHandle(tableId, end)
+			endKey := tablecodec.EncodeRowKeyWithHandle(tableID, end)
 			regionEndKey = codec.EncodeBytes([]byte{}, endKey)
 		}
 		region := &restore.RegionInfo{
@@ -658,7 +626,7 @@ func (s *localSuite) TestNeedSplit(c *C) {
 	}
 
 	for hdl, idx := range checkMap {
-		checkKey := tablecodec.EncodeRowKeyWithHandle(tableId, hdl)
+		checkKey := tablecodec.EncodeRowKeyWithHandle(tableID, hdl)
 		res := needSplit(checkKey, regions)
 		if idx < 0 {
 			c.Assert(res, IsNil)

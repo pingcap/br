@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -36,6 +36,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/logutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -156,32 +157,6 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 						return bytes.Compare(keys[i], keys[j]) < 0
 					})
 					splitRegion := region
-<<<<<<< HEAD:pkg/lightning/backend/localhelper.go
-					for j := 0; j < (len(keys)+maxBatchSplitKeys-1)/maxBatchSplitKeys; j++ {
-						start := j * maxBatchSplitKeys
-						end := utils.MinInt((j+1)*maxBatchSplitKeys, len(keys))
-						splitRegionStart := codec.EncodeBytes([]byte{}, keys[start])
-						splitRegionEnd := codec.EncodeBytes([]byte{}, keys[end-1])
-						if bytes.Compare(splitRegionStart, splitRegion.Region.StartKey) < 0 || !beforeEnd(splitRegionEnd, splitRegion.Region.EndKey) {
-							log.L().Fatal("no valid key in region",
-								log.ZapRedactBinary("startKey", splitRegionStart), log.ZapRedactBinary("endKey", splitRegionEnd),
-								log.ZapRedactBinary("regionStart", splitRegion.Region.StartKey), log.ZapRedactBinary("regionEnd", splitRegion.Region.EndKey),
-								log.ZapRedactReflect("region", splitRegion))
-						}
-						splitRegion, newRegions, err1 = local.BatchSplitRegions(splitCtx, splitRegion, keys[start:end])
-						if err1 != nil {
-							if strings.Contains(err1.Error(), "no valid key") {
-								for _, key := range keys {
-									log.L().Warn("no valid key",
-										log.ZapRedactBinary("startKey", region.Region.StartKey),
-										log.ZapRedactBinary("endKey", region.Region.EndKey),
-										log.ZapRedactBinary("key", codec.EncodeBytes([]byte{}, key)))
-								}
-								return err1
-							} else if common.IsContextCanceledError(err1) {
-								// do not retry on conext.Canceled error
-								return err1
-=======
 					startIdx := 0
 					endIdx := 0
 					batchKeySize := 0
@@ -194,7 +169,6 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 									logutil.Key("startKey", splitRegionStart), logutil.Key("endKey", splitRegionEnd),
 									logutil.Key("regionStart", splitRegion.Region.StartKey), logutil.Key("regionEnd", splitRegion.Region.EndKey),
 									logutil.Region(splitRegion.Region), logutil.Leader(splitRegion.Leader))
->>>>>>> 42433616... pkg/lightning: let batch split keys also consider the raft entry limit (#905):pkg/lightning/backend/local/localhelper.go
 							}
 							splitRegion, newRegions, err1 = local.BatchSplitRegions(splitCtx, splitRegion, keys[startIdx:endIdx])
 							if err1 != nil {
@@ -223,8 +197,8 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 								break
 							} else {
 								log.L().Info("batch split region", zap.Uint64("region_id", splitRegion.Region.Id),
-									zap.Int("keys", endIdx-startIdx), zap.Binary("firstKey", keys[startIdx]),
-									zap.Binary("end", keys[endIdx-1]))
+									zap.Int("keys", endIdx-startIdx), logutil.Key("firstKey", keys[startIdx]),
+									logutil.Key("end", keys[endIdx-1]))
 								sort.Slice(newRegions, func(i, j int) bool {
 									return bytes.Compare(newRegions[i].Region.StartKey, newRegions[j].Region.StartKey) < 0
 								})
