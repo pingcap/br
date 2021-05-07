@@ -244,14 +244,20 @@ func LoadSchemaInfo(
 			return nil, err
 		}
 
+		tableMap := make(map[string]*model.TableInfo, len(tables))
+		for _, tbl := range tables {
+			tableMap[tbl.Name.L] = tbl
+		}
+
 		dbInfo := &checkpoints.TidbDBInfo{
 			Name:   schema.Name,
 			Tables: make(map[string]*checkpoints.TidbTableInfo),
 		}
 
-		for _, tbl := range tables {
-			tableName := tbl.Name.String()
-			if tbl.State != model.StatePublic {
+		for _, tbl := range schema.Tables {
+			tblInfo := tableMap[strings.ToLower(tbl.Name)]
+			tableName := tblInfo.Name.String()
+			if tblInfo.State != model.StatePublic {
 				err := errors.Errorf("table [%s.%s] state is not public", schema.Name, tableName)
 				metric.RecordTableCount(metric.TableStatePending, err)
 				return nil, err
@@ -261,10 +267,10 @@ func LoadSchemaInfo(
 				return nil, errors.Trace(err)
 			}
 			tableInfo := &checkpoints.TidbTableInfo{
-				ID:   tbl.ID,
+				ID:   tblInfo.ID,
 				DB:   schema.Name,
 				Name: tableName,
-				Core: tbl,
+				Core: tblInfo,
 			}
 			dbInfo.Tables[tableName] = tableInfo
 		}
