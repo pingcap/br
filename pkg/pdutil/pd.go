@@ -40,6 +40,9 @@ const (
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
 
+	// pd request retry time when connection fail
+	pdRequestRetryTime = 10
+
 	// set max-pending-peer-count to a large value to avoid scatter region failed.
 	maxPendingPeerUnlimited uint64 = math.MaxInt32
 )
@@ -143,21 +146,27 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		res, _ := ioutil.ReadAll(resp.Body)
-		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
-	}
+	var resp *http.Response
+	for i := 0; i < pdRequestRetryTime; i++ {
+		resp, err = cli.Do(req)
+		if err != nil {
+			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(err))
+			time.Sleep(time.Duration(i) * time.Second)
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			res, _ := ioutil.ReadAll(resp.Body)
+			return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
+		}
 
-	r, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, errors.Trace(err)
+		r, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return r, nil
 	}
-	return r, nil
+	return nil, errors.Trace(err)
 }
 
 // PdController manage get/update config from pd.
