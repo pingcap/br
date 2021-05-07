@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -39,7 +40,11 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-	kv "github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/importer"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
+	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	. "github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -47,6 +52,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
@@ -147,7 +153,7 @@ type RestoreController struct {
 	ioWorkers       *worker.Pool
 	checksumWorks   *worker.Pool
 	pauser          *common.Pauser
-	backend         kv.Backend
+	backend         backend.Backend
 	tidbGlue        glue.Glue
 	postProcessLock sync.Mutex // a simple way to ensure post-processing is not concurrent without using complicated goroutines
 	alterTableLock  sync.Mutex
@@ -208,11 +214,11 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.Trace(err)
 	}
 
-	var backend kv.Backend
+	var backend backend.Backend
 	switch cfg.TikvImporter.Backend {
 	case config.BackendImporter:
 		var err error
-		backend, err = kv.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
+		backend, err = importer.NewImporter(ctx, tls, cfg.TikvImporter.Addr, cfg.TiDB.PdAddr)
 		if err != nil {
 			return nil, errors.Annotate(err, "open importer backend failed")
 		}
@@ -221,10 +227,10 @@ func NewRestoreControllerWithPauser(
 		if err != nil {
 			return nil, errors.Annotate(err, "open tidb backend failed")
 		}
-		backend = kv.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
+		backend = tidb.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
 	case config.BackendLocal:
 		var rLimit uint64
-		rLimit, err = kv.GetSystemRLimit()
+		rLimit, err = local.GetSystemRLimit()
 		if err != nil {
 			return nil, err
 		}
@@ -234,7 +240,7 @@ func NewRestoreControllerWithPauser(
 			maxOpenFiles = math.MaxInt32
 		}
 
-		backend, err = kv.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
+		backend, err = local.NewLocalBackend(ctx, tls, cfg.TiDB.PdAddr, &cfg.TikvImporter,
 			cfg.Checkpoint.Enable, g, maxOpenFiles)
 		if err != nil {
 			return nil, errors.Annotate(err, "build local backend failed")
@@ -409,7 +415,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 2. restore tables, execute statements concurrency
 	for _, dbMeta := range dbMetas {
 		for _, tblMeta := range dbMeta.Tables {
-			sql := tblMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := tblMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, tblMeta.Name)
 				if err != nil {
@@ -431,6 +437,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 					return err
 				}
 			}
+			if err != nil {
+				return err
+			}
 		}
 	}
 	err = worker.wait()
@@ -440,7 +449,7 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 	// 3. restore views. Since views can cross database we must restore views after all table schemas are restored.
 	for _, dbMeta := range dbMetas {
 		for _, viewMeta := range dbMeta.Views {
-			sql := viewMeta.GetSchema(worker.ctx, worker.store)
+			sql, err := viewMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {
 				stmts, err := createTableIfNotExistsStmt(worker.glue.GetParser(), sql, dbMeta.Name, viewMeta.Name)
 				if err != nil {
@@ -466,6 +475,9 @@ func (worker *restoreSchemaWorker) makeJobs(dbMetas []*mydump.MDDatabaseMeta) er
 				if err != nil {
 					return err
 				}
+			}
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -571,6 +583,26 @@ func (worker *restoreSchemaWorker) appendJob(job *schemaJob) error {
 	}
 }
 
+func (rc *RestoreController) checkTableEmpty(ctx context.Context, tableName string) error {
+	db, err := rc.tidbGlue.GetDB()
+	if err != nil {
+		return err
+	}
+
+	query := "select 1 from " + tableName + " limit 1"
+	var dump int
+	err = db.QueryRowContext(ctx, query).Scan(&dump)
+
+	switch {
+	case err == sql.ErrNoRows:
+		return nil
+	case err != nil:
+		return errors.AddStack(err)
+	default:
+		return errors.Errorf("table %s not empty, please clean up the table first", tableName)
+	}
+}
+
 func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 	if !rc.cfg.Mydumper.NoSchema {
 		logTask := log.L().Begin(zap.InfoLevel, "restore all schema")
@@ -602,6 +634,31 @@ func (rc *RestoreController) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	rc.dbInfos = dbInfos
+
+	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+		for _, dbMeta := range rc.dbMetas {
+			for _, tableMeta := range dbMeta.Tables {
+				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
+
+				// if checkpoint enable and not missing, we skip the check table empty progress.
+				if rc.cfg.Checkpoint.Enable {
+					_, err := rc.checkpointsDB.Get(ctx, tableName)
+					switch {
+					case err == nil:
+						continue
+					case errors.IsNotFound(err):
+					default:
+						return err
+					}
+				}
+
+				err := rc.checkTableEmpty(ctx, tableName)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
 
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
@@ -686,8 +743,8 @@ func verifyLocalFile(ctx context.Context, cpdb CheckpointsDB, dir string) error 
 	}
 	for tableName, engineIDs := range targetTables {
 		for _, engineID := range engineIDs {
-			_, eID := kv.MakeUUID(tableName, engineID)
-			file := kv.LocalFile{Uuid: eID}
+			_, eID := backend.MakeUUID(tableName, engineID)
+			file := local.File{Uuid: eID}
 			err := file.Exist(dir)
 			if err != nil {
 				log.L().Error("can't find local file",
@@ -1281,7 +1338,7 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 	// but `indexEngineCp.Status == CheckpointStatusImported` could happen
 	// when kill lightning after saving index engine checkpoint status before saving
 	// table checkpoint status.
-	var closedIndexEngine *kv.ClosedEngine
+	var closedIndexEngine *backend.ClosedEngine
 	var restoreErr error
 	// if index-engine checkpoint is lower than `CheckpointStatusClosed`, there must be
 	// data-engines that need to be restore or import. Otherwise, all data-engines should
@@ -1433,10 +1490,10 @@ func (t *TableRestore) restoreEngines(pCtx context.Context, rc *RestoreControlle
 func (t *TableRestore) restoreEngine(
 	pCtx context.Context,
 	rc *RestoreController,
-	indexEngine *kv.OpenedEngine,
+	indexEngine *backend.OpenedEngine,
 	engineID int32,
 	cp *EngineCheckpoint,
-) (*kv.ClosedEngine, error) {
+) (*backend.ClosedEngine, error) {
 	ctx, cancel := context.WithCancel(pCtx)
 	defer cancel()
 	// all data has finished written, we can close the engine directly.
@@ -1597,7 +1654,7 @@ func (t *TableRestore) restoreEngine(
 
 func (t *TableRestore) importEngine(
 	ctx context.Context,
-	closedEngine *kv.ClosedEngine,
+	closedEngine *backend.ClosedEngine,
 	rc *RestoreController,
 	engineID int32,
 	cp *EngineCheckpoint,
@@ -1766,12 +1823,12 @@ func (rc *RestoreController) fullCompact(ctx context.Context) error {
 
 func (rc *RestoreController) doCompact(ctx context.Context, level int32) error {
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
-	return kv.ForAllStores(
+	return tikv.ForAllStores(
 		ctx,
 		tls,
-		kv.StoreStateDisconnected,
-		func(c context.Context, store *kv.Store) error {
-			return kv.Compact(c, tls, store.Address, level)
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.Compact(c, tls, store.Address, level)
 		},
 	)
 }
@@ -1790,21 +1847,21 @@ func (rc *RestoreController) switchTiKVMode(ctx context.Context, mode sstpb.Swit
 	// since we're running it periodically, so we exclude disconnected stores.
 	// But it is essential all stores be switched back to Normal mode to allow
 	// normal operation.
-	var minState kv.StoreState
+	var minState tikv.StoreState
 	if mode == sstpb.SwitchMode_Import {
-		minState = kv.StoreStateOffline
+		minState = tikv.StoreStateOffline
 	} else {
-		minState = kv.StoreStateDisconnected
+		minState = tikv.StoreStateDisconnected
 	}
 	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
 	// we ignore switch mode failure since it is not fatal.
 	// no need log the error, it is done in kv.SwitchMode already.
-	_ = kv.ForAllStores(
+	_ = tikv.ForAllStores(
 		ctx,
 		tls,
 		minState,
-		func(c context.Context, store *kv.Store) error {
-			return kv.SwitchMode(c, tls, store.Address, mode)
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.SwitchMode(c, tls, store.Address, mode)
 		},
 	)
 }
@@ -1899,7 +1956,13 @@ func (rc *RestoreController) checkRequirements(ctx context.Context) error {
 	if !rc.cfg.App.CheckRequirements {
 		return nil
 	}
-	return rc.backend.CheckRequirements(ctx)
+	checkCtx := &backend.CheckCtx{
+		DBMetas: rc.dbMetas,
+	}
+	if err := rc.backend.CheckRequirements(ctx, checkCtx); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (rc *RestoreController) setGlobalVariables(ctx context.Context) error {
@@ -2206,7 +2269,7 @@ func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
 
 func (tr *TableRestore) importKV(
 	ctx context.Context,
-	closedEngine *kv.ClosedEngine,
+	closedEngine *backend.ClosedEngine,
 	rc *RestoreController,
 	engineID int32,
 ) error {
@@ -2283,7 +2346,7 @@ func (cr *chunkRestore) deliverLoop(
 	kvsCh <-chan []deliveredKVs,
 	t *TableRestore,
 	engineID int32,
-	dataEngine, indexEngine *kv.LocalEngineWriter,
+	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *RestoreController,
 ) (deliverTotalDur time.Duration, err error) {
 	var channelClosed bool
@@ -2527,7 +2590,7 @@ func (cr *chunkRestore) restore(
 	ctx context.Context,
 	t *TableRestore,
 	engineID int32,
-	dataEngine, indexEngine *kv.LocalEngineWriter,
+	dataEngine, indexEngine *backend.LocalEngineWriter,
 	rc *RestoreController,
 ) error {
 	// Create the encoder.
