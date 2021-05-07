@@ -1270,6 +1270,7 @@ type restoreSchemaSuite struct {
 	ctx        context.Context
 	rc         *Controller
 	controller *gomock.Controller
+	tableInfos []*model.TableInfo
 }
 
 func (s *restoreSchemaSuite) SetUpSuite(c *C) {
@@ -1285,14 +1286,29 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	c.Assert(err, IsNil)
 	// restore table schema files
 	fakeTableFilesCount := 8
+
+	p := parser.New()
+	p.SetSQLMode(mysql.ModeANSIQuotes)
+	se := tmock.NewContext()
+
+	tableInfos := make([]*model.TableInfo, 0, fakeTableFilesCount)
 	for i := 1; i <= fakeTableFilesCount; i++ {
 		fakeTableName := fmt.Sprintf("tbl%d", i)
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema.sql", fakeDBName, fakeTableName)
-		fakeFileContent := []byte(fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName))
-		err = store.Write(ctx, fakeFileName, fakeFileContent)
+
+		fakeFileContent := fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName)
+		err = store.Write(ctx, fakeFileName, []byte(fakeFileContent))
 		c.Assert(err, IsNil)
+
+		node, err := p.ParseOneStmt(fakeFileContent, "", "")
+		c.Assert(err, IsNil)
+		core, err := ddl.MockTableInfo(se, node.(*ast.CreateTableStmt), 0xabcdef)
+		c.Assert(err, IsNil)
+		core.State = model.StatePublic
+		tableInfos = append(tableInfos, core)
 	}
+	s.tableInfos = tableInfos
 	// restore view schema files
 	fakeViewFilesCount := 8
 	for i := 1; i <= fakeViewFilesCount; i++ {
@@ -1322,11 +1338,11 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 func (s *restoreSchemaSuite) SetUpTest(c *C) {
 	s.controller, s.ctx = gomock.WithContext(context.Background(), c)
 	mockBackend := mock.NewMockBackend(s.controller)
-	// We don't care the execute results of those
 	mockBackend.EXPECT().
 		FetchRemoteTableModels(gomock.Any(), gomock.Any()).
 		AnyTimes().
-		Return(make([]*model.TableInfo, 0), nil)
+		Return(s.tableInfos, nil)
+	mockBackend.EXPECT().Close()
 	s.rc.backend = backend.MakeBackend(mockBackend)
 	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
 	mockSQLExecutor.EXPECT().
@@ -1360,6 +1376,7 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		GetParser().
 		AnyTimes().
 		Return(parser)
+	mockSQLExecutor.EXPECT().Close()
 	s.rc.tidbGlue = mockTiDBGlue
 }
 
