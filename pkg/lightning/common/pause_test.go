@@ -147,7 +147,7 @@ func (s *pauseSuite) BenchmarkWaitNoOp(c *C) {
 	p := common.NewPauser()
 	ctx := context.Background()
 	for i := 0; i < c.N; i++ {
-		p.Wait(ctx)
+		_ = p.Wait(ctx)
 	}
 }
 
@@ -157,7 +157,7 @@ func (s *pauseSuite) BenchmarkWaitCtxCanceled(c *C) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for i := 0; i < c.N; i++ {
-		p.Wait(ctx)
+		_ = p.Wait(ctx)
 	}
 }
 
@@ -185,6 +185,6 @@ func (s *pauseSuite) BenchmarkWaitContended(c *C) {
 
 	ctx := context.Background()
 	for i := 0; i < c.N; i++ {
-		p.Wait(ctx)
+		_ = p.Wait(ctx)
 	}
 }
