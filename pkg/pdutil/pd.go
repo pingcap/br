@@ -160,6 +160,8 @@ func pdRequest(
 			}
 			res, _ := ioutil.ReadAll(resp.Body)
 			return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
+		} else {
+			break
 		}
 	}
 	// if retry time reach and request still fail
