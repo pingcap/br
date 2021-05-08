@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -176,9 +177,21 @@ func (s *testPDControllerSuite) TestPDVersion(c *C) {
 func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 	ctx := context.Background()
 	ch := make(chan bool, 1)
+
+	getFreePort := func() (int, error) {
+		addr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:0")
+		c.Assert(err, IsNil)
+		l, err := net.ListenTCP("tcp", addr)
+		c.Assert(err, IsNil)
+		defer l.Close()
+		return l.Addr().(*net.TCPAddr).Port, nil
+	}
+	// get free port
+	port, err := getFreePort()
+	c.Assert(err, IsNil)
 	go func() {
 		time.Sleep(5 * time.Second)
-		l, err := net.Listen("tcp", "127.0.0.1:8080")
+		l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 		c.Assert(err, IsNil)
 		ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			log.Info("server start")
@@ -190,7 +203,7 @@ func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 		<-ch
 	}()
 	cli := http.DefaultClient
-	taddr := "http://127.0.0.1:8080"
+	taddr := "http://127.0.0.1:" + strconv.Itoa(port)
 	_, reqErr := pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
 	ch <- true
 	c.Assert(reqErr, IsNil)
