@@ -146,9 +146,9 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-
+	var resp *http.Response
 	for i := 0; i < pdRequestRetryTime; i++ {
-		resp, err := cli.Do(req)
+		resp, err = cli.Do(req)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -161,14 +161,18 @@ func pdRequest(
 			res, _ := ioutil.ReadAll(resp.Body)
 			return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 		}
-		r, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		resp.Body.Close()
-		return r, nil
 	}
-	return nil, errors.Trace(err)
+	// if retry time reach and request still fail
+	if resp.StatusCode != http.StatusOK {
+		res, _ := ioutil.ReadAll(resp.Body)
+		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
+	}
+	r, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	resp.Body.Close()
+	return r, nil
 }
 
 // PdController manage get/update config from pd.
