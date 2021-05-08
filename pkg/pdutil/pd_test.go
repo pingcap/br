@@ -9,16 +9,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/statistics"
+	"go.uber.org/zap"
 )
 
 func TestT(t *testing.T) {
@@ -171,8 +176,24 @@ func (s *testPDControllerSuite) TestPDVersion(c *C) {
 
 func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 	ctx := context.Background()
-	addr := "https://mock"
+	ch := make(chan bool, 1)
+	go func() {
+		time.Sleep(5 * time.Second)
+		l, err := net.Listen("tcp", "127.0.0.1:8080")
+		c.Assert(err, IsNil)
+		ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Debug("server start")
+		}))
+		ts.Listener.Close()
+		ts.Listener = l
+		log.Debug("the test server url is ", zap.String("URL", ts.URL))
+		ts.Start()
+		defer ts.Close()
+		<-ch
+	}()
 	cli := http.DefaultClient
-	_, err := pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
-	c.Assert(err, NotNil)
+	taddr := "https://127.0.0.1:8080"
+	_, reqErr := pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
+	ch <- true
+	c.Assert(reqErr, IsNil)
 }
