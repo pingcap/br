@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package kv
 
 import (
 	"errors"
@@ -42,7 +42,7 @@ func (s *kvSuite) TestMarshal(c *C) {
 	minNotNull := types.Datum{}
 	minNotNull.SetMinNotNull()
 	encoder := zapcore.NewMapObjectEncoder()
-	err := encoder.AddArray("test", rowArrayMarshaler{types.NewStringDatum("1"), nullDatum, minNotNull, types.MaxValueDatum()})
+	err := encoder.AddArray("test", RowArrayMarshaler{types.NewStringDatum("1"), nullDatum, minNotNull, types.MaxValueDatum()})
 	c.Assert(err, IsNil)
 	c.Assert(encoder.Fields["test"], DeepEquals, []interface{}{
 		map[string]interface{}{"kind": "string", "val": "1"},
@@ -53,7 +53,7 @@ func (s *kvSuite) TestMarshal(c *C) {
 
 	invalid := types.Datum{}
 	invalid.SetInterface(1)
-	err = encoder.AddArray("bad-test", rowArrayMarshaler{minNotNull, invalid})
+	err = encoder.AddArray("bad-test", RowArrayMarshaler{minNotNull, invalid})
 	c.Assert(err, ErrorMatches, "cannot convert.*")
 	c.Assert(encoder.Fields["bad-test"], DeepEquals, []interface{}{
 		map[string]interface{}{"kind": "min", "val": "-inf"},
@@ -94,7 +94,7 @@ func (s *kvSuite) TestEncode(c *C) {
 		types.NewIntDatum(1),
 		types.NewStringDatum("invalid-pk"),
 	}
-	pairs, err = strictMode.Encode(logger, rowsWithPk, 2, []int{0, 1})
+	_, err = strictMode.Encode(logger, rowsWithPk, 2, []int{0, 1})
 	c.Assert(err, ErrorMatches, "failed to cast value as bigint\\(20\\) for column `_tidb_rowid`.*Truncated.*")
 
 	rowsWithPk2 := []types.Datum{
@@ -117,7 +117,7 @@ func (s *kvSuite) TestEncode(c *C) {
 		Timestamp: 1234567891,
 	})
 	c.Assert(err, IsNil)
-	pairs, err = mockMode.Encode(logger, rowsWithPk2, 2, []int{0, 1})
+	_, err = mockMode.Encode(logger, rowsWithPk2, 2, []int{0, 1})
 	c.Assert(err, ErrorMatches, "mock error")
 
 	// Non-strict mode
@@ -214,9 +214,9 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 	}))
 }
 
-func mockTableInfo(c *C, createSql string) *model.TableInfo {
+func mockTableInfo(c *C, createSQL string) *model.TableInfo {
 	parser := parser.New()
-	node, err := parser.ParseOneStmt(createSql, "", "")
+	node, err := parser.ParseOneStmt(createSQL, "", "")
 	c.Assert(err, IsNil)
 	sctx := mock.NewContext()
 	info, err := ddl.MockTableInfo(sctx, node.(*ast.CreateTableStmt), 1)
@@ -398,6 +398,7 @@ func (s *benchSQL2KVSuite) SetUpTest(c *C) {
 	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tableInfo)
 	c.Assert(err, IsNil)
 	s.encoder, err = NewTableKVEncoder(tbl, &SessionOptions{SysVars: map[string]string{"tidb_row_format_version": "2"}})
+	c.Assert(err, IsNil)
 	s.logger = log.Logger{Logger: zap.NewNop()}
 
 	// Prepare the row to insert.
