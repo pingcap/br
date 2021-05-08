@@ -185,4 +185,18 @@ func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 	taddr := ts.URL
 	_, reqErr := pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
 	c.Assert(reqErr, IsNil)
+	ts.Close()
+	count = 0
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count <= 11 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	taddr = ts.URL
+	_, reqErr = pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
+	c.Assert(reqErr, NotNil)
 }
