@@ -12,7 +12,7 @@ BR_PKG := github.com/pingcap/br
 RELEASE_VERSION =
 ifeq ($(RELEASE_VERSION),)
 	RELEASE_VERSION := v4.0.0-dev
-	release_version_regex := ^v5\..*$$
+	release_version_regex := ^v4\..*$$
 	release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|^.*/*tags/v[0-9]\.[0-9]\..*$$"
 	ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
 		# If we are in release branch, try to use tag version.
