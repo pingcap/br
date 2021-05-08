@@ -192,7 +192,7 @@ func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 		<-ch
 	}()
 	cli := http.DefaultClient
-	taddr := "https://127.0.0.1:8080"
+	taddr := "http://127.0.0.1:8080"
 	_, reqErr := pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
 	ch <- true
 	c.Assert(reqErr, IsNil)
