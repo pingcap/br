@@ -551,7 +551,7 @@ func (importer *FileImporter) ingestSSTs(
 
 	if !importer.supportMultiIngest {
 		// TODO: not sure we need this check
-		if len(sstMetas) > 0 {
+		if len(sstMetas) != 1 {
 			panic("do not support batch ingest")
 		}
 		req := &import_sstpb.IngestRequest{

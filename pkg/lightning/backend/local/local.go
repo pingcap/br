@@ -1372,7 +1372,7 @@ func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *sp
 	}
 
 	if !local.supportMultiIngest {
-		if len(metas) > 0 {
+		if len(metas) != 1 {
 			return nil, errors.New("batch ingest is not support")
 		}
 		req := &sst.IngestRequest{
