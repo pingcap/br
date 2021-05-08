@@ -155,7 +155,7 @@ func pdRequest(
 		resp, reqErr = cli.Do(req)
 		if reqErr != nil {
 			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(reqErr))
-			time.Sleep(time.Duration(1) * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
