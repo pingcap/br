@@ -153,7 +153,7 @@ func pdRequest(
 
 	for i := 0; i < pdRequestRetryTime; i++ {
 		resp, reqErr = cli.Do(req)
-		if err != nil {
+		if reqErr != nil {
 			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(reqErr))
 			time.Sleep(time.Duration(1) * time.Second)
 			continue
