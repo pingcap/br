@@ -23,7 +23,6 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/statistics"
-	"go.uber.org/zap"
 )
 
 func TestT(t *testing.T) {
@@ -182,11 +181,10 @@ func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 		l, err := net.Listen("tcp", "127.0.0.1:8080")
 		c.Assert(err, IsNil)
 		ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Debug("server start")
+			log.Info("server start")
 		}))
 		ts.Listener.Close()
 		ts.Listener = l
-		log.Debug("the test server url is ", zap.String("URL", ts.URL))
 		ts.Start()
 		defer ts.Close()
 		<-ch
