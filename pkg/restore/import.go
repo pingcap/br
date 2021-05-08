@@ -222,7 +222,7 @@ func NewFileImporter(
 	}
 }
 
-// PreCheckMultiIngestSupport checks whether all stores support multi-ingest
+// CheckMultiIngestSupport checks whether all stores support multi-ingest
 func (importer *FileImporter) CheckMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
 	allStores, err := pdClient.GetAllStores(context.Background(), pd.WithExcludeTombstone())
 	if err != nil {

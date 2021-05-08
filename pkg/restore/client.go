@@ -190,11 +190,7 @@ func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupM
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
 	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
-	if err := rc.fileImporter.CheckMultiIngestSupport(c, rc.pdClient); err != nil {
-		return err
-	}
-
-	return nil
+	return rc.fileImporter.CheckMultiIngestSupport(c, rc.pdClient)
 }
 
 // IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
