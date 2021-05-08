@@ -168,3 +168,34 @@ func (s *testPDControllerSuite) TestPDVersion(c *C) {
 	c.Assert(r.Minor, Equals, expectV.Minor)
 	c.Assert(r.PreRelease, Equals, expectV.PreRelease)
 }
+
+func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
+	cnt := 0
+	// mock cli.Do(req) function
+	mockDo := func(req *http.Request) (retres *http.Response, reterr error) {
+		cnt++
+		if cnt <= 5 {
+			return nil, errors.New("request fail")
+		}
+		return &http.Response{}, nil
+	}
+	ctx := context.Background()
+	addr := "https://mock"
+	cli := http.DefaultClient
+	u, err := url.Parse(addr)
+	c.Assert(err, IsNil)
+	reqURL := fmt.Sprintf("%s/%s", u, prefix)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	c,Assert(err, IsNil)
+	var (
+		resp     *http.Response
+		reqError error
+	)
+	for i := 0; i < pdRequestRetryTime; i++ {
+		resp, req = mockDo(req)
+		if err != nil {
+			log
+		}
+	}
+
+}
