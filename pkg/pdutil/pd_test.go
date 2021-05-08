@@ -12,16 +12,13 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
-	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/statistics"
-	"go.uber.org/zap"
 )
 
 func TestT(t *testing.T) {
@@ -173,34 +170,9 @@ func (s *testPDControllerSuite) TestPDVersion(c *C) {
 }
 
 func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
-	cnt := 0
-	// mock cli.Do(req) function
-	mockDo := func(req *http.Request) (retres *http.Response, reterr error) {
-		cnt++
-		if cnt <= 5 {
-			return nil, errors.New("request fail")
-		}
-		return &http.Response{}, nil
-	}
 	ctx := context.Background()
 	addr := "https://mock"
-	u, err := url.Parse(addr)
-	c.Assert(err, IsNil)
-	reqURL := fmt.Sprintf("%s/%s", u, clusterVersionPrefix)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
-	c.Assert(err, IsNil)
-	var (
-		resp     *http.Response
-		reqError error
-	)
-	for i := 0; i < pdRequestRetryTime; i++ {
-		resp, reqError = mockDo(req)
-		if reqError != nil {
-			log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.Error(reqError))
-			time.Sleep(time.Duration(1) * time.Second)
-			continue
-		}
-	}
-	c.Assert(resp, NotNil)
-	c.Assert(reqError, IsNil)
+	cli := http.DefaultClient
+	_, err := pdRequest(ctx, addr, clusterVersionPrefix, cli, http.MethodGet, nil)
+	c.Assert(err, NotNil)
 }
