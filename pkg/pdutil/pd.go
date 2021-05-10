@@ -146,24 +146,29 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	var resp *http.Response
-	for i := 0; i < pdRequestRetryTime; i++ {
+	resp, err := cli.Do(req)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	count := 0
+	for {
+		count++
+		if count > pdRequestRetryTime || resp.StatusCode < 500 {
+			break
+		}
+		time.Sleep(time.Second)
+		resp.Body.Close()
 		resp, err = cli.Do(req)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		if resp.StatusCode >= 500 {
-			time.Sleep(time.Second)
-			resp.Body.Close()
-			continue
-		}
-		break
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
 		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 	}
+
 	r, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Trace(err)
