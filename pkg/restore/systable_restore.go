@@ -29,6 +29,17 @@ var statsTables = map[string]struct{}{
 	"stats_top_n":      {},
 }
 
+var unRecoverableTable = map[string]struct{}{
+	// some variables in tidb (e.g. gc_safe_point) cannot be recovered.
+	"tidb":             {},
+	"global_variables": {},
+}
+
+func isUnrecoverableTable(tableName string) bool {
+	_, ok := unRecoverableTable[tableName]
+	return ok
+}
+
 func isStatsTable(tableName string) bool {
 	_, ok := statsTables[tableName]
 	return ok
@@ -61,15 +72,15 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	tablesRestored := make([]string, 0, len(originDatabase.Tables))
 	for _, table := range originDatabase.Tables {
 		tableName := table.Info.Name
-		if f.MatchTable(sysDB, tableName.O) {
+		if f.MatchTable(temporaryDB.O, tableName.O) {
 			if err := rc.replaceTemporaryTableToSystable(ctx, tableName.L, db); err != nil {
 				logutil.WarnTerm("error during merging temporary tables into system tables",
 					logutil.ShortError(err),
 					zap.Stringer("table", tableName),
 				)
 			}
+			tablesRestored = append(tablesRestored, tableName.L)
 		}
-		tablesRestored = append(tablesRestored, tableName.L)
 	}
 	if err := rc.afterSystemTablesReplaced(ctx, tablesRestored); err != nil {
 		for _, e := range multierr.Errors(err) {
@@ -153,6 +164,10 @@ func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName
 	if isStatsTable(tableName) {
 		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring stats via `mysql` schema isn't support yet: " +
 			"the table ID is out-of-date and may corrupt existing statistics")
+	}
+
+	if isUnrecoverableTable(tableName) {
+		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring unsupported `mysql` schema table")
 	}
 
 	if db.ExistingTables[tableName] != nil {
