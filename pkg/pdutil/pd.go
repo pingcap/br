@@ -156,8 +156,10 @@ func pdRequest(
 		if count > pdRequestRetryTime || resp.StatusCode < 500 {
 			break
 		}
+		if resp != nil {
+			resp.Body.Close()
+		}
 		time.Sleep(time.Second)
-		resp.Body.Close()
 		resp, err = cli.Do(req)
 		if err != nil {
 			return nil, errors.Trace(err)
