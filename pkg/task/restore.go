@@ -6,12 +6,9 @@ import (
 	"context"
 	"time"
 
-<<<<<<< HEAD
-=======
 	"github.com/pingcap/br/pkg/version"
 
 	"github.com/opentracing/opentracing-go"
->>>>>>> 70b0a35b (br/restore: add version check for backup schema_version (#929))
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -145,8 +142,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
-<<<<<<< HEAD
-=======
+
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
 		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
@@ -154,7 +150,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
->>>>>>> 70b0a35b (br/restore: add version check for backup schema_version (#929))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}
