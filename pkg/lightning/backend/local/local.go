@@ -1004,6 +1004,9 @@ func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
 		return errors.Errorf("engine '%s' not found", engineID)
 	}
 	defer engineFile.rUnlock()
+	if engineFile.closed.Load() {
+		return nil
+	}
 	return engineFile.flushEngineWithoutLock(ctx)
 }
 
@@ -1134,15 +1137,21 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	}
 
 	engineFile := engine.(*File)
-	engineFile.lock(importMutexStateClose)
-	if engineFile.closed.Swap(true) {
-		engineFile.unlock()
+	engineFile.rLock()
+	if engineFile.closed.Load() {
+		engineFile.rUnlock()
 		return nil
 	}
 
 	err := engineFile.flushEngineWithoutLock(ctx)
-	engineFile.unlock()
+	engineFile.rUnlock()
+
+	// use mutex to make sure we won't close sstMetasChan while other routines
+	// trying to do flush.
+	engineFile.lock(importMutexStateClose)
+	engineFile.closed.Store(true)
 	close(engineFile.sstMetasChan)
+	engineFile.unlock()
 	if err != nil {
 		return errors.Trace(err)
 	}
