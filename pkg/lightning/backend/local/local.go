@@ -1135,8 +1135,8 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	engineFile := engine.(*File)
 	engineFile.lock(importMutexStateClose)
-	defer engineFile.unlock()
 	if engineFile.closed.Swap(true) {
+		engineFile.unlock()
 		return nil
 	}
 
