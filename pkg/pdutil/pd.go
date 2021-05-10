@@ -152,28 +152,23 @@ func pdRequest(
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		if resp.StatusCode != http.StatusOK {
-			if resp.StatusCode >= 500 {
-				log.Warn("pd request fail, retry", zap.Int("retry time", i), zap.String("State", resp.Status))
-				time.Sleep(time.Second)
-				continue
-			}
-			res, _ := ioutil.ReadAll(resp.Body)
-			return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
-		} else {
-			break
+		if resp.StatusCode >= 500 {
+			time.Sleep(time.Second)
+			resp.Body.Close()
+			continue
 		}
+		break
 	}
 	// if retry time reach and request still fail
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
 		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 	}
+	defer resp.Body.Close()
 	r, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	resp.Body.Close()
 	return r, nil
 }
 
