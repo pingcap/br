@@ -74,7 +74,7 @@ cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG --ignore-stats=false || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
-if [ "${checksum_count}" != "1" ];then
+if [ "${checksum_count}" -lt "1" ];then
     echo "TEST: [$TEST_NAME] fail on fast checksum"
     echo $(cat $LOG | grep checksum)
     exit 1
