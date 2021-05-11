@@ -315,6 +315,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 
+	// The cost of rename user table / replace into system table wouldn't be so high.
+	// So leave it out of the pipeline for easier implementation.
+	client.RestoreSystemSchemas(ctx, cfg.TableFilter)
+
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil

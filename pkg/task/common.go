@@ -188,9 +188,9 @@ func DefineTableFlags(command *cobra.Command) {
 }
 
 // DefineFilterFlags defines the --filter and --case-sensitive flags for `full` subcommand.
-func DefineFilterFlags(command *cobra.Command) {
+func DefineFilterFlags(command *cobra.Command, defaultFilter []string) {
 	flags := command.Flags()
-	flags.StringArrayP(flagFilter, "f", []string{"*.*"}, "select tables to process")
+	flags.StringArrayP(flagFilter, "f", defaultFilter, "select tables to process")
 	flags.Bool(flagCaseSensitive, false, "whether the table names used in --filter should be case-sensitive")
 }
 
