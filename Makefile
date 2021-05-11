@@ -1,25 +1,31 @@
 PROTOC ?= $(shell which protoc)
-PROTOS := $(shell find $(shell pwd) -type f -name '*.proto' -print)
 CWD    := $(shell pwd)
 TOOLS  := $(CWD)/tools/bin
-PACKAGES := go list ./... | grep -vE 'vendor|test|proto|diff|bin|fuzz'
+PACKAGES := go list ./... | grep -vE 'vendor|tools'
+COVERED_PACKAGES := $(PACKAGES) | grep -vE 'mock|tests|checkpointspb'
 PACKAGE_DIRECTORIES := $(PACKAGES) | sed 's/github.com\/pingcap\/br\/*//'
-PACKAGE_FILES := $$(find . -name '*.go' -type f | grep -vE 'vendor|\.pb\.go|lightning/mock|res_vfsdata')
+PACKAGE_FILES := $$(find . -name '*.go' -type f | grep -vE 'vendor|\.pb\.go|mock|tools|res_vfsdata')
 CHECKER := awk '{ print } END { if (NR > 0) { exit 1 } }'
 
 BR_PKG := github.com/pingcap/br
 
-VERSION := v4.0.0-dev
-release_branch_regex := ^release-[0-9]\.[0-9].*$$
-ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
-	# If we are in release branch, use tag version.
-	VERSION := $(shell git describe --tags --dirty)
-else ifneq ($(shell git status --porcelain),)
-	# Add -dirty if the working tree is dirty for non release branch.
-	VERSION := $(VERSION)-dirty
+RELEASE_VERSION =
+ifeq ($(RELEASE_VERSION),)
+	RELEASE_VERSION := v4.0.0-dev
+	release_version_regex := ^v4\..*$$
+	release_branch_regex := "^release-[0-9]\.[0-9].*$$|^HEAD$$|^.*/*tags/v[0-9]\.[0-9]\..*$$"
+	ifneq ($(shell git rev-parse --abbrev-ref HEAD | egrep $(release_branch_regex)),)
+		# If we are in release branch, try to use tag version.
+		ifneq ($(shell git describe --tags --dirty | egrep $(release_version_regex)),)
+			RELEASE_VERSION := $(shell git describe --tags --dirty)
+		endif
+	else ifneq ($(shell git status --porcelain),)
+		# Add -dirty if the working tree is dirty for non release branch.
+		RELEASE_VERSION := $(RELEASE_VERSION)-dirty
+	endif
 endif
 
-LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(VERSION)"
+LDFLAGS += -X "$(BR_PKG)/pkg/version/build.ReleaseVersion=$(RELEASE_VERSION)"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitHash=$(shell git rev-parse HEAD)"
 LDFLAGS += -X "$(BR_PKG)/pkg/version/build.GitBranch=$(shell git rev-parse --abbrev-ref HEAD)"
@@ -38,10 +44,10 @@ GOTEST  := CGO_ENABLED=1 GO111MODULE=on go test -ldflags '$(LDFLAGS)'
 PREPARE_MOD := cp go.mod1 go.mod && cp go.sum1 go.sum
 FINISH_MOD := cp go.mod go.mod1 && cp go.sum go.sum1
 
-RACE_FLAG =
+RACEFLAG =
 ifeq ("$(WITH_RACE)", "1")
-	RACE_FLAG = -race
-	GOBUILD   = CGO_ENABLED=1 GO111MODULE=on $(GO) build -ldflags '$(LDFLAGS)'
+	RACEFLAG = -race
+	GOBUILD  = CGO_ENABLED=1 GO111MODULE=on $(GO) build -ldflags '$(LDFLAGS)'
 endif
 
 all: build check test
@@ -58,7 +64,7 @@ finish-prepare:
 	@rm tmp_parser.go
 
 data_parsers: tools pkg/lightning/mydump/parser_generated.go web
-	PATH="$(GOPATH)/bin":"$(PATH)":"$(TOOLS)" protoc -I. -I"$(GOPATH)/src" pkg/lightning/checkpoints/file_checkpoints.proto --gogofaster_out=.
+	PATH="$(GOPATH)/bin":"$(PATH)":"$(TOOLS)" protoc -I. -I"$(GOPATH)/src" pkg/lightning/checkpoints/checkpointspb/file_checkpoints.proto --gogofaster_out=.
 	$(TOOLS)/vfsgendev -source='"github.com/pingcap/br/pkg/lightning/web".Res' && mv res_vfsdata.go pkg/lightning/web/
 
 web:
@@ -72,15 +78,15 @@ br:
 
 lightning_for_web:
 	$(PREPARE_MOD)
-	$(GOBUILD) $(RACE_FLAG) -tags dev -o $(LIGHTNING_BIN) cmd/tidb-lightning/main.go
+	$(GOBUILD) $(RACEFLAG) -tags dev -o $(LIGHTNING_BIN) cmd/tidb-lightning/main.go
 
 lightning:
 	$(PREPARE_MOD)
-	$(GOBUILD) $(RACE_FLAG) -o $(LIGHTNING_BIN) cmd/tidb-lightning/main.go
+	$(GOBUILD) $(RACEFLAG) -o $(LIGHTNING_BIN) cmd/tidb-lightning/main.go
 
 lightning-ctl:
 	$(PREPARE_MOD)
-	$(GOBUILD) $(RACE_FLAG) -o $(LIGHTNING_CTL_BIN) cmd/tidb-lightning-ctl/main.go
+	$(GOBUILD) $(RACEFLAG) -o $(LIGHTNING_CTL_BIN) cmd/tidb-lightning-ctl/main.go
 
 build_for_integration_test:
 	$(PREPARE_MOD)
@@ -101,7 +107,7 @@ build_for_integration_test:
 	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go && \
-	$(GOBUILD) $(RACE_FLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \
+	$(GOBUILD) $(RACEFLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
@@ -115,7 +121,8 @@ testcover: tools
 	mkdir -p "$(TEST_DIR)"
 	$(PREPARE_MOD)
 	@make failpoint-enable
-	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" $$($(PACKAGES)) || ( make failpoint-disable && exit 1 )
+	$(GOTEST) -cover -covermode=count -coverprofile="$(TEST_DIR)/cov.unit.out" \
+		$$($(COVERED_PACKAGES)) || ( make failpoint-disable && exit 1 )
 	@make failpoint-disable
 
 integration_test: bins build build_for_integration_test
@@ -181,6 +188,8 @@ static: prepare tools
 	@#   exhaustivestruct - Protobuf structs have hidden fields, like "XXX_NoUnkeyedLiteral"
 	@#         exhaustive - no need to check exhaustiveness of enum switch statements
 	@#              gosec - too many false positive
+	@#          errorlint - pingcap/errors is incompatible with std errors.
+	@#          wrapcheck - there are too many unwrapped errors in tidb-lightning
 	CGO_ENABLED=0 tools/bin/golangci-lint run --enable-all --deadline 120s \
 		--disable gochecknoglobals \
 		--disable goimports \
@@ -201,7 +210,9 @@ static: prepare tools
 		--disable exhaustive \
 		--disable godot \
 		--disable gosec \
-		$$($(PACKAGE_DIRECTORIES) | grep -v "lightning")
+		--disable errorlint \
+		--disable wrapcheck \
+		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
 	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause|Find".

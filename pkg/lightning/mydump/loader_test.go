@@ -26,6 +26,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/config"
 	md "github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var _ = Suite(&testMydumpLoaderSuite{})
@@ -58,14 +59,13 @@ func (s *testMydumpLoaderSuite) SetUpTest(c *C) {
 	s.cfg = newConfigWithSourceDir(s.sourceDir)
 }
 
-func (s *testMydumpLoaderSuite) touch(c *C, filename ...string) string {
+func (s *testMydumpLoaderSuite) touch(c *C, filename ...string) {
 	components := make([]string, len(filename)+1)
 	components = append(components, s.sourceDir)
 	components = append(components, filename...)
 	path := filepath.Join(components...)
 	err := ioutil.WriteFile(path, nil, 0o644)
 	c.Assert(err, IsNil)
-	return path
 }
 
 func (s *testMydumpLoaderSuite) mkdir(c *C, dirname string) {
@@ -108,7 +108,7 @@ func (s *testMydumpLoaderSuite) TestLoader(c *C) {
 
 func (s *testMydumpLoaderSuite) TestEmptyDB(c *C) {
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, "no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database.")
+	c.Assert(err, ErrorMatches, "no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database")
 }
 
 func (s *testMydumpLoaderSuite) TestDuplicatedDB(c *C) {
@@ -163,6 +163,46 @@ func (s *testMydumpLoaderSuite) TestDuplicatedTable(c *C) {
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
 	c.Assert(err, ErrorMatches, `invalid table schema file, duplicated item - .*db\.tbl-schema\.sql`)
+}
+
+func (s *testMydumpLoaderSuite) TestTableInfoNotFound(c *C) {
+	s.cfg.Mydumper.CharacterSet = "auto"
+
+	s.touch(c, "db-schema-create.sql")
+	s.touch(c, "db.tbl-schema.sql")
+
+	ctx := context.Background()
+	store, err := storage.NewLocalStorage(s.sourceDir)
+	c.Assert(err, IsNil)
+
+	loader, err := md.NewMyDumpLoader(ctx, s.cfg)
+	c.Assert(err, IsNil)
+	for _, dbMeta := range loader.GetDatabases() {
+		for _, tblMeta := range dbMeta.Tables {
+			sql, err := tblMeta.GetSchema(ctx, store)
+			c.Assert(sql, Equals, "")
+			c.Assert(err, IsNil)
+		}
+	}
+}
+
+func (s *testMydumpLoaderSuite) TestTableUnexpectedError(c *C) {
+	s.touch(c, "db-schema-create.sql")
+	s.touch(c, "db.tbl-schema.sql")
+
+	ctx := context.Background()
+	store, err := storage.NewLocalStorage(s.sourceDir)
+	c.Assert(err, IsNil)
+
+	loader, err := md.NewMyDumpLoader(ctx, s.cfg)
+	c.Assert(err, IsNil)
+	for _, dbMeta := range loader.GetDatabases() {
+		for _, tblMeta := range dbMeta.Tables {
+			sql, err := tblMeta.GetSchema(ctx, store)
+			c.Assert(sql, Equals, "")
+			c.Assert(err, ErrorMatches, "failed to decode db.tbl-schema.sql as : Unsupported encoding ")
+		}
+	}
 }
 
 func (s *testMydumpLoaderSuite) TestDataNoHostDB(c *C) {
@@ -481,7 +521,7 @@ func (s *testMydumpLoaderSuite) TestFileRouting(c *C) {
 	s.touch(c, "d1/test2.001.sql")
 	s.touch(c, "d1/v1-table.sql")
 	s.touch(c, "d1/v1-view.sql")
-	_ = s.touch(c, "d1/t1-schema-create.sql")
+	s.touch(c, "d1/t1-schema-create.sql")
 	s.touch(c, "d2/schema.sql")
 	s.touch(c, "d2/abc-table.sql")
 	s.touch(c, "abc.1.sql")

@@ -42,7 +42,7 @@ func (push *pushDown) pushBackup(
 	ctx context.Context,
 	req backuppb.BackupRequest,
 	stores []*metapb.Store,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (rtree.RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
 	res := rtree.NewRangeTree()
@@ -100,13 +100,20 @@ func (push *pushDown) pushBackup(
 				// Finished.
 				return res, nil
 			}
+			failpoint.Inject("backup-storage-error", func(val failpoint.Value) {
+				msg := val.(string)
+				log.Debug("failpoint backup-storage-error injected.", zap.String("msg", msg))
+				resp.Error = &backuppb.Error{
+					Msg: msg,
+				}
+			})
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
 				res.Put(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
@@ -119,11 +126,9 @@ func (push *pushDown) pushBackup(
 				case *backuppb.Error_ClusterIdError:
 					log.Error("backup occur cluster ID error", zap.Reflect("error", v))
 					return res, errors.Annotatef(berrors.ErrKVClusterIDMismatch, "%v", errPb)
-
 				default:
-					// UNSAFE! TODO: Add a error type for failed to put file.
-					if utils.MessageIsRetryableS3Error(errPb.GetMsg()) {
-						log.Warn("backup occur s3 storage error", zap.String("error", errPb.GetMsg()))
+					if utils.MessageIsRetryableStorageError(errPb.GetMsg()) {
+						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))

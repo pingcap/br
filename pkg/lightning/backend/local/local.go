@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+package local
 
 import (
 	"bytes"
@@ -19,6 +19,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,12 +54,15 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
@@ -66,8 +70,10 @@ import (
 )
 
 const (
-	dialTimeout  = 5 * time.Second
-	bigValueSize = 1 << 16 // 64K
+	dialTimeout             = 5 * time.Second
+	bigValueSize            = 1 << 16 // 64K
+	maxRetryTimes           = 3
+	defaultRetryBackoffTime = 3 * time.Second
 
 	gRPCKeepAliveTime    = 10 * time.Second
 	gRPCKeepAliveTimeout = 3 * time.Second
@@ -103,6 +109,7 @@ var (
 	localMaxTiDBVersion = version.NextMajorVersion()
 	localMaxTiKVVersion = version.NextMajorVersion()
 	localMaxPDVersion   = version.NextMajorVersion()
+	tiFlashMinVersion   = *semver.New("4.0.5")
 )
 
 var (
@@ -113,15 +120,14 @@ var (
 // Range record start and end key for localStoreDir.DB
 // so we can write it to tikv in streaming
 type Range struct {
-	start  []byte
-	end    []byte
-	length int
+	start []byte
+	end   []byte
 }
 
 // localFileMeta contains some field that is necessary to continue the engine restore/import process.
 // These field should be written to disk when we update chunk checkpoint
 type localFileMeta struct {
-	Ts uint64 `json:"ts"`
+	TS uint64 `json:"ts"`
 	// Length is the number of KV pairs stored by the engine.
 	Length atomic.Int64 `json:"length"`
 	// TotalSize is the total pre-compressed KV byte size stored by engine.
@@ -137,20 +143,20 @@ const (
 	importMutexStateLocalIngest
 )
 
-type LocalFile struct {
+type File struct {
 	localFileMeta
 	db           *pebble.DB
-	Uuid         uuid.UUID
+	UUID         uuid.UUID
 	localWriters sync.Map
 
-	// isImportingAtomic is an atomic variable indicating whether the importMutex has been locked.
+	// isImportingAtomic is an atomic variable indicating whether this engine is importing.
 	// This should not be used as a "spin lock" indicator.
 	isImportingAtomic atomic.Uint32
 	mutex             sync.Mutex
 }
 
-func (e *LocalFile) Close() error {
-	log.L().Debug("closing local engine", zap.Stringer("engine", e.Uuid), zap.Stack("stack"))
+func (e *File) Close() error {
+	log.L().Debug("closing local engine", zap.Stringer("engine", e.UUID), zap.Stack("stack"))
 	if e.db == nil {
 		return nil
 	}
@@ -160,24 +166,24 @@ func (e *LocalFile) Close() error {
 }
 
 // Cleanup remove meta and db files
-func (e *LocalFile) Cleanup(dataDir string) error {
-	dbPath := filepath.Join(dataDir, e.Uuid.String())
+func (e *File) Cleanup(dataDir string) error {
+	dbPath := filepath.Join(dataDir, e.UUID.String())
 	return os.RemoveAll(dbPath)
 }
 
 // Exist checks if db folder existing (meta sometimes won't flush before lightning exit)
-func (e *LocalFile) Exist(dataDir string) error {
-	dbPath := filepath.Join(dataDir, e.Uuid.String())
+func (e *File) Exist(dataDir string) error {
+	dbPath := filepath.Join(dataDir, e.UUID.String())
 	if _, err := os.Stat(dbPath); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
+func (e *File) getSizeProperties() (*sizeProperties, error) {
 	sstables, err := e.db.SSTables(pebble.WithProperties())
 	if err != nil {
-		log.L().Warn("get table properties failed", zap.Stringer("engine", e.Uuid), log.ShortError(err))
+		log.L().Warn("get table properties failed", zap.Stringer("engine", e.UUID), log.ShortError(err))
 		return nil, errors.Trace(err)
 	}
 
@@ -188,7 +194,7 @@ func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
 				data := hack.Slice(prop)
 				rangeProps, err := decodeRangeProperties(data)
 				if err != nil {
-					log.L().Warn("decodeRangeProperties failed", zap.Stringer("engine", e.Uuid),
+					log.L().Warn("decodeRangeProperties failed", zap.Stringer("engine", e.UUID),
 						zap.Stringer("fileNum", info.FileNum), log.ShortError(err))
 					return nil, errors.Trace(err)
 				}
@@ -201,16 +207,16 @@ func (e *LocalFile) getSizeProperties() (*sizeProperties, error) {
 	return sizeProps, nil
 }
 
-func (e *LocalFile) isLocked() bool {
+func (e *File) isLocked() bool {
 	return e.isImportingAtomic.Load() != 0
 }
 
-func (e *LocalFile) getEngineFileSize() EngineFileSize {
+func (e *File) getEngineFileSize() backend.EngineFileSize {
 	metrics := e.db.Metrics()
 	total := metrics.Total()
 	var memSize int64
 	e.localWriters.Range(func(k, v interface{}) bool {
-		w := k.(*LocalWriter)
+		w := k.(*Writer)
 		memSize += w.writeBatch.totalSize
 		if w.writer != nil {
 			total.Size += int64(w.writer.writer.EstimatedSize())
@@ -218,8 +224,8 @@ func (e *LocalFile) getEngineFileSize() EngineFileSize {
 		return true
 	})
 
-	return EngineFileSize{
-		UUID:        e.Uuid,
+	return backend.EngineFileSize{
+		UUID:        e.UUID,
 		DiskSize:    total.Size,
 		MemSize:     memSize,
 		IsImporting: e.isLocked(),
@@ -227,14 +233,14 @@ func (e *LocalFile) getEngineFileSize() EngineFileSize {
 }
 
 // lock locks the local file for importing.
-func (e *LocalFile) lock(state importMutexState) {
+func (e *File) lock(state importMutexState) {
 	e.mutex.Lock()
 	e.isImportingAtomic.Store(uint32(state))
 }
 
 // lockUnless tries to lock the local file unless it is already locked into the state given by
 // ignoreStateMask. Returns whether the lock is successful.
-func (e *LocalFile) lockUnless(newState, ignoreStateMask importMutexState) bool {
+func (e *File) lockUnless(newState, ignoreStateMask importMutexState) bool {
 	curState := e.isImportingAtomic.Load()
 	if curState&uint32(ignoreStateMask) != 0 {
 		return false
@@ -243,7 +249,7 @@ func (e *LocalFile) lockUnless(newState, ignoreStateMask importMutexState) bool 
 	return true
 }
 
-func (e *LocalFile) unlock() {
+func (e *File) unlock() {
 	if e == nil {
 		return
 	}
@@ -251,11 +257,11 @@ func (e *LocalFile) unlock() {
 	e.mutex.Unlock()
 }
 
-func (e *LocalFile) flushLocalWriters(parentCtx context.Context) error {
+func (e *File) flushLocalWriters(parentCtx context.Context) error {
 	eg, ctx := errgroup.WithContext(parentCtx)
 	e.localWriters.Range(func(k, v interface{}) bool {
 		eg.Go(func() error {
-			w := k.(*LocalWriter)
+			w := k.(*Writer)
 			replyErrCh := make(chan error, 1)
 			w.flushChMutex.RLock()
 			if w.flushCh != nil {
@@ -276,7 +282,7 @@ func (e *LocalFile) flushLocalWriters(parentCtx context.Context) error {
 	return eg.Wait()
 }
 
-func (e *LocalFile) flushEngineWithoutLock(ctx context.Context) error {
+func (e *File) flushEngineWithoutLock(ctx context.Context) error {
 	if err := e.flushLocalWriters(ctx); err != nil {
 		return err
 	}
@@ -297,7 +303,7 @@ func (e *LocalFile) flushEngineWithoutLock(ctx context.Context) error {
 
 // saveEngineMeta saves the metadata about the DB into the DB itself.
 // This method should be followed by a Flush to ensure the data is actually synchronized
-func (e *LocalFile) saveEngineMeta() error {
+func (e *File) saveEngineMeta() error {
 	jsonBytes, err := json.Marshal(&e.localFileMeta)
 	if err != nil {
 		return errors.Trace(err)
@@ -306,17 +312,17 @@ func (e *LocalFile) saveEngineMeta() error {
 	return errors.Trace(e.db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false}))
 }
 
-func (e *LocalFile) loadEngineMeta() {
+func (e *File) loadEngineMeta() {
 	jsonBytes, closer, err := e.db.Get(engineMetaKey)
 	if err != nil {
-		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.Uuid), zap.Error(err))
+		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
 		return
 	}
 	defer closer.Close()
 
 	err = json.Unmarshal(jsonBytes, &e.localFileMeta)
 	if err != nil {
-		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.Uuid), zap.ByteString("content", jsonBytes), zap.Error(err))
+		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.UUID), zap.ByteString("content", jsonBytes), zap.Error(err))
 	}
 }
 
@@ -335,7 +341,7 @@ func (conns *gRPCConns) Close() {
 }
 
 type local struct {
-	engines sync.Map // sync version of map[uuid.UUID]*LocalFile
+	engines sync.Map // sync version of map[uuid.UUID]*File
 
 	conns    gRPCConns
 	splitCli split.SplitClient
@@ -365,7 +371,6 @@ type connPool struct {
 	mu sync.Mutex
 
 	conns   []*grpc.ClientConn
-	name    string
 	next    int
 	cap     int
 	newConn func(ctx context.Context) (*grpc.ClientConn, error)
@@ -426,13 +431,13 @@ func NewLocalBackend(
 	enableCheckpoint bool,
 	g glue.Glue,
 	maxOpenFiles int,
-) (Backend, error) {
+) (backend.Backend, error) {
 	localFile := cfg.SortedKVDir
 	rangeConcurrency := cfg.RangeConcurrency
 
 	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
 	if err != nil {
-		return MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
+		return backend.MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
 	}
 	splitCli := split.NewSplitClient(pdCli, tls.TLSConfig())
 
@@ -440,7 +445,7 @@ func NewLocalBackend(
 	if enableCheckpoint {
 		if info, err := os.Stat(localFile); err != nil {
 			if !os.IsNotExist(err) {
-				return MakeBackend(nil), err
+				return backend.MakeBackend(nil), err
 			}
 		} else if info.IsDir() {
 			shouldCreate = false
@@ -450,7 +455,7 @@ func NewLocalBackend(
 	if shouldCreate {
 		err = os.Mkdir(localFile, 0o700)
 		if err != nil {
-			return MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
+			return backend.MakeBackend(nil), errors.Annotate(err, "invalid sorted-kv-dir for local backend, please change the config or delete the path")
 		}
 	}
 
@@ -475,13 +480,13 @@ func NewLocalBackend(
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
-	return MakeBackend(local), nil
+	return backend.MakeBackend(local), nil
 }
 
-// lock locks a local file and returns the LocalFile instance if it exists.
-func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *LocalFile {
-	if e, ok := local.engines.Load(engineId); ok {
-		engine := e.(*LocalFile)
+// lock locks a local file and returns the File instance if it exists.
+func (local *local) lockEngine(engineID uuid.UUID, state importMutexState) *File {
+	if e, ok := local.engines.Load(engineID); ok {
+		engine := e.(*File)
 		engine.lock(state)
 		return engine
 	}
@@ -490,10 +495,10 @@ func (local *local) lockEngine(engineId uuid.UUID, state importMutexState) *Loca
 
 // lockAllEnginesUnless tries to lock all engines, unless those which are already locked in the
 // state given by ignoreStateMask. Returns the list of locked engines.
-func (local *local) lockAllEnginesUnless(newState, ignoreStateMask importMutexState) []*LocalFile {
-	var allEngines []*LocalFile
+func (local *local) lockAllEnginesUnless(newState, ignoreStateMask importMutexState) []*File {
+	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
-		engine := v.(*LocalFile)
+		engine := v.(*File)
 		if engine.lockUnless(newState, ignoreStateMask) {
 			allEngines = append(allEngines, engine)
 		}
@@ -569,13 +574,13 @@ func (local *local) Close() {
 }
 
 // FlushEngine ensure the written data is saved successfully, to make sure no data lose after restart
-func (local *local) FlushEngine(ctx context.Context, engineId uuid.UUID) error {
-	engineFile := local.lockEngine(engineId, importMutexStateFlush)
+func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
+	engineFile := local.lockEngine(engineID, importMutexStateFlush)
 
 	// the engine cannot be deleted after while we've acquired the lock identified by UUID.
 
 	if engineFile == nil {
-		return errors.Errorf("engine '%s' not found", engineId)
+		return errors.Errorf("engine '%s' not found", engineID)
 	}
 	defer engineFile.unlock()
 	return engineFile.flushEngineWithoutLock(ctx)
@@ -618,10 +623,9 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		// the default threshold value may cause write stall.
 		MemTableStopWritesThreshold: 8,
 		MaxConcurrentCompactions:    16,
-		// set to half of the max open files so that if open files is more that estimation, trigger compaction
-		// to avoid failure due to open files exceeded limit
-		L0CompactionThreshold: local.maxOpenFiles / 2,
-		L0StopWritesThreshold: local.maxOpenFiles / 2,
+		// set threshold to half of the max open files to avoid trigger compaction
+		L0CompactionThreshold: math.MaxInt32,
+		L0StopWritesThreshold: math.MaxInt32,
 		MaxOpenFiles:          local.maxOpenFiles,
 		DisableWAL:            true,
 		ReadOnly:              readOnly,
@@ -633,14 +637,14 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 	return pebble.Open(dbPath, opt)
 }
 
-// This method must be called with holding mutex of LocalFile
+// This method must be called with holding mutex of File
 func (local *local) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	db, err := local.openEngineDB(engineUUID, false)
 	if err != nil {
 		return err
 	}
-	e, _ := local.engines.LoadOrStore(engineUUID, &LocalFile{Uuid: engineUUID})
-	engine := e.(*LocalFile)
+	e, _ := local.engines.LoadOrStore(engineUUID, &File{UUID: engineUUID})
+	engine := e.(*File)
 	engine.db = db
 	engine.loadEngineMeta()
 	return nil
@@ -663,15 +667,15 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			}
 			return err
 		}
-		engineFile := &LocalFile{
-			Uuid: engineUUID,
+		engineFile := &File{
+			UUID: engineUUID,
 			db:   db,
 		}
 		engineFile.loadEngineMeta()
 		local.engines.Store(engineUUID, engineFile)
 		return nil
 	}
-	engineFile := engine.(*LocalFile)
+	engineFile := engine.(*File)
 	engineFile.lock(importMutexStateFlush)
 	defer engineFile.unlock()
 	return engineFile.flushEngineWithoutLock(ctx)
@@ -698,7 +702,7 @@ type rangeStats struct {
 // tikv will takes the responsibility to do so.
 func (local *local) WriteToTiKV(
 	ctx context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, *Range, rangeStats, error) {
@@ -764,7 +768,7 @@ func (local *local) WriteToTiKV(
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
-				CommitTs: engineFile.Ts,
+				CommitTs: engineFile.TS,
 			},
 		}
 		clients = append(clients, wstream)
@@ -829,11 +833,9 @@ func (local *local) WriteToTiKV(
 	for i, wStream := range clients {
 		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
 			return nil, nil, stats, closeErr
-		} else {
-			if leaderID == region.Region.Peers[i].GetId() {
-				leaderPeerMetas = resp.Metas
-				log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
-			}
+		} else if leaderID == region.Region.Peers[i].GetId() {
+			leaderPeerMetas = resp.Metas
+			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
@@ -919,7 +921,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	return ranges
 }
 
-func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error) {
+func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	iter := engineFile.db.NewIter(&pebble.IterOptions{LowerBound: normalIterStartKey})
 	defer iter.Close()
 
@@ -949,7 +951,7 @@ func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error
 
 	// <= 96MB no need to split into range
 	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= regionMaxKeyCount {
-		ranges := []Range{{start: firstKey, end: endKey, length: int(engineFileLength)}}
+		ranges := []Range{{start: firstKey, end: endKey}}
 		return ranges, nil
 	}
 
@@ -961,7 +963,7 @@ func (local *local) readAndSplitIntoRange(engineFile *LocalFile) ([]Range, error
 	ranges := splitRangeBySizeProps(Range{start: firstKey, end: endKey}, sizeProps,
 		local.regionSplitSize, regionMaxKeyCount*2/3)
 
-	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.Uuid),
+	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.UUID),
 		zap.Int64("totalSize", engineFileTotalSize), zap.Int64("totalCount", engineFileLength),
 		log.ZapRedactBinary("firstKey", firstKey), log.ZapRedactBinary("lastKey", lastKey),
 		zap.Int("ranges", len(ranges)))
@@ -978,12 +980,8 @@ type bytesRecycleChan struct {
 // NOTE: we don't used a `sync.Pool` because when will sync.Pool release is depending on the
 // garbage collector which always release the memory so late. Use a fixed size chan to reuse
 // can decrease the memory usage to 1/3 compare with sync.Pool.
-var recycleChan *bytesRecycleChan
-
-func init() {
-	recycleChan = &bytesRecycleChan{
-		ch: make(chan []byte, 1024),
-	}
+var recycleChan = &bytesRecycleChan{
+	ch: make(chan []byte, 1024),
 }
 
 func (c *bytesRecycleChan) Acquire() []byte {
@@ -1018,7 +1016,7 @@ func newBytesBuffer() *bytesBuffer {
 
 func (b *bytesBuffer) addBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
-		b.curBufIdx += 1
+		b.curBufIdx++
 		b.curBuf = b.bufs[b.curBufIdx]
 	} else {
 		buf := recycleChan.Acquire()
@@ -1067,7 +1065,7 @@ func (b *bytesBuffer) addBytes(bytes []byte) []byte {
 
 func (local *local) writeAndIngestByRange(
 	ctxt context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	start, end []byte,
 	remainRanges *syncdRanges,
 ) error {
@@ -1167,7 +1165,7 @@ const (
 
 func (local *local) writeAndIngestPairs(
 	ctx context.Context,
-	engineFile *LocalFile,
+	engineFile *File,
 	region *split.RegionInfo,
 	start, end []byte,
 ) (*Range, error) {
@@ -1266,10 +1264,10 @@ loopWrite:
 	return remainRange, errors.Trace(err)
 }
 
-func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *LocalFile, ranges []Range, remainRanges *syncdRanges) error {
+func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File, ranges []Range, remainRanges *syncdRanges) error {
 	if engineFile.Length.Load() == 0 {
 		// engine is empty, this is likes because it's a index engine but the table contains no index
-		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.Uuid))
+		log.L().Info("engine contains no data", zap.Stringer("uuid", engineFile.UUID))
 		return nil
 	}
 	log.L().Debug("the ranges Length write to tikv", zap.Int("Length", len(ranges)))
@@ -1450,42 +1448,126 @@ func (local *local) CleanupEngine(ctx context.Context, engineUUID uuid.UUID) err
 	return nil
 }
 
-func (local *local) CheckRequirements(ctx context.Context) error {
-	if err := checkTiDBVersionBySQL(ctx, local.g, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
+func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.CheckCtx) error {
+	versionStr, err := local.g.GetSQLExecutor().ObtainStringWithLog(
+		ctx,
+		"SELECT version();",
+		"check TiDB version",
+		log.L())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err := version.CheckTiDBVersion(versionStr, localMinTiDBVersion, localMaxTiDBVersion); err != nil {
 		return err
 	}
-	if err := checkPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
+	if err := tikv.CheckPDVersion(ctx, local.tls, local.pdAddr, localMinPDVersion, localMaxPDVersion); err != nil {
 		return err
 	}
-	if err := checkTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
+	if err := tikv.CheckTiKVVersion(ctx, local.tls, local.pdAddr, localMinTiKVVersion, localMaxTiKVVersion); err != nil {
 		return err
+	}
+
+	tidbVersion, _ := version.ExtractTiDBVersion(versionStr)
+
+	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
+}
+
+var tiFlashReplicaQuery = "SELECT TABLE_SCHEMA, TABLE_NAME FROM information_schema.TIFLASH_REPLICA WHERE REPLICA_COUNT > 0;"
+
+type tblName struct {
+	schema string
+	name   string
+}
+
+type tblNames []tblName
+
+func (t tblNames) String() string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, n := range t {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(common.UniqueTable(n.schema, n.name))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// check TiFlash replicas.
+// local backend doesn't support TiFlash before tidb v4.0.5
+func checkTiFlashVersion(ctx context.Context, g glue.Glue, checkCtx *backend.CheckCtx, tidbVersion semver.Version) error {
+	if tidbVersion.Compare(tiFlashMinVersion) >= 0 {
+		return nil
+	}
+
+	res, err := g.GetSQLExecutor().QueryStringsWithLog(ctx, tiFlashReplicaQuery, "fetch tiflash replica info", log.L())
+	if err != nil {
+		return errors.Annotate(err, "fetch tiflash replica info failed")
+	}
+
+	tiFlashTablesMap := make(map[tblName]struct{}, len(res))
+	for _, tblInfo := range res {
+		name := tblName{schema: tblInfo[0], name: tblInfo[1]}
+		tiFlashTablesMap[name] = struct{}{}
+	}
+
+	tiFlashTables := make(tblNames, 0)
+	for _, dbMeta := range checkCtx.DBMetas {
+		for _, tblMeta := range dbMeta.Tables {
+			if len(tblMeta.DataFiles) == 0 {
+				continue
+			}
+			name := tblName{schema: tblMeta.DB, name: tblMeta.Name}
+			if _, ok := tiFlashTablesMap[name]; ok {
+				tiFlashTables = append(tiFlashTables, name)
+			}
+		}
+	}
+
+	if len(tiFlashTables) > 0 {
+		helpInfo := "Please either upgrade TiDB to version >= 4.0.5 or add TiFlash replica after load data."
+		return errors.Errorf("lightning local backend doesn't support TiFlash in this TiDB version. conflict tables: %s. "+helpInfo, tiFlashTables)
 	}
 	return nil
 }
 
+func checkTiDBVersionBySQL(ctx context.Context, g glue.Glue, requiredMinVersion, requiredMaxVersion semver.Version) error {
+	versionStr, err := g.GetSQLExecutor().ObtainStringWithLog(
+		ctx,
+		"SELECT version();",
+		"check TiDB version",
+		log.L())
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return version.CheckTiDBVersion(versionStr, requiredMinVersion, requiredMaxVersion)
+}
+
 func (local *local) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
-	return fetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
+	return tikv.FetchRemoteTableModelsFromTLS(ctx, local.tls, schemaName)
 }
 
-func (local *local) MakeEmptyRows() Rows {
-	return kvPairs(nil)
+func (local *local) MakeEmptyRows() kv.Rows {
+	return kv.MakeRowsFromKvPairs(nil)
 }
 
-func (local *local) NewEncoder(tbl table.Table, options *SessionOptions) (Encoder, error) {
-	return NewTableKVEncoder(tbl, options)
+func (local *local) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error) {
+	return kv.NewTableKVEncoder(tbl, options)
 }
 
-func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error) {
+func (local *local) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
 	e, ok := local.engines.Load(engineUUID)
 	if !ok {
 		return nil, errors.Errorf("could not find engine for %s", engineUUID.String())
 	}
-	engineFile := e.(*LocalFile)
+	engineFile := e.(*File)
 	return openLocalWriter(engineFile, local.localStoreDir, local.localWriterMemCacheSize), nil
 }
 
-func openLocalWriter(f *LocalFile, sstDir string, memtableSizeLimit int64) *LocalWriter {
-	w := &LocalWriter{
+func openLocalWriter(f *File, sstDir string, memtableSizeLimit int64) *Writer {
+	w := &Writer{
 		sstDir:            sstDir,
 		kvsChan:           make(chan []common.KvPair, defaultLocalWriterKVsChannelCap),
 		flushCh:           make(chan chan error),
@@ -1718,7 +1800,7 @@ func (c *RangePropertiesCollector) insertNewPoint(key []byte) {
 // implement `TablePropertyCollector.Add`
 func (c *RangePropertiesCollector) Add(key pebble.InternalKey, value []byte) error {
 	c.currentOffsets.Size += uint64(len(value)) + uint64(len(key.UserKey))
-	c.currentOffsets.Keys += 1
+	c.currentOffsets.Keys++
 	if len(c.lastKey) == 0 || c.sizeInLastRange() >= c.propSizeIdxDistance ||
 		c.keysInLastRange() >= c.propKeysIdxDistance {
 		c.insertNewPoint(key.UserKey)
@@ -1780,18 +1862,18 @@ func (s *sizeProperties) iter(f func(p *rangeProperty) bool) {
 	})
 }
 
-func (local *local) EngineFileSizes() (res []EngineFileSize) {
+func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	local.engines.Range(func(k, v interface{}) bool {
-		engine := v.(*LocalFile)
+		engine := v.(*File)
 		res = append(res, engine.getEngineFileSize())
 		return true
 	})
 	return
 }
 
-type LocalWriter struct {
+type Writer struct {
 	writeErr          common.OnceError
-	local             *LocalFile
+	local             *File
 	consumeCh         chan struct{}
 	kvsChan           chan []common.KvPair
 	flushChMutex      sync.RWMutex
@@ -1803,8 +1885,8 @@ type LocalWriter struct {
 }
 
 // TODO: temporarily replace this async append rows with the former write-batch approach before addressing the performance issue.
-func (w *LocalWriter) AppendRowsAsync(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
-	kvs := rows.(kvPairs)
+func (w *Writer) AppendRowsAsync(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
 	}
@@ -1812,13 +1894,13 @@ func (w *LocalWriter) AppendRowsAsync(ctx context.Context, tableName string, col
 		return err
 	}
 	w.kvsChan <- kvs
-	w.local.Ts = ts
+	w.local.TS = ts
 	return nil
 }
 
 // TODO: replace the implementation back with `AppendRowsAsync` after addressing the performance issue.
-func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows Rows) error {
-	kvs := rows.(kvPairs)
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
 	}
@@ -1834,12 +1916,12 @@ func (w *LocalWriter) AppendRows(ctx context.Context, tableName string, columnNa
 	if err == nil {
 		w.local.Length.Add(int64(len(kvs)))
 		w.local.TotalSize.Add(int64(size))
-		w.local.Ts = ts
+		w.local.TS = ts
 	}
 	return errors.Trace(err)
 }
 
-func (w *LocalWriter) Close() error {
+func (w *Writer) Close() error {
 	w.local.localWriters.Delete(w)
 	close(w.kvsChan)
 
@@ -1861,11 +1943,11 @@ func (w *LocalWriter) Close() error {
 	}
 }
 
-func (w *LocalWriter) genSSTPath() string {
+func (w *Writer) genSSTPath() string {
 	return filepath.Join(w.sstDir, uuid.New().String()+".sst")
 }
 
-func (w *LocalWriter) writeRowsLoop() {
+func (w *Writer) writeRowsLoop() {
 	defer func() {
 		if w.writer != nil {
 			w.writer.cleanUp()
@@ -1930,7 +2012,7 @@ outside:
 	}
 }
 
-func (w *LocalWriter) writeKVsOrIngest(desc localIngestDescription) error {
+func (w *Writer) writeKVsOrIngest(desc localIngestDescription) error {
 	if w.writer != nil {
 		if err := w.writer.writeKVs(&w.writeBatch); err != errorUnorderedSSTInsertion {
 			return err
@@ -2003,9 +2085,9 @@ func (sw *sstWriter) writeKVs(m *kvMemCache) error {
 	return nil
 }
 
-// ingestInto finishes the SST file, and ingests itself into the target LocalFile database.
+// ingestInto finishes the SST file, and ingests itself into the target File database.
 // On success, the entire writer will be reset as empty.
-func (sw *sstWriter) ingestInto(e *LocalFile, desc localIngestDescription) error {
+func (sw *sstWriter) ingestInto(e *File, desc localIngestDescription) error {
 	if sw.totalCount > 0 {
 		if err := sw.writer.Close(); err != nil {
 			return errors.Trace(err)
