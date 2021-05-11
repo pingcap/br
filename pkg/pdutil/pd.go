@@ -131,6 +131,19 @@ func pdRequest(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	count := 0
+	for {
+		count++
+		if count > pdRequestRetryTime || resp.StatusCode < 500 {
+			break
+		}
+		resp.Body.Close()
+		time.Sleep(time.Second)
+		resp, err = cli.Do(req)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		res, _ := ioutil.ReadAll(resp.Body)
