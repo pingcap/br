@@ -215,3 +215,17 @@ func (s *checkSuite) TestExtractTiDBVersion(c *C) {
 	_, err = ExtractTiDBVersion("not-a-valid-version")
 	c.Assert(err, NotNil)
 }
+
+func (s *checkSuite) TestCheckVersion(c *C) {
+	err := CheckVersion("TiNB", *semver.New("2.3.5"), *semver.New("2.1.0"), *semver.New("3.0.0"))
+	c.Assert(err, IsNil)
+
+	err = CheckVersion("TiNB", *semver.New("2.1.0"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too old.*")
+
+	err = CheckVersion("TiNB", *semver.New("3.1.0"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too new.*")
+
+	err = CheckVersion("TiNB", *semver.New("3.0.0-beta"), *semver.New("2.3.5"), *semver.New("3.0.0"))
+	c.Assert(err, ErrorMatches, "TiNB version too new.*")
+}
