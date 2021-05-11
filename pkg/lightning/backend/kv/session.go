@@ -11,7 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package backend
+// TODO combine with the pkg/kv package outside.
+
+package kv
 
 import (
 	"context"
@@ -25,6 +27,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+
+	"go.uber.org/zap"
 )
 
 // invalidIterator is a trimmed down Iterator type which is invalid.
@@ -161,6 +166,11 @@ type SessionOptions struct {
 	AutoRandomSeed int64
 }
 
+// NewSession creates a new trimmed down Session matching the options.
+func NewSession(options *SessionOptions) sessionctx.Context {
+	return newSession(options)
+}
+
 func newSession(options *SessionOptions) *session {
 	sqlMode := options.SQLMode
 	vars := variable.NewSessionVars()
@@ -175,11 +185,18 @@ func newSession(options *SessionOptions) *session {
 	vars.SQLMode = sqlMode
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
-			vars.SetSystemVar(k, v)
+			if err := vars.SetSystemVar(k, v); err != nil {
+				log.L().DPanic("new session: failed to set system var",
+					log.ShortError(err),
+					zap.String("key", k))
+			}
 		}
 	}
 	vars.StmtCtx.TimeZone = vars.Location()
-	vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10))
+	if err := vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10)); err != nil {
+		log.L().Warn("new session: failed to set timestamp",
+			log.ShortError(err))
+	}
 	vars.TxnCtx = nil
 
 	s := &session{
