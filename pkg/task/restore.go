@@ -23,6 +23,7 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -139,6 +140,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	g.Record("Size", utils.ArchiveSize(backupMeta))
+
+	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
+	if cfg.CheckRequirements && backupVersion != nil {
+		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
+			return errors.Trace(versionErr)
+		}
+	}
+
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}
