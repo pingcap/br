@@ -38,6 +38,11 @@ const (
 	maxMsgSize           = int(128 * utils.MB) // pd.ScanRegion may return a large response
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
+	// pd request retry time when connection fail
+	pdRequestRetryTime = 10
+
+	// set max-pending-peer-count to a large value to avoid scatter region failed.
+	maxPendingPeerUnlimited uint64 = math.MaxInt32
 )
 
 type pauseConfigExpectation uint8
