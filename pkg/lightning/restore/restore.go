@@ -2387,11 +2387,16 @@ func (cr *chunkRestore) deliverLoop(
 			start := time.Now()
 
 			if err = dataEngine.WriteRows(ctx, columns, dataKVs); err != nil {
-				deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to data engine failed", log.ShortError(err))
+				}
+
 				return errors.Trace(err)
 			}
 			if err = indexEngine.WriteRows(ctx, columns, indexKVs); err != nil {
-				deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				if !common.IsContextCanceledError(err) {
+					deliverLogger.Error("write to index engine failed", log.ShortError(err))
+				}
 				return errors.Trace(err)
 			}
 
