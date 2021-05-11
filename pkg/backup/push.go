@@ -14,7 +14,6 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
