@@ -32,6 +32,20 @@ var (
 	hasLogFile      uint64
 	tidbGlue        = gluetidb.New()
 	envLogToTermKey = "BR_LOG_TO_TERM"
+
+	filterOutSysAndMemTables = []string{
+		"*.*",
+		fmt.Sprintf("!%s.*", utils.TemporaryDBName("*")),
+		"!mysql.*",
+		"!sys.*",
+		"!INFORMATION_SCHEMA.*",
+		"!PERFORMANCE_SCHEMA.*",
+		"!METRICS_SCHEMA.*",
+		"!INSPECTION_SCHEMA.*",
+	}
+	acceptAllTables = []string{
+		"*.*",
+	}
 )
 
 const (

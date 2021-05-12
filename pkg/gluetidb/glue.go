@@ -106,7 +106,7 @@ func (g Glue) GetVersion() string {
 
 // Execute implements glue.Session.
 func (gs *tidbSession) Execute(ctx context.Context, sql string) error {
-	_, err := gs.se.Execute(ctx, sql)
+	_, err := gs.se.ExecuteInternal(ctx, sql)
 	return errors.Trace(err)
 }
 

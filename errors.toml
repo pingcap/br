@@ -181,3 +181,8 @@ error = '''
 failed to write and ingest
 '''
 
+["BR:Restore:ErrUnsupportedSysTable"]
+error = '''
+the system table isn't supported for restoring yet
+'''
+
