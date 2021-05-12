@@ -427,6 +427,8 @@ func (e *File) ingestSSTLoop() {
 						}
 						ingestMetas = []*sstMeta{newMeta}
 					}
+					// batchIngestSSTs will change ingestMetas' order, so we record the max seq here
+					metasMaxSeq := ingestMetas[len(ingestMetas)-1].seq
 
 					if err := e.batchIngestSSTs(ingestMetas); err != nil {
 						e.setError(err)
@@ -436,7 +438,7 @@ func (e *File) ingestSSTLoop() {
 					finSeq := finishedSeq.Load()
 					if metas.seq == finSeq+1 {
 						finSeq = metas.seq
-						finMetaSeq := ingestMetas[len(ingestMetas)-1].seq
+						finMetaSeq := metasMaxSeq
 						for len(inSyncSeqs.arr) > 0 {
 							if inSyncSeqs.arr[0].flushSeq == finSeq+1 {
 								finSeq++
@@ -463,7 +465,7 @@ func (e *File) ingestSSTLoop() {
 							c <- struct{}{}
 						}
 					} else {
-						heap.Push(inSyncSeqs, metaSeq{flushSeq: metas.seq, metaSeq: ingestMetas[len(ingestMetas)-1].seq})
+						heap.Push(inSyncSeqs, metaSeq{flushSeq: metas.seq, metaSeq: metasMaxSeq})
 						seqLock.Unlock()
 					}
 				}
@@ -639,6 +641,7 @@ func (e *File) ingestSSTs(metas []*sstMeta) error {
 	log.L().Info("write data to local DB",
 		zap.Int64("size", totalSize),
 		zap.Int64("kvs", totalCount),
+		zap.Int("files", len(metas)),
 		zap.Int64("sstFileSize", fileSize),
 		zap.String("file", metas[0].path),
 		logutil.Key("firstKey", metas[0].minKey),
