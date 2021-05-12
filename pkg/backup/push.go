@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/opentracing/opentracing-go"
@@ -163,11 +164,12 @@ func (push *pushDown) pushBackup(
 						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
-					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
-					return res, errors.Annotatef(berrors.ErrKVUnknown, "error occurs in the TiKV Node %v(@%s): %v",
-						store.GetId(),
-						redact.String(store.GetAddress()), // The net address might be sensitive, so we might need to redact them.
-						errPb)
+					log.Error("unknown error occurs on TiKV",
+						zap.String("error", errPb.GetMsg()),
+						zap.Error(berrors.ErrKVUnknown),
+						zap.String("TiKV Node", fmt.Sprintf("TiKV Node %v(@%s)", store.GetId(), redact.String(store.GetAddress()))),
+						zap.String("work around", "please ensure tikv is permitted to read from & write to the storage."))
+					return res, berrors.ErrKVUnknown
 
 				}
 			}
