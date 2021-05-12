@@ -296,7 +296,7 @@ func BuildBackupRangeAndSchema(
 
 	for _, dbInfo := range dbs {
 		// skip system databases
-		if util.IsMemOrSysDB(dbInfo.Name.L) {
+		if !tableFilter.MatchSchema(dbInfo.Name.O) || isMemDB(dbInfo.Name.L) {
 			continue
 		}
 
@@ -1078,4 +1078,16 @@ func CollectChecksums(backupMeta *backuppb.BackupMeta) ([]Checksum, error) {
 // isRetryableError represents whether we should retry reset grpc connection.
 func isRetryableError(err error) bool {
 	return status.Code(err) == codes.Unavailable
+}
+
+// isMemDB checks whether dbLowerName is memory database.
+// Remove it when tidb.utils has this function
+func isMemDB(dbLowerName string) bool {
+	switch dbLowerName {
+	case util.InformationSchemaName.L,
+		util.PerformanceSchemaName.L,
+		util.MetricSchemaName.L:
+		return true
+	}
+	return false
 }
