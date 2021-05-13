@@ -233,12 +233,12 @@ func NewRestoreControllerWithPauser(
 		}
 		backend = tidb.NewTiDBBackend(db, cfg.TikvImporter.OnDuplicate)
 	case config.BackendLocal:
-		var rLimit uint64
+		var rLimit local.Rlim_t
 		rLimit, err = local.GetSystemRLimit()
 		if err != nil {
 			return nil, err
 		}
-		maxOpenFiles := int(rLimit / uint64(cfg.App.TableConcurrency))
+		maxOpenFiles := int(rLimit / local.Rlim_t(cfg.App.TableConcurrency))
 		// check overflow
 		if maxOpenFiles < 0 {
 			maxOpenFiles = math.MaxInt32
