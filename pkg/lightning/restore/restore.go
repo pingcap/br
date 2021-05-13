@@ -2638,6 +2638,9 @@ func (cr *chunkRestore) encodeLoop(
 			}
 			kvPacket = append(kvPacket, deliveredKVs{kvs: kvs, columns: columnNames, offset: newOffset, rowID: rowID})
 			kvSize += kvs.Size()
+			failpoint.Inject("mock-kv-size", func(val failpoint.Value) {
+				kvSize += uint64(val.(int))
+			})
 			// pebble cannot allow > 4.0G kv in one batch.
 			// we will meet pebble panic when import sql file and each kv has the size larger than 4G / maxKvPairsCnt.
 			// so add this check.
