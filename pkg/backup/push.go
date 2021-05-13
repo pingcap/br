@@ -164,13 +164,11 @@ func (push *pushDown) pushBackup(
 						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
-					log.Error("unknown error occurs on TiKV",
-						zap.String("error", errPb.GetMsg()),
+					log.Error(fmt.Sprintf("unknown error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
 						zap.Error(berrors.ErrKVUnknown),
-						zap.String("TiKV Node", fmt.Sprintf("TiKV Node %v(@%s)", store.GetId(), redact.String(store.GetAddress()))),
+						zap.String("error message from TiKV", errPb.GetMsg()),
 						zap.String("work around", "please ensure tikv is permitted to read from & write to the storage."))
 					return res, berrors.ErrKVUnknown
-
 				}
 			}
 		case err := <-push.errCh:
