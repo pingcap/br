@@ -402,6 +402,14 @@ func (kvcodec *tableKVEncoder) Encode(
 	return kvPairs(pairs), nil
 }
 
+func (kvs kvPairs) Size() uint64 {
+	size := uint64(0)
+	for _, kv := range kvs {
+		size += uint64(len(kv.Key) + len(kv.Val))
+	}
+	return size
+}
+
 func (kvs kvPairs) ClassifyAndAppend(
 	data *Rows,
 	dataChecksum *verification.KVChecksum,
