@@ -56,7 +56,6 @@ var (
 	// Errors reported from TiKV.
 	ErrKVUnknown           = errors.Normalize("unknown tikv error", errors.RFCCodeText("BR:KV:ErrKVUnknown"))
 	ErrKVClusterIDMismatch = errors.Normalize("tikv cluster ID mismatch", errors.RFCCodeText("BR:KV:ErrKVClusterIDMismatch"))
-	ErrKVNotHealth         = errors.Normalize("tikv cluster not health", errors.RFCCodeText("BR:KV:ErrKVNotHealth"))
 	ErrKVNotLeader         = errors.Normalize("not leader", errors.RFCCodeText("BR:KV:ErrKVNotLeader"))
 	ErrKVNotTiKV           = errors.Normalize("storage is not tikv", errors.RFCCodeText("BR:KV:ErrNotTiKVStorage"))
 
