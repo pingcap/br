@@ -215,12 +215,12 @@ static: prepare tools
 		$(PACKAGE_DIRECTORIES)
 	# pingcap/errors APIs are mixed with multiple patterns 'pkg/errors',
 	# 'juju/errors' and 'pingcap/parser'. To avoid confusion and mistake,
-	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause".
+	# we only allow a subset of APIs, that's "Normalize|Annotate|Trace|Cause|Find".
 	# TODO: check lightning packages.
 	@# TODO: allow more APIs when we need to support "workaound".
 	grep -Rn --include="*.go" --exclude="*_test.go" -E "(\t| )errors\.[A-Z]" \
 		$$($(PACKAGE_DIRECTORIES) | grep -vE "tests|lightning") | \
-		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled" 2>&1 | $(CHECKER)
+		grep -vE "Normalize|Annotate|Trace|Cause|RedactLogEnabled|Find" 2>&1 | $(CHECKER)
 	# The package name of "github.com/pingcap/kvproto/pkg/backup" collides
 	# "github.com/pingcap/br/pkg/backup", so we rename kvproto to backuppb.
 	grep -Rn --include="*.go" -E '"github.com/pingcap/kvproto/pkg/backup"' \
