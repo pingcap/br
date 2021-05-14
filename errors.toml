@@ -76,11 +76,6 @@ error = '''
 key not in region
 '''
 
-["BR:KV:ErrKVNotHealth"]
-error = '''
-tikv cluster not health
-'''
-
 ["BR:KV:ErrKVNotLeader"]
 error = '''
 not leader

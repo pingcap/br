@@ -137,6 +137,15 @@ func (push *pushDown) pushBackup(
 						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
+
+					if utils.MessageIsNotFoundStorageError(errPb.GetMsg()) {
+
+					}
+
+					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
+
+					}
+
 					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
 					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
 				}
