@@ -1152,7 +1152,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 
 func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 	ctx := context.Background()
-	kvsCh := make(chan []deliveredKVs, 100)
+	kvsCh := make(chan []deliveredKVs, 4)
 	deliverCompleteCh := make(chan deliverResult)
 	kvEncoder, err := kv.NewTableKVEncoder(s.tr.encTable, &kv.SessionOptions{
 		SQLMode:   s.cfg.TiDB.SQLMode,
@@ -1193,13 +1193,12 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 			c.Assert(kvs, HasLen, 1)
 		}
 		if count == 4 {
+			// we will send empty kvs before encodeLoop exists
+			// so, we can receive 4 batch and 1 is empty
 			c.Assert(kvs, HasLen, 0)
 			break
 		}
 	}
-	// we will send empty kvs before encodeLoop exists
-	// so, we can receive 4 batch and 1 is empty
-	c.Assert(count, Equals, 4)
 }
 
 func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
