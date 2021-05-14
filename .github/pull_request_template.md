@@ -35,7 +35,7 @@ Related changes
  - Need to cherry-pick to the release branch
  - Need to update the documentation
 
-### Release Note
+### Release note
 
  -
 
