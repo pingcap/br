@@ -40,6 +40,9 @@ const (
 	scheduleConfigPrefix = "pd/api/v1/config/schedule"
 	pauseTimeout         = 5 * time.Minute
 
+	// pd request retry time when connection fail
+	pdRequestRetryTime = 10
+
 	// set max-pending-peer-count to a large value to avoid scatter region failed.
 	maxPendingPeerUnlimited uint64 = math.MaxInt32
 )
@@ -146,6 +149,19 @@ func pdRequest(
 	resp, err := cli.Do(req)
 	if err != nil {
 		return nil, errors.Trace(err)
+	}
+	count := 0
+	for {
+		count++
+		if count > pdRequestRetryTime || resp.StatusCode < 500 {
+			break
+		}
+		resp.Body.Close()
+		time.Sleep(time.Second)
+		resp, err = cli.Do(req)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
