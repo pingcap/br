@@ -166,15 +166,14 @@ func (push *pushDown) pushBackup(
 					}
 					if utils.MessageIsNotFoundStorageError(errPb.GetMsg()) {
 						log.Error(fmt.Sprintf("File or directory not found error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
-							zap.String("error message from TiKV", errPb.GetMsg()),
+							zap.Error(berrors.ErrKVStorage),
 							zap.String("work around", "please ensure br and tikv node share a same disk and the user of br and tikv has same uid."))
 					}
 
 					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
 						log.Error(fmt.Sprintf("unknown error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
-							zap.Error(berrors.ErrKVUnknown),
-							zap.String("error message from TiKV", errPb.GetMsg()),
-							zap.String("work around", "please ensure tikv is permitted to read from & write to the storage."))
+							zap.Error(berrors.ErrKVStorage),
+							zap.String("work around", "please ensure tikv has permission to read from & write to the storage."))
 					}
 					return res, berrors.ErrKVStorage
 				}

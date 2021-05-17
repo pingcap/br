@@ -28,7 +28,7 @@ for i in $(seq $DB_COUNT); do
 done
 
 echo "backup with tikv unknown error start..." 
-export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/tikv-rw-error=return(\"tikv read or write error\")"
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/tikv-rw-error=return(\"Io(Os { code: 13, kind: PermissionDenied...})\")"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-tikverr" || echo "br log test done!"
 export GO_FAILPOINTS=""
 
