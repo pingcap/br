@@ -180,7 +180,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 									}
 									return err1
 								} else if common.IsContextCanceledError(err1) {
-									// do not retry on conext.Canceled error
+									// do not retry on context.Canceled error
 									return err1
 								}
 								log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", i),
@@ -189,9 +189,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 								syncLock.Lock()
 								retryKeys = append(retryKeys, keys[startIdx:]...)
 								// set global error so if we exceed retry limit, the function will return this error
-								if !common.IsContextCanceledError(err1) {
-									err = multierr.Append(err, err1)
-								}
+								err = multierr.Append(err, err1)
 								syncLock.Unlock()
 								break
 							} else {
@@ -236,6 +234,8 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 		close(ch)
 		if splitError := eg.Wait(); splitError != nil {
+			retryKeys = retryKeys[:0]
+			err = splitError
 			continue
 		}
 
