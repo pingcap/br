@@ -38,7 +38,7 @@ for backend in tidb importer local; do
     check_contains 'inc: 3'
 
     # auto random base is 4
-    run_sql "INSERT INTO alter_random.t VALUES ();"
+    run_sql "INSERT INTO alter_random.t VALUES ();commit;"
     run_sql "SELECT id & b'000001111111111111111111111111111111111111111111111111111111111' as inc FROM alter_random.t"
     if [ "$backend" = 'tidb' ]; then
       check_contains 'inc: 30002'
