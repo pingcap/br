@@ -23,6 +23,10 @@ const (
 	TotalKV = "total kv"
 	// TotalBytes is a field we collect during backup/restore
 	TotalBytes = "total bytes"
+	// BackupDataSize is a field we collect after backup finish
+	BackupDataSize = "backup data size(after compressed)"
+	// RestoreDataSize is a file we collection after restore finish
+	RestoreDataSize = "restore data size(after decompressed)"
 )
 
 // LogCollector collects infos into summary log.
@@ -200,9 +204,18 @@ func (tc *logCollector) Summary(name string) {
 	for name, data := range tc.successData {
 		if name == TotalBytes {
 			logFields = append(logFields,
-				zap.String("data-size", units.HumanSize(float64(data))),
+				zap.String("total-kv-size", units.HumanSize(float64(data))),
 				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
 			continue
+		}
+		if name == BackupDataSize {
+			logFields = append(logFields,
+				zap.String(BackupDataSize, units.HumanSize(float64(data))))
+			continue
+		}
+		if name == RestoreDataSize {
+			logFields = append(logFields,
+				zap.String(RestoreDataSize, units.HumanSize(float64(data))))
 		}
 		logFields = append(logFields, zap.Uint64(logKeyFor(name), data))
 	}

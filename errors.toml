@@ -51,6 +51,11 @@ error = '''
 unknown external storage error
 '''
 
+["BR:KV:ERRORKVStorage"]
+error = '''
+tikv storage occur I/O error
+'''
+
 ["BR:KV:ErrKVClusterIDMismatch"]
 error = '''
 tikv cluster ID mismatch
