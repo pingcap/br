@@ -209,13 +209,22 @@ func (tc *logCollector) Summary(name string) {
 			continue
 		}
 		if name == BackupDataSize {
-			logFields = append(logFields,
-				zap.String(BackupDataSize, units.HumanSize(float64(data))))
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to bakcup"))
+			} else {
+				logFields = append(logFields,
+					zap.String(BackupDataSize, units.HumanSize(float64(data))))
+			}
 			continue
 		}
 		if name == RestoreDataSize {
-			logFields = append(logFields,
-				zap.String(RestoreDataSize, units.HumanSize(float64(data))))
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to restore"))
+			} else {
+				logFields = append(logFields,
+					zap.String(RestoreDataSize, units.HumanSize(float64(data))))
+			}
+			continue
 		}
 		logFields = append(logFields, zap.Uint64(logKeyFor(name), data))
 	}
