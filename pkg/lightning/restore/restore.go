@@ -2591,7 +2591,10 @@ func (cr *chunkRestore) encodeLoop(
 			// pebble cannot allow > 4.0G kv in one batch.
 			// we will meet pebble panic when import sql file and each kv has the size larger than 4G / maxKvPairsCnt.
 			// so add this check.
-			if kvSize > minDeliverBytes {
+			if kvSize >= minDeliverBytes || len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
+				canDeliver = true
+				kvSize = 0
+			}
 				canDeliver = true
 				kvSize = 0
 			}
