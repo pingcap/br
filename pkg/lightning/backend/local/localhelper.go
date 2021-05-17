@@ -236,7 +236,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 		close(ch)
 		if splitError := eg.Wait(); splitError != nil {
-			return splitError
+			continue
 		}
 
 		if len(retryKeys) == 0 {
@@ -305,6 +305,8 @@ func paginateScanRegion(
 	sort.Slice(regions, func(i, j int) bool {
 		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
 	})
+	log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
+		logutil.Key("start", startKey), logutil.Key("end", endKey))
 	return regions, nil
 }
 
