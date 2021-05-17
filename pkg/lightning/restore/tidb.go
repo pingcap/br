@@ -98,6 +98,8 @@ func DBFromConfig(dsn config.DBStore) (*sql.DB, error) {
 			"allow_auto_random_explicit_insert": "1",
 			// allow use _tidb_rowid in sql statement
 			"tidb_opt_write_row_id": "1",
+			// always set auto-commit to ON
+			"autocommit": "1",
 		},
 	}
 	db, err := param.Connect()
@@ -255,7 +257,10 @@ func LoadSchemaInfo(
 		}
 
 		for _, tbl := range schema.Tables {
-			tblInfo := tableMap[strings.ToLower(tbl.Name)]
+			tblInfo, ok := tableMap[strings.ToLower(tbl.Name)]
+			if !ok {
+				return nil, errors.Errorf("table '%s' schema not found", tbl.Name)
+			}
 			tableName := tblInfo.Name.String()
 			if tblInfo.State != model.StatePublic {
 				err := errors.Errorf("table [%s.%s] state is not public", schema.Name, tableName)
