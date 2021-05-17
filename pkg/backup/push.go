@@ -171,7 +171,7 @@ func (push *pushDown) pushBackup(
 					}
 
 					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
-						log.Error(fmt.Sprintf("unknown error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
+						log.Error(fmt.Sprintf("I/O permission denied error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
 							zap.Error(berrors.ErrKVStorage),
 							zap.String("work around", "please ensure tikv has permission to read from & write to the storage."))
 					}
