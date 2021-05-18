@@ -1284,9 +1284,14 @@ func (local *local) WriteToTiKV(
 
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
-		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
+		resp, closeErr := wStream.CloseAndRecv()
+		if closeErr != nil {
 			return nil, Range{}, stats, errors.Trace(closeErr)
-		} else if leaderID == region.Region.Peers[i].GetId() {
+		}
+		if resp.Error != nil {
+			return nil, Range{}, stats, errors.New(resp.Error.Message)
+		}
+		if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
 			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
