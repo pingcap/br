@@ -260,7 +260,13 @@ func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 }
 
 func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
-	ranges := ranger.FullIntRange(false)
+	var ranges []*ranger.Range
+	if tbl.IsCommonHandle {
+		ranges = ranger.FullNotNullRange()
+	} else {
+		ranges = ranger.FullIntRange(false)
+	}
+
 	kvRanges := distsql.TableRangesToKVRanges(tblID, ranges, nil)
 	for _, index := range tbl.Indices {
 		if index.State != model.StatePublic {
