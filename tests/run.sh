@@ -47,11 +47,11 @@ run_sql 'set @@global.tidb_enable_clustered_index = 0' || echo "tidb does not su
 sleep 2
 
 for casename in $SELECTED_TEST_NAME; do
-    script=tests/$casename/run.sh
+    TEST_NAME="$casename" 
+    script=tests/$TEST_NAME/run.sh
     echo "*===== Running test $script... =====*"
     INTEGRATION_TEST=1 \
     TEST_DIR="$TEST_DIR" \
-    TEST_NAME="$casename" \
     CLUSTER_VERSION_MAJOR="${CLUSTER_VERSION_MAJOR#v}" \
     CLUSTER_VERSION_MINOR="$CLUSTER_VERSION_MINOR" \
     CLUSTER_VERSION_REVISION="$CLUSTER_VERSION_REVISION" \
@@ -61,6 +61,6 @@ for casename in $SELECTED_TEST_NAME; do
     TIDB_ADDR="$TIDB_ADDR" \
     TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
-    BR_LOG_TO_TERM=1 
+    BR_LOG_TO_TERM=1 \
     bash "$script" && echo "TEST: [$TEST_NAME] success!"
 done
