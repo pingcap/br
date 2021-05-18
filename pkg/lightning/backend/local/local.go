@@ -1293,7 +1293,7 @@ func (local *local) WriteToTiKV(
 	}
 
 	// if there is not leader currently, we should directly return an error
-	if leaderPeerMetas == nil {
+	if len(leaderPeerMetas) == 0 {
 		log.L().Warn("write to tikv no leader", logutil.Region(region.Region), logutil.Leader(region.Leader),
 			zap.Uint64("leader_id", leaderID), logutil.SSTMeta(meta),
 			zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size))
