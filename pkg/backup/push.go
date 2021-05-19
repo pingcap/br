@@ -165,14 +165,14 @@ func (push *pushDown) pushBackup(
 						continue
 					}
 					if utils.MessageIsNotFoundStorageError(errPb.GetMsg()) {
-						log.Error(fmt.Sprintf("File or directory not found error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
-							zap.Error(berrors.ErrKVStorage),
+						errMsg := fmt.Sprintf("File or directory not found error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
 							zap.String("work around", "please ensure br and tikv node share a same disk and the user of br and tikv has same uid."))
 					}
 
 					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
-						log.Error(fmt.Sprintf("I/O permission denied error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress())),
-							zap.Error(berrors.ErrKVStorage),
+						errMsg := fmt.Sprintf("I/O permission denied error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
 							zap.String("work around", "please ensure tikv has permission to read from & write to the storage."))
 					}
 					return res, berrors.ErrKVStorage
