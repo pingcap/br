@@ -128,6 +128,10 @@ type localFileMeta struct {
 	Length atomic.Int64 `json:"length"`
 	// TotalSize is the total pre-compressed KV byte size stored by engine.
 	TotalSize atomic.Int64 `json:"total_size"`
+	// Duplicates is the number of duplicates kv pairs detected when importing. Note that the value is
+	// probably larger than real value, because we may import same range more than once. For accurate
+	// information, you should iterate the duplicate kv after import is finished.
+	Duplicates atomic.Int64 `json:"duplicates"`
 }
 
 type importMutexState uint32
@@ -1198,7 +1202,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := local.newNormalKeyIter(ctx, engineFile.db, opt)
+	iter := local.newNormalKeyIter(ctx, engineFile, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1415,7 +1419,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 }
 
 func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
-	iter := local.newNormalKeyIter(ctx, engineFile.db, &pebble.IterOptions{})
+	iter := local.newNormalKeyIter(ctx, engineFile, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1559,28 +1563,31 @@ func (b *bytesBuffer) addBytes(bytes []byte) []byte {
 	return append(buf[:0], bytes...)
 }
 
-func (local *local) newNormalKeyIter(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions) Iterator {
+func (local *local) openDuplicateBatch() (*pebble.Batch, error) {
+	local.duplicateKVLock.Lock()
+	defer local.duplicateKVLock.Unlock()
+
+	if local.duplicateKV == nil {
+		duplicateKV, err := local.openEngineDB(duplicateKVPath, false)
+		if err != nil {
+			return nil, err
+		}
+		local.duplicateKV = duplicateKV
+	}
+	return local.duplicateKV.NewBatch(), nil
+}
+
+func (local *local) newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
 	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
 		newOpts := *opts
 		newOpts.LowerBound = normalIterStartKey
 		opts = &newOpts
 	}
 	if !local.duplicateDetection {
-		return db.NewIter(opts)
+		return engineFile.db.NewIter(opts)
 	}
-	return newDuplicateIterator(ctx, db, opts, func() (*pebble.Batch, error) {
-		local.duplicateKVLock.Lock()
-		defer local.duplicateKVLock.Unlock()
-
-		if local.duplicateKV == nil {
-			duplicateKV, err := local.openEngineDB(duplicateKVPath, false)
-			if err != nil {
-				return nil, err
-			}
-			local.duplicateKV = duplicateKV
-		}
-		return local.duplicateKV.NewBatch(), nil
-	})
+	duplicateNotify := func() { engineFile.Duplicates.Inc() }
+	return newDuplicateIterator(ctx, engineFile.db, opts, local.openDuplicateBatch, duplicateNotify)
 }
 
 func (local *local) writeAndIngestByRange(
@@ -1593,7 +1600,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := local.newNormalKeyIter(ctxt, engineFile.db, ito)
+	iter := local.newNormalKeyIter(ctxt, engineFile, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()

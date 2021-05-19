@@ -39,6 +39,10 @@ type Iterator interface {
 
 const maxDuplicateBatchSize = 4 << 20
 
+// duplicateNotifyFunc is called when duplicate is detected. A duplicate pair will trigger a notify.
+type duplicateNotifyFunc func()
+
+// lazyOpenBatchFunc is used for duplicateIterator to lazily open a *pebble.Batch for recording duplicates.
 type lazyOpenBatchFunc func() (*pebble.Batch, error)
 
 type duplicateIterator struct {
@@ -50,7 +54,9 @@ type duplicateIterator struct {
 	nextKey   []byte
 	err       error
 
-	lazyOpenBatch  lazyOpenBatchFunc
+	lazyOpenBatch   lazyOpenBatchFunc
+	duplicateNotify duplicateNotifyFunc
+
 	writeBatch     *pebble.Batch
 	writeBatchSize int64
 }
@@ -84,6 +90,9 @@ func (d *duplicateIterator) flush() {
 }
 
 func (d *duplicateIterator) record(key []byte, val []byte) {
+	if d.duplicateNotify != nil {
+		d.duplicateNotify()
+	}
 	if d.writeBatch == nil {
 		d.writeBatch, d.err = d.lazyOpenBatch()
 		if d.err != nil {
@@ -154,7 +163,8 @@ func (d *duplicateIterator) Close() error {
 
 var _ Iterator = &duplicateIterator{}
 
-func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions, lazyOpenBatch lazyOpenBatchFunc) Iterator {
+func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions,
+	lazyOpenBatch lazyOpenBatchFunc, duplicateNotify duplicateNotifyFunc) Iterator {
 	newOpts := &pebble.IterOptions{TableFilter: opts.TableFilter}
 	if len(opts.LowerBound) > 0 {
 		newOpts.LowerBound = codec.EncodeBytes(nil, opts.LowerBound)
@@ -163,8 +173,9 @@ func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterO
 		newOpts.UpperBound = codec.EncodeBytes(nil, opts.UpperBound)
 	}
 	return &duplicateIterator{
-		ctx:           ctx,
-		iter:          db.NewIter(newOpts),
-		lazyOpenBatch: lazyOpenBatch,
+		ctx:             ctx,
+		iter:            db.NewIter(newOpts),
+		duplicateNotify: duplicateNotify,
+		lazyOpenBatch:   lazyOpenBatch,
 	}
 }

@@ -122,7 +122,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 			return nil, err
 		}
 		return duplicateKV.NewBatch(), nil
-	})
+	}, nil)
 	sort.Slice(pairs, func(i, j int) bool {
 		key1 := encodeKeyWithSuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)
 		key2 := encodeKeyWithSuffix(nil, pairs[j].Key, []byte("table.sql"), pairs[j].Offset)
