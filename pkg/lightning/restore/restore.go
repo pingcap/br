@@ -2600,6 +2600,7 @@ func (cr *chunkRestore) encodeLoop(
 		var readDur, encodeDur time.Duration
 		canDeliver := false
 		kvPacket := make([]deliveredKVs, 0, maxKvPairsCnt)
+		curOffset := offset
 		var newOffset, rowID int64
 	outLoop:
 		for !canDeliver {
@@ -2628,7 +2629,7 @@ func (cr *chunkRestore) encodeLoop(
 			encodeDurStart := time.Now()
 			lastRow := cr.parser.LastRow()
 			// sql -> kv
-			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation)
+			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation, curOffset)
 			encodeDur += time.Since(encodeDurStart)
 			cr.parser.RecycleRow(lastRow)
 			if encodeErr != nil {
@@ -2639,6 +2640,7 @@ func (cr *chunkRestore) encodeLoop(
 			if len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
 				canDeliver = true
 			}
+			curOffset = newOffset
 		}
 		encodeTotalDur += encodeDur
 		metric.RowEncodeSecondsHistogram.Observe(encodeDur.Seconds())

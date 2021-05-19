@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -92,6 +93,8 @@ const (
 
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
+
+	duplicateKVPath = "duplicate-kv"
 )
 
 var (
@@ -173,6 +176,8 @@ type File struct {
 	// statistics for pebble kv iter.
 	importedKVSize  atomic.Int64
 	importedKVCount atomic.Int64
+
+	duplicateDetection bool
 }
 
 func (e *File) setError(err error) {
@@ -229,7 +234,25 @@ func (e *File) getSizeProperties() (*sizeProperties, error) {
 						zap.Stringer("fileNum", info.FileNum), log.ShortError(err))
 					return nil, errors.Trace(err)
 				}
-
+				if e.duplicateDetection {
+					newRangeProps := make(rangeProperties, 0, len(rangeProps))
+					for _, p := range rangeProps {
+						if !bytes.Equal(p.Key, engineMetaKey) {
+							p.Key, err = decodeKeyWithSuffix(nil, p.Key)
+							if err != nil {
+								log.L().Warn(
+									"decodeRangeProperties failed because the props key is invalid",
+									zap.Stringer("engine", e.UUID),
+									zap.Stringer("fileNum", info.FileNum),
+									zap.Binary("key", p.Key),
+								)
+								return nil, errors.Trace(err)
+							}
+							newRangeProps = append(newRangeProps, p)
+						}
+					}
+					rangeProps = newRangeProps
+				}
 				sizeProps.addAll(rangeProps)
 			}
 		}
@@ -750,6 +773,10 @@ type local struct {
 
 	engineMemCacheSize      int
 	localWriterMemCacheSize int64
+
+	duplicateDetection bool
+	duplicateKV        *pebble.DB
+	duplicateKVLock    sync.Mutex
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -866,6 +893,7 @@ func NewLocalBackend(
 
 		engineMemCacheSize:      int(cfg.EngineMemCacheSize),
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
+		duplicateDetection:      cfg.DuplicateDetection,
 	}
 	local.conns.conns = make(map[uint64]*connPool)
 	return backend.MakeBackend(local), nil
@@ -982,6 +1010,12 @@ func (local *local) Close() {
 			log.L().Warn("remove local db file failed", zap.Error(err))
 		}
 	}
+
+	local.duplicateKVLock.Lock()
+	defer local.duplicateKVLock.Unlock()
+	if local.duplicateKV != nil {
+		local.duplicateKV.Close()
+	}
 }
 
 // FlushEngine ensure the written data is saved successfully, to make sure no data lose after restart
@@ -1027,7 +1061,7 @@ func (local *local) ShouldPostProcess() bool {
 	return true
 }
 
-func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.DB, error) {
+func (local *local) openEngineDB(path string, readOnly bool) (*pebble.DB, error) {
 	opt := &pebble.Options{
 		MemTableSize: local.engineMemCacheSize,
 		// the default threshold value may cause write stall.
@@ -1051,7 +1085,7 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 		},
 	}
 
-	dbPath := filepath.Join(local.localStoreDir, engineUUID.String())
+	dbPath := filepath.Join(local.localStoreDir, path)
 	db, err := pebble.Open(dbPath, opt)
 	return db, errors.Trace(err)
 }
@@ -1062,7 +1096,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	if cfg.Local != nil {
 		engineCfg = *cfg.Local
 	}
-	db, err := local.openEngineDB(engineUUID, false)
+	db, err := local.openEngineDB(engineUUID.String(), false)
 	if err != nil {
 		return err
 	}
@@ -1078,12 +1112,13 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	}
 	engineCtx, cancel := context.WithCancel(ctx)
 	e, _ := local.engines.LoadOrStore(engineUUID, &File{
-		UUID:         engineUUID,
-		sstDir:       sstDir,
-		sstMetasChan: make(chan metaOrFlush, 64),
-		ctx:          engineCtx,
-		cancel:       cancel,
-		config:       engineCfg,
+		UUID:               engineUUID,
+		sstDir:             sstDir,
+		sstMetasChan:       make(chan metaOrFlush, 64),
+		ctx:                engineCtx,
+		cancel:             cancel,
+		config:             engineCfg,
+		duplicateDetection: local.duplicateDetection,
 	})
 	engine := e.(*File)
 	engine.db = db
@@ -1103,7 +1138,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	engine, ok := local.engines.Load(engineUUID)
 	if !ok {
 		// recovery mode, we should reopen this engine file
-		db, err := local.openEngineDB(engineUUID, true)
+		db, err := local.openEngineDB(engineUUID.String(), true)
 		if err != nil {
 			// if engine db does not exist, just skip
 			if os.IsNotExist(errors.Cause(err)) {
@@ -1112,9 +1147,10 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			return err
 		}
 		engineFile := &File{
-			UUID:         engineUUID,
-			db:           db,
-			sstMetasChan: make(chan metaOrFlush),
+			UUID:               engineUUID,
+			db:                 db,
+			sstMetasChan:       make(chan metaOrFlush),
+			duplicateDetection: local.duplicateDetection,
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
 		engineFile.loadEngineMeta()
@@ -1162,7 +1198,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := engineFile.db.NewIter(opt)
+	iter := local.newNormalIter(ctx, engineFile.db, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1177,7 +1213,6 @@ func (local *local) WriteToTiKV(
 			logutil.Key("regionEnd", region.Region.EndKey))
 		return nil, regionRange, stats, nil
 	}
-
 	firstKey := codec.EncodeBytes([]byte{}, iter.Key())
 	iter.Last()
 	if iter.Error() != nil {
@@ -1355,9 +1390,6 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	curKeys := uint64(0)
 	curKey := fullRange.start
 	sizeProps.iter(func(p *rangeProperty) bool {
-		if bytes.Equal(p.Key, engineMetaKey) {
-			return true
-		}
 		curSize += p.Size
 		curKeys += p.Keys
 		if int64(curSize) >= sizeLimit || int64(curKeys) >= keysLimit {
@@ -1382,8 +1414,8 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 	return ranges
 }
 
-func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
-	iter := engineFile.db.NewIter(&pebble.IterOptions{LowerBound: normalIterStartKey})
+func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
+	iter := local.newNormalIter(ctx, engineFile.db, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1510,18 +1542,40 @@ func (b *bytesBuffer) totalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
-func (b *bytesBuffer) addBytes(bytes []byte) []byte {
-	if len(bytes) > bigValueSize {
-		return append([]byte{}, bytes...)
+func (b *bytesBuffer) requireBytes(n int) []byte {
+	if n > bigValueSize {
+		return make([]byte, n)
 	}
-
-	if b.curIdx+len(bytes) > b.curBufLen {
+	if b.curIdx+n > b.curBufLen {
 		b.addBuf()
 	}
 	idx := b.curIdx
-	copy(b.curBuf[idx:], bytes)
-	b.curIdx += len(bytes)
+	b.curIdx += n
 	return b.curBuf[idx:b.curIdx]
+}
+
+func (b *bytesBuffer) addBytes(bytes []byte) []byte {
+	buf := b.requireBytes(len(bytes))
+	return append(buf[:0], bytes...)
+}
+
+func (local *local) newNormalIter(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions) Iterator {
+	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
+		newOpts := *opts
+		newOpts.LowerBound = normalIterStartKey
+		opts = &newOpts
+	}
+	if !local.duplicateDetection {
+		return db.NewIter(opts)
+	}
+	return newDuplicateIterator(ctx, db, opts, func() (*pebble.DB, error) {
+		local.duplicateKVLock.Lock()
+		defer local.duplicateKVLock.Unlock()
+
+		var err error
+		local.duplicateKV, err = local.openEngineDB(duplicateKVPath, false)
+		return local.duplicateKV, err
+	})
 }
 
 func (local *local) writeAndIngestByRange(
@@ -1534,7 +1588,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := engineFile.db.NewIter(ito)
+	iter := local.newNormalIter(ctxt, engineFile.db, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()
@@ -1814,7 +1868,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	}
 
 	// split sorted file into range by 96MB size per file
-	ranges, err := local.readAndSplitIntoRange(lf)
+	ranges, err := local.readAndSplitIntoRange(ctx, lf)
 	if err != nil {
 		return err
 	}
@@ -1860,13 +1914,13 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	return nil
 }
 
-func (engine *File) unfinishedRanges(ranges []Range) []Range {
-	engine.finishedRanges.Lock()
-	defer engine.finishedRanges.Unlock()
+func (e *File) unfinishedRanges(ranges []Range) []Range {
+	e.finishedRanges.Lock()
+	defer e.finishedRanges.Unlock()
 
-	engine.finishedRanges.ranges = sortAndMergeRanges(engine.finishedRanges.ranges)
+	e.finishedRanges.ranges = sortAndMergeRanges(e.finishedRanges.ranges)
 
-	return filterOverlapRange(ranges, engine.finishedRanges.ranges)
+	return filterOverlapRange(ranges, e.finishedRanges.ranges)
 }
 
 // sortAndMergeRanges sort the ranges and merge range that overlaps with each other into a single range.
@@ -1952,7 +2006,7 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 	if err := localEngine.Cleanup(local.localStoreDir); err != nil {
 		return err
 	}
-	db, err := local.openEngineDB(engineUUID, false)
+	db, err := local.openEngineDB(engineUUID.String(), false)
 	if err == nil {
 		localEngine.db = db
 		localEngine.localFileMeta = localFileMeta{}
@@ -2114,6 +2168,8 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 		memtableSizeLimit:  cacheSize,
 		kvBuffer:           newBytesBuffer(),
 		isWriteBatchSorted: cfg.IsKVSorted,
+		duplicateDetection: f.duplicateDetection,
+		keySuffixBase:      []byte(cfg.KeySuffixBase),
 	}
 	f.localWriters.Store(w, nil)
 	return w, nil
@@ -2420,6 +2476,18 @@ type Writer struct {
 
 	kvBuffer *bytesBuffer
 	writer   *sstWriter
+
+	duplicateDetection bool
+	keySuffixBase      []byte
+	keyOffsetCache     []byte
+}
+
+func (w *Writer) encodeKeySuffix(key []byte, offset int64) []byte {
+	w.keyOffsetCache = strconv.AppendInt(w.keyOffsetCache[:0], offset, 10)
+	encodedLen := codec.EncodedBytesLength(len(key)) + 1 + len(w.keySuffixBase) + 1 + len(w.keyOffsetCache)
+	buf := w.kvBuffer.requireBytes(encodedLen)
+	buf = encodeKeyWithSuffix(buf[:0], key, w.keySuffixBase, offset)
+	return buf
 }
 
 func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
@@ -2431,8 +2499,11 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 		w.writer = writer
 		w.writer.minKey = append([]byte{}, kvs[0].Key...)
 	}
-	for _, pair := range kvs {
-		w.batchSize += int64(len(pair.Key) + len(pair.Val))
+	for i := 0; i < len(kvs); i++ {
+		if w.duplicateDetection {
+			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].Offset)
+		}
+		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
 	}
 	w.batchCount += len(kvs)
 	w.totalCount += int64(len(kvs))
@@ -2444,7 +2515,12 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 	cnt := w.batchCount
 	for _, pair := range kvs {
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
-		key := w.kvBuffer.addBytes(pair.Key)
+		var key []byte
+		if w.duplicateDetection {
+			key = w.encodeKeySuffix(pair.Key, pair.Offset)
+		} else {
+			key = w.kvBuffer.addBytes(pair.Key)
+		}
 		val := w.kvBuffer.addBytes(pair.Val)
 		if cnt < l {
 			w.writeBatch[cnt].Key = key
@@ -2578,13 +2654,6 @@ func (w *Writer) createSSTWriter() (*sstWriter, error) {
 }
 
 var errorUnorderedSSTInsertion = errors.New("inserting KVs into SST without order")
-
-type localIngestDescription uint8
-
-const (
-	localIngestDescriptionFlushed localIngestDescription = 1 << iota
-	localIngestDescriptionImmediate
-)
 
 type sstWriter struct {
 	*sstMeta

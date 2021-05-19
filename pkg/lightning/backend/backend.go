@@ -98,6 +98,8 @@ type EngineFileSize struct {
 type LocalWriterConfig struct {
 	// is the chunk KV written to this LocalWriter sent in order
 	IsKVSorted bool
+	// KeySuffixBase is used to detect duplicates in kvs by attaching a suffix with this base and offset to original key
+	KeySuffixBase string
 }
 
 // EngineConfig defines configuration used for open engine

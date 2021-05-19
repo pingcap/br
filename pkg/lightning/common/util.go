@@ -349,6 +349,8 @@ type KvPair struct {
 	Key []byte
 	// Val is the value of the KV pair
 	Val []byte
+	// Offset is the kv's offset in source file
+	Offset int64
 }
 
 // TableHasAutoRowID return whether table has auto generated row id
