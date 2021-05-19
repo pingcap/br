@@ -94,7 +94,9 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 
 	// Test panic encode.
 	c.Assert(
-		func() { encodeKeyWithSuffix(nil, []byte{0x00}, []byte("db"+string(keySuffixSeparator)+"table.sql"), 24325) },
+		func() {
+			encodeKeyWithSuffix(nil, []byte{0x00}, []byte("db"+string(keySuffixSeparator)+"table.sql"), 24325)
+		},
 		Panics,
 		errKeySuffixContainsSeparator,
 	)
