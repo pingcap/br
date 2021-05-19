@@ -126,7 +126,7 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 	sorted := sort.SliceIsSorted(encodedKeys, func(i, j int) bool {
 		return bytes.Compare(encodedKeys[i], encodedKeys[j]) < 0
 	})
-	c.Assert(sorted, Equals, true)
+	c.Assert(sorted, IsTrue)
 }
 
 func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
