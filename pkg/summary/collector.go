@@ -25,7 +25,7 @@ const (
 	TotalBytes = "total bytes"
 	// BackupDataSize is a field we collect after backup finish
 	BackupDataSize = "backup data size(after compressed)"
-	// RestoreDataSize is a file we collection after restore finish
+	// RestoreDataSize is a field we collection after restore finish
 	RestoreDataSize = "restore data size(after decompressed)"
 )
 
