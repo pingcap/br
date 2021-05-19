@@ -183,7 +183,7 @@ func buildTableRequest(
 	var builder distsql.RequestBuilder
 	// Use low priority to reducing impact to other requests.
 	builder.Request.Priority = tikvstore.PriorityLow
-	return builder.SetTableRanges(tableID, ranges, nil).
+	return builder.SetHandleRanges(nil, tableID, tableInfo.IsCommonHandle, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
 		SetConcurrency(int(concurrency)).
