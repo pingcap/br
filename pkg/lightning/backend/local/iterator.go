@@ -37,7 +37,7 @@ type Iterator interface {
 	Close() error
 }
 
-const duplicateMaxWriteSize = 0
+const maxDuplicateBatchSize = 4 << 20
 
 type lazyOpenBatchFunc func() (*pebble.Batch, error)
 
@@ -95,7 +95,7 @@ func (d *duplicateIterator) record(key []byte, val []byte) {
 		return
 	}
 	d.writeBatchSize += int64(len(key) + len(val))
-	if d.writeBatchSize >= duplicateMaxWriteSize {
+	if d.writeBatchSize >= maxDuplicateBatchSize {
 		d.flush()
 	}
 }

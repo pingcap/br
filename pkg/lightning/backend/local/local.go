@@ -1198,7 +1198,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := local.newNormalIter(ctx, engineFile.db, opt)
+	iter := local.newNormalKeyIter(ctx, engineFile.db, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1415,7 +1415,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 }
 
 func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
-	iter := local.newNormalIter(ctx, engineFile.db, &pebble.IterOptions{})
+	iter := local.newNormalKeyIter(ctx, engineFile.db, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1559,7 +1559,7 @@ func (b *bytesBuffer) addBytes(bytes []byte) []byte {
 	return append(buf[:0], bytes...)
 }
 
-func (local *local) newNormalIter(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions) Iterator {
+func (local *local) newNormalKeyIter(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions) Iterator {
 	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
 		newOpts := *opts
 		newOpts.LowerBound = normalIterStartKey
@@ -1593,7 +1593,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := local.newNormalIter(ctxt, engineFile.db, ito)
+	iter := local.newNormalKeyIter(ctxt, engineFile.db, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()
