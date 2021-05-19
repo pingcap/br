@@ -1568,13 +1568,18 @@ func (local *local) newNormalIter(ctx context.Context, db *pebble.DB, opts *pebb
 	if !local.duplicateDetection {
 		return db.NewIter(opts)
 	}
-	return newDuplicateIterator(ctx, db, opts, func() (*pebble.DB, error) {
+	return newDuplicateIterator(ctx, db, opts, func() (*pebble.Batch, error) {
 		local.duplicateKVLock.Lock()
 		defer local.duplicateKVLock.Unlock()
 
-		var err error
-		local.duplicateKV, err = local.openEngineDB(duplicateKVPath, false)
-		return local.duplicateKV, err
+		if local.duplicateKV == nil {
+			duplicateKV, err := local.openEngineDB(duplicateKVPath, false)
+			if err != nil {
+				return nil, err
+			}
+			local.duplicateKV = duplicateKV
+		}
+		return local.duplicateKV.NewBatch(), nil
 	})
 }
 

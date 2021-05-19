@@ -115,10 +115,13 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	// Open duplicate kv.
 	var duplicateKV *pebble.DB
 	duplicateDir := filepath.Join(storeDir, "duplicate-kv")
-	iter := newDuplicateIterator(context.Background(), db, &pebble.IterOptions{}, func() (*pebble.DB, error) {
+	iter := newDuplicateIterator(context.Background(), db, &pebble.IterOptions{}, func() (*pebble.Batch, error) {
 		var err error
 		duplicateKV, err = pebble.Open(duplicateDir, &pebble.Options{})
-		return duplicateKV, err
+		if err != nil {
+			return nil, err
+		}
+		return duplicateKV.NewBatch(), nil
 	})
 	sort.Slice(pairs, func(i, j int) bool {
 		key1 := encodeKeyWithSuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)

@@ -37,9 +37,9 @@ type Iterator interface {
 	Close() error
 }
 
-const duplicateMaxWriteSize = 4 << 20
+const duplicateMaxWriteSize = 0
 
-type lazyOpenDBFunc func() (*pebble.DB, error)
+type lazyOpenBatchFunc func() (*pebble.Batch, error)
 
 type duplicateIterator struct {
 	ctx       context.Context
@@ -50,8 +50,7 @@ type duplicateIterator struct {
 	nextKey   []byte
 	err       error
 
-	lazyOpenDB     lazyOpenDBFunc
-	duplicateKV    *pebble.DB
+	lazyOpenBatch  lazyOpenBatchFunc
 	writeBatch     *pebble.Batch
 	writeBatchSize int64
 }
@@ -85,14 +84,11 @@ func (d *duplicateIterator) flush() {
 }
 
 func (d *duplicateIterator) record(key []byte, val []byte) {
-	if d.duplicateKV == nil {
-		d.duplicateKV, d.err = d.lazyOpenDB()
+	if d.writeBatch == nil {
+		d.writeBatch, d.err = d.lazyOpenBatch()
 		if d.err != nil {
 			return
 		}
-	}
-	if d.writeBatch == nil {
-		d.writeBatch = d.duplicateKV.NewBatch()
 	}
 	d.err = d.writeBatch.Set(key, val, nil)
 	if d.err != nil {
@@ -158,7 +154,7 @@ func (d *duplicateIterator) Close() error {
 
 var _ Iterator = &duplicateIterator{}
 
-func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions, lazyOpenDB lazyOpenDBFunc) Iterator {
+func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions, lazyOpenBatch lazyOpenBatchFunc) Iterator {
 	newOpts := &pebble.IterOptions{TableFilter: opts.TableFilter}
 	if len(opts.LowerBound) > 0 {
 		newOpts.LowerBound = codec.EncodeBytes(nil, opts.LowerBound)
@@ -167,8 +163,8 @@ func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterO
 		newOpts.UpperBound = codec.EncodeBytes(nil, opts.UpperBound)
 	}
 	return &duplicateIterator{
-		ctx:        ctx,
-		iter:       db.NewIter(newOpts),
-		lazyOpenDB: lazyOpenDB,
+		ctx:           ctx,
+		iter:          db.NewIter(newOpts),
+		lazyOpenBatch: lazyOpenBatch,
 	}
 }
