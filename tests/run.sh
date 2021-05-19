@@ -47,7 +47,7 @@ run_sql 'set @@global.tidb_enable_clustered_index = 0' || echo "tidb does not su
 sleep 2
 
 for casename in $SELECTED_TEST_NAME; do
-    script=tests/$TEST_NAME/run.sh
+    script=tests/$casename/run.sh
     echo "*===== Running test $script... =====*"
     INTEGRATION_TEST=1 \
     TEST_DIR="$TEST_DIR" \
