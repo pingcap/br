@@ -2601,6 +2601,7 @@ func (cr *chunkRestore) encodeLoop(
 		canDeliver := false
 		kvPacket := make([]deliveredKVs, 0, maxKvPairsCnt)
 		var newOffset, rowID int64
+		var kvSize uint64
 	outLoop:
 		for !canDeliver {
 			readDurStart := time.Now()
@@ -2636,8 +2637,16 @@ func (cr *chunkRestore) encodeLoop(
 				return
 			}
 			kvPacket = append(kvPacket, deliveredKVs{kvs: kvs, columns: columnNames, offset: newOffset, rowID: rowID})
-			if len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
+			kvSize += kvs.Size()
+			failpoint.Inject("mock-kv-size", func(val failpoint.Value) {
+				kvSize += uint64(val.(int))
+			})
+			// pebble cannot allow > 4.0G kv in one batch.
+			// we will meet pebble panic when import sql file and each kv has the size larger than 4G / maxKvPairsCnt.
+			// so add this check.
+			if kvSize >= minDeliverBytes || len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
 				canDeliver = true
+				kvSize = 0
 			}
 		}
 		encodeTotalDur += encodeDur
