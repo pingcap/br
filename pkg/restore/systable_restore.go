@@ -53,7 +53,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	temporaryDB := utils.TemporaryDBName(sysDB)
 	defer rc.cleanTemporaryDatabase(ctx, sysDB)
 
-	if !f.MatchSchema(temporaryDB.O) {
+	if !f.MatchSchema(sysDB) {
 		log.Debug("system database filtered out", zap.String("database", sysDB))
 		return
 	}
@@ -72,7 +72,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	tablesRestored := make([]string, 0, len(originDatabase.Tables))
 	for _, table := range originDatabase.Tables {
 		tableName := table.Info.Name
-		if f.MatchTable(temporaryDB.O, tableName.O) {
+		if f.MatchTable(sysDB, tableName.O) {
 			if err := rc.replaceTemporaryTableToSystable(ctx, tableName.L, db); err != nil {
 				logutil.WarnTerm("error during merging temporary tables into system tables",
 					logutil.ShortError(err),
