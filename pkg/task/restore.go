@@ -152,14 +152,16 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 
 // CheckRestoreDBAndTable is used to check whether the restore dbs or tables have been backup
 func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
-	// if the databases or tables restore should be in backup data
+	if len(cfg.Schemas) == 0 && len(cfg.Tables) == 0 {
+		return nil
+	}
 	schemas := client.GetDatabases()
 	schemasMap := make(map[string]struct{})
 	tablesMap := make(map[string]struct{})
 	for _, db := range schemas {
-		schemasMap[db.Info.Name.O] = struct{}{}
+		schemasMap[utils.EncloseName(db.Info.Name.O)] = struct{}{}
 		for _, table := range db.Tables {
-			tablesMap[table.Info.Name.O] = struct{}{}
+			tablesMap[utils.EncloseDBAndTable(db.Info.Name.O, table.Info.Name.O)] = struct{}{}
 		}
 	}
 	restoreSchemas := cfg.Schemas

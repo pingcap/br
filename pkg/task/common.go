@@ -30,6 +30,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -303,13 +304,13 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		if len(db) == 0 {
 			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
-		cfg.Schemas[db] = struct{}{}
+		cfg.Schemas[utils.EncloseName(db)] = struct{}{}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
 				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
-			cfg.Tables[tbl] = struct{}{}
+			cfg.Tables[utils.EncloseDBAndTable(db, tbl)] = struct{}{}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
 				Name:   tbl,
