@@ -2648,10 +2648,6 @@ func (cr *chunkRestore) encodeLoop(
 				canDeliver = true
 				kvSize = 0
 			}
-
-			if len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
-				canDeliver = true
-			}
 		}
 		encodeTotalDur += encodeDur
 		metric.RowEncodeSecondsHistogram.Observe(encodeDur.Seconds())
