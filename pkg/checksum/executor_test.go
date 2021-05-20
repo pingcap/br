@@ -11,6 +11,9 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/variable"
+	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/types"
+	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
@@ -108,4 +111,38 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	resp2, err = exe2.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
 	c.Assert(resp2, NotNil)
+
+	// Test commonHandle ranges
+
+	tk.MustExec("drop table if exists t3;")
+	tk.MustExec("create table t3 (a char(255), b int, primary key(a) CLUSTERED);")
+	tk.MustExec("insert into t3 values ('fffffffff', 1), ('010101010', 2), ('394393fj39efefe', 3);")
+	tableInfo3 := s.getTableInfo(c, "test", "t3")
+	exe3, err := checksum.NewExecutorBuilder(tableInfo3, math.MaxUint64).Build()
+	first := true
+	exe3.Each(func(req *kv.Request) error {
+		if first {
+			first = false
+			low, err := codec.EncodeKey(nil, nil, []types.Datum{types.MinNotNullDatum()}...)
+			c.Assert(err, IsNil)
+			high, err := codec.EncodeKey(nil, nil, []types.Datum{types.MaxValueDatum()}...)
+			c.Assert(err, IsNil)
+			high = kv.Key(high).PrefixNext()
+			c.Assert(req.KeyRanges, DeepEquals, []kv.KeyRange{
+				{
+					StartKey: tablecodec.EncodeRowKey(tableInfo3.ID, low),
+					EndKey:   tablecodec.EncodeRowKey(tableInfo3.ID, high),
+				},
+			}, Commentf("%v", req.KeyRanges))
+		}
+		return nil
+	})
+	c.Assert(err, IsNil)
+	c.Assert(exe3.Len(), Equals, 2, Commentf("%v", tableInfo3))
+	resp3, err := exe3.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
+	c.Assert(err, IsNil)
+	c.Assert(resp3.Checksum, Equals, uint64(0), Commentf("%v", resp3))
+	c.Assert(resp3.TotalKvs, Equals, uint64(2), Commentf("%v", resp3))
+	c.Assert(resp3.TotalBytes, Equals, uint64(2), Commentf("%v", resp3))
+
 }
