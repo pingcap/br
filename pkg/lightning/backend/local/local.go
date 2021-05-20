@@ -2521,7 +2521,7 @@ func (w *Writer) encodeKeySuffix(key []byte, offset int64) []byte {
 	w.keyOffsetCache = strconv.AppendInt(w.keyOffsetCache[:0], offset, 10)
 	encodedLen := codec.EncodedBytesLength(len(key)) + 1 + len(w.keySuffixBase) + 1 + len(w.keyOffsetCache)
 	buf := w.kvBuffer.requireBytes(encodedLen)
-	buf = EncodeKeySuffix(buf[:0], key, w.keySuffixBase, offset)
+	buf = EncodeKeySuffix(buf, key, w.keySuffixBase, offset)
 	return buf
 }
 

@@ -30,6 +30,7 @@ func EncodeKeySuffix(buf []byte, key []byte, suffixBase []byte, offset int64) []
 	if bytes.IndexByte(suffixBase, keySuffixSeparator) != -1 {
 		panic("key suffix contains separator")
 	}
+	buf = buf[:0]
 	buf = codec.EncodeBytes(buf, key)
 	buf = append(buf, keySuffixSeparator)
 	buf = append(buf, suffixBase...)
