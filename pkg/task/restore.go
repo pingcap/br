@@ -150,6 +150,35 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 	}
 }
 
+// CheckRestoreDBAndTable is used to check the restore dbs or tables have been backup
+func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
+	// if the databases or tables restore should be in backup data
+	schemas := client.GetDatabases()
+	schemasMap := make(map[string]struct{})
+	tablesMap := make(map[string]struct{})
+	for _, db := range schemas {
+		schemasMap[db.Info.Name.O] = struct{}{}
+		for _, table := range db.Tables {
+			tablesMap[table.Info.Name.O] = struct{}{}
+		}
+	}
+	restoreSchemas := cfg.Schemas
+	restoreTables := cfg.Tables
+	for schema := range restoreSchemas {
+		if _, ok := schemasMap[schema]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[database: %v] has not been backup, please ensure you has input a correct database name", schema)
+		}
+	}
+	for table := range restoreTables {
+		if _, ok := tablesMap[table]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[table: %v] has not been backup, please ensure you has input a correct table name", table)
+		}
+	}
+	return nil
+}
+
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	cfg.adjustRestoreConfig()
@@ -225,7 +254,9 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if client.IsRawKvMode() {
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do transactional restore from raw kv data")
 	}
-
+	if err = CheckRestoreDBAndTable(client, cfg); err != nil {
+		return err
+	}
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
@@ -433,13 +464,38 @@ func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
 ) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
+	// if the databases or tables restore should be in backup data
+	schemas := client.GetDatabases()
+	schemasMap := make(map[string]struct{})
+	tablesMap := make(map[string]struct{})
+	for _, db := range schemas {
+		schemasMap[db.Info.Name.O] = struct{}{}
+		log.Info("backup database", zap.String("database", db.Info.Name.O))
+		for _, table := range db.Tables {
+			tablesMap[table.Info.Name.O] = struct{}{}
+			log.Info("backup table", zap.String("table", db.Info.Name.O))
+		}
+	}
+	restoreSchemas := cfg.Schemas
+	restoreTables := cfg.Tables
+	for schema := range restoreSchemas {
+		log.Info("restore databases", zap.String("database", schema))
+		if _, ok := schemasMap[schema]; !ok {
+			log.Error("Restore a undefined database")
+		}
+	}
+	for table := range restoreTables {
+		log.Info("restore tables", zap.String("tables", table))
+		if _, ok := tablesMap[table]; !ok {
+			log.Error("Restore a undefined table")
+		}
+	}
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
 			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
 				continue
 			}
-
 			if !createdDatabase {
 				dbs = append(dbs, db)
 				createdDatabase = true

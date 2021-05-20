@@ -31,6 +31,11 @@ error = '''
 invalid argument
 '''
 
+["BR:Common:ErrUndefinedDbOrTable"]
+error = '''
+undefined restore databases or tables
+'''
+
 ["BR:Common:ErrUnknown"]
 error = '''
 internal error
@@ -49,11 +54,6 @@ invalid external storage config
 ["BR:ExternalStorage:ErrStorageUnknown"]
 error = '''
 unknown external storage error
-'''
-
-["BR:KV:ERRORKVStorage"]
-error = '''
-tikv storage occur I/O error
 '''
 
 ["BR:KV:ErrKVClusterIDMismatch"]
@@ -94,6 +94,11 @@ range is empty
 ["BR:KV:ErrKVRewriteRuleNotFound"]
 error = '''
 rewrite rule not found
+'''
+
+["BR:KV:ErrKVStorage"]
+error = '''
+tikv storage occur I/O error
 '''
 
 ["BR:KV:ErrKVUnknown"]
