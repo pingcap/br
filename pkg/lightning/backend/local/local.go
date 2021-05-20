@@ -1932,6 +1932,13 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		}
 	}
 
+	if lf.Duplicates.Load() > 0 {
+		log.L().Warn("duplicate detected during import engine",
+			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
+			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
+		return backend.ErrDuplicateDetected
+	}
+
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
 		zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength),
 		zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
@@ -2033,7 +2040,11 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 	db, err := local.openEngineDB(engineUUID, false)
 	if err == nil {
 		localEngine.db = db
-		localEngine.localFileMeta = localFileMeta{}
+		// Reset localFileMeta except `Duplicates`.
+		duplicates := localEngine.localFileMeta.Duplicates.Load()
+		localEngine.localFileMeta = localFileMeta{
+			Duplicates: *atomic.NewInt64(duplicates),
+		}
 		if !common.IsDirExists(localEngine.sstDir) {
 			if err := os.Mkdir(localEngine.sstDir, 0o755); err != nil {
 				return errors.Trace(err)

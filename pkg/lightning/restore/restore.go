@@ -2342,8 +2342,9 @@ func (tr *TableRestore) importKV(
 
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
-	if err == nil {
-		err = closedEngine.Cleanup(ctx)
+	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
+	if err == nil || err == backend.ErrDuplicateDetected {
+		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 
 	dur := task.End(zap.ErrorLevel, err)

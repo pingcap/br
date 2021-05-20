@@ -37,6 +37,11 @@ const (
 	importMaxRetryTimes = 3 // tikv-importer has done retry internally. so we don't retry many times.
 )
 
+// ErrDuplicateDetected means duplicate is detected during Import.
+// After this error returned, all data in the engine must be imported.
+// So it's safe to reset or cleanup the engine data.
+var ErrDuplicateDetected = errors.New("duplicate detected")
+
 /*
 
 Usual workflow:
@@ -147,6 +152,9 @@ type AbstractBackend interface {
 
 	CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
+	// ImportEngine imports engine data to the backend. If it returns ErrDuplicateDetected,
+	// it means there is duplicate detected. For this situation, all data in the engine must be imported.
+	// It's safe to reset or cleanup this engine.
 	ImportEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	CleanupEngine(ctx context.Context, engineUUID uuid.UUID) error
@@ -310,7 +318,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 			uuid:    engineUUID,
 		},
 	}
-	if err := closedEngine.Import(ctx); err != nil {
+	if err := closedEngine.Import(ctx); err != nil && err != ErrDuplicateDetected {
 		return err
 	}
 	return be.abstract.ResetEngine(ctx, engineUUID)
@@ -421,6 +429,9 @@ func (engine *ClosedEngine) Import(ctx context.Context) error {
 	for i := 0; i < importMaxRetryTimes; i++ {
 		task := engine.logger.With(zap.Int("retryCnt", i)).Begin(zap.InfoLevel, "import")
 		err = engine.backend.ImportEngine(ctx, engine.uuid)
+		if err == ErrDuplicateDetected {
+			return err
+		}
 		if !common.IsRetryableError(err) {
 			task.End(zap.ErrorLevel, err)
 			return err
