@@ -128,7 +128,7 @@ type localFileMeta struct {
 	TotalSize atomic.Int64 `json:"total_size"`
 	// Duplicates is the number of duplicates kv pairs detected when importing. Note that the value is
 	// probably larger than real value, because we may import same range more than once. For accurate
-	// information, you should iterate the duplicate kv after import is finished.
+	// information, you should iterate the duplicate db after import is finished.
 	Duplicates atomic.Int64 `json:"duplicates"`
 }
 
