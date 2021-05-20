@@ -118,7 +118,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 		db:              db,
 		duplicateDBPath: duplicateDBPath,
 	}
-	iter := newDuplicateIterator(engineFile, &pebble.IterOptions{})
+	iter := newDuplicateIterator(context.Background(), engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
 		key1 := EncodeKeySuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)
 		key2 := EncodeKeySuffix(nil, pairs[j].Key, []byte("table.sql"), pairs[j].Offset)
