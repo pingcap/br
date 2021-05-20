@@ -11,12 +11,10 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/variable"
-	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/types"
-	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/utils"
@@ -123,17 +121,9 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	exe3.Each(func(req *kv.Request) error {
 		if first {
 			first = false
-			low, err := codec.EncodeKey(nil, nil, []types.Datum{types.MinNotNullDatum()}...)
+			ranges, err := backup.BuildTableRanges(tableInfo3)
 			c.Assert(err, IsNil)
-			high, err := codec.EncodeKey(nil, nil, []types.Datum{types.MaxValueDatum()}...)
-			c.Assert(err, IsNil)
-			high = kv.Key(high).PrefixNext()
-			c.Assert(req.KeyRanges, DeepEquals, []kv.KeyRange{
-				{
-					StartKey: tablecodec.EncodeRowKey(tableInfo3.ID, low),
-					EndKey:   tablecodec.EncodeRowKey(tableInfo3.ID, high),
-				},
-			}, Commentf("%v", req.KeyRanges))
+			c.Assert(req.KeyRanges, DeepEquals, ranges[:1], Commentf("%v", req.KeyRanges))
 		}
 		return nil
 	})
