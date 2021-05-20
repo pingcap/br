@@ -464,32 +464,6 @@ func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
 ) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
-	// if the databases or tables restore should be in backup data
-	schemas := client.GetDatabases()
-	schemasMap := make(map[string]struct{})
-	tablesMap := make(map[string]struct{})
-	for _, db := range schemas {
-		schemasMap[db.Info.Name.O] = struct{}{}
-		log.Info("backup database", zap.String("database", db.Info.Name.O))
-		for _, table := range db.Tables {
-			tablesMap[table.Info.Name.O] = struct{}{}
-			log.Info("backup table", zap.String("table", db.Info.Name.O))
-		}
-	}
-	restoreSchemas := cfg.Schemas
-	restoreTables := cfg.Tables
-	for schema := range restoreSchemas {
-		log.Info("restore databases", zap.String("database", schema))
-		if _, ok := schemasMap[schema]; !ok {
-			log.Error("Restore a undefined database")
-		}
-	}
-	for table := range restoreTables {
-		log.Info("restore tables", zap.String("tables", table))
-		if _, ok := tablesMap[table]; !ok {
-			log.Error("Restore a undefined table")
-		}
-	}
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
