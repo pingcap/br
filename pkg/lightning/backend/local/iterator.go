@@ -15,6 +15,7 @@ package local
 
 import (
 	"bytes"
+	"context"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/pingcap/tidb/util/codec"
@@ -39,6 +40,7 @@ type Iterator interface {
 const maxDuplicateBatchSize = 4 << 20
 
 type duplicateIterator struct {
+	ctx       context.Context
 	iter      *pebble.Iterator
 	curKey    []byte
 	curRawKey []byte
@@ -99,7 +101,7 @@ func (d *duplicateIterator) record(key []byte, val []byte) {
 
 func (d *duplicateIterator) Next() bool {
 	recordFirst := false
-	for d.err == nil && d.engineFile.ctx.Err() == nil && d.iter.Next() {
+	for d.err == nil && d.ctx.Err() == nil && d.iter.Next() {
 		d.nextKey, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
 		if d.err != nil {
 			return false
@@ -118,7 +120,7 @@ func (d *duplicateIterator) Next() bool {
 		d.record(d.iter.Key(), d.iter.Value())
 	}
 	if d.err == nil {
-		d.err = d.engineFile.ctx.Err()
+		d.err = d.ctx.Err()
 	}
 	return false
 }
@@ -151,7 +153,7 @@ func (d *duplicateIterator) Close() error {
 
 var _ Iterator = &duplicateIterator{}
 
-func newDuplicateIterator(engineFile *File, opts *pebble.IterOptions) Iterator {
+func newDuplicateIterator(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
 	newOpts := &pebble.IterOptions{TableFilter: opts.TableFilter}
 	if len(opts.LowerBound) > 0 {
 		newOpts.LowerBound = codec.EncodeBytes(nil, opts.LowerBound)
@@ -160,6 +162,7 @@ func newDuplicateIterator(engineFile *File, opts *pebble.IterOptions) Iterator {
 		newOpts.UpperBound = codec.EncodeBytes(nil, opts.UpperBound)
 	}
 	return &duplicateIterator{
+		ctx:        ctx,
 		iter:       engineFile.db.NewIter(newOpts),
 		engineFile: engineFile,
 	}
