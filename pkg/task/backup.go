@@ -434,7 +434,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	summary.CollectSuccessUnit(summary.BackupDataSize, 1, utils.ArchiveSize(&backupMeta))
+	g.Record(summary.BackupDataSize, utils.ArchiveSize(&backupMeta))
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)

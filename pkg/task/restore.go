@@ -150,7 +150,7 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 	}
 }
 
-// CheckRestoreDBAndTable is used to check the restore dbs or tables have been backup
+// CheckRestoreDBAndTable is used to check whether the restore dbs or tables have been backup
 func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
 	// if the databases or tables restore should be in backup data
 	schemas := client.GetDatabases()
@@ -239,7 +239,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	summary.CollectSuccessUnit(summary.RestoreDataSize, 1, utils.ArchiveSize(backupMeta))
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
 		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {

@@ -3,14 +3,14 @@ package utils
 import "strings"
 
 var (
-	notFoundMsg         = "notfound"
+	ioNotFoundMsg       = "notfound"
 	permissionDeniedMsg = "permissiondenied"
 )
 
 // MessageIsNotFoundStorageError checks whether the message returning from TiKV is "NotFound" storage I/O error
 func MessageIsNotFoundStorageError(msg string) bool {
 	msgLower := strings.ToLower(msg)
-	return strings.Contains(msgLower, notFoundMsg)
+	return strings.Contains(msgLower, ioNotFoundMsg)
 }
 
 // MessageIsPermissionDeniedStorageError checks whether the message returning from TiKV is "PermissionDenied" storage I/O error
