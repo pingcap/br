@@ -24,8 +24,7 @@ import (
 const keySuffixSeparator = '@'
 
 // EncodeKeySuffix appends a suffix to the key with key's position.
-// To guarantee the order is always the same whether we append the suffix or not,
-// we must encode the original key first, and then append the suffix.
+// To reserved the original order, we must encode the original key first, and then append the suffix.
 // `buf` is used to buffer data to avoid the cost of make slice.
 func EncodeKeySuffix(buf []byte, key []byte, suffixBase []byte, offset int64) []byte {
 	if bytes.IndexByte(suffixBase, keySuffixSeparator) != -1 {
