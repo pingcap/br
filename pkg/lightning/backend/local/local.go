@@ -812,8 +812,6 @@ type local struct {
 	localWriterMemCacheSize int64
 
 	duplicateDetection bool
-	duplicateKV        *pebble.DB
-	duplicateKVLock    sync.Mutex
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -1046,12 +1044,6 @@ func (local *local) Close() {
 		if err != nil {
 			log.L().Warn("remove local db file failed", zap.Error(err))
 		}
-	}
-
-	local.duplicateKVLock.Lock()
-	defer local.duplicateKVLock.Unlock()
-	if local.duplicateKV != nil {
-		local.duplicateKV.Close()
 	}
 }
 
