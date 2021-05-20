@@ -15,7 +15,6 @@ package local
 
 import (
 	"bytes"
-	"context"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/pingcap/tidb/util/codec"
@@ -39,14 +38,7 @@ type Iterator interface {
 
 const maxDuplicateBatchSize = 4 << 20
 
-// duplicateNotifyFunc is called when duplicate is detected. A duplicate pair will trigger a notify.
-type duplicateNotifyFunc func()
-
-// lazyOpenBatchFunc is used for duplicateIterator to lazily open a *pebble.Batch for recording duplicates.
-type lazyOpenBatchFunc func() (*pebble.Batch, error)
-
 type duplicateIterator struct {
-	ctx       context.Context
 	iter      *pebble.Iterator
 	curKey    []byte
 	curRawKey []byte
@@ -54,9 +46,7 @@ type duplicateIterator struct {
 	nextKey   []byte
 	err       error
 
-	lazyOpenBatch   lazyOpenBatchFunc
-	duplicateNotify duplicateNotifyFunc
-
+	engineFile     *File
 	writeBatch     *pebble.Batch
 	writeBatchSize int64
 }
@@ -78,7 +68,7 @@ func (d *duplicateIterator) Last() bool {
 }
 
 func (d *duplicateIterator) fillCurKV() {
-	d.curKey, d.err = decodeKeyWithSuffix(d.curKey[:0], d.iter.Key())
+	d.curKey, d.err = DecodeKeySuffix(d.curKey[:0], d.iter.Key())
 	d.curRawKey = append(d.curRawKey[:0], d.iter.Key()...)
 	d.curVal = append(d.curVal[:0], d.iter.Value()...)
 }
@@ -90,11 +80,9 @@ func (d *duplicateIterator) flush() {
 }
 
 func (d *duplicateIterator) record(key []byte, val []byte) {
-	if d.duplicateNotify != nil {
-		d.duplicateNotify()
-	}
+	d.engineFile.Duplicates.Inc()
 	if d.writeBatch == nil {
-		d.writeBatch, d.err = d.lazyOpenBatch()
+		d.writeBatch, d.err = d.engineFile.openDuplicateBatch()
 		if d.err != nil {
 			return
 		}
@@ -111,8 +99,8 @@ func (d *duplicateIterator) record(key []byte, val []byte) {
 
 func (d *duplicateIterator) Next() bool {
 	recordFirst := false
-	for d.err == nil && d.ctx.Err() == nil && d.iter.Next() {
-		d.nextKey, d.err = decodeKeyWithSuffix(d.nextKey[:0], d.iter.Key())
+	for d.err == nil && d.engineFile.ctx.Err() == nil && d.iter.Next() {
+		d.nextKey, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
 		if d.err != nil {
 			return false
 		}
@@ -130,7 +118,7 @@ func (d *duplicateIterator) Next() bool {
 		d.record(d.iter.Key(), d.iter.Value())
 	}
 	if d.err == nil {
-		d.err = d.ctx.Err()
+		d.err = d.engineFile.ctx.Err()
 	}
 	return false
 }
@@ -163,8 +151,7 @@ func (d *duplicateIterator) Close() error {
 
 var _ Iterator = &duplicateIterator{}
 
-func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterOptions,
-	lazyOpenBatch lazyOpenBatchFunc, duplicateNotify duplicateNotifyFunc) Iterator {
+func newDuplicateIterator(engineFile *File, opts *pebble.IterOptions) Iterator {
 	newOpts := &pebble.IterOptions{TableFilter: opts.TableFilter}
 	if len(opts.LowerBound) > 0 {
 		newOpts.LowerBound = codec.EncodeBytes(nil, opts.LowerBound)
@@ -173,9 +160,7 @@ func newDuplicateIterator(ctx context.Context, db *pebble.DB, opts *pebble.IterO
 		newOpts.UpperBound = codec.EncodeBytes(nil, opts.UpperBound)
 	}
 	return &duplicateIterator{
-		ctx:             ctx,
-		iter:            db.NewIter(newOpts),
-		duplicateNotify: duplicateNotify,
-		lazyOpenBatch:   lazyOpenBatch,
+		iter:       engineFile.db.NewIter(newOpts),
+		engineFile: engineFile,
 	}
 }

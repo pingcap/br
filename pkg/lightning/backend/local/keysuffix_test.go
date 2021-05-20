@@ -68,7 +68,7 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	}
 
 	for _, input := range inputs {
-		result := encodeKeyWithSuffix(nil, input.key, input.suffixBase, input.offset)
+		result := EncodeKeySuffix(nil, input.key, input.suffixBase, input.offset)
 
 		// Verify the key.
 		sep := bytes.LastIndexByte(result, keySuffixSeparator)
@@ -87,7 +87,7 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 		c.Assert(offset, Equals, input.offset)
 
 		// Decode the result.
-		key, err = decodeKeyWithSuffix(nil, result)
+		key, err = DecodeKeySuffix(nil, result)
 		c.Assert(err, IsNil)
 		c.Assert(key, BytesEquals, input.key)
 	}
@@ -95,10 +95,10 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	// Test panic encode.
 	c.Assert(
 		func() {
-			encodeKeyWithSuffix(nil, []byte{0x00}, []byte("db"+string(keySuffixSeparator)+"table.sql"), 24325)
+			EncodeKeySuffix(nil, []byte{0x00}, []byte("db"+string(keySuffixSeparator)+"table.sql"), 24325)
 		},
-		Panics,
-		errKeySuffixContainsSeparator,
+		PanicMatches,
+		"key suffix contains separator",
 	)
 
 	// Test error decode.
@@ -108,7 +108,7 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 		{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, keySuffixSeparator, 't', ':', '1', '2', '3', '4'},
 	}
 	for _, output := range errOutputs {
-		_, err := decodeKeyWithSuffix(nil, output)
+		_, err := DecodeKeySuffix(nil, output)
 		c.Assert(err, NotNil)
 	}
 }
@@ -123,7 +123,7 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 	}
 	var encodedKeys [][]byte
 	for i, key := range keys {
-		encodedKeys = append(encodedKeys, encodeKeyWithSuffix(nil, key, []byte("table.sql"), int64(i*1234)))
+		encodedKeys = append(encodedKeys, EncodeKeySuffix(nil, key, []byte("table.sql"), int64(i*1234)))
 	}
 	sorted := sort.SliceIsSorted(encodedKeys, func(i, j int) bool {
 		return bytes.Compare(encodedKeys[i], encodedKeys[j]) < 0
@@ -136,14 +136,14 @@ func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
 	bufLen := 256
 	buf := make([]byte, 0, bufLen)
 	buf = append(buf, 0x01, 0x02, 0x03, 0x04)
-	buf2 := encodeKeyWithSuffix(buf, key, []byte("table.sql"), 1234)
+	buf2 := EncodeKeySuffix(buf, key, []byte("table.sql"), 1234)
 	// There should be no new buf allocated.
 	// If we change a byte in `buf`, `buf2` can read the new byte.
 	c.Assert(buf2[:4], BytesEquals, buf)
 	buf[0] = 0xff
 	c.Assert(buf2[0], Equals, byte(0xff))
 	// Also verify the encode result.
-	key2, err := decodeKeyWithSuffix(nil, buf2[4:])
+	key2, err := DecodeKeySuffix(nil, buf2[4:])
 	c.Assert(err, IsNil)
 	c.Assert(key2, BytesEquals, key)
 }
@@ -152,7 +152,7 @@ func (s *keySuffixSuite) TestDecodeKeySuffixWithBuf(c *C) {
 	data := []byte{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7, keySuffixSeparator, 't', ':', '1', '2', '3', '4'}
 	buf := make([]byte, 0, len(data))
 	buf = append(buf, 0x01, 0x02, 0x03, 0x4)
-	key, err := decodeKeyWithSuffix(buf, data)
+	key, err := DecodeKeySuffix(buf, data)
 	c.Assert(err, IsNil)
 	// len(key) should be at least 4 bytes less than len(data). So there is no new buf allocated.
 	c.Assert(key[:4], BytesEquals, buf)

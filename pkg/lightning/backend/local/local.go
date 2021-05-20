@@ -93,8 +93,6 @@ const (
 
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
-
-	duplicateKVPath = "duplicate-kv"
 )
 
 var (
@@ -182,6 +180,9 @@ type File struct {
 	importedKVCount atomic.Int64
 
 	duplicateDetection bool
+	duplicateDBPath    string
+	duplicateDB        *pebble.DB
+	duplicateLock      sync.Mutex
 }
 
 func (e *File) setError(err error) {
@@ -193,12 +194,16 @@ func (e *File) setError(err error) {
 
 func (e *File) Close() error {
 	log.L().Debug("closing local engine", zap.Stringer("engine", e.UUID), zap.Stack("stack"))
-	if e.db == nil {
-		return nil
+	var err error
+	if e.db != nil {
+		e.db.Close()
+		e.db = nil
 	}
-	err := errors.Trace(e.db.Close())
-	e.db = nil
-	return err
+	if e.duplicateDB != nil {
+		err = multierr.Append(err, e.duplicateDB.Close())
+		e.duplicateDB = nil
+	}
+	return errors.Trace(err)
 }
 
 // Cleanup remove meta and db files
@@ -242,7 +247,7 @@ func (e *File) getSizeProperties() (*sizeProperties, error) {
 					newRangeProps := make(rangeProperties, 0, len(rangeProps))
 					for _, p := range rangeProps {
 						if !bytes.Equal(p.Key, engineMetaKey) {
-							p.Key, err = decodeKeyWithSuffix(nil, p.Key)
+							p.Key, err = DecodeKeySuffix(nil, p.Key)
 							if err != nil {
 								log.L().Warn(
 									"decodeRangeProperties failed because the props key is invalid",
@@ -741,6 +746,34 @@ func (e *File) loadEngineMeta() {
 		zap.Int64("size", e.TotalSize.Load()))
 }
 
+func (e *File) openDuplicateBatch() (*pebble.Batch, error) {
+	e.duplicateLock.Lock()
+	defer e.duplicateLock.Unlock()
+
+	if e.duplicateDB == nil {
+		// TODO: Optimize the opts for better write.
+		opts := &pebble.Options{}
+		db, err := pebble.Open(e.duplicateDBPath, opts)
+		if err != nil {
+			return nil, err
+		}
+		e.duplicateDB = db
+	}
+	return e.duplicateDB.NewBatch(), nil
+}
+
+func (e *File) newNormalKeyIter(engineFile *File, opts *pebble.IterOptions) Iterator {
+	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
+		newOpts := *opts
+		newOpts.LowerBound = normalIterStartKey
+		opts = &newOpts
+	}
+	if !e.duplicateDetection {
+		return engineFile.db.NewIter(opts)
+	}
+	return newDuplicateIterator(engineFile, opts)
+}
+
 type gRPCConns struct {
 	mu    sync.Mutex
 	conns map[uint64]*connPool
@@ -1065,7 +1098,7 @@ func (local *local) ShouldPostProcess() bool {
 	return true
 }
 
-func (local *local) openEngineDB(path string, readOnly bool) (*pebble.DB, error) {
+func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.DB, error) {
 	opt := &pebble.Options{
 		MemTableSize: local.engineMemCacheSize,
 		// the default threshold value may cause write stall.
@@ -1089,9 +1122,13 @@ func (local *local) openEngineDB(path string, readOnly bool) (*pebble.DB, error)
 		},
 	}
 
-	dbPath := filepath.Join(local.localStoreDir, path)
+	dbPath := filepath.Join(local.localStoreDir, engineUUID.String())
 	db, err := pebble.Open(dbPath, opt)
 	return db, errors.Trace(err)
+}
+
+func engineDuplicateDBPath(storeDir string, engineUUID uuid.UUID) string {
+	return filepath.Join(storeDir, engineUUID.String()+".duplicate")
 }
 
 // This method must be called with holding mutex of File
@@ -1100,7 +1137,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	if cfg.Local != nil {
 		engineCfg = *cfg.Local
 	}
-	db, err := local.openEngineDB(engineUUID.String(), false)
+	db, err := local.openEngineDB(engineUUID, false)
 	if err != nil {
 		return err
 	}
@@ -1123,6 +1160,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		cancel:             cancel,
 		config:             engineCfg,
 		duplicateDetection: local.duplicateDetection,
+		duplicateDBPath:    engineDuplicateDBPath(local.localStoreDir, engineUUID),
 	})
 	engine := e.(*File)
 	engine.db = db
@@ -1142,7 +1180,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	engine, ok := local.engines.Load(engineUUID)
 	if !ok {
 		// recovery mode, we should reopen this engine file
-		db, err := local.openEngineDB(engineUUID.String(), true)
+		db, err := local.openEngineDB(engineUUID, true)
 		if err != nil {
 			// if engine db does not exist, just skip
 			if os.IsNotExist(errors.Cause(err)) {
@@ -1155,6 +1193,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			db:                 db,
 			sstMetasChan:       make(chan metaOrFlush),
 			duplicateDetection: local.duplicateDetection,
+			duplicateDBPath:    engineDuplicateDBPath(local.localStoreDir, engineUUID),
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
 		engineFile.loadEngineMeta()
@@ -1202,7 +1241,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := local.newNormalKeyIter(ctx, engineFile, opt)
+	iter := engineFile.newNormalKeyIter(engineFile, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1419,7 +1458,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 }
 
 func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
-	iter := local.newNormalKeyIter(ctx, engineFile, &pebble.IterOptions{})
+	iter := engineFile.newNormalKeyIter(engineFile, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1563,33 +1602,6 @@ func (b *bytesBuffer) addBytes(bytes []byte) []byte {
 	return append(buf[:0], bytes...)
 }
 
-func (local *local) openDuplicateBatch() (*pebble.Batch, error) {
-	local.duplicateKVLock.Lock()
-	defer local.duplicateKVLock.Unlock()
-
-	if local.duplicateKV == nil {
-		duplicateKV, err := local.openEngineDB(duplicateKVPath, false)
-		if err != nil {
-			return nil, err
-		}
-		local.duplicateKV = duplicateKV
-	}
-	return local.duplicateKV.NewBatch(), nil
-}
-
-func (local *local) newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
-	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
-		newOpts := *opts
-		newOpts.LowerBound = normalIterStartKey
-		opts = &newOpts
-	}
-	if !local.duplicateDetection {
-		return engineFile.db.NewIter(opts)
-	}
-	duplicateNotify := func() { engineFile.Duplicates.Inc() }
-	return newDuplicateIterator(ctx, engineFile.db, opts, local.openDuplicateBatch, duplicateNotify)
-}
-
 func (local *local) writeAndIngestByRange(
 	ctxt context.Context,
 	engineFile *File,
@@ -1600,7 +1612,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := local.newNormalKeyIter(ctxt, engineFile, ito)
+	iter := engineFile.newNormalKeyIter(engineFile, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()
@@ -2018,7 +2030,7 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 	if err := localEngine.Cleanup(local.localStoreDir); err != nil {
 		return err
 	}
-	db, err := local.openEngineDB(engineUUID.String(), false)
+	db, err := local.openEngineDB(engineUUID, false)
 	if err == nil {
 		localEngine.db = db
 		localEngine.localFileMeta = localFileMeta{}
@@ -2498,7 +2510,7 @@ func (w *Writer) encodeKeySuffix(key []byte, offset int64) []byte {
 	w.keyOffsetCache = strconv.AppendInt(w.keyOffsetCache[:0], offset, 10)
 	encodedLen := codec.EncodedBytesLength(len(key)) + 1 + len(w.keySuffixBase) + 1 + len(w.keyOffsetCache)
 	buf := w.kvBuffer.requireBytes(encodedLen)
-	buf = encodeKeyWithSuffix(buf[:0], key, w.keySuffixBase, offset)
+	buf = EncodeKeySuffix(buf[:0], key, w.keySuffixBase, offset)
 	return buf
 }
 

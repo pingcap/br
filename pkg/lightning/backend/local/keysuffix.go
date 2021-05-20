@@ -23,15 +23,13 @@ import (
 
 const keySuffixSeparator = '@'
 
-var errKeySuffixContainsSeparator = errors.New("key suffix contains separator")
-
-// encodeKeyWithSuffix appends a suffix to the key with key's position.
+// EncodeKeySuffix appends a suffix to the key with key's position.
 // To guarantee the order is always the same whether we append the suffix or not,
 // we must encode the original key first, and then append the suffix.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func encodeKeyWithSuffix(buf []byte, key []byte, suffixBase []byte, offset int64) []byte {
+func EncodeKeySuffix(buf []byte, key []byte, suffixBase []byte, offset int64) []byte {
 	if bytes.IndexByte(suffixBase, keySuffixSeparator) != -1 {
-		panic(errKeySuffixContainsSeparator)
+		panic("key suffix contains separator")
 	}
 	buf = codec.EncodeBytes(buf, key)
 	buf = append(buf, keySuffixSeparator)
@@ -41,10 +39,10 @@ func encodeKeyWithSuffix(buf []byte, key []byte, suffixBase []byte, offset int64
 	return buf
 }
 
-// decodeKeyWithSuffix decode the original key. To simplify the implementation and speed
+// DecodeKeySuffix decode the original key. To simplify the implementation and speed
 // decoding, we don't verify the suffix format. We just trim the suffix by keySuffixSeparator.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func decodeKeyWithSuffix(buf []byte, data []byte) ([]byte, error) {
+func DecodeKeySuffix(buf []byte, data []byte) ([]byte, error) {
 	sep := bytes.LastIndexByte(data, keySuffixSeparator)
 	if sep == -1 {
 		return nil, errors.Errorf("failed to decode key, separator %s is missing", string(keySuffixSeparator))

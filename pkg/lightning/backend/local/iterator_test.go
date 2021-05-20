@@ -75,7 +75,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 		})
 	}
 
-	// Find duplicates from the generate pairs.
+	// Find duplicates from the generated pairs.
 	var duplicatePairs []common.KvPair
 	sort.Slice(pairs, func(i, j int) bool {
 		return bytes.Compare(pairs[i].Key, pairs[j].Key) < 0
@@ -107,25 +107,21 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(err, IsNil)
 	wb := db.NewBatch()
 	for _, p := range pairs {
-		key := encodeKeyWithSuffix(nil, p.Key, []byte("table.sql"), p.Offset)
+		key := EncodeKeySuffix(nil, p.Key, []byte("table.sql"), p.Offset)
 		c.Assert(wb.Set(key, p.Val, nil), IsNil)
 	}
 	c.Assert(wb.Commit(pebble.Sync), IsNil)
 
-	// Open duplicate kv.
-	var duplicateKV *pebble.DB
-	duplicateDir := filepath.Join(storeDir, "duplicate-kv")
-	iter := newDuplicateIterator(context.Background(), db, &pebble.IterOptions{}, func() (*pebble.Batch, error) {
-		var err error
-		duplicateKV, err = pebble.Open(duplicateDir, &pebble.Options{})
-		if err != nil {
-			return nil, err
-		}
-		return duplicateKV.NewBatch(), nil
-	}, nil)
+	duplicateDBPath := filepath.Join(storeDir, "duplicate-kv")
+	engineFile := &File{
+		ctx:             context.Background(),
+		db:              db,
+		duplicateDBPath: duplicateDBPath,
+	}
+	iter := newDuplicateIterator(engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
-		key1 := encodeKeyWithSuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)
-		key2 := encodeKeyWithSuffix(nil, pairs[j].Key, []byte("table.sql"), pairs[j].Offset)
+		key1 := EncodeKeySuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)
+		key2 := EncodeKeySuffix(nil, pairs[j].Key, []byte("table.sql"), pairs[j].Offset)
 		return bytes.Compare(key1, key2) < 0
 	})
 
@@ -149,13 +145,15 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(iter.Error(), IsNil)
 	c.Assert(len(uniqueKeys), Equals, 0)
 	c.Assert(iter.Close(), IsNil)
-	c.Assert(db.Close(), IsNil)
+	c.Assert(engineFile.Close(), IsNil)
 
 	// Check duplicates detected by duplicate iterator.
-	iter = duplicateKV.NewIter(&pebble.IterOptions{})
+	duplicateDB, err := pebble.Open(duplicateDBPath, &pebble.Options{})
+	c.Assert(err, IsNil)
+	iter = duplicateDB.NewIter(&pebble.IterOptions{})
 	var detectedPairs []common.KvPair
 	for iter.First(); iter.Valid(); iter.Next() {
-		key, err := decodeKeyWithSuffix(nil, iter.Key())
+		key, err := DecodeKeySuffix(nil, iter.Key())
 		c.Assert(err, IsNil)
 		detectedPairs = append(detectedPairs, common.KvPair{
 			Key: key,
@@ -164,7 +162,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	}
 	c.Assert(iter.Error(), IsNil)
 	c.Assert(iter.Close(), IsNil)
-	c.Assert(duplicateKV.Close(), IsNil)
+	c.Assert(duplicateDB.Close(), IsNil)
 	c.Assert(len(detectedPairs), Equals, len(duplicatePairs))
 
 	sort.Slice(duplicatePairs, func(i, j int) bool {
