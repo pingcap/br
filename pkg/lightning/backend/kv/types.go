@@ -35,6 +35,9 @@ type Row interface {
 		indices *Rows,
 		indexChecksum *verification.KVChecksum,
 	)
+
+	// Size represents the total kv size of this Row.
+	Size() uint64
 }
 
 // Rows represents a collection of encoded rows.

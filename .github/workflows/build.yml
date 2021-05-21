@@ -34,3 +34,17 @@ jobs:
 
       - name: Run build
         run: make build
+
+  compile-freebsd:
+    name: Compile for FreeBSD job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.1.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: Compile for FreeBSD
+        run: GOOS=freebsd make build

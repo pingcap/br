@@ -1151,6 +1151,57 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 	c.Assert(kvsCh, HasLen, 0)
 }
 
+func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
+	ctx := context.Background()
+	kvsCh := make(chan []deliveredKVs, 4)
+	deliverCompleteCh := make(chan deliverResult)
+	kvEncoder, err := kv.NewTableKVEncoder(s.tr.encTable, &kv.SessionOptions{
+		SQLMode:   s.cfg.TiDB.SQLMode,
+		Timestamp: 1234567898,
+	})
+	c.Assert(err, IsNil)
+
+	dir := c.MkDir()
+	fileName := "db.limit.000.csv"
+	err = ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
+	c.Assert(err, IsNil)
+
+	store, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+	cfg := config.NewConfig()
+
+	reader, err := store.Open(ctx, fileName)
+	c.Assert(err, IsNil)
+	w := worker.NewPool(ctx, 1, "io")
+	p := mydump.NewCSVParser(&cfg.Mydumper.CSV, reader, 111, w, false)
+	s.cr.parser = p
+
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
+	c.Assert(failpoint.Enable(
+		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
+	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
+
+	// we have 3 kvs total. after the failpoint injected.
+	// we will send one kv each time.
+	count := 0
+	for {
+		kvs, ok := <-kvsCh
+		if !ok {
+			break
+		}
+		count += 1
+		if count <= 3 {
+			c.Assert(kvs, HasLen, 1)
+		}
+		if count == 4 {
+			// we will send empty kvs before encodeLoop exists
+			// so, we can receive 4 batch and 1 is empty
+			c.Assert(kvs, HasLen, 0)
+			break
+		}
+	}
+}
+
 func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 	ctx := context.Background()
 	kvsCh := make(chan []deliveredKVs)
