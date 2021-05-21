@@ -93,6 +93,8 @@ const (
 
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
+
+	duplicateDBName = "duplicates"
 )
 
 var (
@@ -180,9 +182,7 @@ type File struct {
 	importedKVCount atomic.Int64
 
 	duplicateDetection bool
-	duplicateDBPath    string
 	duplicateDB        *pebble.DB
-	duplicateLock      sync.Mutex
 }
 
 func (e *File) setError(err error) {
@@ -194,16 +194,12 @@ func (e *File) setError(err error) {
 
 func (e *File) Close() error {
 	log.L().Debug("closing local engine", zap.Stringer("engine", e.UUID), zap.Stack("stack"))
-	var err error
-	if e.db != nil {
-		e.db.Close()
-		e.db = nil
+	if e.db == nil {
+		return nil
 	}
-	if e.duplicateDB != nil {
-		err = multierr.Append(err, e.duplicateDB.Close())
-		e.duplicateDB = nil
-	}
-	return errors.Trace(err)
+	err := errors.Trace(e.db.Close())
+	e.db = nil
+	return err
 }
 
 // Cleanup remove meta and db files
@@ -746,22 +742,6 @@ func (e *File) loadEngineMeta() {
 		zap.Int64("size", e.TotalSize.Load()))
 }
 
-func (e *File) openDuplicateBatch() (*pebble.Batch, error) {
-	e.duplicateLock.Lock()
-	defer e.duplicateLock.Unlock()
-
-	if e.duplicateDB == nil {
-		// TODO: Optimize the opts for better write.
-		opts := &pebble.Options{}
-		db, err := pebble.Open(e.duplicateDBPath, opts)
-		if err != nil {
-			return nil, err
-		}
-		e.duplicateDB = db
-	}
-	return e.duplicateDB.NewBatch(), nil
-}
-
 func (e *File) newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
 	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
 		newOpts := *opts
@@ -812,6 +792,7 @@ type local struct {
 	localWriterMemCacheSize int64
 
 	duplicateDetection bool
+	duplicateDB        *pebble.DB
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -872,6 +853,13 @@ func newConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, e
 	}
 }
 
+func openDuplicateDB(storeDir string) (*pebble.DB, error) {
+	dbPath := filepath.Join(storeDir, duplicateDBName)
+	// TODO: Optimize the opts for better write.
+	opts := &pebble.Options{}
+	return pebble.Open(dbPath, opts)
+}
+
 // NewLocalBackend creates new connections to tikv.
 func NewLocalBackend(
 	ctx context.Context,
@@ -909,6 +897,14 @@ func NewLocalBackend(
 		}
 	}
 
+	var duplicateDB *pebble.DB
+	if cfg.DuplicateDetection {
+		duplicateDB, err = openDuplicateDB(localFile)
+		if err != nil {
+			return backend.MakeBackend(nil), errors.Annotate(err, "open duplicate db failed")
+		}
+	}
+
 	local := &local{
 		engines:  sync.Map{},
 		splitCli: splitCli,
@@ -929,6 +925,7 @@ func NewLocalBackend(
 		engineMemCacheSize:      int(cfg.EngineMemCacheSize),
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 		duplicateDetection:      cfg.DuplicateDetection,
+		duplicateDB:             duplicateDB,
 	}
 	local.conns.conns = make(map[uint64]*connPool)
 	return backend.MakeBackend(local), nil
@@ -1036,6 +1033,23 @@ func (local *local) Close() {
 		engine.unlock()
 	}
 	local.conns.Close()
+
+	if local.duplicateDB != nil {
+		// Check whether there are duplicates.
+		iter := local.duplicateDB.NewIter(&pebble.IterOptions{})
+		hasNoDuplicates := !iter.First() && iter.Error() == nil
+		if err := local.duplicateDB.Close(); err != nil {
+			log.L().Warn("close duplicate db failed", zap.Error(err))
+		}
+		// If checkpoint is disabled or we don't detect any duplicate, then this duplicate
+		// db dir will be useless, so we clean up this dir.
+		if !local.checkpointEnabled || hasNoDuplicates {
+			if err := os.RemoveAll(filepath.Join(local.localStoreDir, duplicateDBName)); err != nil {
+				log.L().Warn("remove duplicate db file failed", zap.Error(err))
+			}
+		}
+		local.duplicateDB = nil
+	}
 
 	// if checkpoint is disable or we finish load all data successfully, then files in this
 	// dir will be useless, so we clean up this dir and all files in it.
@@ -1152,7 +1166,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		cancel:             cancel,
 		config:             engineCfg,
 		duplicateDetection: local.duplicateDetection,
-		duplicateDBPath:    engineDuplicateDBPath(local.localStoreDir, engineUUID),
+		duplicateDB:        local.duplicateDB,
 	})
 	engine := e.(*File)
 	engine.db = db
@@ -1185,7 +1199,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			db:                 db,
 			sstMetasChan:       make(chan metaOrFlush),
 			duplicateDetection: local.duplicateDetection,
-			duplicateDBPath:    engineDuplicateDBPath(local.localStoreDir, engineUUID),
+			duplicateDB:        local.duplicateDB,
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
 		engineFile.loadEngineMeta()

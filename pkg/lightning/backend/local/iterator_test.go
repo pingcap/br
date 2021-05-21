@@ -112,11 +112,12 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	}
 	c.Assert(wb.Commit(pebble.Sync), IsNil)
 
-	duplicateDBPath := filepath.Join(storeDir, "duplicate-kv")
+	duplicateDB, err := pebble.Open(filepath.Join(storeDir, "duplicates"), &pebble.Options{})
+	c.Assert(err, IsNil)
 	engineFile := &File{
-		ctx:             context.Background(),
-		db:              db,
-		duplicateDBPath: duplicateDBPath,
+		ctx:         context.Background(),
+		db:          db,
+		duplicateDB: duplicateDB,
 	}
 	iter := newDuplicateIterator(context.Background(), engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
@@ -148,8 +149,6 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(engineFile.Close(), IsNil)
 
 	// Check duplicates detected by duplicate iterator.
-	duplicateDB, err := pebble.Open(duplicateDBPath, &pebble.Options{})
-	c.Assert(err, IsNil)
 	iter = duplicateDB.NewIter(&pebble.IterOptions{})
 	var detectedPairs []common.KvPair
 	for iter.First(); iter.Valid(); iter.Next() {

@@ -83,12 +83,6 @@ func (d *duplicateIterator) flush() {
 
 func (d *duplicateIterator) record(key []byte, val []byte) {
 	d.engineFile.Duplicates.Inc()
-	if d.writeBatch == nil {
-		d.writeBatch, d.err = d.engineFile.openDuplicateBatch()
-		if d.err != nil {
-			return
-		}
-	}
 	d.err = d.writeBatch.Set(key, val, nil)
 	if d.err != nil {
 		return
@@ -106,7 +100,7 @@ func (d *duplicateIterator) Next() bool {
 		if d.err != nil {
 			return false
 		}
-		if bytes.Compare(d.nextKey, d.curKey) != 0 {
+		if !bytes.Equal(d.nextKey, d.curKey) {
 			d.curKey, d.nextKey = d.nextKey, d.curKey[:0]
 			d.curRawKey = append(d.curRawKey[:0], d.iter.Key()...)
 			d.curVal = append(d.curVal[:0], d.iter.Value()...)
@@ -142,12 +136,10 @@ func (d *duplicateIterator) Error() error {
 }
 
 func (d *duplicateIterator) Close() error {
-	if d.writeBatch != nil {
-		if d.err == nil {
-			d.flush()
-		}
-		d.writeBatch.Close()
+	if d.err == nil {
+		d.flush()
 	}
+	d.writeBatch.Close()
 	return d.iter.Close()
 }
 
@@ -165,5 +157,6 @@ func newDuplicateIterator(ctx context.Context, engineFile *File, opts *pebble.It
 		ctx:        ctx,
 		iter:       engineFile.db.NewIter(newOpts),
 		engineFile: engineFile,
+		writeBatch: engineFile.duplicateDB.NewBatch(),
 	}
 }
