@@ -127,12 +127,5 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 		}
 		return nil
 	})
-	c.Assert(err, IsNil)
-	c.Assert(exe3.Len(), Equals, 2, Commentf("%v", tableInfo3))
-	resp3, err := exe3.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
-	c.Assert(err, IsNil)
-	c.Assert(resp3.Checksum, Equals, uint64(0), Commentf("%v", resp3))
-	c.Assert(resp3.TotalKvs, Equals, uint64(2), Commentf("%v", resp3))
-	c.Assert(resp3.TotalBytes, Equals, uint64(2), Commentf("%v", resp3))
 
 }
