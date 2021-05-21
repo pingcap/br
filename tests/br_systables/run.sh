@@ -38,7 +38,7 @@ check() {
     run_sql "SELECT count(*) from mysql.usertable;" | grep 1000
     run_sql "SHOW TABLES IN mysql;" | awk '/bar/{exit 1}'
     # we cannot let user overwrite `mysql.tidb` through br in any time.
-    run_sql "SELECT VARIABLE_VALUE FROM mysql.tidb WHERE VARIABLE_NAME = 'tikv_gc_life_time'" | grep -v "1h"
+    run_sql "SELECT VARIABLE_VALUE FROM mysql.tidb WHERE VARIABLE_NAME = 'tikv_gc_life_time'" | awk '/1h/{exit 1}'
 
     # TODO remove this after supporting auto flush.
     run_sql "FLUSH PRIVILEGES;"
