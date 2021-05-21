@@ -170,7 +170,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	
 	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
