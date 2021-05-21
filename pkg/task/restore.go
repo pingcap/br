@@ -234,9 +234,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-<<<<<<< HEAD
-	g.Record("Size", utils.ArchiveSize(backupMeta))
-=======
+
 	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
@@ -244,7 +242,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 			return errors.Trace(versionErr)
 		}
 	}
->>>>>>> 3c853124 (err_msg: clarify some ambiguous error message (#1076))
 
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)
