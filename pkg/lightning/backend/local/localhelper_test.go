@@ -145,6 +145,10 @@ func (c *testClient) SplitRegion(
 func (c *testClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.splitCount++
+
 	if c.hook != nil {
 		regionInfo, keys = c.hook.BeforeSplitRegion(ctx, regionInfo, keys)
 	}
@@ -158,9 +162,12 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	default:
 	}
 
+<<<<<<< HEAD
 	c.splitCount.Inc()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+=======
+>>>>>>> 0f4dbf4b (lightning: avoid ignore error when import data fails (#1115))
 	newRegions := make([]*restore.RegionInfo, 0)
 	target, ok := c.regions[regionInfo.Region.Id]
 	if !ok {
@@ -539,7 +546,7 @@ type splitRegionNoValidKeyHook struct {
 	errorCnt       atomic.Int32
 }
 
-func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+func (h *splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
 	if h.errorCnt.Inc() <= h.returnErrTimes {
 		// clean keys to trigger "no valid keys" error
@@ -549,7 +556,7 @@ func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, region
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*", defaultHook{})
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, "", defaultHook{})
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
