@@ -993,18 +993,22 @@ func (rc *Controller) listenCheckpointUpdates() {
 // buildRunPeriodicActionAndCancelFunc build the runPeriodicAction func and a cancel func
 func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, stop <-chan struct{}) (func(), func(bool)) {
 	cancelFuncs := make([]func(bool), 0)
-
+	closeFuncs := make([]func(), 0)
 	// a nil channel blocks forever.
 	// if the cron duration is zero we use the nil channel to skip the action.
 	var logProgressChan <-chan time.Time
 	if rc.cfg.Cron.LogProgress.Duration > 0 {
 		logProgressTicker := time.NewTicker(rc.cfg.Cron.LogProgress.Duration)
-		defer logProgressTicker.Stop()
+		closeFuncs = append(closeFuncs, func() {
+			logProgressTicker.Stop()
+		})
 		logProgressChan = logProgressTicker.C
 	}
 
 	glueProgressTicker := time.NewTicker(3 * time.Second)
-	defer glueProgressTicker.Stop()
+	closeFuncs = append(closeFuncs, func() {
+		glueProgressTicker.Stop()
+	})
 
 	var switchModeChan <-chan time.Time
 	// tidb backend don't need to switch tikv to import mode
@@ -1018,7 +1022,6 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, s
 					log.L().Warn("switch tikv to normal mode failed", zap.Error(err))
 				}
 			}
-
 		})
 		switchModeChan = switchModeTicker.C
 	}
@@ -1032,6 +1035,11 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, s
 	}
 
 	return func() {
+			defer func() {
+				for _, f := range closeFuncs {
+					f()
+				}
+			}()
 			// tidb backend don't need to switch tikv to import mode
 			if rc.cfg.TikvImporter.Backend != config.BackendTiDB && rc.cfg.Cron.SwitchMode.Duration > 0 {
 				rc.switchToImportMode(ctx)
@@ -1400,9 +1408,9 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 
 	// stop periodic tasks for restore table such as pd schedulers and switch-mode tasks.
 	// this can help make cluster switching back to normal state more quickly.
-	finishSchedulers()
-	cancelFunc(switchBack)
-	finishFuncCalled = true
+	// finishSchedulers()
+	// cancelFunc(switchBack)
+	// finishFuncCalled = true
 
 	close(postProcessTaskChan)
 	// otherwise, we should run all tasks in the post-process task chan
