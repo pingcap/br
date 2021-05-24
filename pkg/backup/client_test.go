@@ -151,10 +151,10 @@ func (r *testBackup) TestBuildTableRangeCommonHandle(c *C) {
 		ids []int64
 		trs []kv.KeyRange
 	}
-	low, err := codec.EncodeKey(nil, nil, []types.Datum{types.MinNotNullDatum()}...)
-	c.Assert(err, IsNil)
-	high, err := codec.EncodeKey(nil, nil, []types.Datum{types.MaxValueDatum()}...)
-	c.Assert(err, IsNil)
+	low, err_l := codec.EncodeKey(nil, nil, []types.Datum{types.MinNotNullDatum()}...)
+	c.Assert(err_l, IsNil)
+	high, err_h := codec.EncodeKey(nil, nil, []types.Datum{types.MaxValueDatum()}...)
+	c.Assert(err_h, IsNil)
 	high = kv.Key(high).PrefixNext()
 	cases := []Case{
 		{ids: []int64{1}, trs: []kv.KeyRange{
@@ -183,8 +183,8 @@ func (r *testBackup) TestBuildTableRangeCommonHandle(c *C) {
 	}
 
 	tbl := &model.TableInfo{ID: 7, IsCommonHandle: true}
-	ranges, err := backup.BuildTableRanges(tbl)
-	c.Assert(err, IsNil)
+	ranges, err_r := backup.BuildTableRanges(tbl)
+	c.Assert(err_r, IsNil)
 	c.Assert(ranges, DeepEquals, []kv.KeyRange{
 		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
 	})

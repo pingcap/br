@@ -117,6 +117,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	tk.MustExec("insert into t3 values ('fffffffff', 1), ('010101010', 2), ('394393fj39efefe', 3);")
 	tableInfo3 := s.getTableInfo(c, "test", "t3")
 	exe3, err := checksum.NewExecutorBuilder(tableInfo3, math.MaxUint64).Build()
+	c.Assert(err, IsNil)
 	first := true
 	exe3.Each(func(req *kv.Request) error {
 		if first {
@@ -127,5 +128,4 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 		}
 		return nil
 	})
-
 }
