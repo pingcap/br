@@ -20,7 +20,6 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	. "github.com/pingcap/check"
@@ -34,6 +33,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+	"go.uber.org/atomic"
 
 	"github.com/pingcap/br/pkg/restore"
 )
@@ -44,7 +44,7 @@ type testClient struct {
 	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
-	splitCount   int
+	splitCount   atomic.Int32
 	hook         clientHook
 }
 
@@ -148,6 +148,13 @@ func (c *testClient) SplitRegion(
 func (c *testClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
+<<<<<<< HEAD
+=======
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.splitCount.Inc()
+
+>>>>>>> d0673106 (test: fix lighting unit test TestBatchSplitRegionByRanges and a panic issue (#1086))
 	if c.hook != nil {
 		regionInfo, keys = c.hook.BeforeSplitRegion(ctx, regionInfo, keys)
 	}
@@ -366,7 +373,33 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 	defer func() {
 		maxBatchSplitKeys = oldLimit
 		splitRegionBaseBackOffTime = oldSplitBackoffTime
+<<<<<<< HEAD
 	}()
+=======
+	}
+}
+
+func (d defaultHook) check(c *C, cli *testClient) {
+	// so with a batch split size of 4, there will be 7 time batch split
+	// 1. region: [aay, bba), keys: [b, ba, bb]
+	// 2. region: [bbh, cca), keys: [bc, bd, be, bf]
+	// 3. region: [bf, cca), keys: [bg, bh, bi, bj]
+	// 4. region: [bj, cca), keys: [bk, bl, bm, bn]
+	// 5. region: [bn, cca), keys: [bo, bp, bq, br]
+	// 6. region: [br, cca), keys: [bs, bt, bu, bv]
+	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
+
+	// since it may encounter error retries, here only check the lower threshold.
+	c.Assert(cli.splitCount.Load() >= 7, IsTrue)
+}
+
+func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, hook clientHook, errPat string, splitHook batchSplitHook) {
+	if splitHook == nil {
+		splitHook = defaultHook{}
+	}
+	deferFunc := splitHook.setup(c)
+	defer deferFunc()
+>>>>>>> d0673106 (test: fix lighting unit test TestBatchSplitRegionByRanges and a panic issue (#1086))
 
 	keys := [][]byte{[]byte(""), []byte("aay"), []byte("bba"), []byte("bbh"), []byte("cca"), []byte("")}
 	client := initTestClient(keys, hook)
@@ -425,7 +458,44 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 }
 
 func (s *localSuite) TestBatchSplitRegionByRanges(c *C) {
+<<<<<<< HEAD
 	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "")
+=======
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "", nil)
+}
+
+type batchSizeHook struct{}
+
+func (h batchSizeHook) setup(c *C) func() {
+	oldSizeLimit := maxBatchSplitSize
+	oldSplitBackoffTime := splitRegionBaseBackOffTime
+	maxBatchSplitSize = 6
+	splitRegionBaseBackOffTime = time.Millisecond
+	return func() {
+		maxBatchSplitSize = oldSizeLimit
+		splitRegionBaseBackOffTime = oldSplitBackoffTime
+	}
+}
+
+func (h batchSizeHook) check(c *C, cli *testClient) {
+	// so with a batch split key size of 6, there will be 9 time batch split
+	// 1. region: [aay, bba), keys: [b, ba, bb]
+	// 2. region: [bbh, cca), keys: [bc, bd, be]
+	// 3. region: [bf, cca), keys: [bf, bg, bh]
+	// 4. region: [bj, cca), keys: [bi, bj, bk]
+	// 5. region: [bj, cca), keys: [bl, bm, bn]
+	// 6. region: [bn, cca), keys: [bo, bp, bq]
+	// 7. region: [bn, cca), keys: [br, bs, bt]
+	// 9. region: [br, cca), keys: [bu, bv, bw]
+	// 10. region: [bv, cca), keys: [bx, by, bz]
+
+	// since it may encounter error retries, here only check the lower threshold.
+	c.Assert(cli.splitCount.Load(), Equals, int32(9))
+}
+
+func (s *localSuite) TestBatchSplitRegionByRangesKeySizeLimit(c *C) {
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, nil, "", batchSizeHook{})
+>>>>>>> d0673106 (test: fix lighting unit test TestBatchSplitRegionByRanges and a panic issue (#1086))
 }
 
 type scanRegionEmptyHook struct {
@@ -465,13 +535,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
 // return epoch not match error in every other call
 type splitRegionEpochNotMatchHookRandom struct {
 	noopHook
-	cnt int32
+	cnt atomic.Int32
 }
 
 func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	cnt := atomic.AddInt32(&h.cnt, 1)
-	if cnt%2 != 0 {
+	if h.cnt.Inc() != 0 {
 		return regionInfo, keys
 	}
 	regionInfo = cloneRegion(regionInfo)
@@ -487,12 +556,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
 type splitRegionNoValidKeyHook struct {
 	noopHook
 	returnErrTimes int32
-	errorCnt       int32
+	errorCnt       atomic.Int32
 }
 
 func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	if atomic.AddInt32(&h.errorCnt, 1) <= h.returnErrTimes {
+	if h.errorCnt.Inc() <= h.returnErrTimes {
 		// clean keys to trigger "no valid keys" error
 		keys = keys[:0]
 	}
