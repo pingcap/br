@@ -103,6 +103,8 @@ var (
 	localMaxTiKVVersion = version.NextMajorVersion()
 	localMaxPDVersion   = version.NextMajorVersion()
 	tiFlashMinVersion   = *semver.New("4.0.5")
+
+	errorEngineClosed = errors.New("engine is closed")
 )
 
 var (
@@ -146,6 +148,7 @@ type metaOrFlush struct {
 
 type File struct {
 	localFileMeta
+	closed       atomic.Bool
 	db           *pebble.DB
 	UUID         uuid.UUID
 	localWriters sync.Map
@@ -603,6 +606,9 @@ func (e *File) ingestSSTs(metas []*sstMeta) error {
 	// use raw RLock to avoid change the lock state during flushing.
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
+	if e.closed.Load() {
+		return errorEngineClosed
+	}
 	totalSize := int64(0)
 	totalCount := int64(0)
 	fileSize := int64(0)
@@ -896,8 +902,13 @@ func (local *local) tryRLockAllEngines() []*File {
 	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
+		// skip closed engine
 		if engine.tryRLock() {
-			allEngines = append(allEngines, engine)
+			if !engine.closed.Load() {
+				allEngines = append(allEngines, engine)
+			} else {
+				engine.rUnlock()
+			}
 		}
 		return true
 	})
@@ -993,6 +1004,9 @@ func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
 		return errors.Errorf("engine '%s' not found", engineID)
 	}
 	defer engineFile.rUnlock()
+	if engineFile.closed.Load() {
+		return nil
+	}
 	return engineFile.flushEngineWithoutLock(ctx)
 }
 
@@ -1124,9 +1138,20 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	engineFile := engine.(*File)
 	engineFile.rLock()
+	if engineFile.closed.Load() {
+		engineFile.rUnlock()
+		return nil
+	}
+
 	err := engineFile.flushEngineWithoutLock(ctx)
 	engineFile.rUnlock()
+
+	// use mutex to make sure we won't close sstMetasChan while other routines
+	// trying to do flush.
+	engineFile.lock(importMutexStateClose)
+	engineFile.closed.Store(true)
 	close(engineFile.sstMetasChan)
+	engineFile.unlock()
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -2483,6 +2508,10 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
+	}
+
+	if w.local.closed.Load() {
+		return errorEngineClosed
 	}
 
 	w.Lock()
