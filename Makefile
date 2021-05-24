@@ -50,6 +50,13 @@ ifeq ("$(WITH_RACE)", "1")
 	GOBUILD  = CGO_ENABLED=1 GO111MODULE=on $(GO) build -ldflags '$(LDFLAGS)'
 endif
 
+# There is no FreeBSD environment for GitHub actions. So cross-compile on Linux
+# but that doesn't work with CGO_ENABLED=1, so disable cgo. The reason to have
+# cgo enabled on regular builds is performance.
+ifeq ("$(GOOS)", "freebsd")
+	GOBUILD  = CGO_ENABLED=0 GO111MODULE=on go build -trimpath -ldflags '$(LDFLAGS)'
+endif
+
 all: build check test
 
 prepare:

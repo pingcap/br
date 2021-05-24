@@ -11,23 +11,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// +build windows
+// +build freebsd
 
 package local
 
 import (
-	"math"
-
-	"github.com/pingcap/errors"
+	"go.uber.org/zap"
 )
 
-type Rlim_t = uint64
+type Rlim_t = int64
 
-// return a big value as unlimited, since rlimit verify is skipped in windows.
-func GetSystemRLimit() (uint64, error) {
-	return math.MaxInt32, nil
-}
-
-func VerifyRLimit(estimateMaxFiles uint64) error {
-	return errors.New("Local-backend is not tested on Windows. Run with --check-requirements=false to disable this check, but you are on your own risk.")
+func zapRlim_t(key string, val Rlim_t) zap.Field {
+	return zap.Int64(key, val)
 }

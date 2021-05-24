@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/variable"
-	tikvstore "github.com/pingcap/tidb/store/tikv/kv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
@@ -176,7 +175,7 @@ func buildTableRequest(
 
 	var builder distsql.RequestBuilder
 	// Use low priority to reducing impact to other requests.
-	builder.Request.Priority = tikvstore.PriorityLow
+	builder.Request.Priority = kv.PriorityLow
 	return builder.SetTableRanges(tableID, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
@@ -209,7 +208,7 @@ func buildIndexRequest(
 
 	var builder distsql.RequestBuilder
 	// Use low priority to reducing impact to other requests.
-	builder.Request.Priority = tikvstore.PriorityLow
+	builder.Request.Priority = kv.PriorityLow
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
