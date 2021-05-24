@@ -1000,6 +1000,7 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, s
 		cancelFuncs = append(cancelFuncs, func(bool) { switchModeTicker.Stop() })
 		cancelFuncs = append(cancelFuncs, func(do bool) {
 			if do {
+				log.L().Info("switch to normal mode")
 				if err := rc.switchToNormalMode(ctx); err != nil {
 					log.L().Warn("switch tikv to normal mode failed", zap.Error(err))
 				}
@@ -1130,6 +1131,7 @@ func (rc *Controller) buildRunPeriodicActionAndCancelFunc(ctx context.Context, s
 				}
 			}
 		}, func(do bool) {
+			log.L().Info("cancel periodic actions", zap.Bool("do", do))
 			for _, f := range cancelFuncs {
 				f(do)
 			}
@@ -1486,8 +1488,7 @@ func (tr *TableRestore) restoreTable(
 		}
 
 		// "show table next_row_id" is only available after v4.0.0
-		if tidbVersion.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB &&
-			(common.TableHasAutoRowID(tr.tableInfo.Core) || tr.tableInfo.Core.GetAutoIncrementColInfo() != nil || tr.tableInfo.Core.ContainsAutoRandomBits()) {
+		if tidbVersion.Major >= 4 && rc.cfg.TikvImporter.Backend != config.BackendTiDB {
 			// first, insert a new-line into meta table
 			if err = metaMgr.InitTableMeta(ctx); err != nil {
 				return false, err
@@ -3070,6 +3071,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 	if err != nil {
 		return nil, 0, errors.Annotate(err, "enable pessimistic transaction failed")
 	}
+	needAutoID := common.TableHasAutoRowID(m.tr.tableInfo.Core) || m.tr.tableInfo.Core.GetAutoIncrementColInfo() != nil || m.tr.tableInfo.Core.ContainsAutoRandomBits()
 	err = exec.Transact(ctx, "init table allocator base", func(ctx context.Context, tx *sql.Tx) error {
 		query := fmt.Sprintf("SELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from %s WHERE table_id = ? FOR UPDATE", m.tableName)
 		rows, err := tx.QueryContext(ctx, query, m.tr.tableInfo.ID)
@@ -3124,7 +3126,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 
 		// no enough info are available, fetch row_id max for table
 		if curStatus == metaStatusInitial {
-			if maxRowIDMax == 0 {
+			if needAutoID && maxRowIDMax == 0 {
 				// NOTE: currently, if a table contains auto_incremental unique key and _tidb_rowid,
 				// the `show table next_row_id` will returns the unique key field only.
 				var autoIDField string
@@ -3163,7 +3165,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 			newRowIDBase = maxRowIDMax
 			newRowIDMax = newRowIDBase + rawRowIDMax
 			// table contains no data, can skip checksum
-			if newRowIDBase == 0 && newStatus < metaStatusRestoreStarted {
+			if needAutoID && newRowIDBase == 0 && newStatus < metaStatusRestoreStarted {
 				newStatus = metaStatusRestoreStarted
 			}
 			query = fmt.Sprintf("update %s set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?", m.tableName)
@@ -3184,7 +3186,7 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 	// need to do checksum and update checksum meta since we are the first one.
 	if curStatus < metaStatusRestoreStarted {
 		// table contains data but haven't do checksum yet
-		if newRowIDBase > 0 && baseTotalKvs == 0 {
+		if (newRowIDBase > 0 || !needAutoID) && baseTotalKvs == 0 {
 			remoteCk, err := DoChecksum(ctx, m.tr.tableInfo)
 			if err != nil {
 				return nil, 0, errors.Trace(err)
@@ -3210,6 +3212,11 @@ func (m *tableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) 
 	if checksum == nil && baseTotalKvs > 0 {
 		ck := verify.MakeKVChecksum(baseTotalBytes, baseTotalKvs, baseChecksum)
 		checksum = &ck
+	}
+	log.L().Info("allocate table row_id base", zap.String("table", m.tr.tableName),
+		zap.Int64("row_id_base", newRowIDBase))
+	if checksum != nil {
+		log.L().Info("checksum base", zap.Any("checksum", checksum))
 	}
 	return checksum, newRowIDBase, nil
 }
@@ -3286,7 +3293,7 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 			}
 
 			if taskID == m.taskID {
-				if status > metaStatusChecksuming {
+				if status >= metaStatusChecksuming {
 					newStatus = status
 					needChecksum = status == metaStatusChecksuming
 					return nil
@@ -3327,6 +3334,8 @@ func (m *tableMetaMgr) checkAndUpdateLocalChecksum(ctx context.Context, checksum
 		ck := verify.MakeKVChecksum(totalBytes, totalKvs, totalChecksum)
 		remoteChecksum = &ck
 	}
+	log.L().Info("check table checksum", zap.String("table", m.tr.tableName),
+		zap.Bool("checksum", needChecksum), zap.String("new_status", newStatus.String()))
 	return needChecksum, remoteChecksum, nil
 }
 
@@ -3602,6 +3611,18 @@ func cleanupAllMetas(ctx context.Context, dbExecutor common.DBExecutor, schema s
 		DB:     dbExecutor,
 		Logger: log.L(),
 	}
+
+	// check if all tables are finished
+	query := fmt.Sprintf("SELECT COUNT(*) from %s", common.UniqueTable(schema, tableMetaTableName))
+	var cnt int
+	if err := exec.QueryRow(ctx, "fetch table meta row count", query, &cnt); err != nil {
+		return errors.Trace(err)
+	}
+	if cnt > 0 {
+		log.L().Warn("there are unfinished table in table meta table, cleanup skipped.")
+		return nil
+	}
+
 	// avoid override existing metadata if the meta is already inserted.
 	stmt := fmt.Sprintf("DROP DATABASE %s;", schema)
 	if err := exec.Exec(ctx, "cleanup task meta tables", stmt); err != nil {
