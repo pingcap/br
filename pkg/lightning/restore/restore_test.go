@@ -54,6 +54,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/version/build"
 )
@@ -866,6 +867,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(err, IsNil)
 
 	cpDB := checkpoints.NewNullCheckpointsDB()
+	g := mock.NewMockGlue(controller)
 	rc := &Controller{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
@@ -885,17 +887,22 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		saveCpCh:          chptCh,
 		pauser:            DeliverPauser,
 		backend:           noop.NewNoopBackend(),
-		tidbGlue:          mock.NewMockGlue(controller),
+		tidbGlue:          g,
 		errorSummaries:    makeErrorSummaries(log.L()),
 		tls:               tls,
 		checkpointsDB:     cpDB,
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
+		metaMgrBuilder:    testMetaMgrBuilder{},
 	}
 	go func() {
 		for range chptCh {
 		}
 	}()
+	exec := mock.NewMockSQLExecutor(controller)
+	g.EXPECT().GetSQLExecutor().Return(exec).AnyTimes()
+	exec.EXPECT().ObtainStringWithLog(gomock.Any(), "SELECT version()", gomock.Any(), gomock.Any()).
+		Return("5.7.25-TiDB-v5.0.1", nil).AnyTimes()
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
@@ -912,6 +919,56 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	tableFinished := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
 	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
+}
+
+type testMetaMgrBuilder struct{}
+
+func (b testMetaMgrBuilder) TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr {
+	return testTaskMetaMgr{}
+}
+func (b testMetaMgrBuilder) TableMetaMgr(tr *TableRestore) tableMetaMgr {
+	return testTableMetaMgr{}
+}
+
+type testTaskMetaMgr struct{}
+
+func (m testTaskMetaMgr) InitTask(ctx context.Context) error {
+	return nil
+}
+func (m testTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {
+	return func(ctx context.Context) error {
+		return nil
+	}, nil
+}
+func (m testTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
+	return false, nil
+}
+func (m testTaskMetaMgr) Cleanup(ctx context.Context) error {
+	return nil
+}
+func (m testTaskMetaMgr) CleanupAllMetas(ctx context.Context) error {
+	return nil
+}
+
+type testTableMetaMgr struct{}
+
+func (m testTableMetaMgr) InitTableMeta(ctx context.Context) error {
+	return nil
+}
+func (m testTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) (*verification.KVChecksum, int64, error) {
+	return nil, 0, nil
+}
+func (m testTableMetaMgr) UpdateTableStatus(ctx context.Context, status metaStatus) error {
+	return nil
+}
+func (m testTableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *verification.KVChecksum) error {
+	return nil
+}
+func (m testTableMetaMgr) CheckAndUpdateLocalChecksum(ctx context.Context, checksum *verification.KVChecksum) (bool, *verification.KVChecksum, error) {
+	return false, nil, nil
+}
+func (m testTableMetaMgr) FinishTable(ctx context.Context) error {
+	return nil
 }
 
 var _ = Suite(&chunkRestoreSuite{})
@@ -1506,7 +1563,7 @@ type metaMgrSuite struct {
 	dbHandle    *sql.DB
 	mockDB      sqlmock.Sqlmock
 	tr          *TableRestore
-	mgr         *tableMetaMgr
+	mgr         *dbTableMetaMgr
 	checksumMgr *testChecksumMgr
 }
 
@@ -1542,7 +1599,7 @@ func (s *metaMgrSuite) SetUpTest(c *C) {
 	db, m, err := sqlmock.New()
 	c.Assert(err, IsNil)
 
-	s.mgr = &tableMetaMgr{
+	s.mgr = &dbTableMetaMgr{
 		session:   db,
 		taskID:    1,
 		tr:        s.tr,
@@ -1686,7 +1743,7 @@ func (s *metaMgrSuite) prepareMock(rowsVal [][]driver.Value, nextRowID *int64, u
 	for _, r := range rowsVal {
 		rows = rows.AddRow(r...)
 	}
-	s.mockDB.ExpectQuery("\\QSELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from mysql.brie_sub_tasks WHERE table_id = ? FOR UPDATE\\E").
+	s.mockDB.ExpectQuery("\\QSELECT task_id, row_id_base, row_id_max, total_kvs_base, total_bytes_base, checksum_base, status from `test`.`table_meta` WHERE table_id = ? FOR UPDATE\\E").
 		WithArgs(int64(1)).
 		WillReturnRows(rows)
 	if nextRowID != nil {
@@ -1696,7 +1753,7 @@ func (s *metaMgrSuite) prepareMock(rowsVal [][]driver.Value, nextRowID *int64, u
 	}
 
 	if len(updateArgs) > 0 {
-		s.mockDB.ExpectExec("\\Qupdate mysql.brie_sub_tasks set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?\\E").
+		s.mockDB.ExpectExec("\\Qupdate `test`.`table_meta` set row_id_base = ?, row_id_max = ?, status = ? where table_id = ? and task_id = ?\\E").
 			WithArgs(updateArgs...).
 			WillReturnResult(sqlmock.NewResult(int64(0), int64(1)))
 	}
@@ -1704,7 +1761,7 @@ func (s *metaMgrSuite) prepareMock(rowsVal [][]driver.Value, nextRowID *int64, u
 	s.mockDB.ExpectCommit()
 
 	if checksum != nil {
-		s.mockDB.ExpectExec("\\Qupdate mysql.brie_sub_tasks set total_kvs_base = ?, total_bytes_base = ?, checksum_base = ?, status = ? where table_id = ? and task_id = ?\\E").
+		s.mockDB.ExpectExec("\\Qupdate `test`.`table_meta` set total_kvs_base = ?, total_bytes_base = ?, checksum_base = ?, status = ? where table_id = ? and task_id = ?\\E").
 			WithArgs(checksum.SumKVS(), checksum.SumSize(), checksum.Sum(), metaStatusRestoreStarted.String(), int64(1), int64(1)).
 			WillReturnResult(sqlmock.NewResult(int64(0), int64(1)))
 		s.checksumMgr.checksum = RemoteChecksum{
@@ -1715,7 +1772,7 @@ func (s *metaMgrSuite) prepareMock(rowsVal [][]driver.Value, nextRowID *int64, u
 	}
 
 	if updateStatus != nil {
-		s.mockDB.ExpectExec("\\Qupdate mysql.brie_sub_tasks set status = ? where table_id = ? and task_id = ?\\E").
+		s.mockDB.ExpectExec("\\Qupdate `test`.`table_meta` set status = ? where table_id = ? and task_id = ?\\E").
 			WithArgs(*updateStatus, int64(1), int64(1)).
 			WillReturnResult(sqlmock.NewResult(int64(0), int64(1)))
 	}
