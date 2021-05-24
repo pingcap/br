@@ -393,6 +393,7 @@ func (i *Ingester) writeToTiKV(
 			pair := &sst.Pair{
 				Key:   bytesBuf.AddBytes(iter.Key()),
 				Value: bytesBuf.AddBytes(iter.Value()),
+				Op:    iter.OpType(),
 			}
 			pairs = append(pairs, pair)
 		} else {

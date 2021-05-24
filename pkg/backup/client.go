@@ -302,7 +302,7 @@ func BuildBackupRangeAndSchema(
 
 	for _, dbInfo := range dbs {
 		// skip system databases
-		if util.IsMemOrSysDB(dbInfo.Name.L) {
+		if !tableFilter.MatchSchema(dbInfo.Name.O) || util.IsMemDB(dbInfo.Name.L) {
 			continue
 		}
 
@@ -1028,7 +1028,7 @@ func ChecksumMatches(backupMeta *backuppb.BackupMeta, local []Checksum) error {
 				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
 				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
 			// TODO enhance error
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
+			return berrors.ErrBackupChecksumMismatch
 		}
 		log.Info("checksum success",
 			zap.String("database", dbInfo.Name.L),
