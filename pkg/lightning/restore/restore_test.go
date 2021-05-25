@@ -54,7 +54,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/mock"
-	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/version/build"
 )
@@ -893,7 +892,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		checkpointsDB:     cpDB,
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
-		metaMgrBuilder:    testMetaMgrBuilder{},
+		metaMgrBuilder:    noopMetaMgrBuilder{},
 	}
 	go func() {
 		for range chptCh {
@@ -919,66 +918,6 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	tableFinished := metric.ReadCounter(metric.TableCounter.WithLabelValues("index_imported", metric.TableResultSuccess))
 	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
-}
-
-type testMetaMgrBuilder struct{}
-
-func (b testMetaMgrBuilder) TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr {
-	return testTaskMetaMgr{}
-}
-
-func (b testMetaMgrBuilder) TableMetaMgr(tr *TableRestore) tableMetaMgr {
-	return testTableMetaMgr{}
-}
-
-type testTaskMetaMgr struct{}
-
-func (m testTaskMetaMgr) InitTask(ctx context.Context) error {
-	return nil
-}
-
-func (m testTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {
-	return func(ctx context.Context) error {
-		return nil
-	}, nil
-}
-
-func (m testTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
-	return false, nil
-}
-
-func (m testTaskMetaMgr) Cleanup(ctx context.Context) error {
-	return nil
-}
-
-func (m testTaskMetaMgr) CleanupAllMetas(ctx context.Context) error {
-	return nil
-}
-
-type testTableMetaMgr struct{}
-
-func (m testTableMetaMgr) InitTableMeta(ctx context.Context) error {
-	return nil
-}
-
-func (m testTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) (*verification.KVChecksum, int64, error) {
-	return nil, 0, nil
-}
-
-func (m testTableMetaMgr) UpdateTableStatus(ctx context.Context, status metaStatus) error {
-	return nil
-}
-
-func (m testTableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *verification.KVChecksum) error {
-	return nil
-}
-
-func (m testTableMetaMgr) CheckAndUpdateLocalChecksum(ctx context.Context, checksum *verification.KVChecksum) (bool, *verification.KVChecksum, error) {
-	return false, nil, nil
-}
-
-func (m testTableMetaMgr) FinishTable(ctx context.Context) error {
-	return nil
 }
 
 var _ = Suite(&chunkRestoreSuite{})

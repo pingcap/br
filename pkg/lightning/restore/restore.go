@@ -59,6 +59,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -306,15 +307,21 @@ func NewRestoreControllerWithPauser(
 		ts = oracle.ComposeTS(physical, logical)
 	}
 
-	// TODO: support Lightning via SQL
-	db, err := g.GetDB()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	metaBuilder := &dbMetaMgrBuilder{
-		db:     db,
-		taskID: cfg.TaskID,
-		schema: cfg.App.MetaSchemaName,
+	var metaBuilder metaMgrBuilder
+	switch cfg.TikvImporter.Backend {
+	case config.BackendLocal, config.BackendImporter:
+		// TODO: support Lightning via SQL
+		db, err := g.GetDB()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		metaBuilder = &dbMetaMgrBuilder{
+			db:     db,
+			taskID: cfg.TaskID,
+			schema: cfg.App.MetaSchemaName,
+		}
+	default:
+		metaBuilder = noopMetaMgrBuilder{}
 	}
 
 	rc := &Controller{
@@ -723,25 +730,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	go rc.listenCheckpointUpdates()
 
 	rc.sysVars = ObtainImportantVariables(ctx, rc.tidbGlue.GetSQLExecutor())
-
-	// TODO: maybe we should not create this table here since user may not have write permission to the `mysql` db.
-	// ensure meta table exists
-	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
-		exec := rc.tidbGlue.GetSQLExecutor()
-		logger := log.L()
-		metaDBSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", rc.cfg.App.MetaSchemaName)
-		if err := exec.ExecuteWithLog(ctx, metaDBSQL, "create meta schema", logger); err != nil {
-			return errors.Annotate(err, "create meta schema failed")
-		}
-		taskMetaSQL := fmt.Sprintf(CreateTaskMetaTable, rc.cfg.App.MetaSchemaName, taskMetaTableName)
-		if err := exec.ExecuteWithLog(ctx, taskMetaSQL, "create meta table", log.L()); err != nil {
-			return errors.Annotate(err, "create task meta table failed")
-		}
-		tableMetaSQL := fmt.Sprintf(CreateTableMetadataTable, rc.cfg.App.MetaSchemaName, tableMetaTableName)
-		if err := exec.ExecuteWithLog(ctx, tableMetaSQL, "create meta table", log.L()); err != nil {
-			return errors.Annotate(err, "create table meta table failed")
-		}
-	}
 
 	// Estimate the number of chunks for progress reporting
 	err = rc.estimateChunkCountIntoMetrics(ctx)
@@ -1163,6 +1151,10 @@ var checksumManagerKey struct{}
 
 func (rc *Controller) restoreTables(ctx context.Context) error {
 	logTask := log.L().Begin(zap.InfoLevel, "restore all tables data")
+
+	if err := rc.metaMgrBuilder.Init(ctx); err != nil {
+		return err
+	}
 
 	// for local backend, we should disable some pd scheduler and change some settings, to
 	// make split region and ingest sst more stable
@@ -2968,6 +2960,7 @@ func (cr *chunkRestore) restore(
 }
 
 type metaMgrBuilder interface {
+	Init(ctx context.Context) error
 	TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr
 	TableMetaMgr(tr *TableRestore) tableMetaMgr
 }
@@ -2976,6 +2969,27 @@ type dbMetaMgrBuilder struct {
 	db     *sql.DB
 	taskID int64
 	schema string
+}
+
+func (b *dbMetaMgrBuilder) Init(ctx context.Context) error {
+	exec := common.SQLWithRetry{
+		DB:           b.db,
+		Logger:       log.L(),
+		HideQueryLog: redact.NeedRedact(),
+	}
+	metaDBSQL := fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", b.schema)
+	if err := exec.Exec(ctx, "create meta schema", metaDBSQL); err != nil {
+		return errors.Annotate(err, "create meta schema failed")
+	}
+	taskMetaSQL := fmt.Sprintf(CreateTaskMetaTable, b.schema, taskMetaTableName)
+	if err := exec.Exec(ctx, "create meta table", taskMetaSQL); err != nil {
+		return errors.Annotate(err, "create task meta table failed")
+	}
+	tableMetaSQL := fmt.Sprintf(CreateTableMetadataTable, b.schema, tableMetaTableName)
+	if err := exec.Exec(ctx, "create meta table", tableMetaSQL); err != nil {
+		return errors.Annotate(err, "create table meta table failed")
+	}
+	return nil
 }
 
 func (b *dbMetaMgrBuilder) TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr {
@@ -3653,5 +3667,69 @@ func (m *dbTaskMetaMgr) CleanupAllMetas(ctx context.Context) error {
 	if err := exec.Exec(ctx, "cleanup task meta tables", stmt); err != nil {
 		return errors.Trace(err)
 	}
+	return nil
+}
+
+type noopMetaMgrBuilder struct{}
+
+func (b noopMetaMgrBuilder) Init(ctx context.Context) error {
+	return nil
+}
+
+func (b noopMetaMgrBuilder) TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr {
+	return noopTaskMetaMgr{}
+}
+
+func (b noopMetaMgrBuilder) TableMetaMgr(tr *TableRestore) tableMetaMgr {
+	return noopTableMetaMgr{}
+}
+
+type noopTaskMetaMgr struct{}
+
+func (m noopTaskMetaMgr) InitTask(ctx context.Context) error {
+	return nil
+}
+
+func (m noopTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {
+	return func(ctx context.Context) error {
+		return nil
+	}, nil
+}
+
+func (m noopTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
+	return false, nil
+}
+
+func (m noopTaskMetaMgr) Cleanup(ctx context.Context) error {
+	return nil
+}
+
+func (m noopTaskMetaMgr) CleanupAllMetas(ctx context.Context) error {
+	return nil
+}
+
+type noopTableMetaMgr struct{}
+
+func (m noopTableMetaMgr) InitTableMeta(ctx context.Context) error {
+	return nil
+}
+
+func (m noopTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64) (*verify.KVChecksum, int64, error) {
+	return nil, 0, nil
+}
+
+func (m noopTableMetaMgr) UpdateTableStatus(ctx context.Context, status metaStatus) error {
+	return nil
+}
+
+func (m noopTableMetaMgr) UpdateTableBaseChecksum(ctx context.Context, checksum *verify.KVChecksum) error {
+	return nil
+}
+
+func (m noopTableMetaMgr) CheckAndUpdateLocalChecksum(ctx context.Context, checksum *verify.KVChecksum) (bool, *verify.KVChecksum, error) {
+	return false, nil, nil
+}
+
+func (m noopTableMetaMgr) FinishTable(ctx context.Context) error {
 	return nil
 }
