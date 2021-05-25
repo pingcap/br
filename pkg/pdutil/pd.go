@@ -566,18 +566,18 @@ func (p *PdController) MakeUndoFunctionByConfig(config ClusterConfig) UndoFunc {
 func (p *PdController) RemoveSchedulers(ctx context.Context) (undo UndoFunc, err error) {
 	undo = Nop
 
-	_, removed, err1 := p.RemoveSchedulersAndReturn(ctx)
+	origin, _, err1 := p.RemoveSchedulersWithOrigin(ctx)
 	if err1 != nil {
 		err = err1
 		return
 	}
 
-	undo = p.MakeUndoFunctionByConfig(ClusterConfig{Schedulers: removed.Schedulers, ScheduleCfg: removed.ScheduleCfg})
+	undo = p.MakeUndoFunctionByConfig(ClusterConfig{Schedulers: origin.Schedulers, ScheduleCfg: origin.ScheduleCfg})
 	return undo, errors.Trace(err)
 }
 
-// RemoveSchedulersAndReturn pause and remove br related schedule configs and return the origin and modified configs
-func (p *PdController) RemoveSchedulersAndReturn(ctx context.Context) (ClusterConfig, ClusterConfig, error) {
+// RemoveSchedulersWithOrigin pause and remove br related schedule configs and return the origin and modified configs
+func (p *PdController) RemoveSchedulersWithOrigin(ctx context.Context) (ClusterConfig, ClusterConfig, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("PdController.RemoveSchedulers", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()

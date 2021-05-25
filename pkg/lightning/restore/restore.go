@@ -3437,6 +3437,7 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context) error {
 }
 
 func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {
+	pauseCtx, cancel := context.WithCancel(ctx)
 	conn, err := m.session.Conn(ctx)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -3507,7 +3508,7 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 			return errors.Trace(err)
 		}
 
-		orig, removed, err := m.pd.RemoveSchedulersAndReturn(ctx)
+		orig, removed, err := m.pd.RemoveSchedulersWithOrigin(pauseCtx)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -3533,12 +3534,18 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	}
 
 	if !paused {
-		if err = m.pd.RemoveSchedulersWithCfg(ctx, pausedCfg.PauseCfg); err != nil {
+		if err = m.pd.RemoveSchedulersWithCfg(pauseCtx, pausedCfg.PauseCfg); err != nil {
 			return nil, err
 		}
 	}
 
-	return m.pd.MakeUndoFunctionByConfig(pausedCfg.RestoreCfg), nil
+	cancelFunc := m.pd.MakeUndoFunctionByConfig(pausedCfg.RestoreCfg)
+
+	return func(ctx context.Context) error {
+		// close the periodic task ctx
+		cancel()
+		return cancelFunc(ctx)
+	}, nil
 }
 
 func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
