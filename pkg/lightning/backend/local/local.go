@@ -64,6 +64,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/logutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -831,35 +832,23 @@ func (local *local) WriteToTiKV(
 
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
-<<<<<<< HEAD
-		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
-			return nil, nil, stats, closeErr
-		} else if leaderID == region.Region.Peers[i].GetId() {
-=======
 		resp, closeErr := wStream.CloseAndRecv()
 		if closeErr != nil {
-			return nil, Range{}, stats, errors.Trace(closeErr)
+			return nil, nil, stats, errors.Trace(closeErr)
 		}
 		if resp.Error != nil {
-			return nil, Range{}, stats, errors.New(resp.Error.Message)
+			return nil, nil, stats, errors.New(resp.Error.Message)
 		}
 		if leaderID == region.Region.Peers[i].GetId() {
->>>>>>> 0f4dbf4b (lightning: avoid ignore error when import data fails (#1115))
 			leaderPeerMetas = resp.Metas
 			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
 	// if there is not leader currently, we should directly return an error
-<<<<<<< HEAD
-	if leaderPeerMetas == nil {
-		log.L().Warn("write to tikv no leader", log.ZapRedactReflect("region", region),
-			zap.Uint64("leader_id", leaderID), log.ZapRedactReflect("meta", meta),
-=======
 	if len(leaderPeerMetas) == 0 {
 		log.L().Warn("write to tikv no leader", logutil.Region(region.Region), logutil.Leader(region.Leader),
 			zap.Uint64("leader_id", leaderID), logutil.SSTMeta(meta),
->>>>>>> 0f4dbf4b (lightning: avoid ignore error when import data fails (#1115))
 			zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size))
 		return nil, nil, stats, errors.Errorf("write to tikv with no leader returned, region '%d', leader: %d",
 			region.Region.Id, leaderID)

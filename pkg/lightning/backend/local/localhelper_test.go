@@ -501,11 +501,7 @@ func (h *splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regio
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-<<<<<<< HEAD
-	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*")
-=======
-	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, "", defaultHook{})
->>>>>>> 0f4dbf4b (lightning: avoid ignore error when import data fails (#1115))
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, "")
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
