@@ -692,31 +692,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	if rc.cfg.TikvImporter.Backend != config.BackendTiDB {
-		for _, dbMeta := range rc.dbMetas {
-			for _, tableMeta := range dbMeta.Tables {
-				tableName := common.UniqueTable(dbMeta.Name, tableMeta.Name)
-
-				// if checkpoint enable and not missing, we skip the check table empty progress.
-				if rc.cfg.Checkpoint.Enable {
-					_, err := rc.checkpointsDB.Get(ctx, tableName)
-					switch {
-					case err == nil:
-						continue
-					case errors.IsNotFound(err):
-					default:
-						return err
-					}
-				}
-
-				err := rc.checkTableEmpty(ctx, tableName)
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
 	if err != nil {
