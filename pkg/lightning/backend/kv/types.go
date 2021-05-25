@@ -21,7 +21,6 @@ type Encoder interface {
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
-		chunkIndex int32,
 		offset int64,
 	) (Row, error)
 }

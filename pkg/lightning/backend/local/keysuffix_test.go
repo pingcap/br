@@ -34,9 +34,9 @@ func randBytes(n int) []byte {
 
 func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	inputs := []struct {
-		key        []byte
-		chunkIndex int32
-		offset     int64
+		key    []byte
+		rowID  int64
+		offset int64
 	}{
 		{
 			[]byte{0x0},
@@ -66,13 +66,13 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	}
 
 	for _, input := range inputs {
-		result := EncodeKeySuffix(nil, input.key, input.chunkIndex, input.offset)
+		result := EncodeKeySuffix(nil, input.key, input.rowID, input.offset)
 
 		// Decode the result.
-		key, chunkIndex, offset, err := DecodeKeySuffix(nil, result)
+		key, rowID, offset, err := DecodeKeySuffix(nil, result)
 		c.Assert(err, IsNil)
 		c.Assert(key, BytesEquals, input.key)
-		c.Assert(chunkIndex, Equals, input.chunkIndex)
+		c.Assert(rowID, Equals, input.rowID)
 		c.Assert(offset, Equals, input.offset)
 	}
 }
@@ -113,7 +113,7 @@ func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
 func (s *keySuffixSuite) TestDecodeKeySuffixWithBuf(c *C) {
 	data := []byte{
 		0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7,
-		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc,
+		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf,
 	}
 	buf := make([]byte, len(data))
 	key, _, _, err := DecodeKeySuffix(buf, data)

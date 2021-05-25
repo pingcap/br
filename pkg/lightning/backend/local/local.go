@@ -2519,10 +2519,10 @@ type Writer struct {
 	duplicateDetection bool
 }
 
-func (w *Writer) encodeKeySuffix(key []byte, chunkIndex int32, offset int64) []byte {
+func (w *Writer) encodeKeySuffix(key []byte, rowID int64, offset int64) []byte {
 	encodedLen := EncodedKeyBytesLength(key)
 	buf := w.kvBuffer.requireBytes(encodedLen)
-	buf = EncodeKeySuffix(buf, key, chunkIndex, offset)
+	buf = EncodeKeySuffix(buf, key, rowID, offset)
 	return buf
 }
 
@@ -2537,7 +2537,7 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 	}
 	for i := 0; i < len(kvs); i++ {
 		if w.duplicateDetection {
-			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].ChunkIndex, kvs[i].Offset)
+			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
 		}
 		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
 	}
@@ -2553,7 +2553,7 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
 		var key []byte
 		if w.duplicateDetection {
-			key = w.encodeKeySuffix(pair.Key, pair.ChunkIndex, pair.Offset)
+			key = w.encodeKeySuffix(pair.Key, pair.RowID, pair.Offset)
 		} else {
 			key = w.kvBuffer.addBytes(pair.Key)
 		}

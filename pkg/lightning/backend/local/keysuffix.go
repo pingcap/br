@@ -20,7 +20,7 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 )
 
-var minEncodedKeyLen = codec.EncodedBytesLength(0) + 4 + 8
+var minEncodedKeyLen = codec.EncodedBytesLength(0) + 16
 
 func reallocBytes(b []byte, n int) []byte {
 	newSize := len(b) + n
@@ -33,33 +33,33 @@ func reallocBytes(b []byte, n int) []byte {
 }
 
 func EncodedKeyBytesLength(key []byte) int {
-	return codec.EncodedBytesLength(len(key)) + 12
+	return codec.EncodedBytesLength(len(key)) + 16
 }
 
 // EncodeKeySuffix appends a suffix to the key with key's position.
 // To reserved the original order, we must encode the original key first, and then append the suffix.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func EncodeKeySuffix(buf []byte, key []byte, chunkIndex int32, offset int64) []byte {
+func EncodeKeySuffix(buf []byte, key []byte, rowID int64, offset int64) []byte {
 	buf = codec.EncodeBytes(buf[:0], key)
-	buf = reallocBytes(buf, 12)
+	buf = reallocBytes(buf, 16)
 	n := len(buf)
-	buf = buf[:n+12]
-	binary.BigEndian.PutUint32(buf[n:n+4], uint32(chunkIndex))
-	binary.BigEndian.PutUint64(buf[n+4:n+12], uint64(offset))
+	buf = buf[:n+16]
+	binary.BigEndian.PutUint64(buf[n:n+8], uint64(rowID))
+	binary.BigEndian.PutUint64(buf[n+8:], uint64(offset))
 	return buf
 }
 
 // DecodeKeySuffix decode the original key.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func DecodeKeySuffix(buf []byte, data []byte) (key []byte, chunkIndex int32, offset int64, err error) {
+func DecodeKeySuffix(buf []byte, data []byte) (key []byte, rowID int64, offset int64, err error) {
 	if len(data) < minEncodedKeyLen {
 		return nil, 0, 0, errors.New("failed to decode key suffix, encoded key is too short")
 	}
-	_, key, err = codec.DecodeBytes(data[:len(data)-12], buf)
+	_, key, err = codec.DecodeBytes(data[:len(data)-16], buf)
 	if err != nil {
 		return
 	}
-	chunkIndex = int32(binary.BigEndian.Uint32(data[len(data)-12 : len(data)-8]))
+	rowID = int64(binary.BigEndian.Uint64(data[len(data)-16 : len(data)-8]))
 	offset = int64(binary.BigEndian.Uint64(data[len(data)-8:]))
 	return
 }

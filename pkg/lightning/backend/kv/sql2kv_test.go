@@ -87,7 +87,7 @@ func (s *kvSuite) TestEncode(c *C) {
 		Timestamp: 1234567890,
 	})
 	c.Assert(err, IsNil)
-	pairs, err := strictMode.Encode(logger, rows, 1, []int{0, 1}, 1, 1234)
+	pairs, err := strictMode.Encode(logger, rows, 1, []int{0, 1}, 1234)
 	c.Assert(err, ErrorMatches, "failed to cast value as tinyint\\(4\\) for column `c1` \\(#1\\):.*overflows tinyint")
 	c.Assert(pairs, IsNil)
 
@@ -95,21 +95,21 @@ func (s *kvSuite) TestEncode(c *C) {
 		types.NewIntDatum(1),
 		types.NewStringDatum("invalid-pk"),
 	}
-	_, err = strictMode.Encode(logger, rowsWithPk, 2, []int{0, 1}, 1, 1234)
+	_, err = strictMode.Encode(logger, rowsWithPk, 2, []int{0, 1}, 1234)
 	c.Assert(err, ErrorMatches, "failed to cast value as bigint\\(20\\) for column `_tidb_rowid`.*Truncated.*")
 
 	rowsWithPk2 := []types.Datum{
 		types.NewIntDatum(1),
 		types.NewStringDatum("1"),
 	}
-	pairs, err = strictMode.Encode(logger, rowsWithPk2, 2, []int{0, 1}, 1, 1234)
+	pairs, err = strictMode.Encode(logger, rowsWithPk2, 2, []int{0, 1}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
-			Key:        []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
-			Val:        []uint8{0x8, 0x2, 0x8, 0x2},
-			ChunkIndex: 1,
-			Offset:     1234,
+			Key:    []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
+			Val:    []uint8{0x8, 0x2, 0x8, 0x2},
+			RowID:  2,
+			Offset: 1234,
 		},
 	}))
 
@@ -120,7 +120,7 @@ func (s *kvSuite) TestEncode(c *C) {
 		Timestamp: 1234567891,
 	})
 	c.Assert(err, IsNil)
-	_, err = mockMode.Encode(logger, rowsWithPk2, 2, []int{0, 1}, 1, 1234)
+	_, err = mockMode.Encode(logger, rowsWithPk2, 2, []int{0, 1}, 1234)
 	c.Assert(err, ErrorMatches, "mock error")
 
 	// Non-strict mode
@@ -130,14 +130,14 @@ func (s *kvSuite) TestEncode(c *C) {
 		SysVars:   map[string]string{"tidb_row_format_version": "1"},
 	})
 	c.Assert(err, IsNil)
-	pairs, err = noneMode.Encode(logger, rows, 1, []int{0, 1}, 1, 1234)
+	pairs, err = noneMode.Encode(logger, rows, 1, []int{0, 1}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
-			Key:        []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
-			Val:        []uint8{0x8, 0x2, 0x8, 0xfe, 0x1},
-			ChunkIndex: 1,
-			Offset:     1234,
+			Key:    []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
+			Val:    []uint8{0x8, 0x2, 0x8, 0xfe, 0x1},
+			RowID:  1,
+			Offset: 1234,
 		},
 	}))
 }
@@ -162,7 +162,7 @@ func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
 		SysVars:   map[string]string{"tidb_row_format_version": "2"},
 	})
 	c.Assert(err, IsNil)
-	pairs, err := noneMode.Encode(logger, rows, 1, []int{0, 1}, 1, 1234)
+	pairs, err := noneMode.Encode(logger, rows, 1, []int{0, 1}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
@@ -177,8 +177,8 @@ func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
 				0x1, 0x0, // not null offsets = [1]
 				0x7f, // column version = 127 (10000000 clamped to TINYINT)
 			},
-			ChunkIndex: 1,
-			Offset:     1234,
+			RowID:  1,
+			Offset: 1234,
 		},
 	}))
 }
@@ -211,14 +211,14 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 		},
 	})
 	c.Assert(err, IsNil)
-	pairs, err := encoder.Encode(logger, nil, 70, []int{-1, 1}, 1, 1234)
+	pairs, err := encoder.Encode(logger, nil, 70, []int{-1, 1}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
-			Key:        []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
-			Val:        []uint8{0x8, 0x2, 0x9, 0x80, 0x80, 0x80, 0xf0, 0xfd, 0x8e, 0xf7, 0xc0, 0x19},
-			ChunkIndex: 1,
-			Offset:     1234,
+			Key:    []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+			Val:    []uint8{0x8, 0x2, 0x9, 0x80, 0x80, 0x80, 0xf0, 0xfd, 0x8e, 0xf7, 0xc0, 0x19},
+			RowID:  70,
+			Offset: 1234,
 		},
 	}))
 }
@@ -248,26 +248,26 @@ func (s *kvSuite) TestDefaultAutoRandoms(c *C) {
 	})
 	c.Assert(err, IsNil)
 	logger := log.Logger{Logger: zap.NewNop()}
-	pairs, err := encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 70, []int{-1, 0}, 1, 1234)
+	pairs, err := encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 70, []int{-1, 0}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
-			Key:        []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
-			Val:        []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
-			ChunkIndex: 1,
-			Offset:     1234,
+			Key:    []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+			Val:    []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
+			RowID:  70,
+			Offset: 1234,
 		},
 	}))
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(70))
 
-	pairs, err = encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 71, []int{-1, 0}, 1, 1234)
+	pairs, err = encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 71, []int{-1, 0}, 1234)
 	c.Assert(err, IsNil)
 	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
 		{
-			Key:        []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x47},
-			Val:        []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
-			ChunkIndex: 1,
-			Offset:     1234,
+			Key:    []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x47},
+			Val:    []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
+			RowID:  71,
+			Offset: 1234,
 		},
 	}))
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(71))
@@ -448,7 +448,7 @@ func (s *benchSQL2KVSuite) SetUpTest(c *C) {
 // Run `go test github.com/pingcap/br/pkg/lightning/backend -check.b -test.v` to get benchmark result.
 func (s *benchSQL2KVSuite) BenchmarkSQL2KV(c *C) {
 	for i := 0; i < c.N; i++ {
-		rows, err := s.encoder.Encode(s.logger, s.row, 1, s.colPerm, 1, 0)
+		rows, err := s.encoder.Encode(s.logger, s.row, 1, s.colPerm, 0)
 		c.Assert(err, IsNil)
 		c.Assert(rows, HasLen, 2)
 	}
