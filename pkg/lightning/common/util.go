@@ -142,6 +142,7 @@ outside:
 			logger.Warn(purpose+" failed but going to try again", log.ShortError(err))
 			continue
 		default:
+			logger.Warn(purpose+" failed with no retry", log.ShortError(err))
 			break outside
 		}
 	}

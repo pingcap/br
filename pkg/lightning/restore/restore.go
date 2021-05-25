@@ -1273,9 +1273,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			for task := range taskCh {
 				tableLogTask := task.tr.logger.Begin(zap.InfoLevel, "restore table")
 				web.BroadcastTableCheckpoint(task.tr.tableName, task.cp)
-				fmt.Printf("before restore table\n")
 				needPostProcess, err := task.tr.restoreTable(ctx2, rc, task.cp)
-				fmt.Printf("after restore table\n")
 				err = errors.Annotatef(err, "restore table %s failed", task.tr.tableName)
 				tableLogTask.End(zap.ErrorLevel, err)
 				web.BroadcastError(task.tr.tableName, err)
