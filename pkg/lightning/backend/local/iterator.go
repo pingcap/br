@@ -70,7 +70,7 @@ func (d *duplicateIterator) Last() bool {
 }
 
 func (d *duplicateIterator) fillCurKV() {
-	d.curKey, d.err = DecodeKeySuffix(d.curKey[:0], d.iter.Key())
+	d.curKey, _, _, d.err = DecodeKeySuffix(d.curKey[:0], d.iter.Key())
 	d.curRawKey = append(d.curRawKey[:0], d.iter.Key()...)
 	d.curVal = append(d.curVal[:0], d.iter.Value()...)
 }
@@ -96,7 +96,7 @@ func (d *duplicateIterator) record(key []byte, val []byte) {
 func (d *duplicateIterator) Next() bool {
 	recordFirst := false
 	for d.err == nil && d.ctx.Err() == nil && d.iter.Next() {
-		d.nextKey, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
+		d.nextKey, _, _, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
 		if d.err != nil {
 			return false
 		}

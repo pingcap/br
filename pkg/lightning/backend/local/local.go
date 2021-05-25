@@ -25,7 +25,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -243,7 +242,7 @@ func (e *File) getSizeProperties() (*sizeProperties, error) {
 					newRangeProps := make(rangeProperties, 0, len(rangeProps))
 					for _, p := range rangeProps {
 						if !bytes.Equal(p.Key, engineMetaKey) {
-							p.Key, err = DecodeKeySuffix(nil, p.Key)
+							p.Key, _, _, err = DecodeKeySuffix(nil, p.Key)
 							if err != nil {
 								log.L().Warn(
 									"decodeRangeProperties failed because the props key is invalid",
@@ -2210,7 +2209,6 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 		kvBuffer:           newBytesBuffer(),
 		isWriteBatchSorted: cfg.IsKVSorted,
 		duplicateDetection: f.duplicateDetection,
-		keySuffixBase:      []byte(cfg.KeySuffixBase),
 	}
 	f.localWriters.Store(w, nil)
 	return w, nil
@@ -2519,15 +2517,12 @@ type Writer struct {
 	writer   *sstWriter
 
 	duplicateDetection bool
-	keySuffixBase      []byte
-	keyOffsetCache     []byte
 }
 
-func (w *Writer) encodeKeySuffix(key []byte, offset int64) []byte {
-	w.keyOffsetCache = strconv.AppendInt(w.keyOffsetCache[:0], offset, 10)
-	encodedLen := codec.EncodedBytesLength(len(key)) + 1 + len(w.keySuffixBase) + 1 + len(w.keyOffsetCache)
+func (w *Writer) encodeKeySuffix(key []byte, chunkIndex int32, offset int64) []byte {
+	encodedLen := EncodedKeyBytesLength(key)
 	buf := w.kvBuffer.requireBytes(encodedLen)
-	buf = EncodeKeySuffix(buf, key, w.keySuffixBase, offset)
+	buf = EncodeKeySuffix(buf, key, chunkIndex, offset)
 	return buf
 }
 
@@ -2542,7 +2537,7 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 	}
 	for i := 0; i < len(kvs); i++ {
 		if w.duplicateDetection {
-			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].Offset)
+			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].ChunkIndex, kvs[i].Offset)
 		}
 		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
 	}
@@ -2558,7 +2553,7 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
 		var key []byte
 		if w.duplicateDetection {
-			key = w.encodeKeySuffix(pair.Key, pair.Offset)
+			key = w.encodeKeySuffix(pair.Key, pair.ChunkIndex, pair.Offset)
 		} else {
 			key = w.kvBuffer.addBytes(pair.Key)
 		}

@@ -299,7 +299,8 @@ func (kvcodec *tableKVEncoder) Encode(
 	row []types.Datum,
 	rowID int64,
 	columnPermutation []int,
-	rowOffset int64,
+	chunkIndex int32,
+	offset int64,
 ) (Row, error) {
 	cols := kvcodec.tbl.Cols()
 
@@ -406,7 +407,8 @@ func (kvcodec *tableKVEncoder) Encode(
 	}
 	pairs := kvcodec.se.takeKvPairs()
 	for i := 0; i < len(pairs); i++ {
-		pairs[i].Offset = rowOffset
+		pairs[i].ChunkIndex = chunkIndex
+		pairs[i].Offset = offset
 	}
 	kvcodec.recordCache = record[:0]
 	return kvPairs(pairs), nil

@@ -116,7 +116,7 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 		types.NewMysqlBitDatum(types.NewBinaryLiteralFromUint(0x98765432, 4)),
 		types.NewDecimalDatum(types.NewDecFromFloatForTest(12.5)),
 		types.NewMysqlEnumDatum(types.Enum{Name: "ENUM_NAME", Value: 51}),
-	}, 1, perms, 0)
+	}, 1, perms, 0, 0)
 	c.Assert(err, IsNil)
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
 
@@ -149,7 +149,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	c.Assert(err, IsNil)
 	row, err := encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
-	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
+	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0, 0)
 	c.Assert(err, IsNil)
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
 
@@ -166,7 +166,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	rowWithID, err := encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
 		types.NewIntDatum(1), // _tidb_rowid field
-	}, 1, []int{0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1}, 0)
+	}, 1, []int{0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1}, 0, 0)
 	c.Assert(err, IsNil)
 	// tidbRow is string.
 	c.Assert(fmt.Sprint(rowWithID), Equals, "(1,1)")
@@ -193,7 +193,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	c.Assert(err, IsNil)
 	row, err := encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
-	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
+	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0, 0)
 	c.Assert(err, IsNil)
 
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
@@ -226,12 +226,12 @@ func (s *mysqlSuite) testStrictMode(c *C) {
 	logger := log.L()
 	_, err = encoder.Encode(logger, []types.Datum{
 		types.NewStringDatum("test"),
-	}, 1, []int{0, -1, -1}, 0)
+	}, 1, []int{0, -1, -1}, 0, 0)
 	c.Assert(err, IsNil)
 
 	_, err = encoder.Encode(logger, []types.Datum{
 		types.NewStringDatum("\xff\xff\xff\xff"),
-	}, 1, []int{0, -1, -1}, 0)
+	}, 1, []int{0, -1, -1}, 0, 0)
 	c.Assert(err, ErrorMatches, `.*incorrect utf8 value .* for column s0`)
 
 	// oepn a new encode because column count changed.
@@ -240,7 +240,7 @@ func (s *mysqlSuite) testStrictMode(c *C) {
 	_, err = encoder.Encode(logger, []types.Datum{
 		types.NewStringDatum(""),
 		types.NewStringDatum("非 ASCII 字符串"),
-	}, 1, []int{0, 1, -1}, 0)
+	}, 1, []int{0, 1, -1}, 0, 0)
 	c.Assert(err, ErrorMatches, ".*incorrect ascii value .* for column s1")
 }
 

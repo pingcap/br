@@ -18,10 +18,8 @@ import (
 	"crypto/rand"
 	"math"
 	"sort"
-	"strconv"
 
 	. "github.com/pingcap/check"
-	"github.com/pingcap/tidb/util/codec"
 )
 
 type keySuffixSuite struct{}
@@ -37,79 +35,45 @@ func randBytes(n int) []byte {
 func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	inputs := []struct {
 		key        []byte
-		suffixBase []byte
+		chunkIndex int32
 		offset     int64
 	}{
 		{
 			[]byte{0x0},
-			[]byte("db-table1.sql"),
+			0,
 			0,
 		},
 		{
 			randBytes(32),
-			[]byte("db-table2.sql"),
+			1,
 			-2034,
 		},
 		{
 			randBytes(32),
-			[]byte("db-table2.sql"),
+			1,
 			math.MaxInt64,
 		},
 		{
-			[]byte{0x31, 0x2e, 0x73, 0x71, keySuffixSeparator, 0x3a, 0x30, 0x2e, ':', 0x71, 0x6c},
-			[]byte("db2-table3.sql"),
-			1234567,
+			randBytes(32),
+			math.MaxInt32,
+			math.MinInt64,
 		},
 		{
-			[]byte{0, 0x0, 0x0, 0x0, 0x0, ':', 0x0, 0xf8, 0x40, 0x64, 0x62, keySuffixSeparator},
-			[]byte("db3:table1.sql"),
+			randBytes(32),
+			math.MinInt32,
 			2345678,
 		},
 	}
 
 	for _, input := range inputs {
-		result := EncodeKeySuffix(nil, input.key, input.suffixBase, input.offset)
-
-		// Verify the key.
-		sep := bytes.LastIndexByte(result, keySuffixSeparator)
-		c.Assert(sep, GreaterEqual, 0)
-		_, key, err := codec.DecodeBytes(result[:sep], nil)
-		c.Assert(err, IsNil)
-		c.Assert(key, BytesEquals, input.key)
-
-		// Verify the suffix format.
-		colon := bytes.LastIndexByte(result, ':')
-		c.Assert(colon, GreaterEqual, 0)
-		suffixBase := result[sep+1 : colon]
-		c.Assert(suffixBase, BytesEquals, input.suffixBase)
-		offset, err := strconv.ParseInt(string(result[colon+1:]), 10, 64)
-		c.Assert(err, IsNil)
-		c.Assert(offset, Equals, input.offset)
+		result := EncodeKeySuffix(nil, input.key, input.chunkIndex, input.offset)
 
 		// Decode the result.
-		key, err = DecodeKeySuffix(nil, result)
+		key, chunkIndex, offset, err := DecodeKeySuffix(nil, result)
 		c.Assert(err, IsNil)
 		c.Assert(key, BytesEquals, input.key)
-	}
-
-	// Test panic encode.
-	c.Assert(
-		func() {
-			EncodeKeySuffix(nil, []byte{0x00}, []byte("db"+string(keySuffixSeparator)+"table.sql"), 24325)
-		},
-		PanicMatches,
-		"key suffix contains separator",
-	)
-
-	// Test error decode.
-	errOutputs := [][]byte{
-		{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7},
-		{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8},
-		{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, keySuffixSeparator, 't', ':', '1', '2', '3', '4'},
-	}
-	for _, output := range errOutputs {
-		_, err := DecodeKeySuffix(nil, output)
-		c.Assert(err, NotNil)
+		c.Assert(chunkIndex, Equals, input.chunkIndex)
+		c.Assert(offset, Equals, input.offset)
 	}
 }
 
@@ -123,7 +87,7 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 	}
 	var encodedKeys [][]byte
 	for i, key := range keys {
-		encodedKeys = append(encodedKeys, EncodeKeySuffix(nil, key, []byte("table.sql"), int64(i*1234)))
+		encodedKeys = append(encodedKeys, EncodeKeySuffix(nil, key, 1, int64(i*1234)))
 	}
 	sorted := sort.SliceIsSorted(encodedKeys, func(i, j int) bool {
 		return bytes.Compare(encodedKeys[i], encodedKeys[j]) < 0
@@ -134,9 +98,9 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
 	key := randBytes(32)
 	buf := make([]byte, 256)
-	buf2 := EncodeKeySuffix(buf, key, []byte("table.sql"), 1234)
+	buf2 := EncodeKeySuffix(buf, key, 1, 1234)
 	// Verify the encode result first.
-	key2, err := DecodeKeySuffix(nil, buf2)
+	key2, _, _, err := DecodeKeySuffix(nil, buf2)
 	c.Assert(err, IsNil)
 	c.Assert(key2, BytesEquals, key)
 	// There should be no new slice allocated.
@@ -147,9 +111,12 @@ func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
 }
 
 func (s *keySuffixSuite) TestDecodeKeySuffixWithBuf(c *C) {
-	data := []byte{0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7, keySuffixSeparator, 't', ':', '1', '2', '3', '4'}
+	data := []byte{
+		0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7,
+		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc,
+	}
 	buf := make([]byte, len(data))
-	key, err := DecodeKeySuffix(buf, data)
+	key, _, _, err := DecodeKeySuffix(buf, data)
 	c.Assert(err, IsNil)
 	// There should be no new slice allocated.
 	// If we change a byte in `buf`, `buf2` can read the new byte.

@@ -349,7 +349,9 @@ type KvPair struct {
 	Key []byte
 	// Val is the value of the KV pair
 	Val []byte
-	// Offset is the kv's offset in source file
+	// Index is the index of chunk where the kv pair is located.
+	ChunkIndex int32
+	// Offset is the original row's offset in file.
 	Offset int64
 }
 

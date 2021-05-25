@@ -14,42 +14,52 @@
 package local
 
 import (
-	"bytes"
-	"strconv"
+	"encoding/binary"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/codec"
 )
 
-const keySuffixSeparator = '@'
+var minEncodedKeyLen = codec.EncodedBytesLength(0) + 4 + 8
+
+func reallocBytes(b []byte, n int) []byte {
+	newSize := len(b) + n
+	if cap(b) < newSize {
+		bs := make([]byte, len(b), newSize)
+		copy(bs, b)
+		return bs
+	}
+	return b
+}
+
+func EncodedKeyBytesLength(key []byte) int {
+	return codec.EncodedBytesLength(len(key)) + 12
+}
 
 // EncodeKeySuffix appends a suffix to the key with key's position.
 // To reserved the original order, we must encode the original key first, and then append the suffix.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func EncodeKeySuffix(buf []byte, key []byte, suffixBase []byte, offset int64) []byte {
-	if bytes.IndexByte(suffixBase, keySuffixSeparator) != -1 {
-		panic("key suffix contains separator")
-	}
-	buf = buf[:0]
-	buf = codec.EncodeBytes(buf, key)
-	buf = append(buf, keySuffixSeparator)
-	buf = append(buf, suffixBase...)
-	buf = append(buf, ':')
-	buf = strconv.AppendInt(buf, offset, 10)
+func EncodeKeySuffix(buf []byte, key []byte, chunkIndex int32, offset int64) []byte {
+	buf = codec.EncodeBytes(buf[:0], key)
+	buf = reallocBytes(buf, 12)
+	n := len(buf)
+	buf = buf[:n+12]
+	binary.BigEndian.PutUint32(buf[n:n+4], uint32(chunkIndex))
+	binary.BigEndian.PutUint64(buf[n+4:n+12], uint64(offset))
 	return buf
 }
 
-// DecodeKeySuffix decode the original key. To simplify the implementation and speed
-// decoding, we don't verify the suffix format. We just trim the suffix by keySuffixSeparator.
+// DecodeKeySuffix decode the original key.
 // `buf` is used to buffer data to avoid the cost of make slice.
-func DecodeKeySuffix(buf []byte, data []byte) ([]byte, error) {
-	sep := bytes.LastIndexByte(data, keySuffixSeparator)
-	if sep == -1 {
-		return nil, errors.Errorf("failed to decode key, separator %s is missing", string(keySuffixSeparator))
+func DecodeKeySuffix(buf []byte, data []byte) (key []byte, chunkIndex int32, offset int64, err error) {
+	if len(data) < minEncodedKeyLen {
+		return nil, 0, 0, errors.New("failed to decode key suffix, encoded key is too short")
 	}
-	_, key, err := codec.DecodeBytes(data[:sep], buf)
+	_, key, err = codec.DecodeBytes(data[:len(data)-12], buf)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return
 	}
-	return key, nil
+	chunkIndex = int32(binary.BigEndian.Uint32(data[len(data)-12 : len(data)-8]))
+	offset = int64(binary.BigEndian.Uint64(data[len(data)-8:]))
+	return
 }

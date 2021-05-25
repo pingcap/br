@@ -107,7 +107,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(err, IsNil)
 	wb := db.NewBatch()
 	for _, p := range pairs {
-		key := EncodeKeySuffix(nil, p.Key, []byte("table.sql"), p.Offset)
+		key := EncodeKeySuffix(nil, p.Key, 1, p.Offset)
 		c.Assert(wb.Set(key, p.Val, nil), IsNil)
 	}
 	c.Assert(wb.Commit(pebble.Sync), IsNil)
@@ -121,8 +121,8 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	}
 	iter := newDuplicateIterator(context.Background(), engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
-		key1 := EncodeKeySuffix(nil, pairs[i].Key, []byte("table.sql"), pairs[i].Offset)
-		key2 := EncodeKeySuffix(nil, pairs[j].Key, []byte("table.sql"), pairs[j].Offset)
+		key1 := EncodeKeySuffix(nil, pairs[i].Key, 1, pairs[i].Offset)
+		key2 := EncodeKeySuffix(nil, pairs[j].Key, 1, pairs[j].Offset)
 		return bytes.Compare(key1, key2) < 0
 	})
 
@@ -152,7 +152,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	iter = duplicateDB.NewIter(&pebble.IterOptions{})
 	var detectedPairs []common.KvPair
 	for iter.First(); iter.Valid(); iter.Next() {
-		key, err := DecodeKeySuffix(nil, iter.Key())
+		key, _, _, err := DecodeKeySuffix(nil, iter.Key())
 		c.Assert(err, IsNil)
 		detectedPairs = append(detectedPairs, common.KvPair{
 			Key: key,

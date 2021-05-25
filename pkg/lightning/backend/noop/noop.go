@@ -148,7 +148,7 @@ type noopEncoder struct{}
 func (e noopEncoder) Close() {}
 
 // Encode encodes a row of SQL values into a backend-friendly format.
-func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int, int64) (kv.Row, error) {
+func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int, int32, int64) (kv.Row, error) {
 	return noopRow{}, nil
 }
 
