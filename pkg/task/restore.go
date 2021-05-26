@@ -6,8 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap/br/pkg/version"
-
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -26,6 +24,7 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -236,7 +235,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-  
+
 	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
