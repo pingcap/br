@@ -197,7 +197,7 @@ func NewMgr(
 		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
-		err = version.CheckClusterVersion(ctx, controller.GetPDClient())
+		err = version.CheckClusterVersion(ctx, controller.GetPDClient(), version.CheckVersionForBR)
 		if err != nil {
 			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
 				"if you believe it's OK, use --check-requirements=false to skip.")
@@ -217,12 +217,6 @@ func NewMgr(
 			continue
 		}
 		liveStoreCount++
-	}
-	if liveStoreCount == 0 &&
-		// Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
 	}
 
 	var dom *domain.Domain

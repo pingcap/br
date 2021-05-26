@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/pingcap/errors"
+	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -57,6 +58,10 @@ type Iter interface {
 	Value() []byte
 	// Close close this iter.
 	Close() error
+	// OpType represents operations of pair. currently we have two types.
+	// 1. Put
+	// 2. Delete
+	OpType() sst.Pair_OP
 }
 
 // IterProducer produces iterator with given range.
@@ -169,6 +174,14 @@ func (s *SimpleKVIter) Value() []byte {
 // Close implements Iter.Close.
 func (s *SimpleKVIter) Close() error {
 	return nil
+}
+
+// OpType implements Iter.KeyIsDelete.
+func (s *SimpleKVIter) OpType() sst.Pair_OP {
+	if s.Valid() && s.pairs[s.index].IsDelete {
+		return sst.Pair_Delete
+	}
+	return sst.Pair_Put
 }
 
 // Encoder encodes a row of SQL values into some opaque type which can be
