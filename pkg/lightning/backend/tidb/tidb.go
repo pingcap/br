@@ -93,6 +93,10 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
+func (row tidbRow) Size() uint64 {
+	return uint64(len(row))
+}
+
 func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
 	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
