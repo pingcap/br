@@ -239,6 +239,7 @@ func (importer *FileImporter) CheckMultiIngestSupport(ctx context.Context, pdCli
 		return errors.Trace(err)
 	}
 	importer.supportMultiIngest = support
+	log.L().Info("multi ingest support", zap.Bool("support", support))
 	return nil
 }
 

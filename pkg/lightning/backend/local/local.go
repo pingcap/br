@@ -897,8 +897,9 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 		}
 		_, err = client.MultiIngest(ctx, &sst.MultiIngestRequest{})
 		if err != nil {
-			if s, ok := status.FromError(err); ok {
-				if s.Code() == codes.Unimplemented {
+			if st, ok := status.FromError(err); ok {
+				if st.Code() == codes.Unimplemented {
+					log.L().Info("multi ingest not support", zap.Any("unsupported store", s))
 					local.supportMultiIngest = false
 					return nil
 				}
@@ -908,6 +909,7 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 	}
 
 	local.supportMultiIngest = true
+	log.L().Info("multi ingest support")
 	return nil
 }
 
