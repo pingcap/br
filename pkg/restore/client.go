@@ -570,7 +570,7 @@ func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.F
 		idx++
 	}
 
-	return files[idx:], files[idx:]
+	return files[:idx], files[idx:]
 }
 
 // RestoreFiles tries to restore the files.
