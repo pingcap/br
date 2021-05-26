@@ -1443,7 +1443,7 @@ func (tr *TableRestore) restoreTable(
 		}
 
 		// "show table next_row_id" is only available after v4.0.0
-		if tidbVersion.Major >= 4 && rc.cfg.TikvImporter.Backend == config.BackendLocal {
+		if tidbVersion.Major >= 4 && (rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
 			// first, insert a new-line into meta table
 			if err = metaMgr.InitTableMeta(ctx); err != nil {
 				return false, err
