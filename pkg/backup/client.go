@@ -418,66 +418,38 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
+	filesCh chan[] *backuppb.File,
 	updateCh glue.Progress,
-) ([]*backuppb.File, error) {
+) error {
+	init := time.Now()
+	defer func() {
+		log.Info("Backup Ranges", zap.Duration("take", time.Now().Sub(init)))
+	}()
+
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
-	errCh := make(chan error)
-
 	// we collect all files in a single goroutine to avoid thread safety issues.
-	filesCh := make(chan []*backuppb.File, concurrency)
-	allFiles := make([]*backuppb.File, 0, len(ranges))
-	allFilesCollected := make(chan struct{}, 1)
-	go func() {
-		init := time.Now()
-		// nolint:ineffassign
-		lastBackupStart, currentBackupStart := init, init
-		for files := range filesCh {
-			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
-			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
-		}
-		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
-		allFilesCollected <- struct{}{}
-	}()
-
-	go func() {
-		defer close(filesCh)
-		workerPool := utils.NewWorkerPool(concurrency, "Ranges")
-		eg, ectx := errgroup.WithContext(ctx)
-		for _, r := range ranges {
-			sk, ek := r.StartKey, r.EndKey
-			workerPool.ApplyOnErrorGroup(eg, func() error {
-				files, err := bc.BackupRange(ectx, sk, ek, req, updateCh)
-				if err == nil {
-					filesCh <- files
+	rangeFilesCh := make(chan[] *backuppb.File, concurrency)
+	defer close(rangeFilesCh)
+	workerPool := utils.NewWorkerPool(concurrency, "Ranges")
+	eg, ectx := errgroup.WithContext(ctx)
+	for _, r := range ranges {
+		sk, ek := r.StartKey, r.EndKey
+		workerPool.ApplyOnErrorGroup(eg, func() error {
+			err := bc.BackupRange(ectx, sk, ek, req, rangeFilesCh, updateCh)
+			if err == nil {
+				for rf := range rangeFilesCh {
+					filesCh <- rf
 				}
-				return errors.Trace(err)
-			})
-		}
-		if err := eg.Wait(); err != nil {
-			errCh <- err
-			return
-		}
-		close(errCh)
-	}()
-
-	for err := range errCh {
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+			}
+			return errors.Trace(err)
+		})
 	}
-
-	select {
-	case <-allFilesCollected:
-		return allFiles, nil
-	case <-ctx.Done():
-		return nil, errors.Trace(ctx.Err())
-	}
+	return eg.Wait()
 }
 
 // BackupRange make a backup of the given key range.
@@ -486,8 +458,9 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
+	fileCh chan[] *backuppb.File,
 	updateCh glue.Progress,
-) (files []*backuppb.File, err error) {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -506,7 +479,7 @@ func (bc *Client) BackupRange(
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	req.StartKey = startKey
@@ -518,7 +491,7 @@ func (bc *Client) BackupRange(
 	var results rtree.RangeTree
 	results, err = push.pushBackup(ctx, req, allStores, updateCh)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
@@ -528,7 +501,7 @@ func (bc *Client) BackupRange(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
 		req.RateLimit, req.Concurrency, results, updateCh)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	if req.IsRawKv {
@@ -544,15 +517,20 @@ func (bc *Client) BackupRange(
 
 	results.Ascend(func(i btree.Item) bool {
 		r := i.(*rtree.Range)
-		files = append(files, r.Files...)
+		for _, f := range r.Files {
+			summary.CollectSuccessUnit(summary.TotalKV, 1, f.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, 1, f.TotalBytes)
+		}
+		// we need keep the files in order after we support multi_ingest sst.
+		// default_sst and write_sst need to be together.
+		fileCh <- r.Files
 		return true
 	})
 
 	// Check if there are duplicated files.
 	checkDupFiles(&results)
-	collectFileInfo(files)
 
-	return files, nil
+	return nil
 }
 
 func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Peer, error) {
@@ -912,14 +890,6 @@ backupLoop:
 		}
 	}
 	return nil
-}
-
-// collectFileInfo collects ungrouped file summary information, like kv count and size.
-func collectFileInfo(files []*backuppb.File) {
-	for _, file := range files {
-		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
-	}
 }
 
 // isRetryableError represents whether we should retry reset grpc connection.

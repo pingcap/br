@@ -229,7 +229,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
-	storage, err := storage.New(ctx, u, &opts)
+	externalStorage, err := storage.New(ctx, u, &opts)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -300,7 +300,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	// Metafile size should be less than 64MB.
-	metawriter := metautil.NewMetaWriter(storage, 64*units.MiB)
+	metawriter := metautil.NewMetaWriter(externalStorage, 64*units.MiB)
 
 	// nothing to backup
 	if ranges == nil {
@@ -353,12 +353,21 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
-	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), updateCh)
+	// TODO use a better concurrency model
+	filesCh := make(chan[] *backuppb.File, 1024)
+	eg := metawriter.WriteFiles(ctx, filesCh)
+
+	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), filesCh, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
+
+	if err := eg.Wait(); err != nil {
+		return errors.Trace(err)
+	}
+	metawriter.FlushFiles(ctx)
 
 	ddls, err := json.Marshal(ddlJobs)
 	if err != nil {
@@ -368,7 +377,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		m.StartVersion = req.StartVersion
 		m.EndVersion = req.EndVersion
 		m.IsRawKv = req.IsRawKv
-		m.Files = files
 		m.ClusterId = req.ClusterId
 		m.ClusterVersion = clusterVersion
 		m.BrVersion = brVersion
@@ -403,7 +411,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	if !skipChecksum {
 		// Check if checksum from files matches checksum from coprocessor.
-		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), storage)
+		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), externalStorage)
 		if err != nil {
 			return errors.Trace(err)
 		}

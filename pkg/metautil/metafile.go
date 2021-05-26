@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"sync"
 
 	"github.com/gogo/protobuf/proto"
@@ -87,11 +88,11 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 }
 
 func (reader *MetaReader) readSchemas(ctx context.Context, output func(*backuppb.Schema)) error {
-	// Read backupmeta v1 schemas.
+	// Read backupmeta v1 metafiles.
 	for _, s := range reader.backupMeta.Schemas {
 		output(s)
 	}
-	// Read backupmeta v2 schemas.
+	// Read backupmeta v2 metafiles.
 	outputFn := func(m *backuppb.MetaFile) {
 		for _, s := range m.Schemas {
 			output(s)
@@ -227,27 +228,44 @@ const (
 )
 
 // appends b to a
-func (op appendOp) appendFile(a *backuppb.MetaFile, b interface{}) {
+func (op appendOp) appendFile(a *backuppb.MetaFile, b interface{}) int {
+	size := 0
 	switch op {
 	case appendMetaFile:
 		a.MetaFiles = append(a.MetaFiles, b.(*backuppb.File))
+		size += b.(*backuppb.File).Size()
 	case appendDataFile:
 		a.DataFiles = append(a.DataFiles, b.(*backuppb.File))
+		size += b.(*backuppb.File).Size()
 	case appendSchema:
 		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
+		size += b.(*backuppb.Schema).Size()
 	}
+	return size
 }
 
 type sizedMetaFile struct {
 	// A stack like array, we always append to the last node.
-	nodes     []*backuppb.MetaFile
-	size      int
-	sizeLimit int
+	root *backuppb.MetaFile
+	// nodes     []*sizedMetaFile
+	size int
 
 	filePrefix string
 	fileSeqNum int
+	sizeLimit int
 
 	storage storage.ExternalStorage
+}
+
+func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
+	return &sizedMetaFile{
+		root: &backuppb.MetaFile{
+			Schemas:   make([]*backuppb.Schema, 0),
+			DataFiles: make([]*backuppb.File, 0),
+			RawRanges: make([]*backuppb.RawRange, 0),
+		},
+		sizeLimit: sizeLimit,
+	}
 }
 
 // flushFile flushes file to external storage and returns a file descriptor (*backuppb.File).
@@ -272,22 +290,28 @@ func (f *sizedMetaFile) flushFile(ctx context.Context, file *backuppb.MetaFile) 
 	}, nil
 }
 
-func (f *sizedMetaFile) findWritableNode() *backuppb.MetaFile {
-	if len(f.root.MetaFiles) != 0 {
-		// Root node still have some space.
-		return f.root
-	}
-	return f.leaf
-}
+// func (f *sizedMetaFile) findWritableNode() *backuppb.MetaFile {
+// 	for i, n := range f.nodes {
+// 		// is full or node has flushed
+// 		if n.isFull() || f.fileSeqNum < i {
+// 			continue
+// 		}
+// 		return n.root
+// 	}
+// 	f.nodes = append(f.nodes, NewSizedMetaFile(f.fileSeqLimit))
+// 	return f.nodes[len(f.nodes) - 1].root
+// }
 
-func (f *sizedMetaFile) Append(ctx context.Context, file *backuppb.MetaFile, op appendOp) {
-	fszie := file.Size()
-	if f.size+fszie >= f.sizeLimit {
-		// rotate root
-		return
+func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op appendOp) bool {
+	// append to root
+	// 	TODO maybe use multi level index
+	size := op.appendFile(f.root, file)
+	f.size += size
+	if f.size > f.sizeLimit {
+		// f.size would reset outside
+		return true
 	}
-
-	f.size += fszie
+	return false
 }
 
 type MetaWriter struct {
@@ -298,7 +322,7 @@ type MetaWriter struct {
 	backupMeta     *backuppb.BackupMeta
 	metafileSizes  map[string]int
 	metafileSeqNum map[string]int
-	schemas        *sizedMetaFile
+	metafiles      *sizedMetaFile
 }
 
 func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int) *MetaWriter {
@@ -308,7 +332,7 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int) *Meta
 		mu:                sync.Mutex{},
 		backupMeta:        &backuppb.BackupMeta{},
 		metafileSizes:     make(map[string]int),
-		schemas:           &sizedMetaFile{},
+		metafiles:         NewSizedMetaFile(metafileSizeLimit),
 		metafileSeqNum:    make(map[string]int),
 	}
 }
@@ -320,37 +344,43 @@ func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 	f(writer.backupMeta)
 }
 
-func (writer *MetaWriter) WriteSchemas(ctx context.Context, schemas ...*backuppb.Schema) error {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
-	totalSize := 0
-	for i := range schemas {
-		size := schemas[i].Size()
-		if size+writer.schemas.size > writer.metafileSizeLimit {
-			// Incoming schema is too large, we need to flush buffered scheams.
-			writer.flushSchemasLocked(ctx)
+func (writer *MetaWriter) WriteFiles(ctx context.Context, filesCh chan []*backuppb.File) errgroup.Group {
+	var eg errgroup.Group
+	eg.Go(func() error {
+		for {
+			select  {
+			case <- ctx.Done():
+				log.Info("write files exits")
+				return nil
+			case files := <- filesCh:
+				for _, f := range files {
+					needFlush := writer.metafiles.Append(ctx, f, appendDataFile)
+					if needFlush {
+						err := writer.FlushFiles(ctx)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
 		}
-		writer.schemas.root.Schemas = append(writer.schemas.root.Schemas, schemas[i])
-		writer.schemas.size += size
-		totalSize += size
-	}
-	writer.metafileSizes["schemas"] += totalSize
-
-	return nil
+	})
+	return eg
 }
 
-func (writer *MetaWriter) flushSchemasLocked(ctx context.Context) error {
-	if len(writer.schemas.root.Schemas) == 0 {
+func (writer *MetaWriter) FlushFiles(ctx context.Context) error {
+	if len(writer.metafiles.root.DataFiles) == 0 {
 		return nil
 	}
-	content, err := writer.schemas.root.Marshal()
+	writer.metafileSizes["datafiles"] += writer.metafiles.size
+	content, err := writer.metafiles.root.Marshal()
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// Flush schemas to external storage.
-	writer.metafileSeqNum["schemas"] += 1
-	fname := fmt.Sprintf("backupmeta.schema.%09d", writer.metafileSeqNum["schemas"])
+
+	// Flush metafiles to external storage.
+	writer.metafileSeqNum["metafiles"] += 1
+	fname := fmt.Sprintf("backupmeta.datafile.%09d", writer.metafileSeqNum["metafiles"])
 	if err = writer.storage.WriteFile(ctx, fname, content); err != nil {
 		return errors.Trace(err)
 	}
@@ -360,12 +390,63 @@ func (writer *MetaWriter) flushSchemasLocked(ctx context.Context) error {
 		Sha256: checksum[:],
 		Size_:  uint64(len(content)),
 	}
-	// Add the metafile to backupmeta and reset schemas.
+	// Add the metafile to backupmeta and reset metafiles.
 	if writer.backupMeta.SchemaIndex == nil {
 		writer.backupMeta.SchemaIndex = &backuppb.MetaFile{}
 	}
 	writer.backupMeta.SchemaIndex.MetaFiles = append(writer.backupMeta.SchemaIndex.MetaFiles, file)
-	writer.schemas = &sizedMetaFile{}
+	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
+	return nil
+}
+
+
+func (writer *MetaWriter) WriteSchemas(ctx context.Context, schemas ...*backuppb.Schema) error {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+
+	for i := range schemas {
+		needFlush := writer.metafiles.Append(ctx, schemas[i], appendSchema)
+		if needFlush {
+			err := writer.flushSchemasLocked(ctx)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (writer *MetaWriter) flushSchemasLocked(ctx context.Context) error {
+	if len(writer.metafiles.root.Schemas) == 0 {
+		return nil
+	}
+	// record size before flush
+	writer.metafileSizes["schemas"] += writer.metafiles.size
+
+	content, err := writer.metafiles.root.Marshal()
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	// Flush metafiles to external storage.
+	writer.metafileSeqNum["metafiles"] += 1
+	fname := fmt.Sprintf("backupmeta.schema.%09d", writer.metafileSeqNum["metafiles"])
+	if err = writer.storage.WriteFile(ctx, fname, content); err != nil {
+		return errors.Trace(err)
+	}
+	checksum := sha256.Sum256(content)
+	file := &backuppb.File{
+		Name:   fname,
+		Sha256: checksum[:],
+		Size_:  uint64(len(content)),
+	}
+	// Add the metafile to backupmeta and reset metafiles.
+	if writer.backupMeta.SchemaIndex == nil {
+		writer.backupMeta.SchemaIndex = &backuppb.MetaFile{}
+	}
+	writer.backupMeta.SchemaIndex.MetaFiles = append(writer.backupMeta.SchemaIndex.MetaFiles, file)
+	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
 	return nil
 }
 
@@ -399,7 +480,7 @@ func (writer *MetaWriter) Flush(ctx context.Context) error {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
 
-	// Flush buffered schemas.
+	// Flush buffered metafiles.
 	if err := writer.flushSchemasLocked(ctx); err != nil {
 		return nil
 	}

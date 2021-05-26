@@ -204,13 +204,19 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
 	}
-	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, updateCh)
+	filesCh := make(chan[] *backuppb.File, 1024)
+	err = client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, filesCh, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
 
+	files := make([]*backuppb.File, 0)
+	// FIXME consider use metaWriter to flush raw files
+	for f := range filesCh {
+		files = append(files, f...)
+	}
 	// Checksum
 	rawRanges := []*backuppb.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
 	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil, clusterVersion, brVersion)
