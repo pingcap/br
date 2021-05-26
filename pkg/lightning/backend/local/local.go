@@ -58,6 +58,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -885,7 +886,7 @@ func NewLocalBackend(
 }
 
 func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
-	stores, err := pdClient.GetAllStores(ctx, pd.WithExcludeTombstone())
+	stores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}

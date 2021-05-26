@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
+	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/summary"
@@ -224,7 +225,7 @@ func NewFileImporter(
 
 // CheckMultiIngestSupport checks whether all stores support multi-ingest
 func (importer *FileImporter) CheckMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
-	allStores, err := pdClient.GetAllStores(context.Background(), pd.WithExcludeTombstone())
+	allStores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}
