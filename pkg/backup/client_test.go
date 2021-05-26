@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
+	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
 	pd "github.com/tikv/pd/client"
 
@@ -104,7 +105,7 @@ func (r *testBackup) TestGetTS(c *C) {
 	c.Assert(ts, Equals, backupts)
 }
 
-func (r *testBackup) TestBuildTableRange(c *C) {
+func (r *testBackup) TestBuildTableRangeIntHandle(c *C) {
 	type Case struct {
 		ids []int64
 		trs []kv.KeyRange
@@ -140,6 +141,50 @@ func (r *testBackup) TestBuildTableRange(c *C) {
 	tbl := &model.TableInfo{ID: 7}
 	ranges, err := backup.BuildTableRanges(tbl)
 	c.Assert(err, IsNil)
+	c.Assert(ranges, DeepEquals, []kv.KeyRange{
+		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
+	})
+}
+
+func (r *testBackup) TestBuildTableRangeCommonHandle(c *C) {
+	type Case struct {
+		ids []int64
+		trs []kv.KeyRange
+	}
+	low, err_l := codec.EncodeKey(nil, nil, []types.Datum{types.MinNotNullDatum()}...)
+	c.Assert(err_l, IsNil)
+	high, err_h := codec.EncodeKey(nil, nil, []types.Datum{types.MaxValueDatum()}...)
+	c.Assert(err_h, IsNil)
+	high = kv.Key(high).PrefixNext()
+	cases := []Case{
+		{ids: []int64{1}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+		}},
+		{ids: []int64{1, 2, 3}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+			{StartKey: tablecodec.EncodeRowKey(2, low), EndKey: tablecodec.EncodeRowKey(2, high)},
+			{StartKey: tablecodec.EncodeRowKey(3, low), EndKey: tablecodec.EncodeRowKey(3, high)},
+		}},
+		{ids: []int64{1, 3}, trs: []kv.KeyRange{
+			{StartKey: tablecodec.EncodeRowKey(1, low), EndKey: tablecodec.EncodeRowKey(1, high)},
+			{StartKey: tablecodec.EncodeRowKey(3, low), EndKey: tablecodec.EncodeRowKey(3, high)},
+		}},
+	}
+	for _, cs := range cases {
+		c.Log(cs)
+		tbl := &model.TableInfo{Partition: &model.PartitionInfo{Enable: true}, IsCommonHandle: true}
+		for _, id := range cs.ids {
+			tbl.Partition.Definitions = append(tbl.Partition.Definitions,
+				model.PartitionDefinition{ID: id})
+		}
+		ranges, err := backup.BuildTableRanges(tbl)
+		c.Assert(err, IsNil)
+		c.Assert(ranges, DeepEquals, cs.trs)
+	}
+
+	tbl := &model.TableInfo{ID: 7, IsCommonHandle: true}
+	ranges, err_r := backup.BuildTableRanges(tbl)
+	c.Assert(err_r, IsNil)
 	c.Assert(ranges, DeepEquals, []kv.KeyRange{
 		{StartKey: tablecodec.EncodeRowKey(7, low), EndKey: tablecodec.EncodeRowKey(7, high)},
 	})
