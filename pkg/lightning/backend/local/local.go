@@ -1719,7 +1719,7 @@ loopWrite:
 		}
 
 		if len(metas) == 0 {
-			return errors.New("sst metas is empty")
+			return nil
 		}
 
 		batch := 1
