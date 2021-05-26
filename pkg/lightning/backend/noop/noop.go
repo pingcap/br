@@ -74,6 +74,14 @@ func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUI
 	return nil
 }
 
+func (b noopBackend) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
+	return nil
+}
+
+func (b noopBackend) GetEngineTS(ctx context.Context, engineUUID uuid.UUID) (uint64, error) {
+	return 0, nil
+}
+
 func (b noopBackend) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	return nil
 }
@@ -163,7 +171,7 @@ func (r noopRow) ClassifyAndAppend(*kv.Rows, *verification.KVChecksum, *kv.Rows,
 
 type noopWriter struct{}
 
-func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Rows) error {
+func (w noopWriter) AppendRows(context.Context, string, []string, kv.Rows) error {
 	return nil
 }
 

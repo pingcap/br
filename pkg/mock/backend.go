@@ -153,6 +153,21 @@ func (mr *MockBackendMockRecorder) FlushEngine(arg0, arg1 interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlushEngine", reflect.TypeOf((*MockBackend)(nil).FlushEngine), arg0, arg1)
 }
 
+// GetEngineTS mocks base method.
+func (m *MockBackend) GetEngineTS(arg0 context.Context, arg1 uuid.UUID) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEngineTS", arg0, arg1)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEngineTS indicates an expected call of GetEngineTS.
+func (mr *MockBackendMockRecorder) GetEngineTS(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEngineTS", reflect.TypeOf((*MockBackend)(nil).GetEngineTS), arg0, arg1)
+}
+
 // ImportEngine mocks base method.
 func (m *MockBackend) ImportEngine(arg0 context.Context, arg1 uuid.UUID) error {
 	m.ctrl.T.Helper()
@@ -253,6 +268,20 @@ func (mr *MockBackendMockRecorder) RetryImportDelay() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryImportDelay", reflect.TypeOf((*MockBackend)(nil).RetryImportDelay))
 }
 
+// SetEngineTSIfNotExists mocks base method.
+func (m *MockBackend) SetEngineTSIfNotExists(arg0 context.Context, arg1 uuid.UUID, arg2 uint64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetEngineTSIfNotExists", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetEngineTSIfNotExists indicates an expected call of SetEngineTSIfNotExists.
+func (mr *MockBackendMockRecorder) SetEngineTSIfNotExists(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEngineTSIfNotExists", reflect.TypeOf((*MockBackend)(nil).SetEngineTSIfNotExists), arg0, arg1, arg2)
+}
+
 // ShouldPostProcess mocks base method.
 func (m *MockBackend) ShouldPostProcess() bool {
 	m.ctrl.T.Helper()
@@ -291,17 +320,17 @@ func (m *MockEngineWriter) EXPECT() *MockEngineWriterMockRecorder {
 }
 
 // AppendRows mocks base method.
-func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 uint64, arg4 kv.Rows) error {
+func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 kv.Rows) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AppendRows", arg0, arg1, arg2, arg3, arg4)
+	ret := m.ctrl.Call(m, "AppendRows", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AppendRows indicates an expected call of AppendRows.
-func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendRows", reflect.TypeOf((*MockEngineWriter)(nil).AppendRows), arg0, arg1, arg2, arg3, arg4)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendRows", reflect.TypeOf((*MockEngineWriter)(nil).AppendRows), arg0, arg1, arg2, arg3)
 }
 
 // Close mocks base method.

@@ -125,7 +125,7 @@ type Range struct {
 // localFileMeta contains some field that is necessary to continue the engine restore/import process.
 // These field should be written to disk when we update chunk checkpoint
 type localFileMeta struct {
-	TS uint64 `json:"ts"`
+	TS atomic.Uint64 `json:"ts"`
 	// Length is the number of KV pairs stored by the engine.
 	Length atomic.Int64 `json:"length"`
 	// TotalSize is the total pre-compressed KV byte size stored by engine.
@@ -1172,7 +1172,28 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	return nil
 }
 
-// Close backend engine by uuid
+func (local *local) SetEngineTSIfNotExists(_ context.Context, engineUUID uuid.UUID, ts uint64) error {
+	engine, ok := local.engines.Load(engineUUID)
+	if !ok {
+		return errors.Errorf("engine '%s' not found", engineUUID)
+	}
+	engineFile := engine.(*File)
+
+	engineFile.TS.CAS(0, ts)
+	return nil
+}
+
+func (local *local) GetEngineTS(_ context.Context, engineUUID uuid.UUID) (uint64, error) {
+	engine, ok := local.engines.Load(engineUUID)
+	if !ok {
+		return 0, errors.Errorf("engine '%s' not found", engineUUID)
+	}
+	engineFile := engine.(*File)
+
+	return engineFile.TS.Load(), nil
+}
+
+// CloseEngine closes backend engine by uuid
 // NOTE: we will return nil if engine is not exist. This will happen if engine import&cleanup successfully
 // but exit before update checkpoint. Thus after restart, we will try to import this engine again.
 func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -1310,7 +1331,7 @@ func (local *local) WriteToTiKV(
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
-				CommitTs: engineFile.TS,
+				CommitTs: engineFile.TS.Load(),
 			},
 		}
 		clients = append(clients, wstream)
@@ -2592,7 +2613,7 @@ func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	return
 }
 
-func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
 	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
@@ -2614,7 +2635,6 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 		}
 	}
 
-	w.local.TS = ts
 	if w.isWriteBatchSorted {
 		return w.appendRowsSorted(kvs)
 	}

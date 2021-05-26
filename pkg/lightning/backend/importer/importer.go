@@ -62,6 +62,8 @@ type importer struct {
 	mutationPool sync.Pool
 	// lock ensures ImportEngine are runs serially
 	lock sync.Mutex
+
+	tsMap sync.Map // engineUUID -> commitTS
 }
 
 // NewImporter creates a new connection to tikv-importer. A single connection
@@ -136,6 +138,22 @@ func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineCon
 	return errors.Trace(err)
 }
 
+func (importer *importer) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
+	importer.tsMap.LoadOrStore(engineUUID, ts)
+	return nil
+}
+
+func (importer *importer) loadEngineTS(engineUUID uuid.UUID) uint64 {
+	if v, ok := importer.tsMap.Load(engineUUID); ok {
+		return v.(uint64)
+	}
+	return 0
+}
+
+func (importer *importer) GetEngineTS(_ context.Context, engineUUID uuid.UUID) (uint64, error) {
+	return importer.loadEngineTS(engineUUID), nil
+}
+
 func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: engineUUID[:],
@@ -170,6 +188,9 @@ func (importer *importer) CleanupEngine(ctx context.Context, engineUUID uuid.UUI
 	}
 
 	_, err := importer.cli.CleanupEngine(ctx, req)
+	if err == nil {
+		importer.tsMap.Delete(engineUUID)
+	}
 	return errors.Trace(err)
 }
 
@@ -177,11 +198,11 @@ func (importer *importer) WriteRows(
 	ctx context.Context,
 	engineUUID uuid.UUID,
 	tableName string,
-	columnNames []string,
-	ts uint64,
+	_ []string,
 	rows kv.Rows,
 ) (finalErr error) {
 	var err error
+	ts := importer.loadEngineTS(engineUUID)
 outside:
 	for _, r := range rows.SplitIntoChunks(importer.MaxChunkSize()) {
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
@@ -339,8 +360,8 @@ func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	return nil, nil
 }
 
-func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
-	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
+	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, rows)
 }
 
 func (w *Writer) IsSynced() bool {

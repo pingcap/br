@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/golang/mock/gomock"
@@ -902,6 +903,11 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/AllocateCommitTS", "return")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/AllocateCommitTS")
+	}()
+
 	err = rc.restoreTables(ctx)
 	c.Assert(err, IsNil)
 
@@ -975,14 +981,14 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockWriter := mock.NewMockEngineWriter(controller)
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().
-		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
@@ -1016,9 +1022,9 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
@@ -1029,7 +1035,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	// Set up the expected API calls to the data engine...
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_ryyyyyyyy"),
 				Val: []byte("value1"),
@@ -1046,7 +1052,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	// Note: This test assumes data engine is written before the index engine.
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_izzzzzzzz"),
 				Val: []byte("index1"),
@@ -1282,9 +1288,13 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	err = importer.SetEngineTSIfNotExists(ctx, s.tr.tableName, 0, uint64(time.Now().UnixNano()))
+	c.Assert(err, IsNil)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
+	c.Assert(err, IsNil)
+	err = importer.SetEngineTSIfNotExists(ctx, s.tr.tableName, -1, uint64(time.Now().UnixNano()))
 	c.Assert(err, IsNil)
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)

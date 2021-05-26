@@ -205,9 +205,6 @@ type Controller struct {
 	diskQuotaLock  sync.RWMutex
 	diskQuotaState int32
 	compactState   int32
-
-	// commit ts for local and importer backend
-	ts uint64
 }
 
 func NewRestoreController(
@@ -289,21 +286,6 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
 	}
 
-	var ts uint64
-	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
-		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		defer pdController.Close()
-
-		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		ts = oracle.ComposeTS(physical, logical)
-	}
-
 	var metaBuilder metaMgrBuilder
 	switch cfg.TikvImporter.Backend {
 	case config.BackendLocal, config.BackendImporter:
@@ -341,7 +323,6 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store:          s,
-		ts:             ts,
 		metaMgrBuilder: metaBuilder,
 	}
 
@@ -1395,6 +1376,49 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	return err
 }
 
+func (rc *Controller) allocateCommitTS(ctx context.Context) (uint64, error) {
+	failpoint.Inject("AllocateCommitTS", func() {
+		failpoint.Return(uint64(time.Now().UnixNano()), nil)
+	})
+
+	pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr, rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption())
+	if err != nil {
+		return 0, err
+	}
+	defer pdController.Close()
+
+	physical, logical, err := pdController.GetPDClient().GetTS(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return oracle.ComposeTS(physical, logical), nil
+}
+
+func (rc *Controller) ensureEngineTS(ctx context.Context, tableName string, engineID int32) error {
+	// CommitTS is only used in local backend and importer backend.
+	if !rc.isLocalBackend() && !rc.isImporterBackend() {
+		return nil
+	}
+	// If the engine has already contains a commitTS, we should not change it. Because we don't want
+	// to write same kv pairs to TiKV with different commitTS. Or we cannot detect duplicate correctly.
+	ts, err := rc.backend.GetEngineTS(ctx, tableName, engineID)
+	if err != nil {
+		return err
+	}
+	if ts > 0 {
+		return nil
+	}
+	// We allocate commitTS from PD server each time, so that every engine can use a unique commitTS.
+	ts, err = rc.allocateCommitTS(ctx)
+	if err != nil {
+		return err
+	}
+	if err := rc.backend.SetEngineTSIfNotExists(ctx, tableName, engineID, ts); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (tr *TableRestore) restoreTable(
 	ctx context.Context,
 	rc *Controller,
@@ -1591,8 +1615,11 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				continue
 			}
 			if engine.Status < checkpoints.CheckpointStatusAllWritten {
-				indexEngine, err = rc.backend.OpenEngine(ctx, engineCfg, tr.tableName, indexEngineID, rc.ts)
+				indexEngine, err = rc.backend.OpenEngine(ctx, engineCfg, tr.tableName, indexEngineID)
 				if err != nil {
+					return errors.Trace(err)
+				}
+				if err = rc.ensureEngineTS(ctx, tr.tableName, indexEngineID); err != nil {
 					return errors.Trace(err)
 				}
 				break
@@ -1743,8 +1770,11 @@ func (tr *TableRestore) restoreEngine(
 	}
 
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
-	dataEngine, err := rc.backend.OpenEngine(ctx, &backend.EngineConfig{}, tr.tableName, engineID, rc.ts)
+	dataEngine, err := rc.backend.OpenEngine(ctx, &backend.EngineConfig{}, tr.tableName, engineID)
 	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	if err = rc.ensureEngineTS(ctx, tr.tableName, engineID); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -2311,7 +2341,11 @@ func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
 }
 
 func (rc *Controller) isLocalBackend() bool {
-	return rc.cfg.TikvImporter.Backend == "local"
+	return rc.cfg.TikvImporter.Backend == config.BackendLocal
+}
+
+func (rc *Controller) isImporterBackend() bool {
+	return rc.cfg.TikvImporter.Backend == config.BackendImporter
 }
 
 type chunkRestore struct {
@@ -2716,6 +2750,14 @@ func (cr *chunkRestore) deliverLoop(
 			// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
 			if !dataSynced {
 				dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
+			}
+			// When enabled DiskQuota, `enforceDiskQuota` may force the backend to import the content of a large engine
+			// into the target and then reset the engine to empty. When this happen, we need to use a new commitTS.
+			if err = rc.ensureEngineTS(ctx, t.tableName, engineID); err != nil {
+				return errors.Trace(err)
+			}
+			if err = rc.ensureEngineTS(ctx, t.tableName, indexEngineID); err != nil {
+				return errors.Trace(err)
 			}
 
 			// Write KVs into the engine

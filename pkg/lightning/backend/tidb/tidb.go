@@ -351,6 +351,14 @@ func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.U
 	return nil
 }
 
+func (be *tidbBackend) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
+	return nil
+}
+
+func (be *tidbBackend) GetEngineTS(ctx context.Context, engineUUID uuid.UUID) (uint64, error) {
+	return 0, nil
+}
+
 func (be *tidbBackend) CloseEngine(context.Context, uuid.UUID) error {
 	return nil
 }
@@ -363,7 +371,7 @@ func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
-func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, _ uint64, rows kv.Rows) error {
+func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, rows kv.Rows) error {
 	var err error
 outside:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
@@ -572,8 +580,8 @@ func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	return nil, nil
 }
 
-func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
-	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
+	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, rows)
 }
 
 func (w *Writer) IsSynced() bool {
