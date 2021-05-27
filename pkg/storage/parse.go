@@ -18,8 +18,9 @@ import (
 // BackendOptions further configures the storage backend not expressed by the
 // storage URL.
 type BackendOptions struct {
-	S3  S3BackendOptions  `json:"s3" toml:"s3"`
-	GCS GCSBackendOptions `json:"gcs" toml:"gcs"`
+	Local LocalOptions      `json:"local" toml:"local"`
+	S3    S3BackendOptions  `json:"s3" toml:"s3"`
+	GCS   GCSBackendOptions `json:"gcs" toml:"gcs"`
 }
 
 // ParseRawURL parse raw url to url object.
@@ -52,10 +53,24 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backuppb.StorageBack
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "covert data-source-dir '%s' to absolute path failed", rawURL)
 		}
 		local := &backuppb.Local{Path: absPath}
+		if options == nil {
+			options = &BackendOptions{Local: LocalOptions{}}
+		}
+		ExtractQueryParameters(u, &options.Local)
+		if err := options.Local.Apply(local); err != nil {
+			return nil, errors.Trace(err)
+		}
 		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Local{Local: local}}, nil
 
 	case "local", "file":
 		local := &backuppb.Local{Path: u.Path}
+		if options == nil {
+			options = &BackendOptions{Local: LocalOptions{}}
+		}
+		ExtractQueryParameters(u, &options.Local)
+		if err := options.Local.Apply(local); err != nil {
+			return nil, errors.Trace(err)
+		}
 		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Local{Local: local}}, nil
 
 	case "noop":
