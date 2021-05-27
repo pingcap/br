@@ -433,20 +433,16 @@ func (bc *Client) BackupRanges(
 	}
 
 	// we collect all files in a single goroutine to avoid thread safety issues.
-	rangeFilesCh := make(chan[] *backuppb.File, concurrency)
-	defer close(rangeFilesCh)
 	workerPool := utils.NewWorkerPool(concurrency, "Ranges")
 	eg, ectx := errgroup.WithContext(ctx)
 	for _, r := range ranges {
 		sk, ek := r.StartKey, r.EndKey
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			err := bc.BackupRange(ectx, sk, ek, req, rangeFilesCh, updateCh)
-			if err == nil {
-				for rf := range rangeFilesCh {
-					filesCh <- rf
-				}
+			err := bc.BackupRange(ectx, sk, ek, req, filesCh, updateCh)
+			if err != nil {
+				return errors.Trace(err)
 			}
-			return errors.Trace(err)
+			return nil
 		})
 	}
 	return eg.Wait()

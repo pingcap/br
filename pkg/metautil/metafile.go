@@ -352,8 +352,13 @@ func (writer *MetaWriter) WriteFiles(ctx context.Context, filesCh chan []*backup
 			case <- ctx.Done():
 				log.Info("write files exits")
 				return nil
-			case files := <- filesCh:
+			case files, ok := <- filesCh:
+				if !ok {
+					log.Info("write files finished")
+					return nil
+				}
 				for _, f := range files {
+					log.Info("append datafile", zap.String("name", f.Name))
 					needFlush := writer.metafiles.Append(ctx, f, appendDataFile)
 					if needFlush {
 						err := writer.FlushFiles(ctx)
@@ -391,10 +396,10 @@ func (writer *MetaWriter) FlushFiles(ctx context.Context) error {
 		Size_:  uint64(len(content)),
 	}
 	// Add the metafile to backupmeta and reset metafiles.
-	if writer.backupMeta.SchemaIndex == nil {
-		writer.backupMeta.SchemaIndex = &backuppb.MetaFile{}
+	if writer.backupMeta.FileIndex == nil {
+		writer.backupMeta.FileIndex = &backuppb.MetaFile{}
 	}
-	writer.backupMeta.SchemaIndex.MetaFiles = append(writer.backupMeta.SchemaIndex.MetaFiles, file)
+	writer.backupMeta.FileIndex.DataFiles = append(writer.backupMeta.FileIndex.DataFiles, file)
 	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
 	return nil
 }
