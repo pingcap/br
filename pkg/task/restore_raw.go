@@ -90,8 +90,13 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
+<<<<<<< HEAD
 	g.Record("Size", utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
+=======
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
+	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
+>>>>>>> 179e15db (lightning/restore: support ingset multi ssts for same range (#1089))
 		return errors.Trace(err)
 	}
 

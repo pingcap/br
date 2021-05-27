@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -166,7 +167,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
+func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
 	if !backupMeta.IsRawKv {
 		databases, err := utils.LoadBackupTables(backupMeta)
 		if err != nil {
@@ -187,8 +188,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backu
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
 	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
-
-	return nil
+	return rc.fileImporter.CheckMultiIngestSupport(c, rc.pdClient)
 }
 
 // IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
@@ -525,6 +525,38 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	return nil
 }
 
+// isFilesBelongToSameRange check whether two files are belong to the same range with different cf.
+func isFilesBelongToSameRange(f1, f2 string) bool {
+	// the backup date file pattern is `{store_id}_{region_id}_{epoch_version}_{key}_{ts}_{cf}.sst`
+	// so we need to compare with out the `_{cf}.sst` suffix
+	idx1 := strings.LastIndex(f1, "_")
+	idx2 := strings.LastIndex(f2, "_")
+
+	if idx1 < 0 || idx2 < 0 {
+		panic(fmt.Sprintf("invalid backup data file name: '%s', '%s'", f1, f2))
+	}
+
+	return f1[:idx1] == f2[:idx2]
+}
+
+func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.File, []*backuppb.File) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if !supportMulti {
+		return files[:1], files[1:]
+	}
+	idx := 1
+	for idx < len(files) {
+		if !isFilesBelongToSameRange(files[idx-1].Name, files[idx].Name) {
+			break
+		}
+		idx++
+	}
+
+	return files[:idx], files[idx:]
+}
+
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
 	ctx context.Context,
@@ -549,19 +581,21 @@ func (rc *Client) RestoreFiles(
 		return errors.Trace(err)
 	}
 
-	for _, file := range files {
-		fileReplica := file
+	var rangeFiles []*backuppb.File
+	for rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest) {
+		filesReplica := rangeFiles
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", logutil.File(fileReplica),
+					log.Info("import files done", logutil.Files(filesReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
-				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
+				return rc.fileImporter.Import(ectx, filesReplica, rewriteRules)
 			})
 	}
+
 	if err := eg.Wait(); err != nil {
 		summary.CollectFailureUnit("file", err)
 		log.Error(
@@ -599,7 +633,7 @@ func (rc *Client) RestoreRaw(
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, EmptyRewriteRule())
+				return rc.fileImporter.Import(ectx, []*backuppb.File{fileReplica}, EmptyRewriteRule())
 			})
 	}
 	if err := eg.Wait(); err != nil {

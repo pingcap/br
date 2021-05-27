@@ -478,9 +478,13 @@ func beforeEnd(key []byte, end []byte) bool {
 	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
-func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
-	rg := meta.GetRange()
-	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
+func insideRegion(region *metapb.Region, metas []*sst.SSTMeta) bool {
+	inside := true
+	for _, meta := range metas {
+		rg := meta.GetRange()
+		inside = inside && (keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd()))
+	}
+	return inside
 }
 
 func keyInsideRegion(region *metapb.Region, key []byte) bool {
