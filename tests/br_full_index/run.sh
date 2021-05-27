@@ -44,8 +44,8 @@ BR_LOG_TO_TERM=1
 
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
-if [ "${checksum_count}" != "$DB_COUNT" ];then
-    echo "TEST: [$TEST_NAME] fail on fast checksum"
+if [ "${checksum_count}" -lt "$DB_COUNT" ];then
+    echo "TEST: [$TEST_NAME] fail on fast checksum: required $DB_COUNT databases checked, but only ${checksum_count} dbs checked"
     echo $(cat $LOG | grep checksum)
     exit 1
 fi

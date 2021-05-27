@@ -109,7 +109,7 @@ func newFullBackupCommand() *cobra.Command {
 			return runBackupCommand(command, "Full backup")
 		},
 	}
-	task.DefineFilterFlags(command)
+	task.DefineFilterFlags(command, acceptAllTables)
 	return command
 }
 

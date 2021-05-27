@@ -31,6 +31,11 @@ error = '''
 invalid argument
 '''
 
+["BR:Common:ErrUndefinedDbOrTable"]
+error = '''
+undefined restore databases or tables
+'''
+
 ["BR:Common:ErrUnknown"]
 error = '''
 internal error
@@ -76,11 +81,6 @@ error = '''
 key not in region
 '''
 
-["BR:KV:ErrKVNotHealth"]
-error = '''
-tikv cluster not health
-'''
-
 ["BR:KV:ErrKVNotLeader"]
 error = '''
 not leader
@@ -96,9 +96,14 @@ error = '''
 rewrite rule not found
 '''
 
+["BR:KV:ErrKVStorage"]
+error = '''
+tikv storage occur I/O error
+'''
+
 ["BR:KV:ErrKVUnknown"]
 error = '''
-unknown tikv error
+unknown error occur on tikv
 '''
 
 ["BR:KV:ErrNotTiKVStorage"]
@@ -189,5 +194,10 @@ restore table ID mismatch
 ["BR:Restore:ErrRestoreWriteAndIngest"]
 error = '''
 failed to write and ingest
+'''
+
+["BR:Restore:ErrUnsupportedSysTable"]
+error = '''
+the system table isn't supported for restoring yet
 '''
 

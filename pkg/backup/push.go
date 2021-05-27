@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/opentracing/opentracing-go"
@@ -15,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
@@ -25,15 +25,28 @@ import (
 // pushDown wraps a backup task.
 type pushDown struct {
 	mgr    ClientMgr
-	respCh chan *backuppb.BackupResponse
+	respCh chan responseAndStore
 	errCh  chan error
+}
+
+type responseAndStore struct {
+	Resp  *backuppb.BackupResponse
+	Store *metapb.Store
+}
+
+func (r responseAndStore) GetResponse() *backuppb.BackupResponse {
+	return r.Resp
+}
+
+func (r responseAndStore) GetStore() *metapb.Store {
+	return r.Store
 }
 
 // newPushDown creates a push down backup.
 func newPushDown(mgr ClientMgr, cap int) *pushDown {
 	return &pushDown{
 		mgr:    mgr,
-		respCh: make(chan *backuppb.BackupResponse, cap),
+		respCh: make(chan responseAndStore, cap),
 		errCh:  make(chan error, cap),
 	}
 }
@@ -43,7 +56,7 @@ func (push *pushDown) pushBackup(
 	ctx context.Context,
 	req backuppb.BackupRequest,
 	stores []*metapb.Store,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (rtree.RangeTree, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("pushDown.pushBackup", opentracing.ChildOf(span.Context()))
@@ -60,6 +73,7 @@ func (push *pushDown) pushBackup(
 
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
+		store := s
 		storeID := s.GetId()
 		if s.GetState() != metapb.StoreState_Up {
 			log.Warn("skip store", zap.Uint64("StoreID", storeID), zap.Stringer("State", s.GetState()))
@@ -79,7 +93,10 @@ func (push *pushDown) pushBackup(
 				ctx, storeID, client, req,
 				func(resp *backuppb.BackupResponse) error {
 					// Forward all responses (including error).
-					push.respCh <- resp
+					push.respCh <- responseAndStore{
+						Resp:  resp,
+						Store: store,
+					}
 					return nil
 				},
 				func() (backuppb.BackupClient, error) {
@@ -102,7 +119,9 @@ func (push *pushDown) pushBackup(
 
 	for {
 		select {
-		case resp, ok := <-push.respCh:
+		case respAndStore, ok := <-push.respCh:
+			resp := respAndStore.GetResponse()
+			store := respAndStore.GetStore()
 			if !ok {
 				// Finished.
 				return res, nil
@@ -114,13 +133,20 @@ func (push *pushDown) pushBackup(
 					Msg: msg,
 				}
 			})
+			failpoint.Inject("tikv-rw-error", func(val failpoint.Value) {
+				msg := val.(string)
+				log.Debug("failpoint tikv-rw-error injected.", zap.String("msg", msg))
+				resp.Error = &backuppb.Error{
+					Msg: msg,
+				}
+			})
 			if resp.GetError() == nil {
 				// None error means range has been backuped successfully.
 				res.Put(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {
@@ -138,8 +164,18 @@ func (push *pushDown) pushBackup(
 						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
-					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
-					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
+					if utils.MessageIsNotFoundStorageError(errPb.GetMsg()) {
+						errMsg := fmt.Sprintf("File or directory not found error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
+							zap.String("work around", "please ensure br and tikv node share a same disk and the user of br and tikv has same uid."))
+					}
+
+					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
+						errMsg := fmt.Sprintf("I/O permission denied error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
+							zap.String("work around", "please ensure tikv has permission to read from & write to the storage."))
+					}
+					return res, berrors.ErrKVStorage
 				}
 			}
 		case err := <-push.errCh:

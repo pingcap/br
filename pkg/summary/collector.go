@@ -23,6 +23,10 @@ const (
 	TotalKV = "total kv"
 	// TotalBytes is a field we collect during backup/restore
 	TotalBytes = "total bytes"
+	// BackupDataSize is a field we collect after backup finish
+	BackupDataSize = "backup data size(after compressed)"
+	// RestoreDataSize is a field we collection after restore finish
+	RestoreDataSize = "restore data size(after decompressed)"
 )
 
 // LogCollector collects infos into summary log.
@@ -188,7 +192,7 @@ func (tc *logCollector) Summary(name string) {
 		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unit-name", unitName), zap.Error(reason))
 		}
-		log.Info(name+" failed summary", logFields...)
+		tc.log(name+" failed summary", logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
@@ -200,8 +204,26 @@ func (tc *logCollector) Summary(name string) {
 	for name, data := range tc.successData {
 		if name == TotalBytes {
 			logFields = append(logFields,
-				zap.String("data-size", units.HumanSize(float64(data))),
+				zap.String("total-kv-size", units.HumanSize(float64(data))),
 				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
+			continue
+		}
+		if name == BackupDataSize {
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to bakcup"))
+			} else {
+				logFields = append(logFields,
+					zap.String(BackupDataSize, units.HumanSize(float64(data))))
+			}
+			continue
+		}
+		if name == RestoreDataSize {
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to restore"))
+			} else {
+				logFields = append(logFields,
+					zap.String(RestoreDataSize, units.HumanSize(float64(data))))
+			}
 			continue
 		}
 		logFields = append(logFields, zap.Uint64(logKeyFor(name), data))

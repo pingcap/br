@@ -94,6 +94,10 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
+func (row tidbRow) Size() uint64 {
+	return uint64(len(row))
+}
+
 func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
 	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
@@ -420,7 +424,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 
 	// Retry will be done externally, so we're not going to retry here.
 	_, err := be.db.ExecContext(ctx, insertStmt.String())
-	if err != nil {
+	if err != nil && !common.IsContextCanceledError(err) {
 		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
 			zap.Array("rows", rows), zap.Error(err))
 	}
