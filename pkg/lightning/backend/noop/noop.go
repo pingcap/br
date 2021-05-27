@@ -142,6 +142,10 @@ func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int) (kv.Row, er
 
 type noopRow struct{}
 
+func (r noopRow) Size() uint64 {
+	return 0
+}
+
 func (r noopRow) ClassifyAndAppend(*kv.Rows, *verification.KVChecksum, *kv.Rows, *verification.KVChecksum) {
 }
 
