@@ -19,7 +19,7 @@ TABLE="usertable"
 
 run_sql "CREATE DATABASE $DB;"
 
-table_names=${cases:-'t0 t1 t2 t_bit t_bool t_tinyint t_smallint t_mediumint t_int t_date t_time t_datetime t_timestamp t_year t_char t_varchar t_text t_binary t_blob t_enum t_set t8 t9 t10 t11 t12'}
+table_names=${cases:-'t0 t1 t2 t_bit t_bool t_tinyint t_smallint t_mediumint t_int t_date t_time t_datetime t_timestamp t_year t_char t_varcher t_text t_binary t_blob t_enum t_set t8 t9 t10 t11 t12'}
 
 run_sql "
 USE $DB;
