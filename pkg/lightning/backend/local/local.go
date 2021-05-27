@@ -67,6 +67,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/logutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -491,8 +492,6 @@ func NewLocalBackend(
 	return backend.MakeBackend(local), nil
 }
 
-<<<<<<< HEAD
-=======
 func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
 	stores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
 	if err != nil {
@@ -521,17 +520,6 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 	return nil
 }
 
-// rlock read locks a local file and returns the File instance if it exists.
-func (local *local) rLockEngine(engineId uuid.UUID) *File {
-	if e, ok := local.engines.Load(engineId); ok {
-		engine := e.(*File)
-		engine.rLock()
-		return engine
-	}
-	return nil
-}
-
->>>>>>> 179e15db (lightning/restore: support ingset multi ssts for same range (#1089))
 // lock locks a local file and returns the File instance if it exists.
 func (local *local) lockEngine(engineID uuid.UUID, state importMutexState) *File {
 	if e, ok := local.engines.Load(engineID); ok {
@@ -945,16 +933,10 @@ func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *sp
 		resp, err := cli.Ingest(ctx, req)
 		return resp, errors.Trace(err)
 	}
-<<<<<<< HEAD
-	resp, err := cli.Ingest(ctx, req)
-	if err != nil {
-		return nil, err
-=======
 
 	req := &sst.MultiIngestRequest{
 		Context: reqCtx,
 		Ssts:    metas,
->>>>>>> 179e15db (lightning/restore: support ingset multi ssts for same range (#1089))
 	}
 	resp, err := cli.MultiIngest(ctx, req)
 	return resp, errors.Trace(err)
@@ -1248,7 +1230,7 @@ loopWrite:
 		}
 
 		if len(metas) == 0 {
-			return nil
+			return nil, nil
 		}
 
 		batch := 1
@@ -1296,13 +1278,8 @@ loopWrite:
 					if common.IsContextCanceledError(err) {
 						return nil, err
 					}
-<<<<<<< HEAD
-					log.L().Warn("ingest failed", log.ShortError(err), log.ZapRedactReflect("meta", meta),
-						log.ZapRedactReflect("region", region))
-=======
 					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMetas(ingestMetas),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
->>>>>>> 179e15db (lightning/restore: support ingset multi ssts for same range (#1089))
 					errCnt++
 					continue
 				}
@@ -1318,13 +1295,8 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-<<<<<<< HEAD
-					log.L().Warn("ingest failed noretry", log.ShortError(err), log.ZapRedactReflect("meta", meta),
-						log.ZapRedactReflect("region", region))
-=======
 					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMetas(ingestMetas),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
->>>>>>> 179e15db (lightning/restore: support ingset multi ssts for same range (#1089))
 					// met non-retryable error retry whole Write procedure
 					return remainRange, err
 				case retryWrite:
