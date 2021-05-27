@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
-	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
@@ -57,7 +56,7 @@ func (push *pushDown) pushBackup(
 	ctx context.Context,
 	req backuppb.BackupRequest,
 	stores []*metapb.Store,
-	updateCh glue.Progress,
+	progressCallBack func(ProgressUnit),
 ) (rtree.RangeTree, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("pushDown.pushBackup", opentracing.ChildOf(span.Context()))
@@ -147,7 +146,7 @@ func (push *pushDown) pushBackup(
 					resp.GetStartKey(), resp.GetEndKey(), resp.GetFiles())
 
 				// Update progress
-				updateCh.Inc()
+				progressCallBack(RegionUnit)
 			} else {
 				errPb := resp.GetError()
 				switch v := errPb.Detail.(type) {

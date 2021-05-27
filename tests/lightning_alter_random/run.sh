@@ -18,6 +18,9 @@ set -eu
 # FIXME: auto-random is only stable on master currently.
 check_cluster_version 4 0 0 AUTO_RANDOM || exit 0
 
+# test lightning with autocommit disabled
+run_sql "SET @@global.autocommit = '0';"
+
 for backend in tidb importer local; do
     if [ "$backend" = 'local' ]; then
         check_cluster_version 4 0 0 'local backend' || continue
@@ -35,7 +38,7 @@ for backend in tidb importer local; do
     check_contains 'inc: 3'
 
     # auto random base is 4
-    run_sql "INSERT INTO alter_random.t VALUES ();"
+    run_sql "INSERT INTO alter_random.t VALUES ();commit;"
     run_sql "SELECT id & b'000001111111111111111111111111111111111111111111111111111111111' as inc FROM alter_random.t"
     if [ "$backend" = 'tidb' ]; then
       check_contains 'inc: 30002'
@@ -43,3 +46,5 @@ for backend in tidb importer local; do
       check_contains 'inc: 4'
     fi
 done
+
+run_sql "SET @@global.autocommit = '1';"
