@@ -19,8 +19,8 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/statistics/handle"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -434,7 +434,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		return errors.Trace(err)
 	}
 
-	g.Record("Size", utils.ArchiveSize(&backupMeta))
+	g.Record(summary.BackupDataSize, utils.ArchiveSize(&backupMeta))
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
@@ -476,7 +476,7 @@ func parseTSString(ts string) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	return variable.GoTimeToTS(t1), nil
+	return oracle.GoTimeToTS(t1), nil
 }
 
 func parseCompressionType(s string) (backuppb.CompressionType, error) {

@@ -218,12 +218,6 @@ func NewMgr(
 		}
 		liveStoreCount++
 	}
-	if liveStoreCount == 0 &&
-		// Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
-	}
 
 	var dom *domain.Domain
 	if needDomain {
