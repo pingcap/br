@@ -192,7 +192,7 @@ func (tc *logCollector) Summary(name string) {
 		for unitName, reason := range tc.failureReasons {
 			logFields = append(logFields, zap.String("unit-name", unitName), zap.Error(reason))
 		}
-		log.Info(name+" failed summary", logFields...)
+		tc.log(name+" failed summary", logFields...)
 		return
 	}
 	totalCost := time.Duration(0)

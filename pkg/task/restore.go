@@ -244,7 +244,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	if err = client.InitBackupMeta(backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -418,6 +418,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// The cost of rename user table / replace into system table wouldn't be so high.
+	// So leave it out of the pipeline for easier implementation.
+	client.RestoreSystemSchemas(ctx, cfg.TableFilter)
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)

@@ -181,7 +181,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 									}
 									return err1
 								} else if common.IsContextCanceledError(err1) {
-									// do not retry on conext.Canceled error
+									// do not retry on context.Canceled error
 									return err1
 								}
 								log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", i),
@@ -309,6 +309,8 @@ func paginateScanRegion(
 	sort.Slice(regions, func(i, j int) bool {
 		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
 	})
+	log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
+		logutil.Key("start", startKey), logutil.Key("end", endKey))
 	return regions, nil
 }
 
@@ -481,9 +483,13 @@ func beforeEnd(key []byte, end []byte) bool {
 	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
-func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
-	rg := meta.GetRange()
-	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
+func insideRegion(region *metapb.Region, metas []*sst.SSTMeta) bool {
+	inside := true
+	for _, meta := range metas {
+		rg := meta.GetRange()
+		inside = inside && (keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd()))
+	}
+	return inside
 }
 
 func keyInsideRegion(region *metapb.Region, key []byte) bool {

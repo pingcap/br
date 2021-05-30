@@ -266,8 +266,18 @@ func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 }
 
 func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
-	ranges := ranger.FullIntRange(false)
-	kvRanges := distsql.TableRangesToKVRanges(tblID, ranges, nil)
+	var ranges []*ranger.Range
+	if tbl.IsCommonHandle {
+		ranges = ranger.FullNotNullRange()
+	} else {
+		ranges = ranger.FullIntRange(false)
+	}
+
+	kvRanges, err := distsql.TableHandleRangesToKVRanges(nil, []int64{tblID}, tbl.IsCommonHandle, ranges, nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	for _, index := range tbl.Indices {
 		if index.State != model.StatePublic {
 			continue
@@ -302,7 +312,7 @@ func BuildBackupRangeAndSchema(
 
 	for _, dbInfo := range dbs {
 		// skip system databases
-		if util.IsMemOrSysDB(dbInfo.Name.L) {
+		if !tableFilter.MatchSchema(dbInfo.Name.O) || util.IsMemDB(dbInfo.Name.L) {
 			continue
 		}
 
