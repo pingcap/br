@@ -128,6 +128,12 @@ testcover: tools
 integration_test: bins build build_for_integration_test
 	tests/run.sh
 
+compatibility_test_prepare:
+	tests/run_compatible.sh prepare
+
+compatibility_test: br
+	tests/run_compatible.sh run
+
 coverage: tools
 	tools/bin/gocovmerge "$(TEST_DIR)"/cov.* | grep -vE ".*.pb.go|.*__failpoint_binding__.go" > "$(TEST_DIR)/all_cov.out"
 ifeq ("$(JenkinsCI)", "1")
