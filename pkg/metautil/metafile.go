@@ -404,11 +404,11 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 			select {
 			case <-ctx.Done():
 				log.Info("exit write metas by context done")
-				break
+				return
 			case meta, ok := <-writer.metasCh:
 				if !ok {
 					log.Info("write metas finished", zap.Any("op", op))
-					break
+					return
 				}
 				needFlush := writer.metafiles.Append(ctx, meta, op)
 				if writer.useV2Meta && needFlush {
