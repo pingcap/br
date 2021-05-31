@@ -111,7 +111,9 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			s.gcs.Bucket, object)
 	}
 	defer rc.Close()
 
