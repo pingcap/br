@@ -721,17 +721,21 @@ func (e *File) flushEngineWithoutLock(ctx context.Context) error {
 	}
 }
 
-// saveEngineMeta saves the metadata about the DB into the DB itself.
-// This method should be followed by a Flush to ensure the data is actually synchronized
-func (e *File) saveEngineMeta() error {
-	jsonBytes, err := json.Marshal(&e.localFileMeta)
+func saveEngineMetaToDB(meta *localFileMeta, db *pebble.DB) error {
+	jsonBytes, err := json.Marshal(meta)
 	if err != nil {
 		return errors.Trace(err)
 	}
+	// note: we can't set Sync to true since we disabled WAL.
+	return db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false})
+}
+
+// saveEngineMeta saves the metadata about the DB into the DB itself.
+// This method should be followed by a Flush to ensure the data is actually synchronized
+func (e *File) saveEngineMeta() error {
 	log.L().Debug("save engine meta", zap.Stringer("uuid", e.UUID), zap.Int64("count", e.Length.Load()),
 		zap.Int64("size", e.TotalSize.Load()))
-	// note: we can't set Sync to true since we disabled WAL.
-	return errors.Trace(e.db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false}))
+	return errors.Trace(saveEngineMetaToDB(&e.localFileMeta, e.db))
 }
 
 func (e *File) loadEngineMeta() {
@@ -2025,6 +2029,10 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	}
 
 	if lf.Duplicates.Load() > 0 {
+		if err := lf.saveEngineMeta(); err != nil {
+			log.L().Error("failed to save engine meta", log.ShortError(err))
+			return err
+		}
 		log.L().Warn("duplicate detected during import engine",
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
@@ -2131,12 +2139,15 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 	}
 	db, err := local.openEngineDB(engineUUID, false)
 	if err == nil {
-		localEngine.db = db
 		// Reset localFileMeta except `Duplicates`.
-		duplicates := localEngine.localFileMeta.Duplicates.Load()
-		localEngine.localFileMeta = localFileMeta{
-			Duplicates: *atomic.NewInt64(duplicates),
+		meta := localFileMeta{
+			Duplicates: *atomic.NewInt64(localEngine.localFileMeta.Duplicates.Load()),
 		}
+		if err := saveEngineMetaToDB(&meta, db); err != nil {
+			return errors.Trace(err)
+		}
+		localEngine.db = db
+		localEngine.localFileMeta = meta
 		if !common.IsDirExists(localEngine.sstDir) {
 			if err := os.Mkdir(localEngine.sstDir, 0o755); err != nil {
 				return errors.Trace(err)
