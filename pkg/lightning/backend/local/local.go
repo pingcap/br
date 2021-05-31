@@ -799,8 +799,8 @@ type local struct {
 	engineMemCacheSize      int
 	localWriterMemCacheSize int64
 	supportMultiIngest      bool
-  
-  duplicateDetection bool
+
+	duplicateDetection bool
 	duplicateDB        *pebble.DB
 }
 
