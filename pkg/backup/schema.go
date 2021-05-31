@@ -86,7 +86,8 @@ func (ss *Schemas) BackupSchemas(
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()
-	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendSchema)
+	op := metautil.AppendSchema
+	metaWriter.StartWriteMetasAsync(ctx, op)
 	for _, s := range ss.schemas {
 		schema := s
 		workerPool.ApplyOnErrorGroup(errg, func() error {
@@ -147,7 +148,7 @@ func (ss *Schemas) BackupSchemas(
 				Stats:      statsBytes,
 			}
 
-			if err := metaWriter.Send(s, metautil.AppendSchema); err != nil {
+			if err := metaWriter.Send(s, op); err != nil {
 				return errors.Trace(err)
 			}
 			return nil
@@ -158,7 +159,7 @@ func (ss *Schemas) BackupSchemas(
 	}
 	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
 	summary.CollectDuration("backup checksum", time.Since(startAll))
-	return metaWriter.FlushAndClose(ctx, metautil.AppendSchema)
+	return metaWriter.FlushAndClose(ctx, op)
 }
 
 // Len returns the number of schemas.

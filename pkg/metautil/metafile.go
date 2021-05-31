@@ -339,6 +339,7 @@ type MetaWriter struct {
 	metafileSeqNum map[string]int
 	metafiles      *sizedMetaFile
 
+	wg sync.WaitGroup
 	metasCh chan interface{}
 	errCh   chan error
 }
@@ -394,7 +395,11 @@ func (writer *MetaWriter) Close() {
 // else it will generate backupmeta as before for compatibility.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
 	writer.resetCh()
+	// always start one goroutine to write one kind of meta.
+	writer.wg.Wait()
 	go func() {
+		writer.wg.Add(1)
+		defer writer.wg.Done()
 		for {
 			select {
 			case <-ctx.Done():
