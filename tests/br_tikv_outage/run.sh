@@ -71,6 +71,8 @@ github.com/pingcap/br/pkg/conn/hint-get-backup-client=1*return(\"$hint_get_backu
     backup_pid=$!
     single_point_fault $failure
     wait $backup_pid
+    # let tikv start up completely if backup is finished before tikv restarts
+    sleep 1
     case $failure in
     scale-out | shutdown | outage-at-finegrained ) stop_services
         start_services ;;
