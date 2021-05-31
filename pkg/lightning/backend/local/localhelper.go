@@ -190,7 +190,9 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 								syncLock.Lock()
 								retryKeys = append(retryKeys, keys[startIdx:]...)
 								// set global error so if we exceed retry limit, the function will return this error
-								err = multierr.Append(err, err1)
+								if !common.IsContextCanceledError(err1) {
+									err = multierr.Append(err, err1)
+								}
 								syncLock.Unlock()
 								break
 							} else {
@@ -235,6 +237,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 		close(ch)
 		if splitError := eg.Wait(); splitError != nil {
+			// retry all keys
 			retryKeys = retryKeys[:0]
 			err = splitError
 			continue
