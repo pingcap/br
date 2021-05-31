@@ -68,7 +68,7 @@ func (ss *Schemas) addSchema(
 // BackupSchemas backups table info, including checksum and stats.
 func (ss *Schemas) BackupSchemas(
 	ctx context.Context,
-	metabuilder *metautil.MetaWriter,
+	metaWriter *metautil.MetaWriter,
 	store kv.Storage,
 	statsHandle *handle.Handle,
 	backupTS uint64,
@@ -86,6 +86,7 @@ func (ss *Schemas) BackupSchemas(
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()
+	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendSchema)
 	for _, s := range ss.schemas {
 		schema := s
 		workerPool.ApplyOnErrorGroup(errg, func() error {
@@ -119,8 +120,36 @@ func (ss *Schemas) BackupSchemas(
 				}
 				schema.stats = jsonTable
 			}
-
 			updateCh.Inc()
+
+			// Send schema to metawriter
+			dbBytes, err := json.Marshal(schema.dbInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			tableBytes, err := json.Marshal(schema.tableInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			var statsBytes []byte
+			if schema.stats != nil {
+				statsBytes, err = json.Marshal(schema.stats)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+			s := &backuppb.Schema{
+				Db:         dbBytes,
+				Table:      tableBytes,
+				Crc64Xor:   schema.crc64xor,
+				TotalKvs:   schema.totalKvs,
+				TotalBytes: schema.totalBytes,
+				Stats:      statsBytes,
+			}
+
+			if err := metaWriter.Send(s, metautil.AppendSchema); err != nil {
+				return errors.Trace(err)
+			}
 			return nil
 		})
 	}
@@ -129,39 +158,7 @@ func (ss *Schemas) BackupSchemas(
 	}
 	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
 	summary.CollectDuration("backup checksum", time.Since(startAll))
-
-	for name, schema := range ss.schemas {
-		dbBytes, err := json.Marshal(schema.dbInfo)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		tableBytes, err := json.Marshal(schema.tableInfo)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		var statsBytes []byte
-		if schema.stats != nil {
-			statsBytes, err = json.Marshal(schema.stats)
-			if err != nil {
-				return errors.Trace(err)
-			}
-		}
-		s := &backuppb.Schema{
-			Db:         dbBytes,
-			Table:      tableBytes,
-			Crc64Xor:   schema.crc64xor,
-			TotalKvs:   schema.totalKvs,
-			TotalBytes: schema.totalBytes,
-			Stats:      statsBytes,
-		}
-		// Delete scheme ASAP to help GC.
-		delete(ss.schemas, name)
-
-		if err := metabuilder.WriteSchemas(ctx, s); err != nil {
-			return errors.Trace(err)
-		}
-	}
-	return metabuilder.FlushSchemas(ctx)
+	return metaWriter.FlushAndClose(ctx, metautil.AppendSchema)
 }
 
 // Len returns the number of schemas.

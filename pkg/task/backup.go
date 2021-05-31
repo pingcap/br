@@ -4,7 +4,6 @@ package task
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -246,10 +244,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)
 	}
-	externalStorage, err := storage.New(ctx, u, &opts)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	err = client.SetLockFile(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -317,7 +311,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	// Metafile size should be less than 64MB.
-	metawriter := metautil.NewMetaWriter(externalStorage, 64*units.MiB)
+	metawriter := metautil.NewMetaWriter(client.GetStorage(), 64*units.MiB, cfg.UseBackupMetaV2)
 
 	// nothing to backup
 	if ranges == nil {
@@ -332,10 +326,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		pdAddress := strings.Join(cfg.PD, ",")
 		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
 			zap.String("PD address", pdAddress))
-		return metawriter.Flush(ctx)
+		metawriter.Close()
+		return nil
 	}
 
-	ddlJobs := make([]*model.Job, 0)
 	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
@@ -346,8 +340,13 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetStorage(), cfg.LastBackupTS, backupTS)
+
+		metawriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
+		err = backup.GetBackupDDLJobs(metawriter, mgr.GetStorage(), cfg.LastBackupTS, backupTS)
 		if err != nil {
+			return errors.Trace(err)
+		}
+		if err = metawriter.FlushAndClose(ctx, metautil.AppendDDL); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -370,26 +369,19 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	updateCh := g.StartProgress(
 		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
 
-	// TODO use a better concurrency model
-	filesCh := make(chan[] *backuppb.File, 1024)
-	eg := metawriter.WriteFiles(ctx, filesCh)
-
-	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), filesCh, updateCh)
+	metawriter.StartWriteMetasAsync(ctx, metautil.AppendDataFile)
+	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), metawriter, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
 
-	if err := eg.Wait(); err != nil {
-		return errors.Trace(err)
-	}
-	metawriter.FlushFiles(ctx)
-
-	ddls, err := json.Marshal(ddlJobs)
+	err = metawriter.FlushAndClose(ctx, metautil.AppendDataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	metawriter.Update(func(m *backuppb.BackupMeta) {
 		m.StartVersion = req.StartVersion
 		m.EndVersion = req.EndVersion
@@ -397,7 +389,6 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		m.ClusterId = req.ClusterId
 		m.ClusterVersion = clusterVersion
 		m.BrVersion = brVersion
-		m.Ddls = ddls
 	})
 
 	skipChecksum := !cfg.Checksum || isIncrementalBackup
@@ -422,13 +413,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Checksum has finished, close checksum progress.
 	updateCh.Close()
 
-	err = metawriter.Flush(ctx)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	if !skipChecksum {
 		// Check if checksum from files matches checksum from coprocessor.
-		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), externalStorage)
+		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), client.GetStorage())
 		if err != nil {
 			return errors.Trace(err)
 		}

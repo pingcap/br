@@ -9,8 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"sync"
+
+	"github.com/pingcap/br/pkg/utils"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/opentracing/opentracing-go"
@@ -219,28 +220,50 @@ func receiveBatch(
 	}
 }
 
-type appendOp int
+type AppendOp int
 
 const (
-	appendMetaFile appendOp = 0
-	appendDataFile appendOp = 1
-	appendSchema   appendOp = 2
+	AppendMetaFile AppendOp = 0
+	AppendDataFile AppendOp = 1
+	AppendSchema   AppendOp = 2
+	AppendDDL      AppendOp = 3
 )
 
+func (op AppendOp) name() string {
+	switch op {
+	case AppendMetaFile:
+		return "metafile"
+	case AppendDataFile:
+		return "datafile"
+	case AppendSchema:
+		return "schema"
+	case AppendDDL:
+		return "ddl"
+	default:
+		log.Panic("unsupport op type", zap.Any("op", op))
+	}
+	return ""
+}
+
 // appends b to a
-func (op appendOp) appendFile(a *backuppb.MetaFile, b interface{}) int {
+func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) int {
 	size := 0
 	switch op {
-	case appendMetaFile:
+	case AppendMetaFile:
 		a.MetaFiles = append(a.MetaFiles, b.(*backuppb.File))
 		size += b.(*backuppb.File).Size()
-	case appendDataFile:
-		a.DataFiles = append(a.DataFiles, b.(*backuppb.File))
+	case AppendDataFile:
+		// receive a batch of file because we need write and default sst are adjacent.
+		a.DataFiles = append(a.DataFiles, b.([]*backuppb.File)...)
 		size += b.(*backuppb.File).Size()
-	case appendSchema:
+	case AppendSchema:
 		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
 		size += b.(*backuppb.Schema).Size()
+	case AppendDDL:
+		a.Ddls = append(a.Ddls, b.([]byte))
+		size += len(b.([]byte))
 	}
+
 	return size
 }
 
@@ -252,7 +275,7 @@ type sizedMetaFile struct {
 
 	filePrefix string
 	fileSeqNum int
-	sizeLimit int
+	sizeLimit  int
 
 	storage storage.ExternalStorage
 }
@@ -290,19 +313,7 @@ func (f *sizedMetaFile) flushFile(ctx context.Context, file *backuppb.MetaFile) 
 	}, nil
 }
 
-// func (f *sizedMetaFile) findWritableNode() *backuppb.MetaFile {
-// 	for i, n := range f.nodes {
-// 		// is full or node has flushed
-// 		if n.isFull() || f.fileSeqNum < i {
-// 			continue
-// 		}
-// 		return n.root
-// 	}
-// 	f.nodes = append(f.nodes, NewSizedMetaFile(f.fileSeqLimit))
-// 	return f.nodes[len(f.nodes) - 1].root
-// }
-
-func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op appendOp) bool {
+func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op AppendOp) bool {
 	// append to root
 	// 	TODO maybe use multi level index
 	size := op.appendFile(f.root, file)
@@ -317,24 +328,37 @@ func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op appendO
 type MetaWriter struct {
 	storage           storage.ExternalStorage
 	metafileSizeLimit int
+	useV2Meta         bool
 
 	mu             sync.Mutex
 	backupMeta     *backuppb.BackupMeta
 	metafileSizes  map[string]int
 	metafileSeqNum map[string]int
 	metafiles      *sizedMetaFile
+
+	metasCh chan interface{}
+	errCh   chan error
 }
 
-func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int) *MetaWriter {
+func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2Meta bool) *MetaWriter {
 	return &MetaWriter{
 		storage:           storage,
 		metafileSizeLimit: metafileSizeLimit,
+		useV2Meta:         useV2Meta,
 		mu:                sync.Mutex{},
 		backupMeta:        &backuppb.BackupMeta{},
 		metafileSizes:     make(map[string]int),
 		metafiles:         NewSizedMetaFile(metafileSizeLimit),
 		metafileSeqNum:    make(map[string]int),
+
+		// TODO use const chan buffer
+		metasCh: make(chan interface{}, 1024),
 	}
+}
+
+func (writer *MetaWriter) resetCh() {
+	writer.metasCh = make(chan interface{}, 1024)
+	writer.errCh = make(chan error)
 }
 
 func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
@@ -344,52 +368,114 @@ func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 	f(writer.backupMeta)
 }
 
-// WriteMetas is main function for MetaWriter.
-// WriteMetas writes four kind of meta into backupmeta.
+func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
+	select {
+	case writer.metasCh <- m:
+	case err := <-writer.errCh:
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func (writer *MetaWriter) Close() {
+	close(writer.errCh)
+	close(writer.metasCh)
+}
+
+// StartWriteMetasAsync writes four kind of meta into backupmeta.
 // 1. file
 // 2. schema
 // 3. ddl
 // 4. rawRange( raw kv )
 // when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
 // else it will generate backupmeta as before for compatibility.
-func (writer *MetaWriter) WriteMetas(ctx context.Context, metasCh chan []*backuppb.MetaFile, op appendOp) errgroup.Group {
-
-}
-
-func (writer *MetaWriter) WriteFiles(ctx context.Context, filesCh chan []*backuppb.File) errgroup.Group {
-	var eg errgroup.Group
-	eg.Go(func() error {
+func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
+	writer.resetCh()
+	go func() {
 		for {
-			select  {
-			case <- ctx.Done():
-				log.Info("write files exits")
-				return nil
-			case files, ok := <- filesCh:
+			select {
+			case <-ctx.Done():
+				log.Info("exit write metas by context done")
+				break
+			case meta, ok := <-writer.metasCh:
 				if !ok {
-					log.Info("write files finished")
-					return nil
+					log.Info("write metas finished", zap.Any("op", op))
+					break
 				}
-				for _, f := range files {
-					log.Info("append datafile", zap.String("name", f.Name))
-					needFlush := writer.metafiles.Append(ctx, f, appendDataFile)
-					if needFlush {
-						err := writer.FlushFiles(ctx)
-						if err != nil {
-							return err
-						}
+				needFlush := writer.metafiles.Append(ctx, meta, op)
+				if writer.useV2Meta && needFlush {
+					err := writer.FlushMetasV2(ctx, op)
+					if err != nil {
+						writer.errCh <- err
 					}
 				}
 			}
 		}
-	})
-	return eg
+	}()
 }
 
-func (writer *MetaWriter) FlushFiles(ctx context.Context) error {
-	if len(writer.metafiles.root.DataFiles) == 0 {
-		return nil
+func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error {
+	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+		span1 := span.Tracer().StartSpan("MetaWriter.Finish", opentracing.ChildOf(span.Context()))
+		defer span1.Finish()
+		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
-	writer.metafileSizes["datafiles"] += writer.metafiles.size
+	var err error
+	// flush the buffered meta
+	if !writer.useV2Meta {
+		err = writer.FlushMetasV1(ctx, op)
+	} else {
+		err = writer.FlushMetasV2(ctx, op)
+	}
+	if err != nil {
+		return errors.Trace(err)
+	}
+	writer.Close()
+	return nil
+}
+
+// FlushMetasV1 keep the compatibility for old version.
+func (writer *MetaWriter) FlushMetasV1(ctx context.Context, op AppendOp) error {
+	switch op {
+	case AppendDataFile:
+		writer.backupMeta.Files = writer.metafiles.root.DataFiles
+	case AppendSchema:
+		writer.backupMeta.Schemas = writer.metafiles.root.Schemas
+	case AppendDDL:
+		b := bytes.Join(writer.metafiles.root.Ddls, []byte(`,`))
+		copy(b[1:], b[0:])
+		b[0] = byte('[')
+		b = append(b, ']')
+		writer.backupMeta.Ddls = b
+	default:
+		log.Panic("unsupport op type", zap.Any("op", op))
+	}
+	backupMetaData, err := proto.Marshal(writer.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Debug("backup meta", zap.Reflect("meta", writer.backupMeta))
+	log.Info("save backup meta", zap.Int("size", len(backupMetaData)))
+	return writer.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
+}
+
+func (writer *MetaWriter) FlushMetasV2(ctx context.Context, op AppendOp) error {
+	switch op {
+	case AppendSchema:
+		if len(writer.metafiles.root.Schemas) == 0 {
+			return nil
+		}
+	case AppendDataFile:
+		if len(writer.metafiles.root.DataFiles) == 0 {
+			return nil
+		}
+	case AppendDDL:
+		if len(writer.metafiles.root.Ddls) == 0 {
+			return nil
+		}
+	}
+	name := op.name()
+	writer.metafileSizes[name] += writer.metafiles.size
 	content, err := writer.metafiles.root.Marshal()
 	if err != nil {
 		return errors.Trace(err)
@@ -397,7 +483,7 @@ func (writer *MetaWriter) FlushFiles(ctx context.Context) error {
 
 	// Flush metafiles to external storage.
 	writer.metafileSeqNum["metafiles"] += 1
-	fname := fmt.Sprintf("backupmeta.datafile.%09d", writer.metafileSeqNum["metafiles"])
+	fname := fmt.Sprintf("backupmeta.%s.%09d", name, writer.metafileSeqNum["metafiles"])
 	if err = writer.storage.WriteFile(ctx, fname, content); err != nil {
 		return errors.Trace(err)
 	}
@@ -407,71 +493,14 @@ func (writer *MetaWriter) FlushFiles(ctx context.Context) error {
 		Sha256: checksum[:],
 		Size_:  uint64(len(content)),
 	}
+
 	// Add the metafile to backupmeta and reset metafiles.
 	if writer.backupMeta.FileIndex == nil {
 		writer.backupMeta.FileIndex = &backuppb.MetaFile{}
 	}
-	writer.backupMeta.FileIndex.DataFiles = append(writer.backupMeta.FileIndex.DataFiles, file)
+	writer.backupMeta.FileIndex.MetaFiles = append(writer.backupMeta.FileIndex.MetaFiles, file)
 	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
 	return nil
-}
-
-
-func (writer *MetaWriter) WriteSchemas(ctx context.Context, schemas ...*backuppb.Schema) error {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
-	for i := range schemas {
-		needFlush := writer.metafiles.Append(ctx, schemas[i], appendSchema)
-		if needFlush {
-			err := writer.flushSchemasLocked(ctx)
-			if err != nil {
-				return errors.Trace(err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (writer *MetaWriter) flushSchemasLocked(ctx context.Context) error {
-	if len(writer.metafiles.root.Schemas) == 0 {
-		return nil
-	}
-	// record size before flush
-	writer.metafileSizes["schemas"] += writer.metafiles.size
-
-	content, err := writer.metafiles.root.Marshal()
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	// Flush metafiles to external storage.
-	writer.metafileSeqNum["metafiles"] += 1
-	fname := fmt.Sprintf("backupmeta.schema.%09d", writer.metafileSeqNum["metafiles"])
-	if err = writer.storage.WriteFile(ctx, fname, content); err != nil {
-		return errors.Trace(err)
-	}
-	checksum := sha256.Sum256(content)
-	file := &backuppb.File{
-		Name:   fname,
-		Sha256: checksum[:],
-		Size_:  uint64(len(content)),
-	}
-	// Add the metafile to backupmeta and reset metafiles.
-	if writer.backupMeta.SchemaIndex == nil {
-		writer.backupMeta.SchemaIndex = &backuppb.MetaFile{}
-	}
-	writer.backupMeta.SchemaIndex.MetaFiles = append(writer.backupMeta.SchemaIndex.MetaFiles, file)
-	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
-	return nil
-}
-
-func (writer *MetaWriter) FlushSchemas(ctx context.Context) error {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
-	return writer.flushSchemasLocked(ctx)
 }
 
 func (writer *MetaWriter) ArchiveSize() uint64 {
@@ -486,30 +515,6 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 		total += uint64(size)
 	}
 	return total
-}
-
-func (writer *MetaWriter) Flush(ctx context.Context) error {
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("MetaWriter.Finish", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
-	// Flush buffered metafiles.
-	if err := writer.flushSchemasLocked(ctx); err != nil {
-		return nil
-	}
-
-	log.Debug("backup meta", zap.Reflect("meta", writer.backupMeta))
-	content, err := writer.backupMeta.Marshal()
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Info("save backup meta", zap.Int("size", len(content)))
-	err = writer.storage.WriteFile(ctx, MetaFile, content)
-	return errors.Trace(err)
 }
 
 func (writer *MetaWriter) Backupmeta() *backuppb.BackupMeta {

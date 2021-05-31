@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/opentracing/opentracing-go"
@@ -148,6 +150,10 @@ func (bc *Client) SetGCTTL(ttl int64) {
 // GetGCTTL get gcTTL for this backup.
 func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
+}
+
+func (bc *Client) GetStorage() storage.ExternalStorage {
+	return bc.storage
 }
 
 // SetStorage set ExternalStorage for client.
@@ -372,44 +378,45 @@ func BuildBackupRangeAndSchema(
 }
 
 // GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
-func GetBackupDDLJobs(store kv.Storage, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
+func GetBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBackupTS, backupTS uint64) error {
 	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
 	snapMeta := meta.NewSnapshotMeta(snapshot)
 	lastSnapshot := store.GetSnapshot(kv.NewVersion(lastBackupTS))
 	lastSnapMeta := meta.NewSnapshotMeta(lastSnapshot)
 	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	allJobs := make([]*model.Job, 0)
 	defaultJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.DefaultJobListKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get default jobs", zap.Int("jobs", len(defaultJobs)))
 	allJobs = append(allJobs, defaultJobs...)
 	addIndexJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.AddIndexJobListKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get add index jobs", zap.Int("jobs", len(addIndexJobs)))
 	allJobs = append(allJobs, addIndexJobs...)
 	historyJobs, err := snapMeta.GetAllHistoryDDLJobs()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get history jobs", zap.Int("jobs", len(historyJobs)))
 	allJobs = append(allJobs, historyJobs...)
 
-	completedJobs := make([]*model.Job, 0)
+	count := 0
 	for _, job := range allJobs {
 		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
 			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
-			completedJobs = append(completedJobs, job)
+			metaWriter.Send(job, metautil.AppendDDL)
+			count++
 		}
 	}
-	log.Debug("get completed jobs", zap.Int("jobs", len(completedJobs)))
-	return completedJobs, nil
+	log.Debug("get completed jobs", zap.Int("jobs", count))
+	return nil
 }
 
 // BackupRanges make a backup of the given key ranges.
@@ -418,7 +425,7 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
-	filesCh chan[] *backuppb.File,
+	metaWriter *metautil.MetaWriter,
 	updateCh glue.Progress,
 ) error {
 	init := time.Now()
@@ -438,7 +445,7 @@ func (bc *Client) BackupRanges(
 	for _, r := range ranges {
 		sk, ek := r.StartKey, r.EndKey
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			err := bc.BackupRange(ectx, sk, ek, req, filesCh, updateCh)
+			err := bc.BackupRange(ectx, sk, ek, req, metaWriter, updateCh)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -454,7 +461,7 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
-	fileCh chan[] *backuppb.File,
+	metaWriter *metautil.MetaWriter,
 	updateCh glue.Progress,
 ) (err error) {
 	start := time.Now()
@@ -511,6 +518,7 @@ func (bc *Client) BackupRange(
 			zap.Reflect("EndVersion", req.EndVersion))
 	}
 
+	var ascendErr error
 	results.Ascend(func(i btree.Item) bool {
 		r := i.(*rtree.Range)
 		for _, f := range r.Files {
@@ -519,9 +527,15 @@ func (bc *Client) BackupRange(
 		}
 		// we need keep the files in order after we support multi_ingest sst.
 		// default_sst and write_sst need to be together.
-		fileCh <- r.Files
+		if err := metaWriter.Send(r.Files, metautil.AppendDataFile); err != nil {
+			ascendErr = err
+			return false
+		}
 		return true
 	})
+	if ascendErr != nil {
+		return ascendErr
+	}
 
 	// Check if there are duplicated files.
 	checkDupFiles(&results)
