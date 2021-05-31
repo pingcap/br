@@ -5,6 +5,8 @@ package checksum
 import (
 	"context"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -16,8 +18,6 @@ import (
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // ExecutorBuilder is used to build a "kv.Request".
@@ -25,7 +25,7 @@ type ExecutorBuilder struct {
 	table *model.TableInfo
 	ts    uint64
 
-	oldTable *utils.Table
+	oldTable *metautil.Table
 
 	concurrency uint
 }
@@ -41,7 +41,7 @@ func NewExecutorBuilder(table *model.TableInfo, ts uint64) *ExecutorBuilder {
 }
 
 // SetOldTable set a old table info to the builder.
-func (builder *ExecutorBuilder) SetOldTable(oldTable *utils.Table) *ExecutorBuilder {
+func (builder *ExecutorBuilder) SetOldTable(oldTable *metautil.Table) *ExecutorBuilder {
 	builder.oldTable = oldTable
 	return builder
 }
@@ -63,7 +63,7 @@ func (builder *ExecutorBuilder) Build() (*Executor, error) {
 
 func buildChecksumRequest(
 	newTable *model.TableInfo,
-	oldTable *utils.Table,
+	oldTable *metautil.Table,
 	startTS uint64,
 	concurrency uint,
 ) ([]*kv.Request, error) {
@@ -105,7 +105,7 @@ func buildChecksumRequest(
 func buildRequest(
 	tableInfo *model.TableInfo,
 	tableID int64,
-	oldTable *utils.Table,
+	oldTable *metautil.Table,
 	oldTableID int64,
 	startTS uint64,
 	concurrency uint,
@@ -153,7 +153,7 @@ func buildRequest(
 func buildTableRequest(
 	tableInfo *model.TableInfo,
 	tableID int64,
-	oldTable *utils.Table,
+	oldTable *metautil.Table,
 	oldTableID int64,
 	startTS uint64,
 	concurrency uint,

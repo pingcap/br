@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/gogo/protobuf/proto"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -30,7 +28,8 @@ import (
 
 const (
 	// MetaFile represents file name
-	MetaFile = "backupmeta"
+	MetaFile     = "backupmeta"
+	MaxBatchSize = 1024
 )
 
 func WalkLeafMetaFile(
@@ -76,6 +75,11 @@ type Table struct {
 	Stats           *handle.JSONTable
 }
 
+// NoChecksum checks whether the table has a calculated checksum.
+func (tbl *Table) NoChecksum() bool {
+	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
+}
+
 type MetaReader struct {
 	storage    storage.ExternalStorage
 	backupMeta *backuppb.BackupMeta
@@ -86,6 +90,21 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 		storage:    storage,
 		backupMeta: backpMeta,
 	}
+}
+
+func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) (bool, error) {
+	// Read backupmeta v1 metafiles.
+	if len(reader.backupMeta.Ddls) != 0 {
+		output(reader.backupMeta.Ddls)
+		return true, nil
+	}
+	// Read backupmeta v2 metafiles.
+	outputFn := func(m *backuppb.MetaFile) {
+		for _, s := range m.Ddls {
+			output(s)
+		}
+	}
+	return false, WalkLeafMetaFile(ctx, reader.storage, reader.backupMeta.DdlIndexes, outputFn)
 }
 
 func (reader *MetaReader) readSchemas(ctx context.Context, output func(*backuppb.Schema)) error {
@@ -114,6 +133,49 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 		}
 	}
 	return WalkLeafMetaFile(ctx, reader.storage, reader.backupMeta.FileIndex, outputFn)
+}
+
+func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
+	var (
+		err      error
+		isV1Meta bool
+	)
+
+	ch := make(chan interface{}, MaxBatchSize)
+	errCh := make(chan error)
+	go func() {
+		if isV1Meta, err = reader.readDDLs(ctx, func(s []byte) { ch <- s }); err != nil {
+			errCh <- errors.Trace(err)
+		}
+		close(errCh)
+		close(ch)
+	}()
+
+	var ddlBytes []byte
+	var ddlBytesArray [][]byte
+	for {
+		itemCount := 0
+		err := receiveBatch(ctx, errCh, ch, MaxBatchSize, func(item interface{}) error {
+			itemCount++
+			if isV1Meta {
+				ddlBytes = item.([]byte)
+			} else {
+				ddlBytesArray = append(ddlBytesArray, item.([]byte))
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		// finish read
+		if itemCount == 0 {
+			if len(ddlBytesArray) != 0 {
+				ddlBytes = mergeDDLs(ddlBytesArray)
+			}
+			return ddlBytes, nil
+		}
+	}
 }
 
 func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *Table) error {
@@ -412,12 +474,27 @@ func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error 
 		err = writer.FlushMetasV1(ctx, op)
 	} else {
 		err = writer.FlushMetasV2(ctx, op)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// flush the final backupmeta
+		err = writer.flushBackupMeta(ctx)
 	}
 	if err != nil {
 		return errors.Trace(err)
 	}
 	writer.Close()
 	return nil
+}
+
+func (writer *MetaWriter) flushBackupMeta(ctx context.Context) error {
+	backupMetaData, err := proto.Marshal(writer.backupMeta)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	log.Debug("backup meta", zap.Reflect("meta", writer.backupMeta))
+	log.Info("save backup meta", zap.Int("size", len(backupMetaData)))
+	return writer.storage.WriteFile(ctx, MetaFile, backupMetaData)
 }
 
 // FlushMetasV1 keep the compatibility for old version.
@@ -428,45 +505,50 @@ func (writer *MetaWriter) FlushMetasV1(ctx context.Context, op AppendOp) error {
 	case AppendSchema:
 		writer.backupMeta.Schemas = writer.metafiles.root.Schemas
 	case AppendDDL:
-		b := bytes.Join(writer.metafiles.root.Ddls, []byte(`,`))
-		copy(b[1:], b[0:])
-		b[0] = byte('[')
-		b = append(b, ']')
-		writer.backupMeta.Ddls = b
+		writer.backupMeta.Ddls = mergeDDLs(writer.metafiles.root.Ddls)
 	default:
 		log.Panic("unsupport op type", zap.Any("op", op))
 	}
-	backupMetaData, err := proto.Marshal(writer.backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Debug("backup meta", zap.Reflect("meta", writer.backupMeta))
-	log.Info("save backup meta", zap.Int("size", len(backupMetaData)))
-	return writer.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
+	return writer.flushBackupMeta(ctx)
 }
 
 func (writer *MetaWriter) FlushMetasV2(ctx context.Context, op AppendOp) error {
+	var index *backuppb.MetaFile
 	switch op {
 	case AppendSchema:
 		if len(writer.metafiles.root.Schemas) == 0 {
 			return nil
 		}
+		// Add the metafile to backupmeta and reset metafiles.
+		if writer.backupMeta.SchemaIndex == nil {
+			writer.backupMeta.SchemaIndex = &backuppb.MetaFile{}
+		}
+		index = writer.backupMeta.SchemaIndex
 	case AppendDataFile:
 		if len(writer.metafiles.root.DataFiles) == 0 {
 			return nil
 		}
+		// Add the metafile to backupmeta and reset metafiles.
+		if writer.backupMeta.FileIndex == nil {
+			writer.backupMeta.FileIndex = &backuppb.MetaFile{}
+		}
+		index = writer.backupMeta.FileIndex
 	case AppendDDL:
 		if len(writer.metafiles.root.Ddls) == 0 {
 			return nil
 		}
+		if writer.backupMeta.DdlIndexes == nil {
+			writer.backupMeta.DdlIndexes = &backuppb.MetaFile{}
+		}
+		index = writer.backupMeta.DdlIndexes
 	}
-	name := op.name()
-	writer.metafileSizes[name] += writer.metafiles.size
 	content, err := writer.metafiles.root.Marshal()
 	if err != nil {
 		return errors.Trace(err)
 	}
 
+	name := op.name()
+	writer.metafileSizes[name] += writer.metafiles.size
 	// Flush metafiles to external storage.
 	writer.metafileSeqNum["metafiles"] += 1
 	fname := fmt.Sprintf("backupmeta.%s.%09d", name, writer.metafileSeqNum["metafiles"])
@@ -480,11 +562,7 @@ func (writer *MetaWriter) FlushMetasV2(ctx context.Context, op AppendOp) error {
 		Size_:  uint64(len(content)),
 	}
 
-	// Add the metafile to backupmeta and reset metafiles.
-	if writer.backupMeta.FileIndex == nil {
-		writer.backupMeta.FileIndex = &backuppb.MetaFile{}
-	}
-	writer.backupMeta.FileIndex.MetaFiles = append(writer.backupMeta.FileIndex.MetaFiles, file)
+	index.MetaFiles = append(index.MetaFiles, file)
 	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
 	return nil
 }
@@ -503,4 +581,12 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 func (writer *MetaWriter) Backupmeta() *backuppb.BackupMeta {
 	clone := proto.Clone(writer.backupMeta)
 	return clone.(*backuppb.BackupMeta)
+}
+
+func mergeDDLs(ddls [][]byte) []byte {
+	b := bytes.Join(ddls, []byte(`,`))
+	copy(b[1:], b[0:])
+	b[0] = byte('[')
+	b = append(b, ']')
+	return b
 }

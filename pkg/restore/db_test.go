@@ -65,7 +65,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("\"t\""))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-	table := utils.Table{
+	table := metautil.Table{
 		Info: tableInfo.Meta(),
 		DB:   dbInfo,
 	}
@@ -124,7 +124,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	c.Assert(ok, IsTrue, Commentf("DB info not exist"))
 	tableInfo, err := infoSchema.TableByName(model.NewCIStr("test_db"), model.NewCIStr("test_table"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-	tables := []*utils.Table{{
+	tables := []*metautil.Table{{
 		DB:   dbInfo,
 		Info: tableInfo.Meta(),
 	}}

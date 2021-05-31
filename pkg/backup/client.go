@@ -5,6 +5,7 @@ package backup
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -383,7 +384,11 @@ func GetBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBac
 	for _, job := range allJobs {
 		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
 			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
-			metaWriter.Send(job, metautil.AppendDDL)
+			jobBytes, err := json.Marshal(job)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaWriter.Send(jobBytes, metautil.AppendDDL)
 			count++
 		}
 	}

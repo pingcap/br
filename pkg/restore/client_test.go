@@ -56,11 +56,11 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
@@ -126,11 +126,11 @@ func (s *testRestoreClientSuite) TestPreCheckTableClusterIndex(c *C) {
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
@@ -215,7 +215,7 @@ func (s *testRestoreClientSuite) TestPreCheckTableTiFlashReplicas(c *C) {
 	}, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	for i := 0; i < len(tables); i++ {
 		tiflashReplica := &model.TiFlashReplicaInfo{
 			Count: uint64(i),
@@ -224,7 +224,7 @@ func (s *testRestoreClientSuite) TestPreCheckTableTiFlashReplicas(c *C) {
 			tiflashReplica = nil
 		}
 
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: nil,
 			Info: &model.TableInfo{
 				ID:             int64(i),

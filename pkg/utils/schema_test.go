@@ -3,8 +3,11 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/pingcap/br/pkg/metautil"
 
 	. "github.com/pingcap/check"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -74,7 +77,7 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 	}
 
 	meta := mockBackupMeta(mockSchemas, mockFiles)
-	dbs, err := LoadBackupTables(meta)
+	dbs, err := LoadBackupTables(context.Background(), nil)
 	tbl := dbs[dbName.String()].GetTable(tblName.String())
 	c.Assert(err, IsNil)
 	c.Assert(tbl.Files, HasLen, 1)

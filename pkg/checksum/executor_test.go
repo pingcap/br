@@ -95,7 +95,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	// Test rewrite rules
 	tk.MustExec("alter table t1 add index i2(a);")
 	tableInfo1 = s.getTableInfo(c, "test", "t1")
-	oldTable := utils.Table{Info: tableInfo1}
+	oldTable := metautil.Table{Info: tableInfo1}
 	exe2, err = checksum.NewExecutorBuilder(tableInfo2, math.MaxUint64).
 		SetOldTable(&oldTable).Build()
 	c.Assert(err, IsNil)

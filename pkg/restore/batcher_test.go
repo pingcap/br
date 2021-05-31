@@ -153,7 +153,7 @@ func (sender *drySender) BatchCount() int {
 var _ = Suite(&testBatcherSuite{})
 
 func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
-	tbl := &utils.Table{
+	tbl := &metautil.Table{
 		DB: &model.DBInfo{},
 		Info: &model.TableInfo{
 			ID: id,

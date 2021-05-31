@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/br/pkg/version"
 
 	"github.com/opentracing/opentracing-go"
@@ -237,7 +239,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
+	u, s, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -249,7 +251,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		}
 	}
 
-	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -465,7 +467,7 @@ func dropToBlackhole(
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
+) (files []*backuppb.File, tables []*metautil.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		for _, table := range db.Tables {
@@ -539,7 +541,7 @@ func restoreTableStream(
 	errCh chan<- error,
 ) {
 	// We cache old tables so that we can 'batch' recover TiFlash and tables.
-	oldTables := []*utils.Table{}
+	oldTables := []*metautil.Table{}
 	defer func() {
 		// when things done, we must clean pending requests.
 		batcher.Close()
