@@ -34,7 +34,7 @@ $ make
 $ make test
 ```
 
-Notice BR supports building with Go version `Go >= 1.13`
+Notice BR supports building with Go version `Go >= 1.16`
 
 When BR is built successfully, you can find binary in the `bin` directory.
 
@@ -108,15 +108,15 @@ bin/br backup table --db test \
 	-s local:///tmp/backup_test/ \
 	--pd ${PD_ADDR}:2379 \
 	--log-file backup_test.log \
-					
+
 # Let's drop the table.
 mysql -uroot --host 127.0.0.1 -P4000 -E -e "USE test; DROP TABLE order_line; show tables" -u root -p
 
 # Restore from the backup.
 bin/br restore table --db test \
-	--table order_line \ 
-	-s local:///tmp/backup_test/ \ 
-	--pd ${PD_ADDR}:2379 \ 
+	--table order_line \
+	-s local:///tmp/backup_test/ \
+	--pd ${PD_ADDR}:2379 \
 	--log-file restore_test.log
 
 # How many rows do we get after restore? Expected to be 300242 rows.
