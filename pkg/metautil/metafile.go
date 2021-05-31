@@ -294,28 +294,6 @@ func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
 	}
 }
 
-// flushFile flushes file to external storage and returns a file descriptor (*backuppb.File).
-func (f *sizedMetaFile) flushFile(ctx context.Context, file *backuppb.MetaFile) (*backuppb.File, error) {
-	if file == nil {
-		return nil, errors.Annotate(berrors.ErrInvalidMetaFile, "nil metafile")
-	}
-	content, err := file.Marshal()
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	f.fileSeqNum++
-	fname := fmt.Sprintf("%s.%09d", f.filePrefix, f.fileSeqNum)
-	if err = f.storage.WriteFile(ctx, fname, content); err != nil {
-		return nil, errors.Trace(err)
-	}
-	checksum := sha256.Sum256(content)
-	return &backuppb.File{
-		Name:   fname,
-		Sha256: checksum[:],
-		Size_:  uint64(len(content)),
-	}, nil
-}
-
 func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op AppendOp) bool {
 	// append to root
 	// 	TODO maybe use multi level index
@@ -354,13 +332,11 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2
 		metafileSizes:     make(map[string]int),
 		metafiles:         NewSizedMetaFile(metafileSizeLimit),
 		metafileSeqNum:    make(map[string]int),
-
-		// TODO use const chan buffer
-		metasCh: make(chan interface{}, 1024),
 	}
 }
 
 func (writer *MetaWriter) resetCh() {
+	// TODO use a meaningfull buffer size
 	writer.metasCh = make(chan interface{}, 1024)
 	writer.errCh = make(chan error)
 }
@@ -375,6 +351,7 @@ func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
 	select {
 	case writer.metasCh <- m:
+	// receive an error from StartWriteMetasAsync
 	case err := <-writer.errCh:
 		return errors.Trace(err)
 	}
@@ -382,8 +359,8 @@ func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
 }
 
 func (writer *MetaWriter) Close() {
-	close(writer.errCh)
 	close(writer.metasCh)
+	close(writer.errCh)
 }
 
 // StartWriteMetasAsync writes four kind of meta into backupmeta.
@@ -414,6 +391,7 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 				if writer.useV2Meta && needFlush {
 					err := writer.FlushMetasV2(ctx, op)
 					if err != nil {
+						log.Error("err", zap.Error(err))
 						writer.errCh <- err
 					}
 				}
@@ -512,9 +490,6 @@ func (writer *MetaWriter) FlushMetasV2(ctx context.Context, op AppendOp) error {
 }
 
 func (writer *MetaWriter) ArchiveSize() uint64 {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
 	total := uint64(writer.backupMeta.Size())
 	for _, file := range writer.backupMeta.Files {
 		total += file.Size_
@@ -526,8 +501,6 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 }
 
 func (writer *MetaWriter) Backupmeta() *backuppb.BackupMeta {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
 	clone := proto.Clone(writer.backupMeta)
 	return clone.(*backuppb.BackupMeta)
 }
