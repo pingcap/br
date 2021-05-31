@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -168,7 +169,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
+func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
 	if !backupMeta.IsRawKv {
 		databases, err := utils.LoadBackupTables(backupMeta)
 		if err != nil {
@@ -189,8 +190,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backu
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
 	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
-
-	return nil
+	return rc.fileImporter.CheckMultiIngestSupport(c, rc.pdClient)
 }
 
 // IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
@@ -541,6 +541,38 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	return nil
 }
 
+// isFilesBelongToSameRange check whether two files are belong to the same range with different cf.
+func isFilesBelongToSameRange(f1, f2 string) bool {
+	// the backup date file pattern is `{store_id}_{region_id}_{epoch_version}_{key}_{ts}_{cf}.sst`
+	// so we need to compare with out the `_{cf}.sst` suffix
+	idx1 := strings.LastIndex(f1, "_")
+	idx2 := strings.LastIndex(f2, "_")
+
+	if idx1 < 0 || idx2 < 0 {
+		panic(fmt.Sprintf("invalid backup data file name: '%s', '%s'", f1, f2))
+	}
+
+	return f1[:idx1] == f2[:idx2]
+}
+
+func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.File, []*backuppb.File) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if !supportMulti {
+		return files[:1], files[1:]
+	}
+	idx := 1
+	for idx < len(files) {
+		if !isFilesBelongToSameRange(files[idx-1].Name, files[idx].Name) {
+			break
+		}
+		idx++
+	}
+
+	return files[:idx], files[idx:]
+}
+
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
 	ctx context.Context,
@@ -571,19 +603,21 @@ func (rc *Client) RestoreFiles(
 		return errors.Trace(err)
 	}
 
-	for _, file := range files {
-		fileReplica := file
+	var rangeFiles []*backuppb.File
+	for rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest) {
+		filesReplica := rangeFiles
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", logutil.File(fileReplica),
+					log.Info("import files done", logutil.Files(filesReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
-				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
+				return rc.fileImporter.Import(ectx, filesReplica, rewriteRules)
 			})
 	}
+
 	if err := eg.Wait(); err != nil {
 		summary.CollectFailureUnit("file", err)
 		log.Error(
@@ -621,7 +655,7 @@ func (rc *Client) RestoreRaw(
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, EmptyRewriteRule())
+				return rc.fileImporter.Import(ectx, []*backuppb.File{fileReplica}, EmptyRewriteRule())
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -693,7 +727,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err := grpc.DialContext(
+		connection, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
@@ -705,14 +739,14 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		if err != nil {
 			return errors.Trace(err)
 		}
-		client := import_sstpb.NewImportSSTClient(conn)
+		client := import_sstpb.NewImportSSTClient(connection)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		})
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = conn.Close()
+		err = connection.Close()
 		if err != nil {
 			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
@@ -735,16 +769,12 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		start := time.Now()
 		wg, ectx := errgroup.WithContext(ctx)
 		defer func() {
 			log.Info("all checksum ended")
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
-			elapsed := time.Since(start)
-			summary.CollectDuration("restore checksum", elapsed)
-			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -758,6 +788,12 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
+					start := time.Now()
+					defer func() {
+						elapsed := time.Since(start)
+						summary.CollectDuration("restore checksum", elapsed)
+						summary.CollectSuccessUnit("table checksum", 1, elapsed)
+					}()
 					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return errors.Trace(err)
@@ -1004,6 +1040,27 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+// PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
+func (rc *Client) PreCheckTableTiFlashReplica(
+	ctx context.Context,
+	tables []*utils.Table,
+) error {
+	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tiFlashStoreCount := len(tiFlashStores)
+	for _, table := range tables {
+		if table.Info.TiFlashReplica != nil && table.Info.TiFlashReplica.Count > uint64(tiFlashStoreCount) {
+			// we cannot satisfy TiFlash replica in restore cluster. so we should
+			// set TiFlashReplica to unavailable in tableInfo, to avoid TiDB cannot sense TiFlash and make plan to TiFlash
+			// see details at https://github.com/pingcap/br/issues/931
+			table.Info.TiFlashReplica = nil
+		}
+	}
+	return nil
 }
 
 // PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。

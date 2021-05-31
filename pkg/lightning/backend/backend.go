@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/mydump"
 )
 
 const (
@@ -93,6 +94,33 @@ type EngineFileSize struct {
 	IsImporting bool
 }
 
+// LocalWriterConfig defines the configuration to open a LocalWriter
+type LocalWriterConfig struct {
+	// is the chunk KV written to this LocalWriter sent in order
+	IsKVSorted bool
+}
+
+// EngineConfig defines configuration used for open engine
+type EngineConfig struct {
+	// local backend specified configuration
+	Local *LocalEngineConfig
+}
+
+// LocalEngineConfig is the configuration used for local backend in OpenEngine.
+type LocalEngineConfig struct {
+	// compact small SSTs before ingest into pebble
+	Compact bool
+	// raw kvs size threshold to trigger compact
+	CompactThreshold int64
+	// compact routine concurrency
+	CompactConcurrency int
+}
+
+// CheckCtx contains all parameters used in CheckRequirements
+type CheckCtx struct {
+	DBMetas []*mydump.MDDatabaseMeta
+}
+
 // AbstractBackend is the abstract interface behind Backend.
 // Implementations of this interface must be goroutine safe: you can share an
 // instance and execute any method anywhere.
@@ -113,7 +141,7 @@ type AbstractBackend interface {
 	// NewEncoder creates an encoder of a TiDB table.
 	NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error)
 
-	OpenEngine(ctx context.Context, engineUUID uuid.UUID) error
+	OpenEngine(ctx context.Context, config *EngineConfig, engineUUID uuid.UUID) error
 
 	CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
@@ -123,7 +151,7 @@ type AbstractBackend interface {
 
 	// CheckRequirements performs the check whether the backend satisfies the
 	// version requirements
-	CheckRequirements(ctx context.Context) error
+	CheckRequirements(ctx context.Context, checkCtx *CheckCtx) error
 
 	// FetchRemoteTableModels obtains the models of all tables given the schema
 	// name. The returned table info does not need to be precise if the encoder,
@@ -161,7 +189,7 @@ type AbstractBackend interface {
 	ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-	LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error)
+	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
 }
 
 // Backend is the delivery target for Lightning
@@ -223,8 +251,8 @@ func (be Backend) ShouldPostProcess() bool {
 	return be.abstract.ShouldPostProcess()
 }
 
-func (be Backend) CheckRequirements(ctx context.Context) error {
-	return be.abstract.CheckRequirements(ctx)
+func (be Backend) CheckRequirements(ctx context.Context, checkCtx *CheckCtx) error {
+	return be.abstract.CheckRequirements(ctx, checkCtx)
 }
 
 func (be Backend) FetchRemoteTableModels(ctx context.Context, schemaName string) ([]*model.TableInfo, error) {
@@ -287,11 +315,11 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 }
 
 // OpenEngine opens an engine with the given table name and engine ID.
-func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
+func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)
 	logger := makeLogger(tag, engineUUID)
 
-	if err := be.abstract.OpenEngine(ctx, engineUUID); err != nil {
+	if err := be.abstract.OpenEngine(ctx, config, engineUUID); err != nil {
 		return nil, err
 	}
 
@@ -334,8 +362,8 @@ func (engine *OpenedEngine) Flush(ctx context.Context) error {
 	return engine.backend.FlushEngine(ctx, engine.uuid)
 }
 
-func (engine *OpenedEngine) LocalWriter(ctx context.Context) (*LocalEngineWriter, error) {
-	w, err := engine.backend.LocalWriter(ctx, engine.uuid)
+func (engine *OpenedEngine) LocalWriter(ctx context.Context, cfg *LocalWriterConfig) (*LocalEngineWriter, error) {
+	w, err := engine.backend.LocalWriter(ctx, cfg, engine.uuid)
 	if err != nil {
 		return nil, err
 	}
@@ -347,8 +375,8 @@ func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string,
 	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
 }
 
-func (w *LocalEngineWriter) Close() error {
-	return w.writer.Close()
+func (w *LocalEngineWriter) Close(ctx context.Context) error {
+	return w.writer.Close(ctx)
 }
 
 // UnsafeCloseEngine closes the engine without first opening it.
@@ -422,5 +450,5 @@ type EngineWriter interface {
 		commitTS uint64,
 		rows kv.Rows,
 	) error
-	Close() error
+	Close(ctx context.Context) error
 }

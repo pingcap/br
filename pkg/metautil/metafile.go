@@ -317,7 +317,7 @@ type MetaWriter struct {
 	metafileSeqNum map[string]int
 	metafiles      *sizedMetaFile
 
-	wg sync.WaitGroup
+	wg      sync.WaitGroup
 	metasCh chan interface{}
 	errCh   chan error
 }

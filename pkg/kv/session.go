@@ -111,7 +111,6 @@ func (t *transaction) Len() int {
 
 type kvUnionStore struct {
 	kvMemBuf
-	kv.UnionStore
 }
 
 func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
@@ -169,13 +168,6 @@ func (t *transaction) Set(k kv.Key, v []byte) error {
 // Delete implements the kv.Mutator interface.
 func (t *transaction) Delete(k kv.Key) error {
 	return t.kvMemBuf.Delete(k)
-}
-
-// SetAssertion implements the kv.Transaction interface.
-func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
-
-func (t *transaction) GetUnionStore() kv.UnionStore {
-	return &t.kvUnionStore
 }
 
 // GetTableInfo implements the kv.Transaction interface.

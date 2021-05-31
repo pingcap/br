@@ -2,10 +2,9 @@
 
 # Schema lease duration
 # There are lot of ddl in the tests, setting this
-# to 360s to test whther BR is gracefully shutdown.
+# to 360s to test whether BR is gracefully shutdown.
 lease = "360s"
 
-alter-primary-key = true
 max-index-length = 12288
 
 [security]

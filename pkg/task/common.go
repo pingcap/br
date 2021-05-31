@@ -30,6 +30,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -72,6 +73,8 @@ const (
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
 	defaultGRPCKeepaliveTimeout = 3 * time.Second
+
+	unlimited = 0
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -137,6 +140,10 @@ type Config struct {
 
 	TableFilter        filter.Filter `json:"-" toml:"-"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
+	// Schemas is a database name set, to check whether the restore database has been backup
+	Schemas map[string]struct{}
+	// Tables is a table name set, to check whether the restore table has been backup
+	Tables map[string]struct{}
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
 	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
@@ -155,7 +162,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.Uint(flagChecksumConcurrency, variable.DefChecksumTableConcurrency, "The concurrency of table checksumming")
 	_ = flags.MarkHidden(flagChecksumConcurrency)
 
-	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
+	flags.Uint64(flagRateLimit, unlimited, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
 	flags.Bool(flagRemoveTiFlash, true,
 		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
@@ -206,9 +213,9 @@ func DefineTableFlags(command *cobra.Command) {
 }
 
 // DefineFilterFlags defines the --filter and --case-sensitive flags for `full` subcommand.
-func DefineFilterFlags(command *cobra.Command) {
+func DefineFilterFlags(command *cobra.Command, defaultFilter []string) {
 	flags := command.Flags()
-	flags.StringArrayP(flagFilter, "f", []string{"*.*"}, "select tables to process")
+	flags.StringArrayP(flagFilter, "f", defaultFilter, "select tables to process")
 	flags.Bool(flagCaseSensitive, false, "whether the table names used in --filter should be case-sensitive")
 }
 
@@ -278,6 +285,8 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
+	cfg.Schemas = make(map[string]struct{})
+	cfg.Tables = make(map[string]struct{})
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
 		var f filter.Filter
@@ -295,11 +304,13 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		if len(db) == 0 {
 			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
+		cfg.Schemas[utils.EncloseName(db)] = struct{}{}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
 				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
+			cfg.Tables[utils.EncloseDBAndTable(db, tbl)] = struct{}{}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
 				Name:   tbl,

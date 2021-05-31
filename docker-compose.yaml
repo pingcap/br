@@ -208,3 +208,17 @@ services:
     command: server --address=:24927 /data/s3
     env_file:
       - ./docker/minio.env
+
+  gcs:
+    image: fsouza/fake-gcs-server
+    ports:
+      - 20818:20818
+    volumes:
+      - /tmp/br/docker/data/gcs:/data/gcs
+    command: -scheme http -host gcs -port 20818 -filesystem-root /data/gcs -public-host gcs:20818
+
+  # we need a oauth server for gcs test
+  oauth:
+    image: 3pointer/fake-gcs-oauth
+    ports:
+      - 5000:5000

@@ -69,7 +69,7 @@ func ParseBackend(rawURL string, options *BackendOptions) (*backuppb.StorageBack
 		prefix := strings.Trim(u.Path, "/")
 		s3 := &backuppb.S3{Bucket: u.Host, Prefix: prefix}
 		if options == nil {
-			options = &BackendOptions{}
+			options = &BackendOptions{S3: S3BackendOptions{ForcePathStyle: true}}
 		}
 		ExtractQueryParameters(u, &options.S3)
 		if err := options.S3.Apply(s3); err != nil {

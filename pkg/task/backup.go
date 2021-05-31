@@ -4,6 +4,8 @@ package task
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,12 +13,13 @@ import (
 	"github.com/docker/go-units"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
-	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/statistics/handle"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
 	"go.uber.org/zap"
@@ -25,6 +28,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
@@ -183,11 +187,26 @@ func parseCompressionFlags(flags *pflag.FlagSet) (*CompressionConfig, error) {
 // so that both binary and TiDB will use same default value.
 func (cfg *BackupConfig) adjustBackupConfig() {
 	cfg.adjust()
+	usingDefaultConcurrency := false
 	if cfg.Config.Concurrency == 0 {
 		cfg.Config.Concurrency = defaultBackupConcurrency
+		usingDefaultConcurrency = true
 	}
 	if cfg.Config.Concurrency > maxBackupConcurrency {
 		cfg.Config.Concurrency = maxBackupConcurrency
+	}
+	if cfg.RateLimit != unlimited {
+		// TiKV limits the upload rate by each backup request.
+		// When the backup requests are sent concurrently,
+		// the ratelimit couldn't work as intended.
+		// Degenerating to sequentially sending backup requests to avoid this.
+		if !usingDefaultConcurrency {
+			logutil.WarnTerm("setting `--ratelimit` and `--concurrency` at the same time, "+
+				"ignoring `--concurrency`: `--ratelimit` forces sequential (i.e. concurrency = 1) backup",
+				zap.String("ratelimit", units.HumanSize(float64(cfg.RateLimit))+"/s"),
+				zap.Uint32("concurrency-specified", cfg.Config.Concurrency))
+		}
+		cfg.Config.Concurrency = 1
 	}
 
 	if cfg.GCTTL == 0 {
@@ -351,26 +370,56 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	// The number of regions need to backup
-	approximateRegions := 0
-	for _, r := range ranges {
-		var regionCount int
-		regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
-		if err != nil {
-			return errors.Trace(err)
+	summary.CollectInt("backup total ranges", len(ranges))
+
+	var updateCh glue.Progress
+	var unit backup.ProgressUnit
+	if len(ranges) < 100 {
+		unit = backup.RegionUnit
+		// The number of regions need to backup
+		approximateRegions := 0
+		for _, r := range ranges {
+			var regionCount int
+			regionCount, err = mgr.GetRegionCount(ctx, r.StartKey, r.EndKey)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			approximateRegions += regionCount
 		}
-		approximateRegions += regionCount
+		// Redirect to log if there is no log file to avoid unreadable output.
+		updateCh = g.StartProgress(
+			ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
+		summary.CollectInt("backup total regions", approximateRegions)
+	} else {
+		unit = backup.RangeUnit
+		// To reduce the costs, we can use the range as unit of progress.
+		updateCh = g.StartProgress(
+			ctx, cmdName, int64(len(ranges)), !cfg.LogProgress)
 	}
 
-	summary.CollectInt("backup total regions", approximateRegions)
-
-	// Backup
-	// Redirect to log if there is no log file to avoid unreadable output.
-	updateCh := g.StartProgress(
-		ctx, cmdName, int64(approximateRegions), !cfg.LogProgress)
-
+	progressCount := 0
+	progressCallBack := func(callBackUnit backup.ProgressUnit) {
+		if unit == callBackUnit {
+			updateCh.Inc()
+			progressCount++
+			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
+				log.Info("failpoint progress-call-back injected")
+				if fileName, ok := v.(string); ok {
+					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+					if err != nil {
+						log.Warn("failed to create file", zap.Error(err))
+					}
+					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
+					_, err = f.Write(msg)
+					if err != nil {
+						log.Warn("failed to write data to file", zap.Error(err))
+					}
+				}
+			})
+		}
+	}
 	metawriter.StartWriteMetasAsync(ctx, metautil.AppendDataFile)
-	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), metawriter, updateCh)
+	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), metawriter, progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -421,8 +470,21 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 	}
 
-	g.Record("Size", metawriter.ArchiveSize())
-
+	g.Record(summary.BackupDataSize, metawriter.ArchiveSize())
+	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
+		log.Info("failpoint s3-outage-during-writing-file injected, " +
+			"process will sleep for 3s and notify the shell to kill s3 service.")
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
@@ -449,7 +511,7 @@ func parseTSString(ts string) (uint64, error) {
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
-	return variable.GoTimeToTS(t1), nil
+	return oracle.GoTimeToTS(t1), nil
 }
 
 func parseCompressionType(s string) (backuppb.CompressionType, error) {

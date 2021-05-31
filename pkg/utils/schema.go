@@ -4,12 +4,14 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
 
@@ -101,8 +103,9 @@ func LoadBackupTables(meta *backuppb.BackupMeta) (map[string]*Database, error) {
 			return nil, errors.Trace(err)
 		}
 		// stats maybe nil from old backup file.
-		stats := &handle.JSONTable{}
+		var stats *handle.JSONTable
 		if schema.Stats != nil {
+			stats = &handle.JSONTable{}
 			// Parse the stats table.
 			err = json.Unmarshal(schema.Stats, stats)
 			if err != nil {
@@ -153,4 +156,20 @@ func ArchiveSize(meta *backuppb.BackupMeta) uint64 {
 // EncloseName formats name in sql.
 func EncloseName(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// EncloseDBAndTable formats the database and table name in sql.
+func EncloseDBAndTable(database, table string) string {
+	return fmt.Sprintf("%s.%s", EncloseName(database), EncloseName(table))
+}
+
+// IsSysDB tests whether the database is system DB.
+// Currently, the only system DB is mysql.
+func IsSysDB(dbLowerName string) bool {
+	return dbLowerName == mysql.SystemDB
+}
+
+// TemporaryDBName makes a 'private' database name.
+func TemporaryDBName(db string) model.CIStr {
+	return model.NewCIStr("__TiDB_BR_Temporary_" + db)
 }

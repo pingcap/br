@@ -86,7 +86,7 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	engine, err := s.backend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
+	engine, err := s.backend.OpenEngine(ctx, &backend.EngineConfig{}, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := s.backend.MakeEmptyRows()
@@ -120,11 +120,11 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 	c.Assert(err, IsNil)
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
 
-	writer, err := engine.LocalWriter(ctx)
+	writer, err := engine.LocalWriter(ctx, nil)
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"}, dataRows)
 	c.Assert(err, IsNil)
-	err = writer.Close()
+	err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
@@ -137,7 +137,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	logger := log.L()
 
 	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup)
-	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
+	engine, err := ignoreBackend.OpenEngine(ctx, &backend.EngineConfig{}, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := ignoreBackend.MakeEmptyRows()
@@ -153,21 +153,23 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	c.Assert(err, IsNil)
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
 
-	writer, err := engine.LocalWriter(ctx)
+	writer, err := engine.LocalWriter(ctx, nil)
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
 	c.Assert(err, IsNil)
-	err = writer.Close()
+	err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 
 	// test encode rows with _tidb_rowid
 	encoder, err = ignoreBackend.NewEncoder(s.tbl, &kv.SessionOptions{})
 	c.Assert(err, IsNil)
-	row, err = encoder.Encode(logger, []types.Datum{
+	rowWithID, err := encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
 		types.NewIntDatum(1), // _tidb_rowid field
 	}, 1, []int{0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 1})
 	c.Assert(err, IsNil)
+	// tidbRow is string.
+	c.Assert(fmt.Sprint(rowWithID), Equals, "(1,1)")
 }
 
 func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
@@ -179,7 +181,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	logger := log.L()
 
 	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
-	engine, err := ignoreBackend.OpenEngine(ctx, "`foo`.`bar`", 1, 0)
+	engine, err := ignoreBackend.OpenEngine(ctx, &backend.EngineConfig{}, "`foo`.`bar`", 1, 0)
 	c.Assert(err, IsNil)
 
 	dataRows := ignoreBackend.MakeEmptyRows()
@@ -196,15 +198,16 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 
 	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
 
-	writer, err := engine.LocalWriter(ctx)
+	writer, err := engine.LocalWriter(ctx, nil)
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
 	c.Assert(err, IsNil)
-	err = writer.Close()
+	err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
 // TODO: temporarily disable this test before we fix strict mode
+//nolint:unused
 func (s *mysqlSuite) testStrictMode(c *C) {
 	ft := *types.NewFieldType(mysql.TypeVarchar)
 	ft.Charset = charset.CharsetUTF8MB4

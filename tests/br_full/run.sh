@@ -17,7 +17,6 @@ set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
-old_conf=$(run_sql "show config where name = 'alter-primary-key'")
 
 for i in $(seq $DB_COUNT); do
     run_sql "CREATE DATABASE $DB${i};"
@@ -49,7 +48,9 @@ fi
 
 # backup full
 echo "backup with lz4 start..."
+export GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/backup-storage-error=1*return(\"connection refused\")"
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB-lz4" --concurrency 4 --compression lz4
+export GO_FAILPOINTS=""
 size_lz4=$(du -d 0 $TEST_DIR/$DB-lz4 | awk '{print $1}')
 
 echo "backup with zstd start..."
@@ -68,7 +69,9 @@ for ct in limit lz4 zstd; do
 
   # restore full
   echo "restore with $ct backup start..."
+  export GO_FAILPOINTS="github.com/pingcap/br/pkg/restore/restore-storage-error=1*return(\"connection refused\")"
   run_br restore full -s "local://$TEST_DIR/$DB-$ct" --pd $PD_ADDR --ratelimit 1024
+  export GO_FAILPOINTS=""
 
   for i in $(seq $DB_COUNT); do
       row_count_new[${i}]=$(run_sql "SELECT COUNT(*) FROM $DB${i}.$TABLE;" | awk '/COUNT/{print $2}')
@@ -88,9 +91,6 @@ for ct in limit lz4 zstd; do
       exit 1
   fi
 done
-
-# test whether we have changed the cluster config.
-test "$old_conf" = "$(run_sql "show config where name = 'alter-primary-key'")"
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"

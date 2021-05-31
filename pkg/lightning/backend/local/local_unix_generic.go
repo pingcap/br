@@ -1,4 +1,4 @@
-// Copyright 2019 PingCAP, Inc.
+// Copyright 2020 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,8 +11,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package restore
+// +build !freebsd,!windows
 
-const (
-	defReadBlockSize int64 = 1024 * 128 // TODO ... config
-)
+package local
+
+import "go.uber.org/zap"
+
+type Rlim_t = uint64
+
+func zapRlim_t(key string, val Rlim_t) zap.Field {
+	return zap.Uint64(key, val)
+}

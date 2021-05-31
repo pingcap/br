@@ -28,6 +28,9 @@ import (
 	"github.com/pingcap/tidb/sessionctx/variable"
 
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+
+	"go.uber.org/zap"
 )
 
 // invalidIterator is a trimmed down Iterator type which is invalid.
@@ -91,7 +94,6 @@ func (t *transaction) Len() int {
 
 type kvUnionStore struct {
 	kvMemBuf
-	kv.UnionStore
 }
 
 func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
@@ -113,12 +115,6 @@ func (s *kvUnionStore) CacheTableInfo(id int64, info *model.TableInfo) {
 type transaction struct {
 	kv.Transaction
 	kvUnionStore
-}
-
-func NewTransaction() *transaction {
-	return &transaction{
-		kvUnionStore: kvUnionStore{},
-	}
 }
 
 func (t *transaction) GetMemBuffer() kv.MemBuffer {
@@ -150,13 +146,6 @@ func (t *transaction) Iter(k kv.Key, upperBound kv.Key) (kv.Iterator, error) {
 // Set implements the kv.Mutator interface
 func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
-}
-
-// SetAssertion implements the kv.Transaction interface
-func (t *transaction) SetAssertion(kv.Key, kv.AssertionType) {}
-
-func (t *transaction) GetUnionStore() kv.UnionStore {
-	return &t.kvUnionStore
 }
 
 // GetTableInfo implements the kv.Transaction interface.
@@ -207,11 +196,18 @@ func newSession(options *SessionOptions) *session {
 	vars.SQLMode = sqlMode
 	if options.SysVars != nil {
 		for k, v := range options.SysVars {
-			vars.SetSystemVar(k, v)
+			if err := vars.SetSystemVar(k, v); err != nil {
+				log.L().DPanic("new session: failed to set system var",
+					log.ShortError(err),
+					zap.String("key", k))
+			}
 		}
 	}
 	vars.StmtCtx.TimeZone = vars.Location()
-	vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10))
+	if err := vars.SetSystemVar("timestamp", strconv.FormatInt(options.Timestamp, 10)); err != nil {
+		log.L().Warn("new session: failed to set timestamp",
+			log.ShortError(err))
+	}
 	vars.TxnCtx = nil
 
 	s := &session{
