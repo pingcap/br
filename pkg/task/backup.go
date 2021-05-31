@@ -41,6 +41,7 @@ const (
 	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
 	flagIgnoreStats      = "ignore-stats"
+	flagUseBackupMetaV2  = "backupmetav2"
 
 	flagGCTTL = "gcttl"
 
@@ -64,6 +65,7 @@ type BackupConfig struct {
 	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
 	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
 	IgnoreStats      bool          `json:"ignore-stats" toml:"ignore-stats"`
+	UseBackupMetaV2  bool          `json:"use-backupmeta-v2"`
 	CompressionConfig
 }
 
@@ -95,6 +97,17 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Bool(flagIgnoreStats, true, "ignore backup stats, used for test")
 	// This flag is used for test. we should backup stats all the time.
 	_ = flags.MarkHidden(flagIgnoreStats)
+
+	flags.Bool(flagUseBackupMetaV2, false,
+		"use backup meta v2 to store meta info")
+	// This flag will change the structure of backupmeta.
+	// we must make sure the old three version of br can parse the v2 meta to keep compatibility.
+	// so this flag should set to false for three version by default.
+	// for example:
+	// if we put this feature in v4.0.14, then v4.0.14 can parse v2 meta.
+	// and v4.0.14, v4.0.15, v4.0.16 will generate v1 meta due to this flag is false.
+	// finally v4.0.17 will set this flag to true, and generate v2 meta.
+	_ = flags.MarkHidden(flagUseBackupMetaV2)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -139,6 +152,10 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.UseBackupMetaV2, err = flags.GetBool(flagUseBackupMetaV2)
 	return errors.Trace(err)
 }
 

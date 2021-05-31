@@ -344,6 +344,18 @@ func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 	f(writer.backupMeta)
 }
 
+// WriteMetas is main function for MetaWriter.
+// WriteMetas writes four kind of meta into backupmeta.
+// 1. file
+// 2. schema
+// 3. ddl
+// 4. rawRange( raw kv )
+// when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
+// else it will generate backupmeta as before for compatibility.
+func (writer *MetaWriter) WriteMetas(ctx context.Context, metasCh chan []*backuppb.MetaFile, op appendOp) errgroup.Group {
+
+}
+
 func (writer *MetaWriter) WriteFiles(ctx context.Context, filesCh chan []*backuppb.File) errgroup.Group {
 	var eg errgroup.Group
 	eg.Go(func() error {
