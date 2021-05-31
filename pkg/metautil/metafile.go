@@ -394,9 +394,9 @@ func (writer *MetaWriter) Close() {
 // when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
 // else it will generate backupmeta as before for compatibility.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
-	writer.resetCh()
 	// always start one goroutine to write one kind of meta.
 	writer.wg.Wait()
+	writer.resetCh()
 	go func() {
 		writer.wg.Add(1)
 		defer writer.wg.Done()

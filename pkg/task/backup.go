@@ -39,7 +39,7 @@ const (
 	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
 	flagIgnoreStats      = "ignore-stats"
-	flagUseBackupMetaV2  = "backupmetav2"
+	flagUseBackupMetaV2  = "use-backupmeta-v2"
 
 	flagGCTTL = "gcttl"
 
