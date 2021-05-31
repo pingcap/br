@@ -5,7 +5,6 @@ package backup
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/pingcap/br/pkg/metautil"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/google/btree"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -180,49 +178,6 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 	}
 	bc.backend = backend
 	return nil
-}
-
-// BuildBackupMeta constructs the backup meta file from its components.
-func BuildBackupMeta(
-	req *backuppb.BackupRequest,
-	files []*backuppb.File,
-	rawRanges []*backuppb.RawRange,
-	ddlJobs []*model.Job,
-	clusterVersion string,
-	brVersion string,
-) (backupMeta backuppb.BackupMeta, err error) {
-	backupMeta.StartVersion = req.StartVersion
-	backupMeta.EndVersion = req.EndVersion
-	backupMeta.IsRawKv = req.IsRawKv
-	backupMeta.RawRanges = rawRanges
-	backupMeta.Files = files
-	backupMeta.ClusterId = req.ClusterId
-	backupMeta.ClusterVersion = clusterVersion
-	backupMeta.BrVersion = brVersion
-	backupMeta.Ddls, err = json.Marshal(ddlJobs)
-	if err != nil {
-		err = errors.Trace(err)
-		return
-	}
-	return
-}
-
-// SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.BackupMeta) error {
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Client.SaveBackupMeta", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
-	backupMetaData, err := proto.Marshal(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
-	backendURL := storage.FormatBackendURL(bc.backend)
-	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
-	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
 // GetClusterID returns the cluster ID of the tidb cluster to backup.

@@ -254,8 +254,11 @@ func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) int {
 		size += b.(*backuppb.File).Size()
 	case AppendDataFile:
 		// receive a batch of file because we need write and default sst are adjacent.
-		a.DataFiles = append(a.DataFiles, b.([]*backuppb.File)...)
-		size += b.(*backuppb.File).Size()
+		files := b.([]*backuppb.File)
+		a.DataFiles = append(a.DataFiles, files...)
+		for _, f := range files {
+			size += f.Size()
+		}
 	case AppendSchema:
 		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
 		size += b.(*backuppb.Schema).Size()
