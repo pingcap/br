@@ -140,7 +140,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 // SetLockFile set write lock file.
 func (bc *Client) SetLockFile(ctx context.Context) error {
-	return bc.storage.WriteFile(ctx, utils.LockFile,
+	return bc.storage.WriteFile(ctx, metautil.LockFile,
 		[]byte("DO NOT DELETE\n"+
 			"This file exists to remind other backup jobs won't use this path"))
 }
@@ -158,6 +158,7 @@ func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
 }
 
+// GetStorage gets storage for this backup.
 func (bc *Client) GetStorage() storage.ExternalStorage {
 	return bc.storage
 }
@@ -170,16 +171,16 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 		return errors.Trace(err)
 	}
 	// backupmeta already exists
-	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	exist, err := bc.storage.FileExists(ctx, metautil.MetaFile)
 	if err != nil {
-		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
+		return errors.Annotatef(err, "error occurred when checking %s file", metautil.MetaFile)
 	}
 	if exist {
 		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
 	}
-	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
+	exist, err = bc.storage.FileExists(ctx, metautil.LockFile)
 	if err != nil {
-		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
+		return errors.Annotatef(err, "error occurred when checking %s file", metautil.LockFile)
 	}
 	if exist {
 		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
@@ -446,10 +447,9 @@ func (bc *Client) BackupRange(
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else  {
+		} else {
 			summary.CollectSuccessUnit("backup ranges", 1, time.Now().Sub(start))
 		}
-
 	}()
 	log.Info("backup started",
 		logutil.Key("startKey", startKey),

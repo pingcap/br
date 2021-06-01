@@ -15,17 +15,6 @@ import (
 	"github.com/pingcap/br/pkg/metautil"
 )
 
-const (
-	// LockFile represents file name
-	LockFile = "backup.lock"
-	// MetaFile represents file name
-	MetaFile = "backupmeta"
-	// MetaJSONFile represents backup meta json file name
-	MetaJSONFile = "backupmeta.json"
-	// SavedMetaFile represents saved meta file name for recovering later
-	SavedMetaFile = "backupmeta.bak"
-)
-
 // NeedAutoID checks whether the table needs backing up with an autoid.
 func NeedAutoID(tblInfo *model.TableInfo) bool {
 	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle

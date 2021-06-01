@@ -27,12 +27,17 @@ import (
 )
 
 const (
+	// LockFile represents file name
+	LockFile = "backup.lock"
 	// MetaFile represents file name
-	MetaFile     = "backupmeta"
+	MetaFile = "backupmeta"
+	// MetaJSONFile represents backup meta json file name
+	MetaJSONFile = "backupmeta.json"
+	// MaxBatchSize represents the internal channel buffer size of MetaWriter and MetaReader.
 	MaxBatchSize = 1024
 )
 
-func WalkLeafMetaFile(
+func walkLeafMetaFile(
 	ctx context.Context, storage storage.ExternalStorage, file *backuppb.MetaFile, output func(*backuppb.MetaFile),
 ) error {
 	if file == nil {
@@ -56,7 +61,7 @@ func WalkLeafMetaFile(
 		if err = proto.Unmarshal(content, child); err != nil {
 			return errors.Trace(err)
 		}
-		if err = WalkLeafMetaFile(ctx, storage, child, output); err != nil {
+		if err = walkLeafMetaFile(ctx, storage, child, output); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -80,11 +85,13 @@ func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
 
+// MetaReader wraps a reader to read both old and new version of backupmeta.
 type MetaReader struct {
 	storage    storage.ExternalStorage
 	backupMeta *backuppb.BackupMeta
 }
 
+// NewMetaReader creates MetaReader.
 func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStorage) *MetaReader {
 	return &MetaReader{
 		storage:    storage,
@@ -104,7 +111,7 @@ func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) (bo
 			output(s)
 		}
 	}
-	return false, WalkLeafMetaFile(ctx, reader.storage, reader.backupMeta.DdlIndexes, outputFn)
+	return false, walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.DdlIndexes, outputFn)
 }
 
 func (reader *MetaReader) readSchemas(ctx context.Context, output func(*backuppb.Schema)) error {
@@ -118,7 +125,7 @@ func (reader *MetaReader) readSchemas(ctx context.Context, output func(*backuppb
 			output(s)
 		}
 	}
-	return WalkLeafMetaFile(ctx, reader.storage, reader.backupMeta.SchemaIndex, outputFn)
+	return walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.SchemaIndex, outputFn)
 }
 
 func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backuppb.File)) error {
@@ -132,9 +139,11 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 			output(f)
 		}
 	}
-	return WalkLeafMetaFile(ctx, reader.storage, reader.backupMeta.FileIndex, outputFn)
+	return walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.FileIndex, outputFn)
 }
 
+// ReadDDLs reads the ddls from the backupmeta.
+// This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 	var (
 		err      error
@@ -178,6 +187,8 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 	}
 }
 
+// ReadSchemasFiles reads the schema and datafiles from the backupmeta.
+// This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *Table) error {
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
@@ -282,13 +293,19 @@ func receiveBatch(
 	}
 }
 
+// AppendOp represents the operation type of meta.
 type AppendOp int
 
 const (
+	// AppendMetaFile represents the MetaFile type.
 	AppendMetaFile AppendOp = 0
+	// AppendDataFile represents the DataFile type.
+	// it records the file meta from tikv.
 	AppendDataFile AppendOp = 1
-	AppendSchema   AppendOp = 2
-	AppendDDL      AppendOp = 3
+	// AppendSchema represents the schema from tidb.
+	AppendSchema AppendOp = 2
+	// AppendDDL represents the ddls before last backup.
+	AppendDDL AppendOp = 3
 )
 
 func (op AppendOp) name() string {
@@ -345,6 +362,7 @@ type sizedMetaFile struct {
 	storage storage.ExternalStorage
 }
 
+// NewSizedMetaFile represents the sizedMetaFile.
 func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
 	return &sizedMetaFile{
 		root: &backuppb.MetaFile{
@@ -356,7 +374,7 @@ func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
 	}
 }
 
-func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op AppendOp) bool {
+func (f *sizedMetaFile) append(ctx context.Context, file interface{}, op AppendOp) bool {
 	// append to root
 	// 	TODO maybe use multi level index
 	size := op.appendFile(f.root, file)
@@ -368,6 +386,7 @@ func (f *sizedMetaFile) Append(ctx context.Context, file interface{}, op AppendO
 	return false
 }
 
+// MetaWriter represents wraps a writer, and the MetaWriter should be compatible with old version of backupmeta.
 type MetaWriter struct {
 	storage           storage.ExternalStorage
 	metafileSizeLimit int
@@ -384,6 +403,7 @@ type MetaWriter struct {
 	errCh   chan error
 }
 
+// NewMetaWriter creates MetaWriter.
 func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2Meta bool) *MetaWriter {
 	return &MetaWriter{
 		storage:           storage,
@@ -402,6 +422,7 @@ func (writer *MetaWriter) resetCh() {
 	writer.errCh = make(chan error)
 }
 
+// Update updates some property of backupmeta.
 func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
@@ -409,6 +430,7 @@ func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
 	f(writer.backupMeta)
 }
 
+// Send sends the item to buffer.
 func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
 	select {
 	case writer.metasCh <- m:
@@ -419,7 +441,7 @@ func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
 	return nil
 }
 
-func (writer *MetaWriter) Close() {
+func (writer *MetaWriter) close() {
 	close(writer.metasCh)
 	close(writer.errCh)
 }
@@ -431,6 +453,7 @@ func (writer *MetaWriter) Close() {
 // 4. rawRange( raw kv )
 // when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
 // else it will generate backupmeta as before for compatibility.
+// User should call FlushAndClose after StartWriterMetasAsync.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
 	writer.resetCh()
 	go func() {
@@ -446,7 +469,7 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 					log.Info("write metas finished", zap.Any("op", op))
 					return
 				}
-				needFlush := writer.metafiles.Append(ctx, meta, op)
+				needFlush := writer.metafiles.append(ctx, meta, op)
 				if writer.useV2Meta && needFlush {
 					err := writer.flushMetasV2(ctx, op)
 					if err != nil {
@@ -458,8 +481,9 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 	}()
 }
 
+// FlushAndClose close the channel in StartWriteMetasAsync and flush the buffered data.
 func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error {
-	writer.Close()
+	writer.close()
 	// always start one goroutine to write one kind of meta.
 	writer.wg.Wait()
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
@@ -565,6 +589,7 @@ func (writer *MetaWriter) flushMetasV2(ctx context.Context, op AppendOp) error {
 	return nil
 }
 
+// ArchiveSize represents the size of ArchiveSize.
 func (writer *MetaWriter) ArchiveSize() uint64 {
 	total := uint64(writer.backupMeta.Size())
 	for _, file := range writer.backupMeta.Files {
@@ -576,6 +601,7 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 	return total
 }
 
+// Backupmeta clones a backupmeta.
 func (writer *MetaWriter) Backupmeta() *backuppb.BackupMeta {
 	clone := proto.Clone(writer.backupMeta)
 	return clone.(*backuppb.BackupMeta)

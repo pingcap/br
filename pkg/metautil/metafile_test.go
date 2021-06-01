@@ -32,12 +32,12 @@ func checksum(m *backuppb.MetaFile) []byte {
 func (m *metaSuit) TestWalkMetaFileEmpty(c *C) {
 	files := []*backuppb.MetaFile{}
 	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
-	err := WalkLeafMetaFile(context.Background(), nil, nil, collect)
+	err := walkLeafMetaFile(context.Background(), nil, nil, collect)
 	c.Assert(err, IsNil)
 	c.Assert(files, HasLen, 0)
 
 	empty := &backuppb.MetaFile{}
-	err = WalkLeafMetaFile(context.Background(), nil, empty, collect)
+	err = walkLeafMetaFile(context.Background(), nil, empty, collect)
 	c.Assert(err, IsNil)
 	c.Assert(files, HasLen, 1)
 	c.Assert(files[0], Equals, empty)
@@ -49,7 +49,7 @@ func (m *metaSuit) TestWalkMetaFileLeaf(c *C) {
 	}}
 	files := []*backuppb.MetaFile{}
 	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
-	err := WalkLeafMetaFile(context.Background(), nil, leaf, collect)
+	err := walkLeafMetaFile(context.Background(), nil, leaf, collect)
 	c.Assert(err, IsNil)
 	c.Assert(files, HasLen, 1)
 	c.Assert(files[0], Equals, leaf)
@@ -71,7 +71,7 @@ func (m *metaSuit) TestWalkMetaFileInvalid(c *C) {
 	}}
 
 	collect := func(m *backuppb.MetaFile) { panic("unreachable") }
-	err := WalkLeafMetaFile(ctx, mockStorage, root, collect)
+	err := walkLeafMetaFile(ctx, mockStorage, root, collect)
 	c.Assert(err, ErrorMatches, ".*ErrInvalidMetaFile.*")
 }
 
@@ -125,7 +125,7 @@ func (m *metaSuit) TestWalkMetaFile(c *C) {
 
 	files := []*backuppb.MetaFile{}
 	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
-	err := WalkLeafMetaFile(ctx, mockStorage, root, collect)
+	err := walkLeafMetaFile(ctx, mockStorage, root, collect)
 	c.Assert(err, IsNil)
 
 	c.Assert(files, HasLen, len(expect))
