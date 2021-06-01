@@ -42,9 +42,8 @@ echo "recent version of cluster is $TAGS"
 i=0
 
 # FIXME: If this dir is modified, please also modify the variable in tests/run_compatible.sh
-TEST_DIR_DOCKER_PREFIX=/tmp/br/docker/backup_data/ #${TAG}
+TEST_DIR_DOCKER_PREFIX=/tmp/br/docker/backup_data #${TAG}
 TEST_DIR_PREPARE_SUFFIX=backup_restore_compatibility_test_prepare
-mkdir -p "$TEST_DIR_PREPARE"
 
 runBackup() {
   # generate backup data in /tmp/br/docker/backup_data/$TAG/, we can do restore after all data backuped later.
@@ -58,6 +57,7 @@ runBackup() {
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatibility/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatibility/backup_cluster.yaml exec -T control make compatibility_test_prepare
   echo "finish preparing for $1"
+  mkdir -p "$TEST_DIR_DOCKER_PREFIX/$1/$TEST_DIR_PREPARE_SUFFIX"
   touch $TEST_DIR_DOCKER_PREFIX/$1/$TEST_DIR_PREPARE_SUFFIX/${1}_prepare_finish
 }
 
