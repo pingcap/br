@@ -179,8 +179,7 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 }
 
 func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *Table) error {
-	const maxBatchSize = 1024
-	ch := make(chan interface{}, maxBatchSize)
+	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
 	go func() {
 		if err := reader.readSchemas(ctx, func(s *backuppb.Schema) { ch <- s }); err != nil {
@@ -192,8 +191,8 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 
 	for {
 		// table ID -> *Table
-		tableMap := make(map[int64]*Table, maxBatchSize)
-		err := receiveBatch(ctx, errCh, ch, maxBatchSize, func(item interface{}) error {
+		tableMap := make(map[int64]*Table, MaxBatchSize)
+		err := receiveBatch(ctx, errCh, ch, MaxBatchSize, func(item interface{}) error {
 			s := item.(*backuppb.Schema)
 			tableInfo := &model.TableInfo{}
 			if err := json.Unmarshal(s.Table, tableInfo); err != nil {
@@ -399,8 +398,7 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2
 }
 
 func (writer *MetaWriter) resetCh() {
-	// TODO use a meaningfull buffer size
-	writer.metasCh = make(chan interface{}, 1024)
+	writer.metasCh = make(chan interface{}, MaxBatchSize)
 	writer.errCh = make(chan error)
 }
 
@@ -434,8 +432,6 @@ func (writer *MetaWriter) Close() {
 // when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
 // else it will generate backupmeta as before for compatibility.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
-	// always start one goroutine to write one kind of meta.
-	writer.wg.Wait()
 	writer.resetCh()
 	go func() {
 		writer.wg.Add(1)
@@ -452,7 +448,7 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 				}
 				needFlush := writer.metafiles.Append(ctx, meta, op)
 				if writer.useV2Meta && needFlush {
-					err := writer.FlushMetasV2(ctx, op)
+					err := writer.flushMetasV2(ctx, op)
 					if err != nil {
 						writer.errCh <- err
 					}
@@ -469,11 +465,13 @@ func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error 
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 	var err error
+	// always start one goroutine to write one kind of meta.
+	writer.wg.Wait()
 	// flush the buffered meta
 	if !writer.useV2Meta {
-		err = writer.FlushMetasV1(ctx, op)
+		err = writer.flushMetasV1(ctx, op)
 	} else {
-		err = writer.FlushMetasV2(ctx, op)
+		err = writer.flushMetasV2(ctx, op)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -497,8 +495,8 @@ func (writer *MetaWriter) flushBackupMeta(ctx context.Context) error {
 	return writer.storage.WriteFile(ctx, MetaFile, backupMetaData)
 }
 
-// FlushMetasV1 keep the compatibility for old version.
-func (writer *MetaWriter) FlushMetasV1(ctx context.Context, op AppendOp) error {
+// flushMetasV1 keep the compatibility for old version.
+func (writer *MetaWriter) flushMetasV1(ctx context.Context, op AppendOp) error {
 	switch op {
 	case AppendDataFile:
 		writer.backupMeta.Files = writer.metafiles.root.DataFiles
@@ -512,7 +510,7 @@ func (writer *MetaWriter) FlushMetasV1(ctx context.Context, op AppendOp) error {
 	return writer.flushBackupMeta(ctx)
 }
 
-func (writer *MetaWriter) FlushMetasV2(ctx context.Context, op AppendOp) error {
+func (writer *MetaWriter) flushMetasV2(ctx context.Context, op AppendOp) error {
 	var index *backuppb.MetaFile
 	switch op {
 	case AppendSchema:
