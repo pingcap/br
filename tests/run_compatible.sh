@@ -44,12 +44,14 @@ for script in tests/docker_compatible_*/${1}.sh; do
     bash "$script"
 done
 
+# When $1 is prepare, only backup $TAG
+# When $2 is run, restore all $TAGS
 if [[ ${1} == "prepare" ]]; 
 then
     echo "finish preparing for $1"
-    touch $TEST_DIR/$TAG/prepare_finish
+    touch $TEST_DIR/${TAG}_prepare_finish
 else
     for TAG_ in ${TAGS}; do
-        rm $TEST_DIR/$TAG_/prepare_finish
+        rm $TEST_DIR/${TAG_}_prepare_finish
     done
 fi
