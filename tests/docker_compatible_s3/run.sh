@@ -24,7 +24,7 @@ S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
 
 # restore backup data one by one
 for TAG in ${TAGS}; do
-    if [[ ! -f $DOCKER_DIR/${TAG}/$TEST_DIR_NO_TMP/${TAG}_prepare_finish ]]; then
+    if [[ ! -f $TEST_DIR_PREPARE/${TAG}_prepare_finish ]]; then
         echo "skip restore for $TAG because prepare is not finished"
         cnt_skip=$(( $cnt_skip + 1 ))
         if [[ $cnt_skip -gt 1 ]]; then
