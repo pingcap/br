@@ -24,6 +24,10 @@ S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
 
 # restore backup data one by one
 for TAG in ${TAGS}; do
+    if [[ ! -f /tmp/br/docker/backup_data/$TAG/prepare_finish ]]; then
+        echo "skip restore for $TAG because prepare is not finished"
+        continue
+    fi
     echo "restore ${TAG} data starts..."
     bin/br restore db --db test -s "s3://$BUCKET/bk${TAG}?endpoint=http://$S3_ENDPOINT$S3_KEY" --pd $PD_ADDR --check-requirements=false
     row_count=$(run_sql_in_container  "SELECT COUNT(*) FROM test.usertable;" | awk '/COUNT/{print $2}')

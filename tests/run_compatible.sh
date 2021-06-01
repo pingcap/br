@@ -43,3 +43,7 @@ for script in tests/docker_compatible_*/${1}.sh; do
     BR_LOG_TO_TERM=1 \
     bash "$script"
 done
+
+for TAG in ${TAGS}; do
+    rm /tmp/br/docker/backup_data/$TAG/prepare_finish
+done
