@@ -200,11 +200,12 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 				return errors.Trace(err)
 			}
 			dbInfo := &model.DBInfo{}
-			if err := json.Unmarshal(s.Table, dbInfo); err != nil {
+			if err := json.Unmarshal(s.Db, dbInfo); err != nil {
 				return errors.Trace(err)
 			}
-			stats := &handle.JSONTable{}
+			var stats *handle.JSONTable
 			if s.Stats != nil {
+				stats = &handle.JSONTable{}
 				if err := json.Unmarshal(s.Stats, stats); err != nil {
 					return errors.Trace(err)
 				}
@@ -453,7 +454,6 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 				if writer.useV2Meta && needFlush {
 					err := writer.FlushMetasV2(ctx, op)
 					if err != nil {
-						log.Error("err", zap.Error(err))
 						writer.errCh <- err
 					}
 				}
