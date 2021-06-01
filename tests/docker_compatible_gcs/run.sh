@@ -36,9 +36,15 @@ echo $KEY > "tests/$TEST_NAME/config.json"
 export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
 # restore backup data one by one
+cnt_skip=0
 for TAG in ${TAGS}; do
     if [[ ! -f $TEST_DIR/${TAG}_prepare_finish ]]; then
         echo "skip restore for $TAG because prepare is not finished"
+        cnt_skip=$(( $cnt_skip + 1 ))
+        if [[ $cnt_skip -gt 1 ]]; then
+          echo "skip too many tag, fail!"
+          exit 1
+        fi
         continue
     fi
     echo "restore ${TAG} data starts..."

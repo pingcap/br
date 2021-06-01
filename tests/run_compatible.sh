@@ -48,7 +48,7 @@ done
 # When $2 is run, restore all $TAGS
 if [[ ${1} == "prepare" ]]; 
 then
-    echo "finish preparing for $1"
+    echo "finish preparing for $TAG"
     touch $TEST_DIR/${TAG}_prepare_finish
 else
     for TAG_ in ${TAGS}; do
