@@ -446,7 +446,10 @@ func (bc *Client) BackupRange(
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
+		} else  {
+			summary.CollectSuccessUnit("backup ranges", 1, time.Now().Sub(start))
 		}
+
 	}()
 	log.Info("backup started",
 		logutil.Key("startKey", startKey),
