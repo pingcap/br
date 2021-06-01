@@ -38,6 +38,9 @@ export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 # restore backup data one by one
 cnt_skip=0
 for TAG in ${TAGS}; do
+    ls $TEST_DIR_PREPARE
+    echo "123"
+    ls /tmp
     if [[ ! -f $TEST_DIR_PREPARE/${TAG}_prepare_finish ]]; then
         echo "skip restore for $TAG because prepare is not finished"
         cnt_skip=$(( $cnt_skip + 1 ))
