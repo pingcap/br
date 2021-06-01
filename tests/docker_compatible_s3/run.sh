@@ -24,7 +24,7 @@ S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
 
 # restore backup data one by one
 for TAG in ${TAGS}; do
-    if [[ ! -f /tmp/br/docker/backup_data/$TAG/prepare_finish ]]; then
+    if [[ ! -f $TEST_DIR/$TAG/prepare_finish ]]; then
         echo "skip restore for $TAG because prepare is not finished"
         continue
     fi
