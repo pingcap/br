@@ -27,12 +27,18 @@ PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
 TEST_DIR=/tmp/backup_restore_compatibility_test
+TEST_DIR_NO_TMP=backup_restore_compatibility_test
+#FIXME: When dir changed in
+#       https://github.com/pingcap/br/blob/master/compatibility/backup_cluster.yaml#L13
+#       please also change $DOCKER_DIR
+DOCKER_DIR=/tmp/br/docker/backup_logs #${TAG}
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 
 for script in tests/docker_compatible_*/${1}.sh; do
     echo "*===== Running test $script... =====*"
     TEST_DIR="$TEST_DIR" \
+    DOCKER_DIR="$DOCKER_DIR" \
     PD_ADDR="$PD_ADDR" \
     GCS_HOST="$GCS_HOST" \
     GCS_PORT="$GCS_PORT" \
@@ -52,6 +58,6 @@ then
     touch $TEST_DIR/${TAG}_prepare_finish
 else
     for TAG_ in ${TAGS}; do
-        rm $TEST_DIR/${TAG_}_prepare_finish
+        rm $DOCKER_DIR/${TAG_}/$TEST_DIR_NO_TMP/${TAG_}_prepare_finish
     done
 fi
