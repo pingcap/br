@@ -1088,6 +1088,7 @@ func (local *local) Close() {
 		// Check whether there are duplicates.
 		iter := local.duplicateDB.NewIter(&pebble.IterOptions{})
 		hasNoDuplicates := !iter.First() && iter.Error() == nil
+		iter.Close()
 		if err := local.duplicateDB.Close(); err != nil {
 			log.L().Warn("close duplicate db failed", zap.Error(err))
 		}
@@ -2033,7 +2034,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 			log.L().Error("failed to save engine meta", log.ShortError(err))
 			return err
 		}
-		log.L().Warn("duplicate detected during import engine",
+		log.L().Warn("duplicate detected during import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
 		return backend.ErrDuplicateDetected
