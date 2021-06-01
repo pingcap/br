@@ -57,7 +57,7 @@ runBackup() {
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatibility/backup_cluster.yaml exec -T control /go/bin/go-ycsb load mysql -P /prepare_data/workload -p mysql.host=tidb -p mysql.port=4000 -p mysql.user=root -p mysql.db=test
   TAG=$1 PORT_SUFFIX=$2 docker-compose -p $1 -f compatibility/backup_cluster.yaml exec -T control make compatibility_test_prepare
   echo "finish preparing for $TAG"
-  touch $TEST_DIR_PREPARE/${TAG}_prepare_finish
+  touch $TEST_DIR_PREPARE/${1}_prepare_finish
 }
 
 for tag in $TAGS; do
