@@ -33,7 +33,6 @@ rm -f "$TEST_DIR"/*.log &> /dev/null
 
 for script in tests/docker_compatible_*/${1}.sh; do
     echo "*===== Running test $script... =====*"
-    TEST_DIR_PREPARE="$TEST_DIR_PREPARE" \
     TEST_DIR="$TEST_DIR" \
     PD_ADDR="$PD_ADDR" \
     GCS_HOST="$GCS_HOST" \
