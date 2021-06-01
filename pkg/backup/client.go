@@ -406,9 +406,7 @@ func (bc *Client) BackupRanges(
 	progressCallBack func(ProgressUnit),
 ) error {
 	init := time.Now()
-	defer func() {
-		log.Info("Backup Ranges", zap.Duration("take", time.Now().Sub(init)))
-	}()
+	defer log.Info("Backup Ranges", zap.Duration("take", time.Now().Sub(init)))
 
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
@@ -514,7 +512,7 @@ func (bc *Client) BackupRange(
 		return true
 	})
 	if ascendErr != nil {
-		return ascendErr
+		return errors.Trace(ascendErr)
 	}
 
 	// Check if there are duplicated files.

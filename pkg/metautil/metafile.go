@@ -459,14 +459,15 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 }
 
 func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error {
+	writer.Close()
+	// always start one goroutine to write one kind of meta.
+	writer.wg.Wait()
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("MetaWriter.Finish", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 	var err error
-	// always start one goroutine to write one kind of meta.
-	writer.wg.Wait()
 	// flush the buffered meta
 	if !writer.useV2Meta {
 		err = writer.flushMetasV1(ctx, op)
@@ -481,7 +482,6 @@ func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error 
 	if err != nil {
 		return errors.Trace(err)
 	}
-	writer.Close()
 	return nil
 }
 
