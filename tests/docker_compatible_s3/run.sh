@@ -23,17 +23,7 @@ S3_ENDPOINT=minio:24927
 S3_KEY="&access-key=$MINIO_ACCESS_KEY&secret-access-key=$MINIO_SECRET_KEY"
 
 # restore backup data one by one
-cnt_skip=0
 for TAG in ${TAGS}; do
-    if [[ ! -f $TEST_DIR_PREPARE/${TAG}_prepare_finish ]]; then
-        echo "skip restore for $TAG because prepare is not finished"
-        cnt_skip=$(( $cnt_skip + 1 ))
-        if [[ $cnt_skip -gt 1 ]]; then
-          echo "skip too many tag, fail!"
-          exit 1
-        fi
-        continue
-    fi
     echo "restore ${TAG} data starts..."
     bin/br restore db --db test -s "s3://$BUCKET/bk${TAG}?endpoint=http://$S3_ENDPOINT$S3_KEY" --pd $PD_ADDR
     row_count=$(run_sql_in_container  "SELECT COUNT(*) FROM test.usertable;" | awk '/COUNT/{print $2}')
