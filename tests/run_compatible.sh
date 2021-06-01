@@ -44,6 +44,8 @@ for script in tests/docker_compatible_*/${1}.sh; do
     bash "$script"
 done
 
-for TAG in ${TAGS}; do
-    rm /tmp/br/docker/backup_data/$TAG/prepare_finish
-done
+if [[ ! ${1} == "prepare" ]]; then
+    for TAG in ${TAGS}; do
+        rm /tmp/br/docker/backup_data/$TAG/prepare_finish
+    done
+fi
