@@ -26,19 +26,16 @@ EXPECTED_KVS=1000
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
+#NOTE: TEST_DIR_PREPARE is equals to variable in compatibility/prepare_backup.sh
+TEST_DIR_PREPARE=/tmp/backup_restore_compatibility_test_prepare
 TEST_DIR=/tmp/backup_restore_compatibility_test
-TEST_DIR_NO_TMP=backup_restore_compatibility_test
-#FIXME: When dir changed in
-#       https://github.com/pingcap/br/blob/master/compatibility/backup_cluster.yaml#L13
-#       please also change $DOCKER_DIR
-DOCKER_DIR=/tmp/br/docker/backup_logs #${TAG}
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
 
 for script in tests/docker_compatible_*/${1}.sh; do
     echo "*===== Running test $script... =====*"
+    TEST_DIR_PREPARE="$TEST_DIR_PREPARE" \
     TEST_DIR="$TEST_DIR" \
-    DOCKER_DIR="$DOCKER_DIR" \
     PD_ADDR="$PD_ADDR" \
     GCS_HOST="$GCS_HOST" \
     GCS_PORT="$GCS_PORT" \
@@ -52,12 +49,8 @@ done
 
 # When $1 is prepare, only backup $TAG
 # When $2 is run, restore all $TAGS
-if [[ ${1} == "prepare" ]]; 
-then
-    echo "finish preparing for $TAG"
-    touch $TEST_DIR/${TAG}_prepare_finish
-else
+if [[ ! ${1} == "prepare" ]]; then
     for TAG_ in ${TAGS}; do
-        rm $DOCKER_DIR/${TAG_}/$TEST_DIR_NO_TMP/${TAG_}_prepare_finish
+        rm $TEST_DIR_PREPARE/${TAG_}_prepare_finish
     done
 fi
