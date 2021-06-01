@@ -34,11 +34,6 @@ getLatestTags() {
     # If we are in release-4.0 branch, try to use latest 3 version of 4.x
     TAGS=$(echo $TOTAL_TAGS | tr ' ' '\n' | fgrep "v4." | tail -n3)
   fi
-  i=0
-  for tag in $TAGS; do
-    i=$(( i + 1 ))
-    TAG=$tag PORT_SUFFIX=$i docker-compose -p $tag -f compatibility/backup_cluster.yaml config -q
-  done
 }
 
 getLatestTags
