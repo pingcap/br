@@ -19,15 +19,14 @@
 
 set -eu
 
-source ${BASH_SOURCE[0]%/*}/../compatibility/prepare_backup.sh
+source ${BASH_SOURCE[0]%/*}/../compatibility/get_last_tags.sh
+getLatestTags
 echo "start test on $TAGS"
 
 EXPECTED_KVS=1000
 PD_ADDR="pd0:2379"
 GCS_HOST="gcs"
 GCS_PORT="20818"
-#NOTE: TEST_DIR_PREPARE is equals to variable in compatibility/prepare_backup.sh
-TEST_DIR_PREPARE=/tmp/backup_restore_compatibility_test_prepare
 TEST_DIR=/tmp/backup_restore_compatibility_test
 mkdir -p "$TEST_DIR"
 rm -f "$TEST_DIR"/*.log &> /dev/null
@@ -46,11 +45,3 @@ for script in tests/docker_compatible_*/${1}.sh; do
     BR_LOG_TO_TERM=1 \
     bash "$script"
 done
-
-# When $1 is prepare, only backup $TAG
-# When $2 is run, restore all $TAGS
-if [[ ! ${1} == "prepare" ]]; then
-    for TAG_ in ${TAGS}; do
-        rm $TEST_DIR_PREPARE/${TAG_}_prepare_finish
-    done
-fi
