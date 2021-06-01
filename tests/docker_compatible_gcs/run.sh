@@ -37,6 +37,10 @@ export GOOGLE_APPLICATION_CREDENTIALS="tests/$TEST_NAME/config.json"
 
 # restore backup data one by one
 for TAG in ${TAGS}; do
+    if [[ -f /tmp/br/docker/backup_data/$TAG/prepare_finish ]]; then
+        echo "skip restore for $TAG because prepare is not finished"
+        continue
+    fi
     echo "restore ${TAG} data starts..."
     bin/br restore db --db test -s "gcs://$BUCKET/bk${TAG}" --pd $PD_ADDR --gcs.endpoint="http://$GCS_HOST:$GCS_PORT/storage/v1/" --check-requirements=false
     row_count=$(run_sql_in_container  "SELECT COUNT(*) FROM test.usertable;" | awk '/COUNT/{print $2}')
