@@ -37,7 +37,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/pingcap/br/pkg/lightning/backend"
+	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -56,7 +56,7 @@ type Lightning struct {
 	globalCfg *config.GlobalConfig
 	globalTLS *common.TLS
 	// taskCfgs is the list of task configurations enqueued in the server mode
-	taskCfgs   *config.ConfigList
+	taskCfgs   *config.List
 	ctx        context.Context
 	shutdown   context.CancelFunc // for whole lightning context
 	server     http.Server
@@ -255,7 +255,9 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 			return
 		}
 		taskCfg.TiDB.Security.CAPath = ""
-		taskCfg.TiDB.Security.RegisterMySQL()
+		if err := taskCfg.TiDB.Security.RegisterMySQL(); err != nil {
+			log.L().Warn("failed to deregister TLS config", log.ShortError(err))
+		}
 	}()
 
 	// initiation of default glue should be after RegisterMySQL, which is ready to be called after taskCfg.Adjust
@@ -303,7 +305,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 	dbMetas := mdl.GetDatabases()
 	web.BroadcastInitProgress(dbMetas)
 
-	var procedure *restore.RestoreController
+	var procedure *restore.Controller
 	procedure, err = restore.NewRestoreController(ctx, dbMetas, taskCfg, s, g)
 	if err != nil {
 		log.L().Error("restore failed", log.ShortError(err))
@@ -337,7 +339,7 @@ func writeJSONError(w http.ResponseWriter, code int, prefix string, err error) {
 	if err != nil {
 		prefix += ": " + err.Error()
 	}
-	json.NewEncoder(w).Encode(errorResponse{Error: prefix})
+	_ = json.NewEncoder(w).Encode(errorResponse{Error: prefix})
 }
 
 func parseTaskID(req *http.Request) (int64, string, error) {
@@ -363,6 +365,11 @@ func (l *Lightning) handleTask(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {
 	case http.MethodGet:
 		taskID, _, err := parseTaskID(req)
+		// golint tells us to refactor this with switch stmt.
+		// However switch stmt doesn't support init-statements,
+		// hence if we follow it things might be worse.
+		// Anyway, this chain of if-else isn't unacceptable.
+		//nolint:gocritic
 		if e, ok := err.(*strconv.NumError); ok && e.Num == "" {
 			l.handleGetTask(w)
 		} else if err == nil {
@@ -402,7 +409,7 @@ func (l *Lightning) handleGetTask(w http.ResponseWriter) {
 	l.cancelLock.Unlock()
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (l *Lightning) handleGetOneTask(w http.ResponseWriter, req *http.Request, taskID int64) {
@@ -469,7 +476,7 @@ func (l *Lightning) handlePostTask(w http.ResponseWriter, req *http.Request) {
 
 	l.taskCfgs.Push(cfg)
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(taskResponse{ID: cfg.TaskID})
+	_ = json.NewEncoder(w).Encode(taskResponse{ID: cfg.TaskID})
 }
 
 func (l *Lightning) handleDeleteOneTask(w http.ResponseWriter, req *http.Request) {
@@ -502,7 +509,7 @@ func (l *Lightning) handleDeleteOneTask(w http.ResponseWriter, req *http.Request
 
 	if cancelSuccess {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 	} else {
 		writeJSONError(w, http.StatusNotFound, "task ID not found", nil)
 	}
@@ -533,7 +540,7 @@ func (l *Lightning) handlePatchOneTask(w http.ResponseWriter, req *http.Request)
 
 	if moveSuccess {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 	} else {
 		writeJSONError(w, http.StatusNotFound, "task ID not found", nil)
 	}
@@ -541,15 +548,15 @@ func (l *Lightning) handlePatchOneTask(w http.ResponseWriter, req *http.Request)
 
 func writeBytesCompressed(w http.ResponseWriter, req *http.Request, b []byte) {
 	if !strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") {
-		w.Write(b)
+		_, _ = w.Write(b)
 		return
 	}
 
 	w.Header().Set("Content-Encoding", "gzip")
 	w.WriteHeader(http.StatusOK)
 	gw, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
-	gw.Write(b)
-	gw.Close()
+	_, _ = gw.Write(b)
+	_ = gw.Close()
 }
 
 func handleProgressTask(w http.ResponseWriter, req *http.Request) {
@@ -559,7 +566,7 @@ func handleProgressTask(w http.ResponseWriter, req *http.Request) {
 		writeBytesCompressed(w, req, res)
 	} else {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(err.Error())
+		_ = json.NewEncoder(w).Encode(err.Error())
 	}
 }
 
@@ -575,7 +582,7 @@ func handleProgressTable(w http.ResponseWriter, req *http.Request) {
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
-		json.NewEncoder(w).Encode(err.Error())
+		_ = json.NewEncoder(w).Encode(err.Error())
 	}
 }
 
@@ -591,7 +598,7 @@ func handlePause(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		restore.DeliverPauser.Pause()
 		log.L().Info("progress paused")
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 
 	default:
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
@@ -607,7 +614,7 @@ func handleResume(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		restore.DeliverPauser.Resume()
 		log.L().Info("progress resumed")
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 
 	default:
 		w.Header().Set("Allow", http.MethodPut)
@@ -626,7 +633,7 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 	case http.MethodGet:
 		logLevel.Level = log.Level()
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(logLevel)
+		_ = json.NewEncoder(w).Encode(logLevel)
 
 	case http.MethodPut, http.MethodPost:
 		if err := json.NewDecoder(req.Body).Decode(&logLevel); err != nil {
@@ -637,7 +644,7 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 		log.L().Info("changed log level", zap.Stringer("old", oldLevel), zap.Stringer("new", logLevel.Level))
 		log.SetLevel(logLevel.Level)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 
 	default:
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut+", "+http.MethodPost)
@@ -646,11 +653,6 @@ func handleLogLevel(w http.ResponseWriter, req *http.Request) {
 }
 
 func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
-	if !cfg.App.CheckRequirements {
-		log.L().Info("check-requirement is disabled, skip check system rlimit")
-		return nil
-	}
-
 	// in local mode, we need to read&write a lot of L0 sst files, so we need to check system max open files limit
 	if cfg.TikvImporter.Backend == config.BackendLocal {
 		// estimate max open files = {top N(TableConcurrency) table sizes} / {MemoryTableSize}
@@ -671,7 +673,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 		// region-concurrency: number of LocalWriters writing SST files.
 		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
 		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
-		if err := backend.VerifyRLimit(estimateMaxFiles); err != nil {
+		if err := local.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}
 	}
@@ -679,7 +681,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 	return nil
 }
 
-/// checkSchemaConflict return error if checkpoint table scheme is conflict with data files
+// checkSchemaConflict return error if checkpoint table scheme is conflict with data files
 func checkSchemaConflict(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta) error {
 	if cfg.Checkpoint.Enable && cfg.Checkpoint.Driver == config.CheckpointDriverMySQL {
 		for _, db := range dbsMeta {

@@ -88,9 +88,8 @@ func (cpm *checkpointsMap) marshal(key string) ([]byte, error) {
 type taskStatus uint8
 
 const (
-	taskStatusNotStarted taskStatus = 0
-	taskStatusRunning               = 1
-	taskStatusCompleted             = 2
+	taskStatusRunning   taskStatus = 1
+	taskStatusCompleted taskStatus = 2
 )
 
 type tableInfo struct {

@@ -3,9 +3,11 @@
 package summary
 
 import (
-	"fmt"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/docker/go-units"
 
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -21,6 +23,10 @@ const (
 	TotalKV = "total kv"
 	// TotalBytes is a field we collect during backup/restore
 	TotalBytes = "total bytes"
+	// BackupDataSize is a field we collect after backup finish
+	BackupDataSize = "backup data size(after compressed)"
+	// RestoreDataSize is a field we collection after restore finish
+	RestoreDataSize = "restore data size(after decompressed)"
 )
 
 // LogCollector collects infos into summary log.
@@ -150,6 +156,10 @@ func (tc *logCollector) SetSuccessStatus(success bool) {
 	tc.successStatus = success
 }
 
+func logKeyFor(key string) string {
+	return strings.ReplaceAll(key, " ", "-")
+}
+
 func (tc *logCollector) Summary(name string) {
 	tc.mu.Lock()
 	defer func() {
@@ -160,56 +170,66 @@ func (tc *logCollector) Summary(name string) {
 		tc.mu.Unlock()
 	}()
 
-	var msg string
-	switch tc.unit {
-	case BackupUnit:
-		msg = fmt.Sprintf("total backup ranges: %d, total success: %d, total failed: %d",
-			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-	case RestoreUnit:
-		msg = fmt.Sprintf("total restore files: %d, total success: %d, total failed: %d",
-			tc.failureUnitCount+tc.successUnitCount, tc.successUnitCount, tc.failureUnitCount)
-	}
+	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints)+3)
 
-	logFields := make([]zap.Field, 0, len(tc.durations)+len(tc.ints))
+	logFields = append(logFields,
+		zap.Int("total-ranges", tc.failureUnitCount+tc.successUnitCount),
+		zap.Int("ranges-succeed", tc.successUnitCount),
+		zap.Int("ranges-failed", tc.failureUnitCount),
+	)
+
 	for key, val := range tc.durations {
-		logFields = append(logFields, zap.Duration(key, val))
+		logFields = append(logFields, zap.Duration(logKeyFor(key), val))
 	}
 	for key, val := range tc.ints {
-		logFields = append(logFields, zap.Int(key, val))
+		logFields = append(logFields, zap.Int(logKeyFor(key), val))
 	}
 	for key, val := range tc.uints {
-		logFields = append(logFields, zap.Uint64(key, val))
+		logFields = append(logFields, zap.Uint64(logKeyFor(key), val))
 	}
 
 	if len(tc.failureReasons) != 0 || !tc.successStatus {
 		for unitName, reason := range tc.failureReasons {
-			logFields = append(logFields, zap.String("unitName", unitName), zap.Error(reason))
+			logFields = append(logFields, zap.String("unit-name", unitName), zap.Error(reason))
 		}
-		log.Info(name+" Failed summary : "+msg, logFields...)
+		log.Info(name+" failed summary", logFields...)
 		return
 	}
 	totalCost := time.Duration(0)
 	for _, cost := range tc.successCosts {
 		totalCost += cost
 	}
-	msg += fmt.Sprintf(", total take(%s time): %s", name, totalCost)
-	msg += fmt.Sprintf(", total take(real time): %s", time.Since(tc.startTime))
+
+	logFields = append(logFields, zap.Duration("total-take", time.Since(tc.startTime)))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
-			fData := float64(data) / 1024 / 1024
-			if fData > 1 {
-				msg += fmt.Sprintf(", total size(MB): %.2f", fData)
-				msg += fmt.Sprintf(", avg speed(MB/s): %.2f", fData/totalCost.Seconds())
+			logFields = append(logFields,
+				zap.String("total-kv-size", units.HumanSize(float64(data))),
+				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
+			continue
+		}
+		if name == BackupDataSize {
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to bakcup"))
 			} else {
-				msg += fmt.Sprintf(", total size(Byte): %d", data)
-				msg += fmt.Sprintf(", avg speed(Byte/s): %.2f", float64(data)/totalCost.Seconds())
+				logFields = append(logFields,
+					zap.String(BackupDataSize, units.HumanSize(float64(data))))
 			}
 			continue
 		}
-		msg += fmt.Sprintf(", %s: %d", name, data)
+		if name == RestoreDataSize {
+			if tc.failureUnitCount+tc.successUnitCount == 0 {
+				logFields = append(logFields, zap.String("Result", "Nothing to restore"))
+			} else {
+				logFields = append(logFields,
+					zap.String(RestoreDataSize, units.HumanSize(float64(data))))
+			}
+			continue
+		}
+		logFields = append(logFields, zap.Uint64(logKeyFor(name), data))
 	}
 
-	tc.log(name+" Success summary: "+msg, logFields...)
+	tc.log(name+" success summary", logFields...)
 }
 
 // SetLogCollector allow pass LogCollector outside.

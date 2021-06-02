@@ -54,7 +54,7 @@ func (Glue) StartProgress(ctx context.Context, cmdName string, total int64, redi
 
 // Record implements glue.Glue.
 func (Glue) Record(name string, val uint64) {
-	summary.CollectUint(name, val)
+	summary.CollectSuccessUnit(name, 1, val)
 }
 
 // GetVersion implements glue.Glue.

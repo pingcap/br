@@ -4,6 +4,7 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/pingcap/errors"
@@ -14,6 +15,8 @@ import (
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -21,15 +24,28 @@ import (
 // pushDown wraps a backup task.
 type pushDown struct {
 	mgr    ClientMgr
-	respCh chan *backuppb.BackupResponse
+	respCh chan responseAndStore
 	errCh  chan error
+}
+
+type responseAndStore struct {
+	Resp  *backuppb.BackupResponse
+	Store *metapb.Store
+}
+
+func (r responseAndStore) GetResponse() *backuppb.BackupResponse {
+	return r.Resp
+}
+
+func (r responseAndStore) GetStore() *metapb.Store {
+	return r.Store
 }
 
 // newPushDown creates a push down backup.
 func newPushDown(mgr ClientMgr, cap int) *pushDown {
 	return &pushDown{
 		mgr:    mgr,
-		respCh: make(chan *backuppb.BackupResponse, cap),
+		respCh: make(chan responseAndStore, cap),
 		errCh:  make(chan error, cap),
 	}
 }
@@ -43,8 +59,14 @@ func (push *pushDown) pushBackup(
 ) (rtree.RangeTree, error) {
 	// Push down backup tasks to all tikv instances.
 	res := rtree.NewRangeTree()
+	failpoint.Inject("noop-backup", func(_ failpoint.Value) {
+		log.Warn("skipping normal backup, jump to fine-grained backup, meow :3", logutil.Key("start-key", req.StartKey), logutil.Key("end-key", req.EndKey))
+		failpoint.Return(res, nil)
+	})
+
 	wg := new(sync.WaitGroup)
 	for _, s := range stores {
+		store := s
 		storeID := s.GetId()
 		if s.GetState() != metapb.StoreState_Up {
 			log.Warn("skip store", zap.Uint64("StoreID", storeID), zap.Stringer("State", s.GetState()))
@@ -52,8 +74,10 @@ func (push *pushDown) pushBackup(
 		}
 		client, err := push.mgr.GetBackupClient(ctx, storeID)
 		if err != nil {
-			log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
-			return res, errors.Trace(err)
+			// BR should be able to backup even some of stores disconnected.
+			// The regions managed by this store can be retried at fine-grained backup then.
+			log.Warn("fail to connect store, skipping", zap.Uint64("StoreID", storeID), zap.Error(err))
+			return res, nil
 		}
 		wg.Add(1)
 		go func() {
@@ -62,13 +86,17 @@ func (push *pushDown) pushBackup(
 				ctx, storeID, client, req,
 				func(resp *backuppb.BackupResponse) error {
 					// Forward all responses (including error).
-					push.respCh <- resp
+					push.respCh <- responseAndStore{
+						Resp:  resp,
+						Store: store,
+					}
 					return nil
 				},
 				func() (backuppb.BackupClient, error) {
 					log.Warn("reset the connection in push", zap.Uint64("storeID", storeID))
 					return push.mgr.ResetBackupClient(ctx, storeID)
 				})
+			// Disconnected stores can be ignored.
 			if err != nil {
 				push.errCh <- err
 				return
@@ -84,7 +112,9 @@ func (push *pushDown) pushBackup(
 
 	for {
 		select {
-		case resp, ok := <-push.respCh:
+		case respAndStore, ok := <-push.respCh:
+			resp := respAndStore.GetResponse()
+			store := respAndStore.GetStore()
 			if !ok {
 				// Finished.
 				return res, nil
@@ -92,6 +122,13 @@ func (push *pushDown) pushBackup(
 			failpoint.Inject("backup-storage-error", func(val failpoint.Value) {
 				msg := val.(string)
 				log.Debug("failpoint backup-storage-error injected.", zap.String("msg", msg))
+				resp.Error = &backuppb.Error{
+					Msg: msg,
+				}
+			})
+			failpoint.Inject("tikv-rw-error", func(val failpoint.Value) {
+				msg := val.(string)
+				log.Debug("failpoint tikv-rw-error injected.", zap.String("msg", msg))
 				resp.Error = &backuppb.Error{
 					Msg: msg,
 				}
@@ -120,12 +157,26 @@ func (push *pushDown) pushBackup(
 						log.Warn("backup occur storage error", zap.String("error", errPb.GetMsg()))
 						continue
 					}
-					log.Error("backup occur unknown error", zap.String("error", errPb.GetMsg()))
-					return res, errors.Annotatef(berrors.ErrKVUnknown, "%v", errPb)
+					if utils.MessageIsNotFoundStorageError(errPb.GetMsg()) {
+						errMsg := fmt.Sprintf("File or directory not found error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
+							zap.String("work around", "please ensure br and tikv node share a same disk and the user of br and tikv has same uid."))
+					}
+
+					if utils.MessageIsPermissionDeniedStorageError(errPb.GetMsg()) {
+						errMsg := fmt.Sprintf("I/O permission denied error occurs on TiKV Node(store id: %v; Address: %s)", store.GetId(), redact.String(store.GetAddress()))
+						log.Error("", zap.String("error", berrors.ErrKVStorage.Error()+": "+errMsg),
+							zap.String("work around", "please ensure tikv has permission to read from & write to the storage."))
+					}
+					return res, berrors.ErrKVStorage
 				}
 			}
 		case err := <-push.errCh:
-			return res, errors.Trace(err)
+			if !berrors.Is(err, berrors.ErrFailedToConnect) {
+				return res, errors.Annotatef(err, "failed to backup range [%s, %s)", redact.Key(req.StartKey), redact.Key(req.EndKey))
+			}
+			log.Warn("skipping disconnected stores", logutil.ShortError(err))
+			return res, nil
 		}
 	}
 }
