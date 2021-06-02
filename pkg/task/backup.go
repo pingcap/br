@@ -360,11 +360,11 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		}
 
 		metawriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
-		err = backup.GetBackupDDLJobs(metawriter, mgr.GetStorage(), cfg.LastBackupTS, backupTS)
+		err = backup.WriteBackupDDLJobs(metawriter, mgr.GetStorage(), cfg.LastBackupTS, backupTS)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if err = metawriter.FlushAndClose(ctx, metautil.AppendDDL); err != nil {
+		if err = metawriter.FinishWriteMetas(ctx, metautil.AppendDDL); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -425,7 +425,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	// Backup has finished
 	updateCh.Close()
 
-	err = metawriter.FlushAndClose(ctx, metautil.AppendDataFile)
+	err = metawriter.FinishWriteMetas(ctx, metautil.AppendDataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -453,6 +453,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
+
 	err = schemas.BackupSchemas(
 		ctx, metawriter, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
 	if err != nil {

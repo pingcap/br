@@ -159,7 +159,7 @@ func (ss *Schemas) BackupSchemas(
 	}
 	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
 	summary.CollectDuration("backup checksum", time.Since(startAll))
-	return metaWriter.FlushAndClose(ctx, op)
+	return metaWriter.FinishWriteMetas(ctx, op)
 }
 
 // Len returns the number of schemas.

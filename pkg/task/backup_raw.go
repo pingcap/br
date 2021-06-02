@@ -233,7 +233,7 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		m.ClusterVersion = clusterVersion
 		m.BrVersion = brVersion
 	})
-	err = metaWriter.FlushAndClose(ctx, metautil.AppendDataFile)
+	err = metaWriter.FinishWriteMetas(ctx, metautil.AppendDataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

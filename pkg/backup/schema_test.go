@@ -7,6 +7,13 @@ import (
 	"math"
 	"sync/atomic"
 
+	"github.com/docker/go-units"
+	"github.com/golang/protobuf/proto"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
+
+	"github.com/pingcap/br/pkg/metautil"
+	"github.com/pingcap/br/pkg/storage"
+
 	. "github.com/pingcap/check"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -33,6 +40,44 @@ func (s *testBackupSchemaSuite) SetUpSuite(c *C) {
 func (s *testBackupSchemaSuite) TearDownSuite(c *C) {
 	s.mock.Stop()
 	testleak.AfterTest(c)()
+}
+
+func (s *testBackupSchemaSuite) GetRandomStorage(c *C) storage.ExternalStorage {
+	base := c.MkDir()
+	es, err := storage.NewLocalStorage(base)
+	c.Assert(err, IsNil)
+	return es
+}
+
+func (s *testBackupSchemaSuite) GetSchemasFromMeta(c *C, es storage.ExternalStorage) []*metautil.Table {
+	ctx := context.Background()
+	metaBytes, err := es.ReadFile(ctx, metautil.MetaFile)
+	c.Assert(err, IsNil)
+	mockMeta := &backuppb.BackupMeta{}
+	err = proto.Unmarshal(metaBytes, mockMeta)
+	c.Assert(err, IsNil)
+	metaReader := metautil.NewMetaReader(mockMeta, es)
+
+	output := make(chan *metautil.Table, 4)
+	go func() {
+		err = metaReader.ReadSchemasFiles(ctx, output)
+		c.Assert(err, IsNil)
+		close(output)
+	}()
+
+	schemas := make([]*metautil.Table, 0, 4)
+
+ForLoop:
+	for {
+		select {
+		case s, ok := <-output:
+			if !ok {
+				break ForLoop
+			}
+			schemas = append(schemas, s)
+		}
+	}
+	return schemas
 }
 
 type simpleProgress struct {
@@ -92,10 +137,15 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(backupSchemas.Len(), Equals, 1)
 	updateCh := new(simpleProgress)
 	skipChecksum := false
-	schemas, err := backupSchemas.BackupSchemas(
-		context.Background(), s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
+	es := s.GetRandomStorage(c)
+	metaWriter := metautil.NewMetaWriter(es, 64*units.MiB, false)
+	ctx := context.Background()
+	err = backupSchemas.BackupSchemas(
+		ctx, metaWriter, s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(updateCh.get(), Equals, int64(1))
 	c.Assert(err, IsNil)
+
+	schemas := s.GetSchemasFromMeta(c, es)
 	c.Assert(len(schemas), Equals, 1)
 	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
@@ -112,10 +162,16 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(backupSchemas.Len(), Equals, 2)
 	updateCh.reset()
-	schemas, err = backupSchemas.BackupSchemas(
-		context.Background(), s.mock.Storage, nil, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
+
+	es2 := s.GetRandomStorage(c)
+	metaWriter2 := metautil.NewMetaWriter(es2, 64*units.MiB, false)
+	err = backupSchemas.BackupSchemas(
+		ctx, metaWriter2, s.mock.Storage, nil, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(updateCh.get(), Equals, int64(2))
 	c.Assert(err, IsNil)
+
+	schemas = s.GetSchemasFromMeta(c, es2)
+
 	c.Assert(len(schemas), Equals, 2)
 	// Cluster returns a dummy checksum (all fields are 1).
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0, Commentf("%v", schemas[0]))
@@ -151,17 +207,23 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 
 	skipChecksum := false
 	updateCh := new(simpleProgress)
-	schemas, err := backupSchemas.BackupSchemas(
-		context.Background(), s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 
-	// the stats should be empty, but other than that everything should be backed up.
+	es := s.GetRandomStorage(c)
+	metaWriter := metautil.NewMetaWriter(es, 64*units.MiB, false)
+	ctx := context.Background()
+	err = backupSchemas.BackupSchemas(
+		ctx, metaWriter, s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
+
+	schemas := s.GetSchemasFromMeta(c, es)
 	c.Assert(err, IsNil)
-	c.Assert(schemas[0].Stats, HasLen, 0)
+	c.Assert(schemas, HasLen, 1)
+	// the stats should be empty, but other than that everything should be backed up.
+	c.Assert(schemas[0].Stats, IsNil)
 	c.Assert(schemas[0].Crc64Xor, Not(Equals), 0)
 	c.Assert(schemas[0].TotalKvs, Not(Equals), 0)
 	c.Assert(schemas[0].TotalBytes, Not(Equals), 0)
-	c.Assert(schemas[0].Table, Not(HasLen), 0)
-	c.Assert(schemas[0].Db, Not(HasLen), 0)
+	c.Assert(schemas[0].Info, NotNil)
+	c.Assert(schemas[0].DB, NotNil)
 
 	// recover the statistics.
 	tk.MustExec("analyze table t3;")
@@ -172,15 +234,19 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 
 	updateCh.reset()
 	statsHandle := s.mock.Domain.StatsHandle()
-	schemas2, err := backupSchemas.BackupSchemas(
-		context.Background(), s.mock.Storage, statsHandle, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
-
-	// the stats should now be filled, and other than that the result should be equivalent to the first backup.
+	es2 := s.GetRandomStorage(c)
+	metaWriter2 := metautil.NewMetaWriter(es2, 64*units.MiB, false)
+	err = backupSchemas.BackupSchemas(
+		ctx, metaWriter2, s.mock.Storage, statsHandle, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(err, IsNil)
-	c.Assert(schemas2[0].Stats, Not(HasLen), 0)
+
+	schemas2 := s.GetSchemasFromMeta(c, es2)
+	c.Assert(schemas2, HasLen, 1)
+	// the stats should now be filled, and other than that the result should be equivalent to the first backup.
+	c.Assert(schemas2[0].Stats, NotNil)
 	c.Assert(schemas2[0].Crc64Xor, Equals, schemas[0].Crc64Xor)
 	c.Assert(schemas2[0].TotalKvs, Equals, schemas[0].TotalKvs)
 	c.Assert(schemas2[0].TotalBytes, Equals, schemas[0].TotalBytes)
-	c.Assert(schemas2[0].Table, DeepEquals, schemas[0].Table)
-	c.Assert(schemas2[0].Db, DeepEquals, schemas[0].Db)
+	c.Assert(schemas2[0].Info, DeepEquals, schemas[0].Info)
+	c.Assert(schemas2[0].DB, DeepEquals, schemas[0].DB)
 }

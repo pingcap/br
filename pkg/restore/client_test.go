@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
@@ -21,7 +23,6 @@ import (
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreClientSuite{})

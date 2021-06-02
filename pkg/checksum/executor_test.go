@@ -7,6 +7,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -17,7 +19,6 @@ import (
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/mock"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 func TestT(t *testing.T) {

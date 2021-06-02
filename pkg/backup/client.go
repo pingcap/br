@@ -351,8 +351,8 @@ func BuildBackupRangeAndSchema(
 	return ranges, backupSchemas, nil
 }
 
-// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
-func GetBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBackupTS, backupTS uint64) error {
+// WriteBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
+func WriteBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBackupTS, backupTS uint64) error {
 	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
 	snapMeta := meta.NewSnapshotMeta(snapshot)
 	lastSnapshot := store.GetSnapshot(kv.NewVersion(lastBackupTS))

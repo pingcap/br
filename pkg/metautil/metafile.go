@@ -99,19 +99,16 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 	}
 }
 
-func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) (bool, error) {
+func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) error {
 	// Read backupmeta v1 metafiles.
-	if len(reader.backupMeta.Ddls) != 0 {
-		output(reader.backupMeta.Ddls)
-		return true, nil
-	}
+	output(reader.backupMeta.Ddls)
 	// Read backupmeta v2 metafiles.
 	outputFn := func(m *backuppb.MetaFile) {
 		for _, s := range m.Ddls {
 			output(s)
 		}
 	}
-	return false, walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.DdlIndexes, outputFn)
+	return walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.DdlIndexes, outputFn)
 }
 
 func (reader *MetaReader) readSchemas(ctx context.Context, output func(*backuppb.Schema)) error {
@@ -145,15 +142,13 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 // ReadDDLs reads the ddls from the backupmeta.
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
-	var (
-		err      error
-		isV1Meta bool
-	)
+	var err error
+	isV1Meta := len(reader.backupMeta.Ddls) != 0
 
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
 	go func() {
-		if isV1Meta, err = reader.readDDLs(ctx, func(s []byte) { ch <- s }); err != nil {
+		if err = reader.readDDLs(ctx, func(s []byte) { ch <- s }); err != nil {
 			errCh <- errors.Trace(err)
 		}
 		close(errCh)
@@ -169,6 +164,7 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 			if isV1Meta {
 				ddlBytes = item.([]byte)
 			} else {
+				// we collect all ddls from files.
 				ddlBytesArray = append(ddlBytesArray, item.([]byte))
 			}
 			return nil
@@ -374,7 +370,7 @@ func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
 	}
 }
 
-func (f *sizedMetaFile) append(ctx context.Context, file interface{}, op AppendOp) bool {
+func (f *sizedMetaFile) append(file interface{}, op AppendOp) bool {
 	// append to root
 	// 	TODO maybe use multi level index
 	size := op.appendFile(f.root, file)
@@ -453,7 +449,7 @@ func (writer *MetaWriter) close() {
 // 4. rawRange( raw kv )
 // when useBackupMetaV2 enabled, it will generate multi-level index backupmetav2.
 // else it will generate backupmeta as before for compatibility.
-// User should call FlushAndClose after StartWriterMetasAsync.
+// User should call FinishWriteMetas after StartWriterMetasAsync.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
 	writer.resetCh()
 	go func() {
@@ -469,7 +465,7 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 					log.Info("write metas finished", zap.Any("op", op))
 					return
 				}
-				needFlush := writer.metafiles.append(ctx, meta, op)
+				needFlush := writer.metafiles.append(meta, op)
 				if writer.useV2Meta && needFlush {
 					err := writer.flushMetasV2(ctx, op)
 					if err != nil {
@@ -481,8 +477,8 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 	}()
 }
 
-// FlushAndClose close the channel in StartWriteMetasAsync and flush the buffered data.
-func (writer *MetaWriter) FlushAndClose(ctx context.Context, op AppendOp) error {
+// FinishWriteMetas close the channel in StartWriteMetasAsync and flush the buffered data.
+func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) error {
 	writer.close()
 	// always start one goroutine to write one kind of meta.
 	writer.wg.Wait()
@@ -609,6 +605,7 @@ func (writer *MetaWriter) Backupmeta() *backuppb.BackupMeta {
 
 func mergeDDLs(ddls [][]byte) []byte {
 	b := bytes.Join(ddls, []byte(`,`))
+	b = append(b, 0)
 	copy(b[1:], b[0:])
 	b[0] = byte('[')
 	b = append(b, ']')
