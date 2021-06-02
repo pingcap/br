@@ -334,6 +334,8 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	// nothing to backup
 	if ranges == nil {
+		// Hack way to update backupmeta.
+		metawriter.StartWriteMetasAsync(ctx, metautil.AppendSchema)
 		metawriter.Update(func(m *backuppb.BackupMeta) {
 			m.StartVersion = req.StartVersion
 			m.EndVersion = req.EndVersion
@@ -345,7 +347,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 		pdAddress := strings.Join(cfg.PD, ",")
 		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
 			zap.String("PD address", pdAddress))
-		return nil
+		return metawriter.FinishWriteMetas(ctx, metautil.AppendSchema)
 	}
 
 	if isIncrementalBackup {

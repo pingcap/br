@@ -150,11 +150,11 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
+	defer close(errCh)
 	go func() {
 		if err = reader.readDDLs(ctx, func(s []byte) { ch <- s }); err != nil {
 			errCh <- errors.Trace(err)
 		}
-		close(errCh)
 		close(ch)
 	}()
 
@@ -190,12 +190,12 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *Table) error {
 	ch := make(chan interface{}, MaxBatchSize)
-	errCh := make(chan error)
+	errCh := make(chan error, 1)
+	defer close(errCh)
 	go func() {
 		if err := reader.readSchemas(ctx, func(s *backuppb.Schema) { ch <- s }); err != nil {
 			errCh <- errors.Trace(err)
 		}
-		close(errCh)
 		close(ch)
 	}()
 
@@ -281,7 +281,7 @@ func receiveBatch(
 				return nil
 			}
 			if err := collectItem(s); err != nil {
-				errors.Trace(err)
+				return errors.Trace(err)
 			}
 		}
 		// Return if the batch is large enough.
