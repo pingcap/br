@@ -38,7 +38,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.15
+        go-version: 1.16
       if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
 
     - name: Generate compatibility test backup data
