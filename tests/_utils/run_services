@@ -122,6 +122,8 @@ kv_outage() {
             fi
             start_tikv "$i"
         done
+        # let tikv start up completely if backup is finished before tikv restarts
+        ensure_tikv
     }
 }
 

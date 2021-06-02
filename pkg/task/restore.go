@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/br/pkg/version"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -148,6 +150,37 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 	}
 }
 
+// CheckRestoreDBAndTable is used to check whether the restore dbs or tables have been backup
+func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
+	if len(cfg.Schemas) == 0 && len(cfg.Tables) == 0 {
+		return nil
+	}
+	schemas := client.GetDatabases()
+	schemasMap := make(map[string]struct{})
+	tablesMap := make(map[string]struct{})
+	for _, db := range schemas {
+		schemasMap[utils.EncloseName(db.Info.Name.O)] = struct{}{}
+		for _, table := range db.Tables {
+			tablesMap[utils.EncloseDBAndTable(db.Info.Name.O, table.Info.Name.O)] = struct{}{}
+		}
+	}
+	restoreSchemas := cfg.Schemas
+	restoreTables := cfg.Tables
+	for schema := range restoreSchemas {
+		if _, ok := schemasMap[schema]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[database: %v] has not been backup, please ensure you has input a correct database name", schema)
+		}
+	}
+	for table := range restoreTables {
+		if _, ok := tablesMap[table]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[table: %v] has not been backup, please ensure you has input a correct table name", table)
+		}
+	}
+	return nil
+}
+
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	cfg.adjustRestoreConfig()
@@ -208,16 +241,24 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record("Size", utils.ArchiveSize(backupMeta))
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
+	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
+	if cfg.CheckRequirements && backupVersion != nil {
+		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
+			return errors.Trace(versionErr)
+		}
+	}
 
-	if err = client.InitBackupMeta(backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}
 
 	if client.IsRawKvMode() {
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do transactional restore from raw kv data")
 	}
-
+	if err = CheckRestoreDBAndTable(client, cfg); err != nil {
+		return err
+	}
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
@@ -383,6 +424,10 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 
+	// The cost of rename user table / replace into system table wouldn't be so high.
+	// So leave it out of the pipeline for easier implementation.
+	client.RestoreSystemSchemas(ctx, cfg.TableFilter)
+
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
 	return nil
@@ -427,7 +472,6 @@ func filterRestoreFiles(
 			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
 				continue
 			}
-
 			if !createdDatabase {
 				dbs = append(dbs, db)
 				createdDatabase = true

@@ -94,6 +94,10 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
+func (row tidbRow) Size() uint64 {
+	return uint64(len(row))
+}
+
 func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
 	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
@@ -343,7 +347,7 @@ func (be *tidbBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (
 	return &tidbEncoder{mode: options.SQLMode, tbl: tbl, se: se}, nil
 }
 
-func (be *tidbBackend) OpenEngine(context.Context, uuid.UUID) error {
+func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -583,7 +587,11 @@ func (be *tidbBackend) ResetEngine(context.Context, uuid.UUID) error {
 	return errors.New("cannot reset an engine in TiDB backend")
 }
 
-func (be *tidbBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (be *tidbBackend) LocalWriter(
+	ctx context.Context,
+	cfg *backend.LocalWriterConfig,
+	engineUUID uuid.UUID,
+) (backend.EngineWriter, error) {
 	return &Writer{be: be, engineUUID: engineUUID}, nil
 }
 
@@ -592,7 +600,7 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
-func (w *Writer) Close() error {
+func (w *Writer) Close(ctx context.Context) error {
 	return nil
 }
 
