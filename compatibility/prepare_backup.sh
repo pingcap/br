@@ -15,7 +15,7 @@
 
 set -eux
 
-source get_last_tags.sh
+. compatibility/get_last_tags.sh
 
 TAGS="v5.0.0"
 getLatestTags
