@@ -15,7 +15,6 @@ import (
 	"github.com/pingcap/log"
 	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
 	"github.com/pingcap/tidb/util/logutil"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/pingcap/br/pkg/gluetidb"
@@ -154,8 +153,6 @@ func Init(cmd *cobra.Command) (err error) {
 		if len(slowLogFilename) != 0 {
 			tidbLogCfg.SlowQueryFile = slowLogFilename
 		} else {
-			// Hack! Discard slow log by setting log level to PanicLevel
-			logutil.SlowQueryLogger.SetLevel(logrus.PanicLevel)
 			// Disable annoying TiDB Log.
 			// TODO: some error logs outputs randomly, we need to fix them in TiDB.
 			tidbLogCfg.Level = "fatal"
