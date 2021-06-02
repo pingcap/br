@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 type testBackup struct {
@@ -241,4 +242,32 @@ func (r *testBackup) TestBuildBackupMeta(c *C) {
 	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
 	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
 	c.Assert(backupMeta.BrVersion, Equals, brVersion)
+}
+
+func (r *testBackup) TestSendCreds(c *C) {
+	mvccStore := mocktikv.MustNewMVCCStore()
+	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
+	r.ctx, r.cancel = context.WithCancel(context.Background())
+	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
+	mockMgr.SetPDClient(r.mockPDClient)
+	mockMgr.SetHTTP([]string{"test"}, nil)
+	var err error
+	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
+	c.Assert(err, IsNil)
+	opts := &storage.ExternalStorageOptions{
+		SendCredentials: true,
+	}
+	backend, err := storage.ParseBackend("s3://bucket/prefix/", nil)
+	c.Assert(err, IsNil)
+	err = r.backupClient.SetStorage(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	req := backuppb.BackupRequest{
+		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
+		StartVersion: 0,
+		EndVersion:   0,
+	}
+	access_key := req.StorageBackend.GetS3().AccessKey
+	c.Assert(access_key, NotNil)
+	secret_access_key := req.StorageBackend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, NotNil)
 }
