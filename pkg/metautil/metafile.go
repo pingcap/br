@@ -10,6 +10,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
+
+	"github.com/pingcap/br/pkg/summary"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/opentracing/opentracing-go"
@@ -320,40 +323,42 @@ func (op AppendOp) name() string {
 	return ""
 }
 
-// appends b to a
-func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) int {
+// appends item to MetaFile
+func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) (int, int) {
 	size := 0
+	itemCount := 0
 	switch op {
 	case AppendMetaFile:
 		a.MetaFiles = append(a.MetaFiles, b.(*backuppb.File))
 		size += b.(*backuppb.File).Size()
+		itemCount++
 	case AppendDataFile:
 		// receive a batch of file because we need write and default sst are adjacent.
 		files := b.([]*backuppb.File)
 		a.DataFiles = append(a.DataFiles, files...)
 		for _, f := range files {
+			itemCount++
 			size += f.Size()
 		}
 	case AppendSchema:
 		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
+		itemCount++
 		size += b.(*backuppb.Schema).Size()
 	case AppendDDL:
 		a.Ddls = append(a.Ddls, b.([]byte))
+		itemCount++
 		size += len(b.([]byte))
 	}
 
-	return size
+	return size, itemCount
 }
 
 type sizedMetaFile struct {
 	// A stack like array, we always append to the last node.
-	root *backuppb.MetaFile
-	// nodes     []*sizedMetaFile
-	size int
-
-	filePrefix string
-	fileSeqNum int
-	sizeLimit  int
+	root      *backuppb.MetaFile
+	size      int
+	itemNum   int
+	sizeLimit int
 
 	storage storage.ExternalStorage
 }
@@ -373,7 +378,8 @@ func NewSizedMetaFile(sizeLimit int) *sizedMetaFile {
 func (f *sizedMetaFile) append(file interface{}, op AppendOp) bool {
 	// append to root
 	// 	TODO maybe use multi level index
-	size := op.appendFile(f.root, file)
+	size, itemCount := op.appendFile(f.root, file)
+	f.itemNum += itemCount
 	f.size += size
 	if f.size > f.sizeLimit {
 		// f.size would reset outside
@@ -386,26 +392,32 @@ func (f *sizedMetaFile) append(file interface{}, op AppendOp) bool {
 type MetaWriter struct {
 	storage           storage.ExternalStorage
 	metafileSizeLimit int
-	useV2Meta         bool
-
-	mu             sync.Mutex
-	backupMeta     *backuppb.BackupMeta
+	// a flag to control whether we generate v1 or v2 meta.
+	useV2Meta  bool
+	backupMeta *backuppb.BackupMeta
+	// used to generate MetaFile name.
 	metafileSizes  map[string]int
 	metafileSeqNum map[string]int
 	metafiles      *sizedMetaFile
-
-	wg      sync.WaitGroup
+	// the start time of StartWriteMetas
+	// it's use to calculate the time costs.
+	start time.Time
+	wg    sync.WaitGroup
+	// internal item channel
 	metasCh chan interface{}
 	errCh   chan error
+
+	// records the total item of in one write meta job.
+	flushedItemNum int
 }
 
 // NewMetaWriter creates MetaWriter.
 func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2Meta bool) *MetaWriter {
 	return &MetaWriter{
+		start:             time.Now(),
 		storage:           storage,
 		metafileSizeLimit: metafileSizeLimit,
 		useV2Meta:         useV2Meta,
-		mu:                sync.Mutex{},
 		backupMeta:        &backuppb.BackupMeta{},
 		metafileSizes:     make(map[string]int),
 		metafiles:         NewSizedMetaFile(metafileSizeLimit),
@@ -413,16 +425,16 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2
 	}
 }
 
-func (writer *MetaWriter) resetCh() {
+func (writer *MetaWriter) reset() {
 	writer.metasCh = make(chan interface{}, MaxBatchSize)
 	writer.errCh = make(chan error)
+
+	// reset flushedItemNum for next meta.
+	writer.flushedItemNum = 0
 }
 
 // Update updates some property of backupmeta.
 func (writer *MetaWriter) Update(f func(m *backuppb.BackupMeta)) {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-
 	f(writer.backupMeta)
 }
 
@@ -451,7 +463,8 @@ func (writer *MetaWriter) close() {
 // else it will generate backupmeta as before for compatibility.
 // User should call FinishWriteMetas after StartWriterMetasAsync.
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
-	writer.resetCh()
+	writer.reset()
+	writer.start = time.Now()
 	go func() {
 		writer.wg.Add(1)
 		defer writer.wg.Done()
@@ -462,7 +475,7 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 				return
 			case meta, ok := <-writer.metasCh:
 				if !ok {
-					log.Info("write metas finished", zap.Any("op", op))
+					log.Info("write metas finished", zap.String("type", op.name()))
 					return
 				}
 				needFlush := writer.metafiles.append(meta, op)
@@ -502,6 +515,11 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	if err != nil {
 		return errors.Trace(err)
 	}
+	costs := time.Now().Sub(writer.start)
+	if op == AppendDataFile {
+		summary.CollectSuccessUnit("backup ranges", writer.flushedItemNum, costs)
+	}
+	log.Info("finish the write metas", zap.String("type", op.name()), zap.Duration("costs", costs))
 	return nil
 }
 
@@ -527,6 +545,7 @@ func (writer *MetaWriter) flushMetasV1(ctx context.Context, op AppendOp) error {
 	default:
 		log.Panic("unsupport op type", zap.Any("op", op))
 	}
+	writer.flushedItemNum += writer.metafiles.itemNum
 	return writer.flushBackupMeta(ctx)
 }
 
@@ -581,6 +600,7 @@ func (writer *MetaWriter) flushMetasV2(ctx context.Context, op AppendOp) error {
 	}
 
 	index.MetaFiles = append(index.MetaFiles, file)
+	writer.flushedItemNum += writer.metafiles.itemNum
 	writer.metafiles = NewSizedMetaFile(writer.metafiles.sizeLimit)
 	return nil
 }

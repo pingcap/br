@@ -351,7 +351,7 @@ func BuildBackupRangeAndSchema(
 	return ranges, backupSchemas, nil
 }
 
-// WriteBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
+// WriteBackupDDLJobs sends the ddl jobs are done in (lastBackupTS, backupTS] to metaWriter.
 func WriteBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBackupTS, backupTS uint64) error {
 	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
 	snapMeta := meta.NewSnapshotMeta(snapshot)
@@ -447,8 +447,6 @@ func (bc *Client) BackupRange(
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
-		} else {
-			summary.CollectSuccessUnit("backup ranges", 1, time.Now().Sub(start))
 		}
 	}()
 	log.Info("backup started",
