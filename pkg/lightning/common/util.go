@@ -274,6 +274,13 @@ func UniqueTable(schema string, table string) string {
 	return builder.String()
 }
 
+// EscapeIdentifier quote and escape an sql identifier
+func EscapeIdentifier(identifier string) string {
+	var builder strings.Builder
+	WriteMySQLIdentifier(&builder, identifier)
+	return builder.String()
+}
+
 // Writes a MySQL identifier into the string builder.
 // The identifier is always escaped into the form "`foo`".
 func WriteMySQLIdentifier(builder *strings.Builder, identifier string) {

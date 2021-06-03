@@ -23,7 +23,6 @@ import (
 	"math"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/joho/sqltocsv"
@@ -609,10 +608,7 @@ type MySQLCheckpointsDB struct {
 }
 
 func NewMySQLCheckpointsDB(ctx context.Context, db *sql.DB, schemaName string) (*MySQLCheckpointsDB, error) {
-	var escapedSchemaName strings.Builder
-	common.WriteMySQLIdentifier(&escapedSchemaName, schemaName)
-	schema := escapedSchemaName.String()
-
+	schema := common.EscapeIdentifier(schemaName)
 	sql := common.SQLWithRetry{
 		DB:           db,
 		Logger:       log.With(zap.String("schema", schemaName)),
