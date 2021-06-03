@@ -11,6 +11,8 @@ on:
       - 'CNAME'
       - 'LICENSE'
       - 'docs/**'
+      - 'tests/**'
+      - 'docker/**'
       - '.github/workflows/**.yml'
   pull_request:
     branches:
@@ -22,6 +24,8 @@ on:
       - 'CNAME'
       - 'LICENSE'
       - 'docs/**'
+      - 'tests/**'
+      - 'docker/**'
       - '.github/workflows/**.yml'
 
 jobs:
