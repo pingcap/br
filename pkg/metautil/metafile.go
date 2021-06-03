@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/go-units"
+
 	"github.com/pingcap/br/pkg/summary"
 
 	"github.com/gogo/protobuf/proto"
@@ -38,6 +40,9 @@ const (
 	MetaJSONFile = "backupmeta.json"
 	// MaxBatchSize represents the internal channel buffer size of MetaWriter and MetaReader.
 	MaxBatchSize = 1024
+
+	// MetaFileSize represents the limit size of one MetaFile
+	MetaFileSize = 128 * units.MiB
 )
 
 func walkLeafMetaFile(
@@ -425,6 +430,7 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2
 		metafileSizeLimit: metafileSizeLimit,
 		useV2Meta:         useV2Meta,
 		// keep the compatibility for old backupmeta.Ddls
+		// old version: Ddls, _ := json.Marshal(make([]*model.Job, 0))
 		backupMeta:     &backuppb.BackupMeta{Ddls: []byte("[]")},
 		metafileSizes:  make(map[string]int),
 		metafiles:      NewSizedMetaFile(metafileSizeLimit),

@@ -7,7 +7,6 @@ import (
 	"math"
 	"sync/atomic"
 
-	"github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
@@ -138,7 +137,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	updateCh := new(simpleProgress)
 	skipChecksum := false
 	es := s.GetRandomStorage(c)
-	metaWriter := metautil.NewMetaWriter(es, 64*units.MiB, false)
+	metaWriter := metautil.NewMetaWriter(es, metautil.MetaFileSize, false)
 	ctx := context.Background()
 	err = backupSchemas.BackupSchemas(
 		ctx, metaWriter, s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
@@ -164,7 +163,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchema(c *C) {
 	updateCh.reset()
 
 	es2 := s.GetRandomStorage(c)
-	metaWriter2 := metautil.NewMetaWriter(es2, 64*units.MiB, false)
+	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false)
 	err = backupSchemas.BackupSchemas(
 		ctx, metaWriter2, s.mock.Storage, nil, math.MaxUint64, 2, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(updateCh.get(), Equals, int64(2))
@@ -209,7 +208,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	updateCh := new(simpleProgress)
 
 	es := s.GetRandomStorage(c)
-	metaWriter := metautil.NewMetaWriter(es, 64*units.MiB, false)
+	metaWriter := metautil.NewMetaWriter(es, metautil.MetaFileSize, false)
 	ctx := context.Background()
 	err = backupSchemas.BackupSchemas(
 		ctx, metaWriter, s.mock.Storage, nil, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
@@ -235,7 +234,7 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	updateCh.reset()
 	statsHandle := s.mock.Domain.StatsHandle()
 	es2 := s.GetRandomStorage(c)
-	metaWriter2 := metautil.NewMetaWriter(es2, 64*units.MiB, false)
+	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false)
 	err = backupSchemas.BackupSchemas(
 		ctx, metaWriter2, s.mock.Storage, statsHandle, math.MaxUint64, 1, variable.DefChecksumTableConcurrency, skipChecksum, updateCh)
 	c.Assert(err, IsNil)

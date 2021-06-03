@@ -128,7 +128,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	ts, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
 	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
 
-	metaWriter := metautil.NewMetaWriter(s.storage, 64*units.MiB, false)
+	metaWriter := metautil.NewMetaWriter(s.storage, metautil.MetaFileSize, false)
 	ctx := context.Background()
 	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
 	err = backup.WriteBackupDDLJobs(metaWriter, s.mock.Storage, lastTS, ts)

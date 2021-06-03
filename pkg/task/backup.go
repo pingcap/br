@@ -106,8 +106,8 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	// we must make sure the old three version of br can parse the v2 meta to keep compatibility.
 	// so this flag should set to false for three version by default.
 	// for example:
-	// if we put this feature in v4.0.14, then v4.0.14 can parse v2 meta.
-	// and v4.0.14, v4.0.15, v4.0.16 will generate v1 meta due to this flag is false.
+	// if we put this feature in v4.0.14, then v4.0.14 br can parse v2 meta
+	// but will generate v1 meta due to this flag is false. the behaviour is as same as v4.0.15, v4.0.16.
 	// finally v4.0.17 will set this flag to true, and generate v2 meta.
 	_ = flags.MarkHidden(flagUseBackupMetaV2)
 }
@@ -330,7 +330,7 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 
 	// Metafile size should be less than 64MB.
-	metawriter := metautil.NewMetaWriter(client.GetStorage(), 64*units.MiB, cfg.UseBackupMetaV2)
+	metawriter := metautil.NewMetaWriter(client.GetStorage(), metautil.MetaFileSize, cfg.UseBackupMetaV2)
 
 	// nothing to backup
 	if ranges == nil {
