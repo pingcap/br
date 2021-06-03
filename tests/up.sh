@@ -117,14 +117,14 @@ FROM minio/minio                                    AS minio-builder
 FROM minio/mc                                       AS mc-builder
 FROM fsouza/fake-gcs-server                         AS gcs-builder
 
-FROM golang:1.13.8-buster as ycsb-builder
+FROM golang:1.16.4-buster as ycsb-builder
 WORKDIR /go/src/github.com/pingcap/
 RUN git clone https://github.com/pingcap/go-ycsb.git && \
     cd go-ycsb && \
     make && \
     cp bin/go-ycsb /go-ycsb
 
-FROM golang:1.13.8-buster
+FROM golang:1.16.4-buster
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \

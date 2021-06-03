@@ -461,13 +461,21 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 			},
 		},
 	}
-	meta := &sst.SSTMeta{
-		Range: &sst.Range{
-			Start: []byte{1},
-			End:   []byte{2},
+	metas := []*sst.SSTMeta{
+		{
+			Range: &sst.Range{
+				Start: []byte{1},
+				End:   []byte{2},
+			},
+		},
+		{
+			Range: &sst.Range{
+				Start: []byte{1, 1},
+				End:   []byte{2},
+			},
 		},
 	}
-	retryType, newRegion, err := local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, newRegion, err := local.isIngestRetryable(ctx, resp, region, metas)
 	c.Assert(retryType, Equals, retryWrite)
 	c.Assert(newRegion.Leader.Id, Equals, uint64(2))
 	c.Assert(err, NotNil)
@@ -488,18 +496,18 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 			},
 		},
 	}
-	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, newRegion, err = local.isIngestRetryable(ctx, resp, region, metas)
 	c.Assert(retryType, Equals, retryWrite)
 	c.Assert(newRegion.Region.RegionEpoch.Version, Equals, uint64(2))
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "raft: proposal dropped"}
-	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, metas)
 	c.Assert(retryType, Equals, retryWrite)
 	c.Assert(err, NotNil)
 
 	resp.Error = &errorpb.Error{Message: "unknown error"}
-	retryType, _, err = local.isIngestRetryable(ctx, resp, region, meta)
+	retryType, _, err = local.isIngestRetryable(ctx, resp, region, metas)
 	c.Assert(retryType, Equals, retryNone)
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
