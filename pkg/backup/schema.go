@@ -91,6 +91,9 @@ func (ss *Schemas) BackupSchemas(
 	for _, s := range ss.schemas {
 		schema := s
 		workerPool.ApplyOnErrorGroup(errg, func() error {
+			if utils.IsSysDB(schema.dbInfo.Name.L) {
+				schema.dbInfo.Name = utils.TemporaryDBName(schema.dbInfo.Name.O)
+			}
 			logger := log.With(
 				zap.String("db", schema.dbInfo.Name.O),
 				zap.String("table", schema.tableInfo.Name.O),
