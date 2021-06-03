@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/docker/go-units"
 	"github.com/golang/protobuf/proto"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
