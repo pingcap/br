@@ -46,12 +46,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-<<<<<<< HEAD
-        go-version: 1.15
-      if: ${{ github.event_name == 'pull_request' || steps.check.outputs.triggered == 'true' }}
-=======
         go-version: 1.16
->>>>>>> 637c84d5 (action trigger: fix compatibility trigger bug on push (#1170))
 
     - name: Generate compatibility test backup data
       timeout-minutes: 15
