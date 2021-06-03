@@ -95,7 +95,7 @@ lightning-ctl:
 	$(PREPARE_MOD)
 	$(GOBUILD) $(RACEFLAG) -o $(LIGHTNING_CTL_BIN) cmd/tidb-lightning-ctl/main.go
 
-build_for_integration_test:
+build_for_tidb_integration_test:
 	$(PREPARE_MOD)
 	@make failpoint-enable
 	($(GOTEST) -c -cover -covermode=count \
@@ -109,12 +109,7 @@ build_for_integration_test:
 	$(GOTEST) -c -cover -covermode=count \
 		-coverpkg=$(BR_PKG)/... \
 		-o $(LIGHTNING_CTL_BIN).test \
-		github.com/pingcap/br/cmd/tidb-lightning-ctl && \
-	$(GOBUILD) $(RACEFLAG) -o bin/locker tests/br_key_locked/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \
+		github.com/pingcap/br/cmd/tidb-lightning-ctl \
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
