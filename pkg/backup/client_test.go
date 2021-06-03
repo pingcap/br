@@ -245,29 +245,43 @@ func (r *testBackup) TestBuildBackupMeta(c *C) {
 }
 
 func (r *testBackup) TestSendCreds(c *C) {
-	mvccStore := mocktikv.MustNewMVCCStore()
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
-	r.ctx, r.cancel = context.WithCancel(context.Background())
-	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
-	mockMgr.SetPDClient(r.mockPDClient)
-	mockMgr.SetHTTP([]string{"test"}, nil)
-	var err error
-	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
+	accessKey := "ab"
+	secretAccessKey := "cd"
+	backendOpt := storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
+	}
+	backend, err := storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
 	c.Assert(err, IsNil)
 	opts := &storage.ExternalStorageOptions{
 		SendCredentials: true,
+		SkipCheckPath:   true,
 	}
-	backend, err := storage.ParseBackend("s3://bucket/prefix/", nil)
+	_, err = storage.New(r.ctx, backend, opts)
 	c.Assert(err, IsNil)
-	err = r.backupClient.SetStorage(r.ctx, backend, opts)
-	c.Assert(err, IsNil)
-	req := backuppb.BackupRequest{
-		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
-		StartVersion: 0,
-		EndVersion:   0,
+	access_key := backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "ab")
+	secret_access_key := backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "cd")
+
+	backendOpt = storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
 	}
-	access_key := req.StorageBackend.GetS3().AccessKey
-	c.Assert(access_key, NotNil)
-	secret_access_key := req.StorageBackend.GetS3().SecretAccessKey
-	c.Assert(secret_access_key, NotNil)
+	backend, err = storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
+	c.Assert(err, IsNil)
+	opts = &storage.ExternalStorageOptions{
+		SendCredentials: false,
+		SkipCheckPath:   true,
+	}
+	_, err = storage.New(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	access_key = backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "")
+	secret_access_key = backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "")
 }
