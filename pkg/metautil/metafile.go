@@ -207,9 +207,7 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 		if tableID == 0 {
 			log.Panic("tableID must not equal to 0", logutil.File(file))
 		}
-		if tableFiles, ok := fileMap[tableID]; ok {
-			tableFiles = append(tableFiles, file)
-		}
+		fileMap[tableID] = append(fileMap[tableID], file)
 	}
 	err := reader.readDataFiles(ctx, outputFn)
 	if err != nil {
@@ -409,6 +407,7 @@ type MetaWriter struct {
 	// the start time of StartWriteMetas
 	// it's use to calculate the time costs.
 	start time.Time
+	// wg waits StartWriterMetas exits
 	wg    sync.WaitGroup
 	// internal item channel
 	metasCh chan interface{}
@@ -529,7 +528,8 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	if op == AppendDataFile {
 		summary.CollectSuccessUnit("backup ranges", writer.flushedItemNum, costs)
 	}
-	log.Info("finish the write metas", zap.String("type", op.name()), zap.Duration("costs", costs))
+	log.Info("finish the write metas", zap.Int("item", writer.flushedItemNum),
+		zap.String("type", op.name()), zap.Duration("costs", costs))
 	return nil
 }
 
