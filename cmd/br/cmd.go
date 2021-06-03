@@ -100,6 +100,27 @@ func AddFlags(cmd *cobra.Command) {
 // Init initializes BR cli.
 func Init(cmd *cobra.Command) (err error) {
 	initOnce.Do(func() {
+		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
+		if e != nil {
+			err = e
+			return
+		}
+		tidbLogCfg := logutil.LogConfig{}
+		if len(slowLogFilename) != 0 {
+			tidbLogCfg.SlowQueryFile = slowLogFilename
+			// Just for special grpc log file,
+			// otherwise the info will be print in stdout...
+			tidbLogCfg.File.Filename = timestampLogFileName()
+		} else {
+			// Disable annoying TiDB Log.
+			// TODO: some error logs outputs randomly, we need to fix them in TiDB.
+			tidbLogCfg.Level = "fatal"
+		}
+		e = logutil.InitLogger(&tidbLogCfg)
+		if e != nil {
+			err = e
+			return
+		}
 		// Initialize the logger.
 		conf := new(log.Config)
 		conf.Level, err = cmd.Flags().GetString(FlagLogLevel)
@@ -143,26 +164,6 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 		redact.InitRedact(redactLog || redactInfoLog)
-
-		slowLogFilename, e := cmd.Flags().GetString(FlagSlowLogFile)
-		if e != nil {
-			err = e
-			return
-		}
-		tidbLogCfg := logutil.LogConfig{}
-		if len(slowLogFilename) != 0 {
-			tidbLogCfg.SlowQueryFile = slowLogFilename
-		} else {
-			// Disable annoying TiDB Log.
-			// TODO: some error logs outputs randomly, we need to fix them in TiDB.
-			tidbLogCfg.Level = "fatal"
-		}
-		e = logutil.InitLogger(&tidbLogCfg)
-		if e != nil {
-			err = e
-			return
-		}
-
 		err = startPProf(cmd)
 	})
 	return errors.Trace(err)
