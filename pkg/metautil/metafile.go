@@ -199,6 +199,21 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 		close(ch)
 	}()
 
+	fileMap := make(map[int64][]*backuppb.File)
+	outputFn := func(file *backuppb.File) {
+		tableID := tablecodec.DecodeTableID(file.GetStartKey())
+		if tableID == 0 {
+			log.Panic("tableID must not equal to 0", logutil.File(file))
+		}
+		if tableFiles, ok := fileMap[tableID]; ok {
+			tableFiles = append(tableFiles, file)
+		}
+	}
+	err := reader.readDataFiles(ctx, outputFn)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	for {
 		// table ID -> *Table
 		tableMap := make(map[int64]*Table, MaxBatchSize)
@@ -229,10 +244,16 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 				Stats:           stats,
 			}
 			tableMap[tableInfo.ID] = table
+			if files, ok := fileMap[tableInfo.ID]; ok {
+				table.Files = append(table.Files, files...)
+			}
 			if tableInfo.Partition != nil {
 				// Partition table can have many table IDs (partition IDs).
 				for _, p := range tableInfo.Partition.Definitions {
 					tableMap[p.ID] = table
+					if files, ok := fileMap[p.ID]; ok {
+						table.Files = append(table.Files, files...)
+					}
 				}
 			}
 			return nil
@@ -244,21 +265,6 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 			// We have read all tables.
 			return nil
 		}
-
-		outputFn := func(file *backuppb.File) {
-			tableID := tablecodec.DecodeTableID(file.GetStartKey())
-			if tableID == 0 {
-				log.Panic("tableID must not equal to 0", logutil.File(file))
-			}
-			if table, ok := tableMap[tableID]; ok {
-				table.Files = append(table.Files, file)
-			}
-		}
-		err = reader.readDataFiles(ctx, outputFn)
-		if err != nil {
-			return errors.Trace(err)
-		}
-
 		for _, table := range tableMap {
 			output <- table
 		}
