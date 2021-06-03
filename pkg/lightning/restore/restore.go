@@ -3114,6 +3114,10 @@ func (m *dbTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64
 				continue
 			}
 
+			if status == metaStatusChecksuming {
+				return errors.New("target table is calculating checksum, please wait unit the checksum is finished and try again.")
+			}
+
 			if metaTaskID == m.taskID {
 				curStatus = status
 				baseChecksum = checksum
