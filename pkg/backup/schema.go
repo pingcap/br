@@ -124,8 +124,6 @@ func (ss *Schemas) BackupSchemas(
 				}
 				schema.stats = jsonTable
 			}
-			updateCh.Inc()
-
 			// Send schema to metawriter
 			dbBytes, err := json.Marshal(schema.dbInfo)
 			if err != nil {
@@ -154,6 +152,7 @@ func (ss *Schemas) BackupSchemas(
 			if err := metaWriter.Send(s, op); err != nil {
 				return errors.Trace(err)
 			}
+			updateCh.Inc()
 			return nil
 		})
 	}
