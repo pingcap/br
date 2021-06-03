@@ -114,7 +114,7 @@ build_for_integration_test:
 	$(GOBUILD) $(RACEFLAG) -o bin/gc tests/br_z_gc_safepoint/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/oauth tests/br_gcs/*.go && \
 	$(GOBUILD) $(RACEFLAG) -o bin/rawkv tests/br_rawkv/*.go && \
-	$(GOBUILD) $(RACEFLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \github.com/pingcap/br/cmd/tidb-lightning-ctl \
+	$(GOBUILD) $(RACEFLAG) -o bin/parquet_gen tests/lightning_checkpoint_parquet/*.go \
 	) || (make failpoint-disable && exit 1)
 	@make failpoint-disable
 
