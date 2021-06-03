@@ -408,7 +408,7 @@ type MetaWriter struct {
 	// it's use to calculate the time costs.
 	start time.Time
 	// wg waits StartWriterMetas exits
-	wg    sync.WaitGroup
+	wg sync.WaitGroup
 	// internal item channel
 	metasCh chan interface{}
 	errCh   chan error
