@@ -4,10 +4,24 @@ on:
     branches:
       - master
       - 'release-[0-9].[0-9]*'
+    paths-ignore:
+      - '**.html'
+      - '**.md'
+      - 'CNAME'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/workflows/**.yml'
   pull_request:
     branches:
       - master
       - 'release-[0-9].[0-9]*'
+    paths-ignore:
+      - '**.html'
+      - '**.md'
+      - 'CNAME'
+      - 'LICENSE'
+      - 'docs/**'
+      - '.github/workflows/**.yml'
 
 jobs:
   compile:

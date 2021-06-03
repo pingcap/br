@@ -10,9 +10,8 @@ on:
       - '**.md'
       - 'CNAME'
       - 'LICENSE'
-      - 'doc/**'
+      - 'docs/**'
       - '.github/workflows/**.yml'
-      - '.github/**.yml'
   pull_request:
     branches:
       - master
@@ -22,9 +21,8 @@ on:
       - '**.md'
       - 'CNAME'
       - 'LICENSE'
-      - 'doc/**'
+      - 'docs/**'
       - '.github/workflows/**.yml'
-      - '.github/**.yml'
 
 jobs:
   build:
