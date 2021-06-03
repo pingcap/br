@@ -425,10 +425,10 @@ func NewMetaWriter(storage storage.ExternalStorage, metafileSizeLimit int, useV2
 		metafileSizeLimit: metafileSizeLimit,
 		useV2Meta:         useV2Meta,
 		// keep the compatibility for old backupmeta.Ddls
-		backupMeta:        &backuppb.BackupMeta{Ddls: []byte("[]")},
-		metafileSizes:     make(map[string]int),
-		metafiles:         NewSizedMetaFile(metafileSizeLimit),
-		metafileSeqNum:    make(map[string]int),
+		backupMeta:     &backuppb.BackupMeta{Ddls: []byte("[]")},
+		metafileSizes:  make(map[string]int),
+		metafiles:      NewSizedMetaFile(metafileSizeLimit),
+		metafileSeqNum: make(map[string]int),
 	}
 }
 
