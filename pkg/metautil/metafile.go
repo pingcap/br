@@ -199,6 +199,8 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 		close(ch)
 	}()
 
+	// It's not easy to balance memory and time costs for current structure.
+	// put all files in memory due to https://github.com/pingcap/br/issues/705
 	fileMap := make(map[int64][]*backuppb.File)
 	outputFn := func(file *backuppb.File) {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
@@ -243,19 +245,18 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 				TiFlashReplicas: int(s.TiflashReplicas),
 				Stats:           stats,
 			}
-			tableMap[tableInfo.ID] = table
 			if files, ok := fileMap[tableInfo.ID]; ok {
 				table.Files = append(table.Files, files...)
 			}
 			if tableInfo.Partition != nil {
 				// Partition table can have many table IDs (partition IDs).
 				for _, p := range tableInfo.Partition.Definitions {
-					tableMap[p.ID] = table
 					if files, ok := fileMap[p.ID]; ok {
 						table.Files = append(table.Files, files...)
 					}
 				}
 			}
+			tableMap[tableInfo.ID] = table
 			return nil
 		})
 		if err != nil {
@@ -457,7 +458,6 @@ func (writer *MetaWriter) Send(m interface{}, op AppendOp) error {
 
 func (writer *MetaWriter) close() {
 	close(writer.metasCh)
-	close(writer.errCh)
 }
 
 // StartWriteMetasAsync writes four kind of meta into backupmeta.
@@ -473,7 +473,11 @@ func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp)
 	writer.start = time.Now()
 	go func() {
 		writer.wg.Add(1)
-		defer writer.wg.Done()
+		defer func() {
+			writer.wg.Done()
+			// close errCh after metaCh closed
+			close(writer.errCh)
+		}()
 		for {
 			select {
 			case <-ctx.Done():
