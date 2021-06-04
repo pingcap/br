@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -177,6 +178,10 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
 	}
 	if exist {
+		switch backend := backend.Backend.(type) {
+		case *backuppb.StorageBackend_Local:
+			lock_dir := filepath.Join(backend.Local.Path, utils.LockFile)
+		}
 		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
