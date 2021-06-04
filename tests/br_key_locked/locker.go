@@ -322,7 +322,7 @@ func (c *Locker) lockBatch(ctx context.Context, keys [][]byte, primary []byte) (
 			return 0, errors.Trace(err)
 		}
 		if regionErr != nil {
-			err = bo.Backoff(tikv.BoRegionMiss, errors.New(regionErr.String()))
+			err = bo.Backoff(tikv.BoRegionMiss(), errors.New(regionErr.String()))
 			if err != nil {
 				return 0, errors.Trace(err)
 			}
