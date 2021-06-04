@@ -157,7 +157,6 @@ func (t *transaction) Len() int {
 
 type kvUnionStore struct {
 	kvMemBuf
-	kv.UnionStore
 }
 
 func (s *kvUnionStore) GetMemBuffer() kv.MemBuffer {
@@ -210,10 +209,6 @@ func (t *transaction) Iter(k kv.Key, upperBound kv.Key) (kv.Iterator, error) {
 // Set implements the kv.Mutator interface
 func (t *transaction) Set(k kv.Key, v []byte) error {
 	return t.kvMemBuf.Set(k, v)
-}
-
-func (t *transaction) GetUnionStore() kv.UnionStore {
-	return &t.kvUnionStore
 }
 
 // GetTableInfo implements the kv.Transaction interface.
@@ -319,6 +314,11 @@ func (se *session) Value(key fmt.Stringer) interface{} {
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface
 func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handle) {}
+
+// GetInfoSchema implements the sessionctx.Context interface.
+func (se *session) GetInfoSchema() sessionctx.InfoschemaMetaVersion {
+	return nil
+}
 
 func (se *session) Close() {
 	memBuf := &se.txn.kvMemBuf

@@ -53,9 +53,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
+	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -103,6 +106,8 @@ var (
 	localMaxTiKVVersion = version.NextMajorVersion()
 	localMaxPDVersion   = version.NextMajorVersion()
 	tiFlashMinVersion   = *semver.New("4.0.5")
+
+	errorEngineClosed = errors.New("engine is closed")
 )
 
 var (
@@ -146,6 +151,7 @@ type metaOrFlush struct {
 
 type File struct {
 	localFileMeta
+	closed       atomic.Bool
 	db           *pebble.DB
 	UUID         uuid.UUID
 	localWriters sync.Map
@@ -603,6 +609,9 @@ func (e *File) ingestSSTs(metas []*sstMeta) error {
 	// use raw RLock to avoid change the lock state during flushing.
 	e.mutex.RLock()
 	defer e.mutex.RUnlock()
+	if e.closed.Load() {
+		return errorEngineClosed
+	}
 	totalSize := int64(0)
 	totalCount := int64(0)
 	fileSize := int64(0)
@@ -750,6 +759,7 @@ type local struct {
 
 	engineMemCacheSize      int
 	localWriterMemCacheSize int64
+	supportMultiIngest      bool
 }
 
 // connPool is a lazy pool of gRPC channels.
@@ -868,7 +878,39 @@ func NewLocalBackend(
 		localWriterMemCacheSize: int64(cfg.LocalWriterMemCacheSize),
 	}
 	local.conns.conns = make(map[uint64]*connPool)
+	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
+		return backend.MakeBackend(nil), err
+	}
+
 	return backend.MakeBackend(local), nil
+}
+
+func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
+	stores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	for _, s := range stores {
+		client, err := local.getImportClient(ctx, s.Id)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		_, err = client.MultiIngest(ctx, &sst.MultiIngestRequest{})
+		if err != nil {
+			if st, ok := status.FromError(err); ok {
+				if st.Code() == codes.Unimplemented {
+					log.L().Info("multi ingest not support", zap.Any("unsupported store", s))
+					local.supportMultiIngest = false
+					return nil
+				}
+			}
+			return errors.Trace(err)
+		}
+	}
+
+	local.supportMultiIngest = true
+	log.L().Info("multi ingest support")
+	return nil
 }
 
 // rlock read locks a local file and returns the File instance if it exists.
@@ -896,8 +938,13 @@ func (local *local) tryRLockAllEngines() []*File {
 	var allEngines []*File
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
+		// skip closed engine
 		if engine.tryRLock() {
-			allEngines = append(allEngines, engine)
+			if !engine.closed.Load() {
+				allEngines = append(allEngines, engine)
+			} else {
+				engine.rUnlock()
+			}
 		}
 		return true
 	})
@@ -993,6 +1040,9 @@ func (local *local) FlushEngine(ctx context.Context, engineID uuid.UUID) error {
 		return errors.Errorf("engine '%s' not found", engineID)
 	}
 	defer engineFile.rUnlock()
+	if engineFile.closed.Load() {
+		return nil
+	}
 	return engineFile.flushEngineWithoutLock(ctx)
 }
 
@@ -1124,9 +1174,20 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	engineFile := engine.(*File)
 	engineFile.rLock()
+	if engineFile.closed.Load() {
+		engineFile.rUnlock()
+		return nil
+	}
+
 	err := engineFile.flushEngineWithoutLock(ctx)
 	engineFile.rUnlock()
+
+	// use mutex to make sure we won't close sstMetasChan while other routines
+	// trying to do flush.
+	engineFile.lock(importMutexStateClose)
+	engineFile.closed.Store(true)
 	close(engineFile.sstMetasChan)
+	engineFile.unlock()
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -1134,11 +1195,11 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 	return engineFile.ingestErr.Get()
 }
 
-func (local *local) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.ImportSSTClient, error) {
+func (local *local) getImportClient(ctx context.Context, storeID uint64) (sst.ImportSSTClient, error) {
 	local.conns.mu.Lock()
 	defer local.conns.mu.Unlock()
 
-	conn, err := local.getGrpcConnLocked(ctx, peer.GetStoreId())
+	conn, err := local.getGrpcConnLocked(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1200,7 +1261,7 @@ func (local *local) WriteToTiKV(
 	clients := make([]sst.ImportSST_WriteClient, 0, len(region.Region.GetPeers()))
 	requests := make([]*sst.WriteRequest, 0, len(region.Region.GetPeers()))
 	for _, peer := range region.Region.GetPeers() {
-		cli, err := local.getImportClient(ctx, peer)
+		cli, err := local.getImportClient(ctx, peer.StoreId)
 		if err != nil {
 			return nil, Range{}, stats, err
 		}
@@ -1327,13 +1388,13 @@ func (local *local) WriteToTiKV(
 	return leaderPeerMetas, finishedRange, stats, nil
 }
 
-func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split.RegionInfo) (*sst.IngestResponse, error) {
+func (local *local) Ingest(ctx context.Context, metas []*sst.SSTMeta, region *split.RegionInfo) (*sst.IngestResponse, error) {
 	leader := region.Leader
 	if leader == nil {
 		leader = region.Region.GetPeers()[0]
 	}
 
-	cli, err := local.getImportClient(ctx, leader)
+	cli, err := local.getImportClient(ctx, leader.StoreId)
 	if err != nil {
 		return nil, err
 	}
@@ -1343,15 +1404,24 @@ func (local *local) Ingest(ctx context.Context, meta *sst.SSTMeta, region *split
 		Peer:        leader,
 	}
 
-	req := &sst.IngestRequest{
+	if !local.supportMultiIngest {
+		if len(metas) != 1 {
+			return nil, errors.New("batch ingest is not support")
+		}
+		req := &sst.IngestRequest{
+			Context: reqCtx,
+			Sst:     metas[0],
+		}
+		resp, err := cli.Ingest(ctx, req)
+		return resp, errors.Trace(err)
+	}
+
+	req := &sst.MultiIngestRequest{
 		Context: reqCtx,
-		Sst:     meta,
+		Ssts:    metas,
 	}
-	resp, err := cli.Ingest(ctx, req)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return resp, nil
+	resp, err := cli.MultiIngest(ctx, req)
+	return resp, errors.Trace(err)
 }
 
 func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit int64, keysLimit int64) []Range {
@@ -1648,10 +1718,22 @@ loopWrite:
 			continue loopWrite
 		}
 
-		for _, meta := range metas {
+		if len(metas) == 0 {
+			return nil
+		}
+
+		batch := 1
+		if local.supportMultiIngest {
+			batch = len(metas)
+		}
+
+		for i := 0; i < len(metas); i += batch {
+			start := i * batch
+			end := utils.MinInt((i+1)*batch, len(metas))
+			ingestMetas := metas[start:end]
 			errCnt := 0
 			for errCnt < maxRetryTimes {
-				log.L().Debug("ingest meta", zap.Reflect("meta", meta))
+				log.L().Debug("ingest meta", zap.Reflect("meta", ingestMetas))
 				var resp *sst.IngestResponse
 				failpoint.Inject("FailIngestMeta", func(val failpoint.Value) {
 					// only inject the error once
@@ -1679,13 +1761,13 @@ loopWrite:
 					}
 				})
 				if resp == nil {
-					resp, err = local.Ingest(ctx, meta, region)
+					resp, err = local.Ingest(ctx, ingestMetas, region)
 				}
 				if err != nil {
 					if common.IsContextCanceledError(err) {
 						return err
 					}
-					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMeta(meta),
+					log.L().Warn("ingest failed", log.ShortError(err), logutil.SSTMetas(ingestMetas),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
 					errCnt++
 					continue
@@ -1693,7 +1775,7 @@ loopWrite:
 
 				var retryTy retryType
 				var newRegion *split.RegionInfo
-				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, meta)
+				retryTy, newRegion, err = local.isIngestRetryable(ctx, resp, region, ingestMetas)
 				if common.IsContextCanceledError(err) {
 					return err
 				}
@@ -1703,7 +1785,7 @@ loopWrite:
 				}
 				switch retryTy {
 				case retryNone:
-					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMeta(meta),
+					log.L().Warn("ingest failed noretry", log.ShortError(err), logutil.SSTMetas(ingestMetas),
 						logutil.Region(region.Region), logutil.Leader(region.Leader))
 					// met non-retryable error retry whole Write procedure
 					return err
@@ -2134,7 +2216,7 @@ func (local *local) isIngestRetryable(
 	ctx context.Context,
 	resp *sst.IngestResponse,
 	region *split.RegionInfo,
-	meta *sst.SSTMeta,
+	metas []*sst.SSTMeta,
 ) (retryType, *split.RegionInfo, error) {
 	if resp.GetError() == nil {
 		return retryNone, nil, nil
@@ -2183,7 +2265,7 @@ func (local *local) isIngestRetryable(
 		if currentRegions := errPb.GetEpochNotMatch().GetCurrentRegions(); currentRegions != nil {
 			var currentRegion *metapb.Region
 			for _, r := range currentRegions {
-				if insideRegion(r, meta) {
+				if insideRegion(r, metas) {
 					currentRegion = r
 					break
 				}
@@ -2504,6 +2586,10 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
+	}
+
+	if w.local.closed.Load() {
+		return errorEngineClosed
 	}
 
 	w.Lock()

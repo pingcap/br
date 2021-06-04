@@ -266,8 +266,18 @@ func BuildTableRanges(tbl *model.TableInfo) ([]kv.KeyRange, error) {
 }
 
 func appendRanges(tbl *model.TableInfo, tblID int64) ([]kv.KeyRange, error) {
-	ranges := ranger.FullIntRange(false)
-	kvRanges := distsql.TableRangesToKVRanges(tblID, ranges, nil)
+	var ranges []*ranger.Range
+	if tbl.IsCommonHandle {
+		ranges = ranger.FullNotNullRange()
+	} else {
+		ranges = ranger.FullIntRange(false)
+	}
+
+	kvRanges, err := distsql.TableHandleRangesToKVRanges(nil, []int64{tblID}, tbl.IsCommonHandle, ranges, nil)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	for _, index := range tbl.Indices {
 		if index.State != model.StatePublic {
 			continue
@@ -721,9 +731,8 @@ func (bc *Client) fineGrainedBackup(
 		max.mu.Unlock()
 		if ms != 0 {
 			log.Info("handle fine grained", zap.Int("backoffMs", ms))
-			// 2 means tikv.boTxnLockFast
 			// TODO: fill a meaningful error.
-			err := bo.BackoffWithMaxSleep(2, ms, berrors.ErrUnknown)
+			err := bo.BackoffWithMaxSleepTxnLockFast(ms, berrors.ErrUnknown)
 			if err != nil {
 				return errors.Trace(err)
 			}
