@@ -10,9 +10,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 
-	"github.com/pingcap/br/pkg/metautil"
-	"github.com/pingcap/br/pkg/storage"
-
 	. "github.com/pingcap/check"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -20,7 +17,9 @@ import (
 	"github.com/pingcap/tidb/util/testleak"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/mock"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 var _ = Suite(&testBackupSchemaSuite{})
