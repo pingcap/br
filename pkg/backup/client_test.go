@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
@@ -241,4 +243,21 @@ func (r *testBackup) TestBuildBackupMeta(c *C) {
 	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
 	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
 	c.Assert(backupMeta.BrVersion, Equals, brVersion)
+}
+
+func (r *testBackup) TestGetLockOrMetaPath(c *C) {
+	backend, err := storage.ParseBackend("s3://bucket/prefix/", nil)
+	c.Assert(err, IsNil)
+	path := backup.GetLockOrMetaFilePath(utils.MetaFile, backend)
+	c.Assert(path, Equals, "s3://bucket/prefix/backupmeta")
+
+	backend, err = storage.ParseBackend("gcs://bucket/prefix/", nil)
+	c.Assert(err, IsNil)
+	path = backup.GetLockOrMetaFilePath(utils.LockFile, backend)
+	c.Assert(path, Equals, "gcs://bucket/prefix/backup.lock")
+
+	backend, err = storage.ParseBackend("local:///tmp/", nil)
+	c.Assert(err, IsNil)
+	path = backup.GetLockOrMetaFilePath(utils.LockFile, backend)
+	c.Assert(path, Equals, "local:///tmp/backup.lock")
 }

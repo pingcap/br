@@ -158,6 +158,22 @@ func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
 }
 
+// GetLockOrMetaFilePath get the path of lockfile or metafile
+func GetLockOrMetaFilePath(fileName string, backend *backuppb.StorageBackend) string {
+	var path string
+	switch backend := backend.Backend.(type) {
+	case *backuppb.StorageBackend_Local:
+		path = "local:///" + filepath.Join(backend.Local.Path, fileName)
+	case *backuppb.StorageBackend_S3:
+		bucket, prefix := backend.S3.Bucket, backend.S3.Prefix
+		path = "s3://" + bucket + "/" + prefix + "/" + fileName
+	case *backuppb.StorageBackend_Gcs:
+		bucket, prefix := backend.Gcs.Bucket, backend.Gcs.Prefix
+		path = "gcs://" + bucket + "/" + prefix + "/" + fileName
+	}
+	return path
+}
+
 // SetStorage set ExternalStorage for client.
 func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, opts *storage.ExternalStorageOptions) error {
 	var err error
@@ -171,18 +187,16 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
 	}
 	if exist {
-		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
+		errMsg := fmt.Sprintf("backup lock exists in %v, may be some backup files in the path already", GetLockOrMetaFilePath(utils.MetaFile, backend))
+		return errors.Annotate(berrors.ErrInvalidArgument, errMsg)
 	}
 	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
 	if err != nil {
 		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
 	}
 	if exist {
-		switch backend := backend.Backend.(type) {
-		case *backuppb.StorageBackend_Local:
-			lock_dir := filepath.Join(backend.Local.Path, utils.LockFile)
-		}
-		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
+		errMsg := fmt.Sprintf("backup lock exists in %v, may be some backup files in the path already", GetLockOrMetaFilePath(utils.LockFile, backend))
+		return errors.Annotate(berrors.ErrInvalidArgument, errMsg)
 	}
 	bc.backend = backend
 	return nil
