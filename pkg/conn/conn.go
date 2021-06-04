@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -384,8 +383,7 @@ func (mgr *Mgr) Close() {
 		if mgr.dom != nil {
 			mgr.dom.Close()
 		}
-
-		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		tikv.StoreShuttingDown(1)
 		mgr.storage.Close()
 	}
 
