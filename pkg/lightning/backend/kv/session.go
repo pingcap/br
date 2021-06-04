@@ -247,3 +247,8 @@ func (se *session) Value(key fmt.Stringer) interface{} {
 
 // StmtAddDirtyTableOP implements the sessionctx.Context interface
 func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handle) {}
+
+// GetInfoSchema implements the sessionctx.Context interface.
+func (se *session) GetInfoSchema() sessionctx.InfoschemaMetaVersion {
+	return nil
+}
