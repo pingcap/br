@@ -63,7 +63,7 @@ func walkLeafMetaFile(
 		checksum := sha256.Sum256(content)
 		if !bytes.Equal(node.Sha256, checksum[:]) {
 			return errors.Annotatef(berrors.ErrInvalidMetaFile,
-				"checksum mismatch expect %s, got %s", hex.EncodeToString(node.Sha256), hex.EncodeToString(checksum[:]))
+				"checksum mismatch expect %x, got %x", node.Sha256, checksum[:])
 		}
 		child := &backuppb.MetaFile{}
 		if err = proto.Unmarshal(content, child); err != nil {
