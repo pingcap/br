@@ -2,4 +2,4 @@
 
 module github.com/pingcap/br/pkg/lightning/web
 
-go 1.13
+go 1.16
