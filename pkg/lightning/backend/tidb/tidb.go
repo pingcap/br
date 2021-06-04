@@ -94,6 +94,10 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
+func (row tidbRow) Size() uint64 {
+	return uint64(len(row))
+}
+
 func (row tidbRow) ClassifyAndAppend(data *kv.Rows, checksum *verification.KVChecksum, _ *kv.Rows, _ *verification.KVChecksum) {
 	rows := (*data).(tidbRows)
 	// Cannot do `rows := data.(*tidbRows); *rows = append(*rows, row)`.
@@ -500,48 +504,23 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 		if rows.Err() != nil {
 			return rows.Err()
 		}
-		// for version < v4.0.0 we can use `show table next_row_id` to fetch auto id info, so about should be enough
+		// shard_row_id/auto random is only available after tidb v4.0.0
+		// `show table next_row_id` is also not available before tidb v4.0.0
 		if tidbVersion.Major < 4 {
 			return nil
 		}
+
 		// init auto id column for each table
 		for _, tbl := range tables {
 			tblName := common.UniqueTable(schemaName, tbl.Name.O)
-			rows, e = tx.Query(fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tblName))
-			if e != nil {
-				return e
+			autoIDInfos, err := FetchTableAutoIDInfos(ctx, tx, tblName)
+			if err != nil {
+				return errors.Trace(err)
 			}
-			for rows.Next() {
-				var (
-					dbName, tblName, columnName, idType string
-					nextID                              int64
-				)
-				columns, err := rows.Columns()
-				if err != nil {
-					return err
-				}
-
-				// +--------------+------------+-------------+--------------------+----------------+
-				// | DB_NAME      | TABLE_NAME | COLUMN_NAME | NEXT_GLOBAL_ROW_ID | ID_TYPE        |
-				// +--------------+------------+-------------+--------------------+----------------+
-				// | testsysbench | t          | _tidb_rowid |                  1 | AUTO_INCREMENT |
-				// +--------------+------------+-------------+--------------------+----------------+
-
-				// if columns length is 4, it doesn't contains the last column `ID_TYPE`, and it will always be 'AUTO_INCREMENT'
-				// for v4.0.0~v4.0.2 show table t next_row_id only returns 4 columns.
-				if len(columns) == 4 {
-					err = rows.Scan(&dbName, &tblName, &columnName, &nextID)
-					idType = "AUTO_INCREMENT"
-				} else {
-					err = rows.Scan(&dbName, &tblName, &columnName, &nextID, &idType)
-				}
-				if err != nil {
-					return err
-				}
-
+			for _, info := range autoIDInfos {
 				for _, col := range tbl.Columns {
-					if col.Name.O == columnName {
-						switch idType {
+					if col.Name.O == info.Column {
+						switch info.Type {
 						case "AUTO_INCREMENT":
 							col.Flag |= mysql.AutoIncrementFlag
 						case "AUTO_RANDOM":
@@ -553,14 +532,7 @@ func (be *tidbBackend) FetchRemoteTableModels(ctx context.Context, schemaName st
 					}
 				}
 			}
-			// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
-			//nolint:sqlclosecheck
-			if err := rows.Close(); err != nil {
-				return errors.Trace(err)
-			}
-			if rows.Err() != nil {
-				return errors.Trace(rows.Err())
-			}
+
 		}
 		return nil
 	})
@@ -606,4 +578,60 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 
 func (w *Writer) IsSynced() bool {
 	return true
+}
+
+type TableAutoIDInfo struct {
+	Column string
+	NextID int64
+	Type   string
+}
+
+func FetchTableAutoIDInfos(ctx context.Context, exec common.QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
+	rows, e := exec.QueryContext(ctx, fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tableName))
+	if e != nil {
+		return nil, errors.Trace(e)
+	}
+	var autoIDInfos []*TableAutoIDInfo
+	for rows.Next() {
+		var (
+			dbName, tblName, columnName, idType string
+			nextID                              int64
+		)
+		columns, err := rows.Columns()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		//+--------------+------------+-------------+--------------------+----------------+
+		//| DB_NAME      | TABLE_NAME | COLUMN_NAME | NEXT_GLOBAL_ROW_ID | ID_TYPE        |
+		//+--------------+------------+-------------+--------------------+----------------+
+		//| testsysbench | t          | _tidb_rowid |                  1 | AUTO_INCREMENT |
+		//+--------------+------------+-------------+--------------------+----------------+
+
+		// if columns length is 4, it doesn't contains the last column `ID_TYPE`, and it will always be 'AUTO_INCREMENT'
+		// for v4.0.0~v4.0.2 show table t next_row_id only returns 4 columns.
+		if len(columns) == 4 {
+			err = rows.Scan(&dbName, &tblName, &columnName, &nextID)
+			idType = "AUTO_INCREMENT"
+		} else {
+			err = rows.Scan(&dbName, &tblName, &columnName, &nextID, &idType)
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		autoIDInfos = append(autoIDInfos, &TableAutoIDInfo{
+			Column: columnName,
+			NextID: nextID,
+			Type:   idType,
+		})
+	}
+	// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
+	//nolint:sqlclosecheck
+	if err := rows.Close(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if rows.Err() != nil {
+		return nil, errors.Trace(rows.Err())
+	}
+	return autoIDInfos, nil
 }

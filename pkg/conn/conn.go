@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -218,12 +217,6 @@ func NewMgr(
 		}
 		liveStoreCount++
 	}
-	if liveStoreCount == 0 &&
-		// Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
-	}
 
 	var dom *domain.Domain
 	if needDomain {
@@ -390,8 +383,7 @@ func (mgr *Mgr) Close() {
 		if mgr.dom != nil {
 			mgr.dom.Close()
 		}
-
-		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		tikv.StoreShuttingDown(1)
 		mgr.storage.Close()
 	}
 

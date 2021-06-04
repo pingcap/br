@@ -863,6 +863,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(err, IsNil)
 
 	cpDB := checkpoints.NewNullCheckpointsDB()
+	g := mock.NewMockGlue(controller)
 	rc := &Controller{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
@@ -882,17 +883,22 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		saveCpCh:          chptCh,
 		pauser:            DeliverPauser,
 		backend:           noop.NewNoopBackend(),
-		tidbGlue:          mock.NewMockGlue(controller),
+		tidbGlue:          g,
 		errorSummaries:    makeErrorSummaries(log.L()),
 		tls:               tls,
 		checkpointsDB:     cpDB,
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
+		metaMgrBuilder:    noopMetaMgrBuilder{},
 	}
 	go func() {
 		for range chptCh {
 		}
 	}()
+	exec := mock.NewMockSQLExecutor(controller)
+	g.EXPECT().GetSQLExecutor().Return(exec).AnyTimes()
+	exec.EXPECT().ObtainStringWithLog(gomock.Any(), "SELECT version()", gomock.Any(), gomock.Any()).
+		Return("5.7.25-TiDB-v5.0.1", nil).AnyTimes()
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
@@ -1149,6 +1155,57 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, `in file .*[/\\]?db\.table\.2\.sql:0 at offset 0:.*file already closed`)
 	c.Assert(kvsCh, HasLen, 0)
+}
+
+func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
+	ctx := context.Background()
+	kvsCh := make(chan []deliveredKVs, 4)
+	deliverCompleteCh := make(chan deliverResult)
+	kvEncoder, err := kv.NewTableKVEncoder(s.tr.encTable, &kv.SessionOptions{
+		SQLMode:   s.cfg.TiDB.SQLMode,
+		Timestamp: 1234567898,
+	})
+	c.Assert(err, IsNil)
+
+	dir := c.MkDir()
+	fileName := "db.limit.000.csv"
+	err = ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
+	c.Assert(err, IsNil)
+
+	store, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+	cfg := config.NewConfig()
+
+	reader, err := store.Open(ctx, fileName)
+	c.Assert(err, IsNil)
+	w := worker.NewPool(ctx, 1, "io")
+	p := mydump.NewCSVParser(&cfg.Mydumper.CSV, reader, 111, w, false)
+	s.cr.parser = p
+
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
+	c.Assert(failpoint.Enable(
+		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
+	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
+
+	// we have 3 kvs total. after the failpoint injected.
+	// we will send one kv each time.
+	count := 0
+	for {
+		kvs, ok := <-kvsCh
+		if !ok {
+			break
+		}
+		count += 1
+		if count <= 3 {
+			c.Assert(kvs, HasLen, 1)
+		}
+		if count == 4 {
+			// we will send empty kvs before encodeLoop exists
+			// so, we can receive 4 batch and 1 is empty
+			c.Assert(kvs, HasLen, 0)
+			break
+		}
+	}
 }
 
 func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
@@ -1435,4 +1492,14 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
+}
+
+type testChecksumMgr struct {
+	checksum RemoteChecksum
+	callCnt  int
+}
+
+func (t *testChecksumMgr) Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
+	t.callCnt++
+	return &t.checksum, nil
 }

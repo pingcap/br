@@ -12,7 +12,6 @@ import (
 	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/variable"
-	tikvstore "github.com/pingcap/tidb/store/tikv/kv"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
@@ -112,7 +111,7 @@ func buildRequest(
 	concurrency uint,
 ) ([]*kv.Request, error) {
 	reqs := make([]*kv.Request, 0)
-	req, err := buildTableRequest(tableID, oldTable, oldTableID, startTS, concurrency)
+	req, err := buildTableRequest(tableInfo, tableID, oldTable, oldTableID, startTS, concurrency)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -152,6 +151,7 @@ func buildRequest(
 }
 
 func buildTableRequest(
+	tableInfo *model.TableInfo,
 	tableID int64,
 	oldTable *utils.Table,
 	oldTableID int64,
@@ -172,12 +172,17 @@ func buildTableRequest(
 		Rule:      rule,
 	}
 
-	ranges := ranger.FullIntRange(false)
+	var ranges []*ranger.Range
+	if tableInfo.IsCommonHandle {
+		ranges = ranger.FullNotNullRange()
+	} else {
+		ranges = ranger.FullIntRange(false)
+	}
 
 	var builder distsql.RequestBuilder
 	// Use low priority to reducing impact to other requests.
-	builder.Request.Priority = tikvstore.PriorityLow
-	return builder.SetTableRanges(tableID, ranges, nil).
+	builder.Request.Priority = kv.PriorityLow
+	return builder.SetHandleRanges(nil, tableID, tableInfo.IsCommonHandle, ranges, nil).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
 		SetConcurrency(int(concurrency)).
@@ -209,7 +214,7 @@ func buildIndexRequest(
 
 	var builder distsql.RequestBuilder
 	// Use low priority to reducing impact to other requests.
-	builder.Request.Priority = tikvstore.PriorityLow
+	builder.Request.Priority = kv.PriorityLow
 	return builder.SetIndexRanges(nil, tableID, indexInfo.ID, ranges).
 		SetStartTS(startTS).
 		SetChecksumRequest(checksum).
