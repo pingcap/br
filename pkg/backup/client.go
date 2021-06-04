@@ -163,7 +163,7 @@ func GetLockOrMetaFilePath(fileName string, backend *backuppb.StorageBackend) st
 	var path string
 	switch backend := backend.Backend.(type) {
 	case *backuppb.StorageBackend_Local:
-		path = "local:///" + filepath.Join(backend.Local.Path, fileName)
+		path = "local://" + filepath.Join(backend.Local.Path, fileName)
 	case *backuppb.StorageBackend_S3:
 		bucket, prefix := backend.S3.Bucket, backend.S3.Prefix
 		path = "s3://" + bucket + "/" + prefix + "/" + fileName
