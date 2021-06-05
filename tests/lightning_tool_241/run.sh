@@ -19,7 +19,7 @@
 set -eu
 
 run_sql 'DROP DATABASE IF EXISTS qyjc;'
-run_lightning
+echo yes | run_lightning
 echo 'Import finished'
 
 # Verify all data are imported

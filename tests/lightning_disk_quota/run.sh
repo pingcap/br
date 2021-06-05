@@ -60,7 +60,7 @@ while [ ! -e "$FINISHED_FILE" ] && [ -e "$DISK_QUOTA_DIR" ]; do
 done &
 
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/SlowDownWriteRows=sleep(500)"
-run_lightning --sorted-kv-dir "$DISK_QUOTA_DIR/sorted" --log-file "$TEST_DIR/lightning-disk-quota.log"
+echo yes | run_lightning --sorted-kv-dir "$DISK_QUOTA_DIR/sorted" --log-file "$TEST_DIR/lightning-disk-quota.log"
 touch "$FINISHED_FILE"
 # if $FINISHED_FILE has content, it is only because the hard disk quota is exceeded.
 [ -s "$FINISHED_FILE" ] && cat "$FINISHED_FILE" && exit 1

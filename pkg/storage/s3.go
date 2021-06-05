@@ -53,6 +53,12 @@ const (
 	hardcodedS3ChunkSize = 5 * 1024 * 1024
 )
 
+var permissionCheckFn = map[Permission]func(*s3.S3, *backuppb.S3) error{
+	AccessBuckets: checkS3Bucket,
+	ListObjects:   listObjects,
+	GetObject:     getObject,
+}
+
 // S3Storage info for s3 storage.
 type S3Storage struct {
 	session *session.Session
@@ -228,8 +234,8 @@ func NewS3Storage( // revive:disable-line:flag-parameter
 	sendCredential bool,
 ) (*S3Storage, error) {
 	return newS3Storage(backend, &ExternalStorageOptions{
-		SendCredentials: sendCredential,
-		SkipCheckPath:   false,
+		SendCredentials:  sendCredential,
+		CheckPermissions: []Permission{AccessBuckets},
 	})
 }
 
@@ -277,14 +283,23 @@ func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storag
 	}
 
 	c := s3.New(ses)
+	// TODO remove it after BR remove cfg skip-check-path
 	if !opts.SkipCheckPath {
-		err = checkS3Bucket(c, qs.Bucket)
+		err = checkS3Bucket(c, &qs)
 		if err != nil {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
 		}
 	}
+
 	if len(qs.Prefix) > 0 && !strings.HasSuffix(qs.Prefix, "/") {
 		qs.Prefix += "/"
+	}
+
+	for _, p := range opts.CheckPermissions {
+		err := permissionCheckFn[p](c, &qs)
+		if err != nil {
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidPermission, "check permission %s failed due to %v", p, err)
+		}
 	}
 
 	return &S3Storage{
@@ -295,12 +310,45 @@ func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storag
 }
 
 // checkBucket checks if a bucket exists.
-func checkS3Bucket(svc *s3.S3, bucket string) error {
+func checkS3Bucket(svc *s3.S3, qs *backuppb.S3) error {
 	input := &s3.HeadBucketInput{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(qs.Bucket),
 	}
 	_, err := svc.HeadBucket(input)
 	return errors.Trace(err)
+}
+
+// listObjects checks the permission of listObjects
+func listObjects(svc *s3.S3, qs *backuppb.S3) error {
+	input := &s3.ListObjectsInput{
+		Bucket:  aws.String(qs.Bucket),
+		Prefix:  aws.String(qs.Prefix),
+		MaxKeys: aws.Int64(1),
+	}
+	_, err := svc.ListObjects(input)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+// getObject checks the permission of getObject
+func getObject(svc *s3.S3, qs *backuppb.S3) error {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(qs.Bucket),
+		Key:    aws.String("not-exists"),
+	}
+	_, err := svc.GetObject(input)
+	if aerr, ok := err.(awserr.Error); ok {
+		if aerr.Code() == "NoSuchKey" {
+			// if key not exists and we reach this error, that
+			// means we have the correct permission to GetObject
+			// other we will get another error
+			return nil
+		}
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 // WriteFile writes data to a file to storage.

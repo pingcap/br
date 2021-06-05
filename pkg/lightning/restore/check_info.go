@@ -16,38 +16,57 @@ package restore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
+	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/api"
 	"github.com/tikv/pd/server/config"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/common"
+	config2 "github.com/pingcap/br/pkg/lightning/config"
+	md "github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/storage"
-
-	"github.com/minio/minio/pkg/disk"
 )
 
 const (
-	pdWriteFlow           = "pd/api/v1/regions/writeflow"
-	pdReadFlow            = "pd/api/v1/regions/readflow"
-	OnlineBytesLimitation = 1 << 20
-	OnlineKeysLimitation  = 100
+	pdWriteFlow = "/pd/api/v1/regions/writeflow"
+	pdReadFlow  = "/pd/api/v1/regions/readflow"
 
-	pdStores    = "pd/api/v1/stores"
-	pdReplicate = "pd/api/v1/config/replicate"
+	// OnlineBytesLimitation/OnlineKeysLimitation is the statistics of
+	// Bytes/Keys used per region from pdWriteFlow/pdReadFlow
+	// this determines whether the cluster has some region that have other loads
+	// and might influence the import task in the future.
+	OnlineBytesLimitation = units.MiB
+	OnlineKeysLimitation  = 1000
 
-	defaultCSVSize = 10 << 30
+	pdStores    = "/pd/api/v1/stores"
+	pdReplicate = "/pd/api/v1/config/replicate"
+
+	defaultCSVSize = 10 * units.GiB
+	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
+	// millisecond per write thread the local backend may gain on all engines.
+	// This is used to compute the maximum size overshoot between two disk quota
+	// checks, if the first one has barely passed.
+	//
+	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
+	// contribute 2.3 GiB to the reserved size.
+	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 )
 
 func (rc *Controller) isSourceInLocal() bool {
-	return strings.HasPrefix(rc.store.URI(), "file:")
+	return strings.HasPrefix(rc.store.URI(), storage.LocalURIPrefix)
 }
 
 func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
@@ -62,24 +81,29 @@ func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
 // ClusterIsOnline check cluster is online. this test can be skipped by user requirement.
 func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 	passed := true
-	message := "cluster has no other loads"
+	message := "Cluster has no other loads"
 	defer func() {
-		rc.checkTemplate.PerformanceCollect(passed, message)
+		rc.checkTemplate.Collect(Warn, passed, message)
 	}()
 
-	result := api.RegionsInfo{}
+	result := &api.RegionsInfo{}
 	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	for _, region := range result.Regions {
 		if region.WrittenBytes > OnlineBytesLimitation || region.WrittenKeys > OnlineKeysLimitation {
 			passed = false
-			message = fmt.Sprintf("cluster has write flow more than expection")
+			regionStr, err := json.Marshal(region)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			message = fmt.Sprintf("Cluster has write flow more than expection, %s", string(regionStr))
 			return nil
 		}
 	}
-	result = api.RegionsInfo{}
+	result = &api.RegionsInfo{}
 	err = rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdReadFlow, &result)
 	if err != nil {
 		return errors.Trace(err)
@@ -87,7 +111,11 @@ func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 	for _, region := range result.Regions {
 		if region.ReadBytes > OnlineBytesLimitation || region.ReadKeys > OnlineKeysLimitation {
 			passed = false
-			message = fmt.Sprintf("cluster has read flow more than expection")
+			regionStr, err := json.Marshal(region)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			message = fmt.Sprintf("Cluster has read flow more than expection, %s", string(regionStr))
 			return nil
 		}
 	}
@@ -97,12 +125,12 @@ func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 // ClusterResource check cluster has enough resource to import data. this test can by skipped.
 func (rc *Controller) ClusterResource(ctx context.Context) error {
 	passed := true
-	message := "cluster resources are rich"
+	message := "Cluster resources are rich for this import task"
 	defer func() {
-		rc.checkTemplate.CriticalCollect(passed, message)
+		rc.checkTemplate.Collect(Critical, passed, message)
 	}()
 
-	result := api.StoresInfo{}
+	result := &api.StoresInfo{}
 	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdStores, result)
 	if err != nil {
 		return errors.Trace(err)
@@ -132,7 +160,7 @@ func (rc *Controller) ClusterResource(ctx context.Context) error {
 
 	if typeutil.ByteSize(estimateSize) > totalAvailable {
 		passed = false
-		message = fmt.Sprintf("cluster doesn't have enough space, %s is avaiable, but we need %s",
+		message = fmt.Sprintf("Cluster doesn't have enough space, %s is avaiable, but we need %s",
 			units.BytesSize(float64(totalAvailable)), units.BytesSize(float64(estimateSize)))
 	}
 	return nil
@@ -141,17 +169,15 @@ func (rc *Controller) ClusterResource(ctx context.Context) error {
 // ClusterIsAvailable check cluster is available to import data. this test can be skipped.
 func (rc *Controller) ClusterIsAvailable(ctx context.Context) error {
 	passed := true
-	message := "cluster is available"
+	message := "Cluster is available"
 	defer func() {
-		rc.checkTemplate.CriticalCollect(passed, message)
+		rc.checkTemplate.Collect(Critical, passed, message)
 	}()
 	// skip requirement check if explicitly turned off
 	if !rc.cfg.App.CheckRequirements {
-		message = "cluster available check is skipped by user requirement"
+		message = "Cluster's available check is skipped by user requirement"
 		return nil
 	}
-	// check backend is available(check version is match)
-	// TODO change return value from err to (bool, err)
 	checkCtx := &backend.CheckCtx{
 		DBMetas: rc.dbMetas,
 	}
@@ -168,31 +194,32 @@ func (rc *Controller) StoragePermission(ctx context.Context) error {
 	passed := true
 	message := "Lightning has the correct storage permission"
 	defer func() {
-		rc.checkTemplate.CriticalCollect(passed, message)
+		rc.checkTemplate.Collect(Critical, passed, message)
 	}()
 
 	u, err := storage.ParseBackend(rc.cfg.Mydumper.SourceDir, nil)
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
-	s3 := u.GetS3()
-	if s3 != nil {
-		// TODO finish s3 permission check
+	_, err = storage.New(ctx, u, &storage.ExternalStorageOptions{
+		CheckPermissions: []storage.Permission{
+			storage.ListObjects,
+			storage.GetObject,
+		},
+	})
+	if err != nil {
+		passed = false
+		message = err.Error()
 	}
 	return nil
 }
 
 // TableHasDataInCluster checks whether table already has data in cluster. if table has data before import.
 // in local or import backend, the checksum will failed.
-func (rc *Controller) TableHasDataInCluster(ctx context.Context, tableName string) error {
-	passed := true
-	message := fmt.Sprintf("Table %s is empty, checksum won't passed", tableName)
-	defer func() {
-		rc.checkTemplate.CriticalCollect(passed, message)
-	}()
+func (rc *Controller) TableHasDataInCluster(ctx context.Context, tableName string) (string, error) {
 	db, err := rc.tidbGlue.GetDB()
 	if err != nil {
-		return err
+		return "", err
 	}
 	query := "select 1 from " + tableName + " limit 1"
 	var dump int
@@ -200,41 +227,38 @@ func (rc *Controller) TableHasDataInCluster(ctx context.Context, tableName strin
 
 	switch {
 	case err == sql.ErrNoRows:
-		return nil
+		return "", nil
 	case err != nil:
-		return errors.AddStack(err)
+		return "", errors.AddStack(err)
 	default:
-		message = fmt.Sprintf("table %s not empty, please clean up the table first", tableName)
-		passed = false
+		message := fmt.Sprintf("Table %s is not empty, please clean up the table first", tableName)
+		return message, nil
 	}
-	return nil
+	return "", nil
 }
 
 // HasLargeCSV checks whether input csvs is fit for Lightning import.
 // If strictFormat is false, and csv file is large. Lightning will have performance issue.
 // this test cannot be skipped.
-func (rc *Controller) HasLargeCSV(ctx context.Context) error {
+func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
 	passed := true
-	message := "source csv files size is proper"
+	message := "Source csv files size is proper"
 	defer func() {
-		rc.checkTemplate.PerformanceCollect(passed, message)
+		rc.checkTemplate.Collect(Warn, passed, message)
 	}()
-	if rc.cfg.Mydumper.StrictFormat == false {
-		err := rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
-			if !strings.HasSuffix(path, "csv") {
-				message = "no csv files detected"
-				return nil
+	if !rc.cfg.Mydumper.StrictFormat {
+		for _, db := range dbMetas {
+			for _, t := range db.Tables {
+				for _, f := range t.DataFiles {
+					if f.FileMeta.FileSize > defaultCSVSize {
+						message = fmt.Sprintf("large csv: %s file exists and it will slow down import performance", f.FileMeta.Path)
+						passed = false
+					}
+				}
 			}
-			if size > defaultCSVSize {
-				message = fmt.Sprintf("large csv: %s file exists and it will slow down import performance", path)
-			}
-			return nil
-		})
-		if err != nil {
-			return errors.Trace(err)
 		}
 	} else {
-		message = "skip csv size check, because StrictFormat is true"
+		message = "Skip the csv size check, because config.StrictFormat is true"
 	}
 	return nil
 }
@@ -242,85 +266,236 @@ func (rc *Controller) HasLargeCSV(ctx context.Context) error {
 // LocalResource checks the local node has enough resources for this import when local backend enabled;
 func (rc *Controller) LocalResource(ctx context.Context) error {
 	if rc.isSourceInLocal() {
-		same, err := disk.SameDisk(rc.cfg.Mydumper.SourceDir, rc.cfg.TikvImporter.SortedKVDir)
+		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
+		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		if same {
-			rc.checkTemplate.PerformanceCollect(false,
-				fmt.Sprintf("sorted-kv-dir and data-source-dir are in the same disk, may slow down performance"))
+			rc.checkTemplate.Collect(Warn, false,
+				fmt.Sprintf("sorted-kv-dir:%s and data-source-dir:%s are in the same disk, may slow down performance",
+					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
 		}
 	}
-	var sourceSize int64
+	var sourceSize uint64
 	err := rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
-		sourceSize += size
+		sourceSize += uint64(size)
 		return nil
 	})
 	if err != nil {
 		return errors.Trace(err)
 	}
-	var localSize int64
-	err = filepath.Walk(rc.cfg.TikvImporter.SortedKVDir, func(_ string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			localSize += info.Size()
-		}
-		return err
-	})
 
-	message := "local disk resource is enough"
-	if sourceSize*3/2 > localSize {
-		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %d, but local has %d", sourceSize, localSize)
-	} else if sourceSize > localSize {
-		message = fmt.Sprintf("local disk space is not enough to finish import, source dir has %d, but local has %d,"+
-			"so, enable disk-quota automatically", sourceSize, localSize)
-	} else {
-		// TODO enable disk-quota, so this checks is always passed.
+	storageSize, err := common.GetStorageSize(rc.cfg.TikvImporter.SortedKVDir)
+	if err != nil {
+		return errors.Trace(err)
 	}
-	rc.checkTemplate.CriticalCollect(true, message)
+	localAvailable := storageSize.Available
+
+	var message string
+	var passed bool
+	switch {
+	case localAvailable > sourceSize*3/2:
+		message = fmt.Sprintf("local disk resources are rich, source dir has %s, local available is %s",
+			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
+		passed = true
+	case localAvailable > sourceSize:
+		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, but local available is %s",
+			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
+		passed = true
+	case sourceSize > localAvailable:
+		{
+			if rc.cfg.TikvImporter.DiskQuota == 0 {
+				// enable DiskQuota if possible
+				enginesCount := uint64(rc.cfg.App.IndexConcurrency + rc.cfg.App.TableConcurrency)
+				writeAmount := uint64(rc.cfg.App.RegionConcurrency) * uint64(rc.cfg.Cron.CheckDiskQuota.Milliseconds())
+				reservedSize := enginesCount*uint64(rc.cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
+
+				if localAvailable <= reservedSize {
+					message = fmt.Sprintf(
+						"failed to enable disk-quota, insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space",
+						rc.cfg.TikvImporter.SortedKVDir,
+						units.BytesSize(float64(localAvailable)),
+						units.BytesSize(float64(reservedSize)))
+					passed = false
+				} else {
+					message = fmt.Sprintf("local disk space is not enough to finish import, source dir has %s, but local available is %s,"+
+						"so, enable disk-quota automatically", units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
+					passed = true
+					rc.cfg.TikvImporter.DiskQuota = config2.ByteSize(localAvailable - reservedSize)
+				}
+			}
+		}
+	}
+	rc.checkTemplate.Collect(Critical, passed, message)
 	return nil
 }
 
 // CheckpointIsValid checks whether we can start this import with this checkpoint.
-func (rc *Controller) CheckpointIsValid(ctx context.Context, tableName string) error {
-	passed := true
-	message := fmt.Sprintf("Table:%s checkpoint checks passed", tableName)
-
-	defer func() {
-		rc.checkTemplate.CriticalCollect(passed, message)
-	}()
-
-	tableCheckPoint, err := rc.checkpointsDB.Get(ctx, tableName)
+func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *md.MDTableMeta) ([]string, bool, error) {
+	msgs := make([]string, 0)
+	uniqueName := common.UniqueTable(tableInfo.DB, tableInfo.Name)
+	tableCheckPoint, err := rc.checkpointsDB.Get(ctx, uniqueName)
 	if err != nil {
-		return errors.Trace(err)
+		// there is no checkpoint
+		log.Debug("no checkpoint detected", zap.String("table", uniqueName))
+		return nil, true, nil
 	}
 	// if checkpoint enable and not missing, we skip the check table empty progress.
 	if tableCheckPoint.Status <= checkpoints.CheckpointStatusMissing {
-		message = fmt.Sprintf("Table:%s checkpoint not exists", tableName)
-		return nil
+		return nil, false, nil
 	}
 
+	var permFromCheckpoint []int
+	var columns []string
 	for _, eng := range tableCheckPoint.Engines {
 		if len(eng.Chunks) > 0 {
 			chunk := eng.Chunks[0]
+			permFromCheckpoint = chunk.ColumnPermutation
+			columns = chunk.Chunk.Columns
 			if filepath.Dir(chunk.FileMeta.Path) != rc.cfg.Mydumper.SourceDir {
-				message = fmt.Sprintf("chunk checkpoints path is not equal to config"+
+				message := fmt.Sprintf("chunk checkpoints path is not equal to config"+
 					"checkpoint is %s, config source dir is %s", chunk.FileMeta.Path, rc.cfg.Mydumper.SourceDir)
-				passed = false
+				msgs = append(msgs, message)
 			}
-		} else {
-			return errors.Errorf("meet invalid checkpoint in", tableName)
 		}
 	}
-	// TODO check table checkpoint has same columns with DB schema
-	// we can use checkpoints columnPer and rc.dbMetas meta file to spell column.
-	return nil
+	if len(columns) == 0 {
+		log.Debug("no valid checkpoint detected", zap.String("table", uniqueName))
+		return nil, false, nil
+	}
+	info := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
+	if info != nil {
+		permFromTiDB, err := parseColumnPermutations(info.Core, columns, nil)
+		if err != nil {
+			msgs = append(msgs, fmt.Sprintf("failed to calculate columns %s, table %s's info has changed,"+
+				"consider remove this checkpoint, and start import again.", err.Error(), uniqueName))
+		}
+		if !reflect.DeepEqual(permFromCheckpoint, permFromTiDB) {
+			msgs = append(msgs, fmt.Sprintf("compare columns perm failed. table %s's info has changed,"+
+				"consider remove this checkpoint, and start import again.", uniqueName))
+		}
+	}
+	return msgs, false, nil
+}
+
+// hasDefault represents col has default value.
+func hasDefault(col *model.ColumnInfo) bool {
+	return col.DefaultIsExpr || col.DefaultValue != nil || !mysql.HasNotNullFlag(col.Flag) ||
+		col.IsGenerated() || mysql.HasAutoIncrementFlag(col.Flag)
 }
 
 // SchemaIsValid checks the import file and cluster schema is match.
-func (rc *Controller) SchemaIsValid(ctx context.Context) error {
-	// TODO check schema between rc.dbMetas and rc.dbInfos in TiDB.
-	return nil
+func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMeta) ([]string, error) {
+	msgs := make([]string, 0)
+	info := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
+	if info != nil {
+		tableIgnoreColsMap := rc.cfg.Mydumper.IgnoreColumns
+		uniqueName := common.UniqueTable(tableInfo.DB, tableInfo.Name)
+		igCols := make(map[string]struct{})
+		if cols, ok := tableIgnoreColsMap[uniqueName]; ok {
+			for _, col := range cols {
+				igCols[col] = struct{}{}
+			}
+		}
+
+		if len(tableInfo.DataFiles) == 0 {
+			log.Info("no data files detected", zap.String("db", tableInfo.DB), zap.String("table", tableInfo.Name))
+			return nil, nil
+		}
+		// get columns name from data file.
+		dataFileMeta := tableInfo.DataFiles[0].FileMeta
+		var reader storage.ReadSeekCloser
+		var err error
+		if dataFileMeta.Type == md.SourceTypeParquet {
+			reader, err = md.OpenParquetReader(ctx, rc.store, dataFileMeta.Path, dataFileMeta.FileSize)
+		} else {
+			reader, err = rc.store.Open(ctx, dataFileMeta.Path)
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		var parser md.Parser
+		blockBufSize := int64(rc.cfg.Mydumper.ReadBlockSize)
+		switch dataFileMeta.Type {
+		case md.SourceTypeCSV:
+			hasHeader := rc.cfg.Mydumper.CSV.Header
+			parser = md.NewCSVParser(&rc.cfg.Mydumper.CSV, reader, blockBufSize, rc.ioWorkers, hasHeader)
+		case md.SourceTypeSQL:
+			parser = md.NewChunkParser(rc.cfg.TiDB.SQLMode, reader, blockBufSize, rc.ioWorkers)
+		case md.SourceTypeParquet:
+			parser, err = md.NewParquetParser(ctx, rc.store, reader, dataFileMeta.Path)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
+		default:
+			msgs = append(msgs, fmt.Sprintf("file '%s' with unknown source type '%s'", dataFileMeta.Path, dataFileMeta.Type.String()))
+		}
+		err = parser.ReadRow()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		colsFromDataFile := parser.Columns()
+		colCountFromDataFile := len(parser.LastRow().Row)
+
+		colCountFromTiDB := len(info.Core.Columns)
+		colsFromTiDB := make([]string, 0, colCountFromTiDB)
+		defaultCols := make(map[string]struct{})
+		for _, col := range info.Core.Columns {
+			if hasDefault(col) || (info.Core.ContainsAutoRandomBits() && mysql.HasPriKeyFlag(col.Flag)) {
+				// this column has default value or it's auto random id, so we can ignore it
+				defaultCols[col.Name.L] = struct{}{}
+			}
+			colsFromTiDB = append(colsFromTiDB, col.Name.L)
+		}
+		// tidb_rowid have a default value.
+		defaultCols[model.ExtraHandleName.String()] = struct{}{}
+
+		if colsFromDataFile == nil {
+			// when there is no columns name in data file. we must insert data in order.
+			// so the last several columns either can be ignored or has a default value.
+			for i := colCountFromDataFile; i < colCountFromTiDB; i++ {
+				if _, ok := defaultCols[colsFromTiDB[i]]; !ok {
+					msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` has %d columns,"+
+						"and data file has %d columns, but column %s are missing the default value,"+
+						"please give column a default value to skip this check",
+						tableInfo.DB, tableInfo.Name, colCountFromTiDB, colCountFromDataFile, colsFromTiDB[i]))
+				}
+			}
+		} else {
+			// compare column names and make sure
+			// 1. TiDB table info has data file's all columns(besides ignore columns)
+			// 2. Those columns not introduced in data file always have a default value.
+			colMap := make(map[string]struct{})
+			for col := range igCols {
+				colMap[col] = struct{}{}
+			}
+			for _, col := range colsFromTiDB {
+				colMap[col] = struct{}{}
+			}
+			// tidb_rowid can be ignored in check
+			colMap[model.ExtraHandleName.String()] = struct{}{}
+			for _, col := range colsFromDataFile {
+				if _, ok := colMap[col]; !ok {
+					msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` doesn't have column %s, "+
+						"please check table schema or use tables.ignoreColumns to ignore %s",
+						tableInfo.DB, tableInfo.Name, col, col))
+				} else {
+					// remove column for next iteration
+					delete(colMap, col)
+				}
+			}
+			// if theses rest columns don't have a default value.
+			for col := range colMap {
+				if _, ok := defaultCols[col]; ok {
+					continue
+				}
+				msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` doesn't have the default value for %s"+
+					"please give a default value for %s or add this column in data file", tableInfo.DB, tableInfo.Name, col, col))
+			}
+		}
+	}
+	return msgs, nil
 }

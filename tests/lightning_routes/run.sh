@@ -8,7 +8,7 @@ run_sql 'DROP DATABASE IF EXISTS routes_a0;'
 run_sql 'DROP DATABASE IF EXISTS routes_a1;'
 run_sql 'DROP DATABASE IF EXISTS routes_b;'
 
-run_lightning
+echo yes | run_lightning
 
 run_sql 'SELECT count(1), sum(x) FROM routes_b.u;'
 check_contains 'count(1): 4'

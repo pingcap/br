@@ -76,7 +76,7 @@ for BACKEND in importer local; do
   set +e
   for i in $(seq "$TABLE_COUNT"); do
       echo "******** Importing Table Now (step $i/$TABLE_COUNT) ********"
-      run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
+      echo yes | run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
       [ $? -ne 0 ] || exit 1
   done
   set -e
@@ -85,7 +85,7 @@ for BACKEND in importer local; do
   set +e
   for i in $(seq "$TABLE_COUNT"); do
       echo "******** Importing Table Now (step $i/$TABLE_COUNT) ********"
-      run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
+      echo yes | run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
   done
   set -e
 
@@ -99,7 +99,7 @@ for BACKEND in importer local; do
   set +e
   for i in $(seq "$TABLE_COUNT"); do
       echo "******** Importing Table Now (step $i/$TABLE_COUNT) ********"
-      run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
+      echo yes | run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1 2> /dev/null
       [ $? -ne 0 ] || exit 1
   done
   set -e
@@ -107,7 +107,7 @@ for BACKEND in importer local; do
   # After everything is done, there should be no longer new calls to ImportEngine
   # (and thus `kill_lightning_after_one_import` will spare this final check)
   echo "******** Verify checkpoint no-op ********"
-  run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1
+  echo yes | run_lightning -d "$DBPATH" --backend $BACKEND --enable-checkpoint=1
   run_sql "$PARTIAL_IMPORT_QUERY"
   check_contains "s: $(( (1000 * $CHUNK_COUNT + 1001) * $CHUNK_COUNT * $TABLE_COUNT ))"
   run_sql 'SELECT count(*) FROM `tidb_lightning_checkpoint_test_cppk.1357924680.bak`.table_v7 WHERE status >= 200'

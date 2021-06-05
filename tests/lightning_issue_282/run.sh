@@ -21,7 +21,7 @@ for backend in tidb importer local; do
     fi
 
     run_sql 'DROP DATABASE IF EXISTS issue282;'
-    run_lightning --backend $backend
+    echo yes | run_lightning --backend $backend
 
     run_sql "SELECT hex(accessKey) FROM issue282.t_access3"
     check_contains 'hex(accessKey): 405026464C415348534841'

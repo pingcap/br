@@ -24,7 +24,7 @@ for BACKEND in tidb importer local; do
 
     run_sql 'DROP DATABASE IF EXISTS partitioned;'
 
-    run_lightning --backend $BACKEND
+    echo yes | run_lightning --backend $BACKEND
 
     run_sql 'SELECT count(1), sum(a) FROM partitioned.a;'
     check_contains 'count(1): 8'
