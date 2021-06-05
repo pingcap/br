@@ -12,9 +12,6 @@ import (
 	"time"
 
 	"github.com/docker/go-units"
-
-	"github.com/pingcap/br/pkg/summary"
-
 	"github.com/gogo/protobuf/proto"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -28,6 +25,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/summary"
 )
 
 const (
@@ -317,19 +315,20 @@ const (
 )
 
 func (op AppendOp) name() string {
+	var name string
 	switch op {
 	case AppendMetaFile:
-		return "metafile"
+		name = "metafile"
 	case AppendDataFile:
-		return "datafile"
+		name = "datafile"
 	case AppendSchema:
-		return "schema"
+		name = "schema"
 	case AppendDDL:
-		return "ddl"
+		name = "ddl"
 	default:
 		log.Panic("unsupport op type", zap.Any("op", op))
 	}
-	return ""
+	return name
 }
 
 // appends item to MetaFile
@@ -476,8 +475,8 @@ func (writer *MetaWriter) close() {
 func (writer *MetaWriter) StartWriteMetasAsync(ctx context.Context, op AppendOp) {
 	writer.reset()
 	writer.start = time.Now()
+	writer.wg.Add(1)
 	go func() {
-		writer.wg.Add(1)
 		defer func() {
 			writer.wg.Done()
 			// close errCh after metaCh closed
