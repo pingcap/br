@@ -42,7 +42,7 @@ for BACKEND in local importer tidb; do
   # Start importing the tables.
   run_sql 'DROP DATABASE IF EXISTS ch'
 
-  run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
+  echo yes | run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
 
   run_sql 'SELECT count(*), sum(i) FROM `ch`.t'
   check_contains "count(*): 6"

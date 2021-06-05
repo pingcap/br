@@ -17,7 +17,7 @@ set -eux
 
 run_lightning_expecting_fail() {
     set +e
-    run_lightning "$@"
+    echo yes | run_lightning "$@"
     ERRCODE=$?
     set -e
     [ "$ERRCODE" != 0 ]
@@ -27,40 +27,40 @@ run_sql 'DROP DATABASE IF EXISTS charsets;'
 
 # gb18030
 
-run_lightning --config "tests/$TEST_NAME/auto.toml" -d "tests/$TEST_NAME/gb18030"
+echo yes | run_lightning --config "tests/$TEST_NAME/auto.toml" -d "tests/$TEST_NAME/gb18030"
 run_sql 'SELECT sum(`主键`) AS s FROM charsets.gb18030'
 check_contains 's: 267'
 run_sql 'DROP TABLE charsets.gb18030;'
 
-run_lightning --config "tests/$TEST_NAME/gb18030.toml" -d "tests/$TEST_NAME/gb18030"
+echo yes | run_lightning --config "tests/$TEST_NAME/gb18030.toml" -d "tests/$TEST_NAME/gb18030"
 run_sql 'SELECT sum(`主键`) AS s FROM charsets.gb18030'
 check_contains 's: 267'
 run_sql 'DROP TABLE charsets.gb18030;'
 
 run_lightning_expecting_fail --config "tests/$TEST_NAME/utf8mb4.toml" -d "tests/$TEST_NAME/gb18030"
 
-run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/gb18030"
+echo yes | run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/gb18030"
 run_sql 'SELECT sum(`Ö÷¼ü`) AS s FROM charsets.gb18030'
 check_contains 's: 267'
 
 # utf8mb4
 
-run_lightning --config "tests/$TEST_NAME/auto.toml" -d "tests/$TEST_NAME/utf8mb4"
+echo yes | run_lightning --config "tests/$TEST_NAME/auto.toml" -d "tests/$TEST_NAME/utf8mb4"
 run_sql 'SELECT sum(`主键`) AS s FROM charsets.utf8mb4'
 check_contains 's: 1119'
 run_sql 'DROP TABLE charsets.utf8mb4;'
 
-run_lightning --config "tests/$TEST_NAME/gb18030.toml" -d "tests/$TEST_NAME/utf8mb4"
+echo yes | run_lightning --config "tests/$TEST_NAME/gb18030.toml" -d "tests/$TEST_NAME/utf8mb4"
 run_sql 'SELECT sum(`涓婚敭`) AS s FROM charsets.utf8mb4'
 check_contains 's: 1119'
 run_sql 'DROP TABLE charsets.utf8mb4;'
 
-run_lightning --config "tests/$TEST_NAME/utf8mb4.toml" -d "tests/$TEST_NAME/utf8mb4"
+echo yes | run_lightning --config "tests/$TEST_NAME/utf8mb4.toml" -d "tests/$TEST_NAME/utf8mb4"
 run_sql 'SELECT sum(`主键`) AS s FROM charsets.utf8mb4'
 check_contains 's: 1119'
 run_sql 'DROP TABLE charsets.utf8mb4;'
 
-run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/utf8mb4"
+echo yes | run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/utf8mb4"
 run_sql 'SELECT sum(`主键`) AS s FROM charsets.utf8mb4'
 check_contains 's: 1119'
 
@@ -70,7 +70,7 @@ run_lightning_expecting_fail --config "tests/$TEST_NAME/auto.toml" -d "tests/$TE
 run_lightning_expecting_fail --config "tests/$TEST_NAME/gb18030.toml" -d "tests/$TEST_NAME/mixed"
 run_lightning_expecting_fail --config "tests/$TEST_NAME/utf8mb4.toml" -d "tests/$TEST_NAME/mixed"
 
-run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/mixed"
+echo yes | run_lightning --config "tests/$TEST_NAME/binary.toml" -d "tests/$TEST_NAME/mixed"
 run_sql 'SELECT sum(`唯一键`) AS s FROM charsets.mixed'
 check_contains 's: 5291'
 

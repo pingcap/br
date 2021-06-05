@@ -253,10 +253,18 @@ type MydumperRuntime struct {
 	MaxRegionSize    ByteSize         `toml:"max-region-size" json:"max-region-size"`
 	Filter           []string         `toml:"filter" json:"filter"`
 	FileRouters      []*FileRouteRule `toml:"files" json:"files"`
-	NoSchema         bool             `toml:"no-schema" json:"no-schema"`
-	CaseSensitive    bool             `toml:"case-sensitive" json:"case-sensitive"`
-	StrictFormat     bool             `toml:"strict-format" json:"strict-format"`
-	DefaultFileRules bool             `toml:"default-file-rules" json:"default-file-rules"`
+	// Deprecated: only used to keep the compatibility.
+	NoSchema         bool                `toml:"no-schema" json:"no-schema"`
+	CaseSensitive    bool                `toml:"case-sensitive" json:"case-sensitive"`
+	StrictFormat     bool                `toml:"strict-format" json:"strict-format"`
+	DefaultFileRules bool                `toml:"default-file-rules" json:"default-file-rules"`
+	IgnoreColumns    map[string][]string `toml:"ignore-columns" json:"ignore-columns"`
+}
+
+type IgnoreColumns struct {
+	DB      string   `toml:"db" json:"db"`
+	Table   string   `toml:"table" json:"table"`
+	Columns []string `toml:"columns" json:"columns"`
 }
 
 type FileRouteRule struct {
@@ -415,8 +423,8 @@ func (cfg *Config) LoadFromGlobal(global *GlobalConfig) error {
 	cfg.TiDB.Psw = global.TiDB.Psw
 	cfg.TiDB.StatusPort = global.TiDB.StatusPort
 	cfg.TiDB.PdAddr = global.TiDB.PdAddr
-	cfg.Mydumper.SourceDir = global.Mydumper.SourceDir
 	cfg.Mydumper.NoSchema = global.Mydumper.NoSchema
+	cfg.Mydumper.SourceDir = global.Mydumper.SourceDir
 	cfg.Mydumper.Filter = global.Mydumper.Filter
 	cfg.TikvImporter.Addr = global.TikvImporter.Addr
 	cfg.TikvImporter.Backend = global.TikvImporter.Backend
@@ -427,6 +435,16 @@ func (cfg *Config) LoadFromGlobal(global *GlobalConfig) error {
 	cfg.App.CheckRequirements = global.App.CheckRequirements
 	cfg.Security = global.Security
 
+	igCols := make(map[string][]string)
+	for _, col := range global.Mydumper.IgnoreColumns {
+		name := common.UniqueTable(col.DB, col.Table)
+		if _, ok := igCols[name]; !ok {
+			igCols[name] = col.Columns
+		} else {
+			igCols[name] = append(igCols[col.Table], col.Columns...)
+		}
+	}
+	cfg.Mydumper.IgnoreColumns = igCols
 	return nil
 }
 
@@ -531,12 +549,6 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.Mydumper.DefaultFileRules = true
 	}
 
-	// RegionConcurrency > NumCPU is meaningless.
-	cpuCount := runtime.NumCPU()
-	if cfg.App.RegionConcurrency > cpuCount {
-		cfg.App.RegionConcurrency = cpuCount
-	}
-
 	cfg.TikvImporter.Backend = strings.ToLower(cfg.TikvImporter.Backend)
 	mustHaveInternalConnections := true
 	switch cfg.TikvImporter.Backend {
@@ -546,6 +558,11 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.PostRestore.Checksum = OpLevelOff
 		cfg.PostRestore.Analyze = OpLevelOff
 	case BackendImporter, BackendLocal:
+		// RegionConcurrency > NumCPU is meaningless.
+		cpuCount := runtime.NumCPU()
+		if cfg.App.RegionConcurrency > cpuCount {
+			cfg.App.RegionConcurrency = cpuCount
+		}
 		cfg.DefaultVarsForImporterAndLocalBackend()
 	default:
 		return errors.Errorf("invalid config: unsupported `tikv-importer.backend` (%s)", cfg.TikvImporter.Backend)
@@ -616,38 +633,13 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 
 	storageSizeDir := filepath.Clean(cfg.TikvImporter.SortedKVDir)
 	sortedKVDirInfo, err := os.Stat(storageSizeDir)
-	switch {
-	case os.IsNotExist(err):
-		// the sorted-kv-dir does not exist, meaning we will create it automatically.
-		// so we extract the storage size from its parent directory.
-		storageSizeDir = filepath.Dir(storageSizeDir)
-	case err == nil:
-		if !sortedKVDirInfo.IsDir() {
-			return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
-		}
-	default:
-		return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
+	if os.IsNotExist(err) {
+		return nil
 	}
-
-	if cfg.TikvImporter.DiskQuota == 0 {
-		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
-		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
-		reservedSize := enginesCount*uint64(cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
-
-		storageSize, err := common.GetStorageSize(storageSizeDir)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if storageSize.Available <= reservedSize {
-			return errors.Errorf(
-				"insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space, or specify `tikv-importer.disk-quota`",
-				cfg.TikvImporter.SortedKVDir,
-				units.BytesSize(float64(storageSize.Available)),
-				units.BytesSize(float64(reservedSize)))
-		}
-		cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
+	if err == nil && !sortedKVDirInfo.IsDir() {
+		return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
 	}
-	return nil
+	return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
 }
 
 func (cfg *Config) DefaultVarsForTiDBBackend() {
@@ -808,6 +800,15 @@ func (cfg *Config) AdjustMydumper() {
 	}
 	if len(cfg.Mydumper.CharacterSet) == 0 {
 		cfg.Mydumper.CharacterSet = "auto"
+	}
+
+	// make ignore columns to lower
+	for table, igCols := range cfg.Mydumper.IgnoreColumns {
+		lowerCols := make([]string, 0, len(igCols))
+		for _, igCol := range igCols {
+			lowerCols = append(lowerCols, strings.ToLower(igCol))
+		}
+		cfg.Mydumper.IgnoreColumns[table] = lowerCols
 	}
 }
 

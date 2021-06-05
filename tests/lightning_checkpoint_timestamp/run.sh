@@ -22,7 +22,7 @@ export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/SetTaskID=return(12345
 
 for i in $(seq 5); do
     echo "******** Importing Chunk Now (file step $i) ********"
-    run_lightning --enable-checkpoint=1 2> /dev/null && break
+    echo yes | run_lightning --enable-checkpoint=1 2> /dev/null && break
     sleep 1
 done
 
@@ -36,7 +36,7 @@ run_sql 'DROP DATABASE IF EXISTS `tidb_lightning_checkpoint_timestamp.1234567890
 
 for i in $(seq 5); do
     echo "******** Importing Chunk Now (mysql step $i) ********"
-    run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/mysql.toml" 2> /dev/null && break
+    echo yes | run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/mysql.toml" 2> /dev/null && break
     sleep 1
 done
 

@@ -14,7 +14,7 @@ fi
 
 run_sql 'DROP DATABASE IF EXISTS rowformatv2;'
 
-run_lightning
+echo yes | run_lightning
 
 run_sql 'SELECT count(1) FROM rowformatv2.t1;'
 check_contains 'count(1): 50'

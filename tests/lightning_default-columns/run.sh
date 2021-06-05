@@ -17,7 +17,7 @@ set -eu
 
 run_sql 'DROP DATABASE IF EXISTS defcol'
 
-run_lightning --log-file "$TEST_DIR/defcol-errors.log"
+echo yes | run_lightning --log-file "$TEST_DIR/defcol-errors.log"
 
 run_sql 'SELECT min(pk), count(pk) FROM defcol.t'
 check_contains 'min(pk): 1'
@@ -32,4 +32,4 @@ check_contains 'xx: 1'
 run_sql 'SELECT xx FROM defcol.u WHERE yy = 60'
 check_contains 'xx: 2'
 
-grep -q '\["column missing from data file, going to fill with default value"\] \[table=`defcol`\.`u`\].*\[colName=xx\]' "$TEST_DIR/defcol-errors.log"
+grep -q '\["column missing from data file, going to fill with default value"\].*\[colName=xx\]' "$TEST_DIR/defcol-errors.log"

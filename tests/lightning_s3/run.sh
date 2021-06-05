@@ -62,7 +62,7 @@ run_sql "DROP DATABASE IF EXISTS $DB;"
 run_sql "DROP TABLE IF EXISTS $DB.$TABLE;"
 
 SOURCE_DIR="s3://$BUCKET/?endpoint=http%3A//127.0.0.1%3A9900&access_key=$MINIO_ACCESS_KEY&secret_access_key=$MINIO_SECRET_KEY&force_path_style=true"
-run_lightning -d $SOURCE_DIR --backend local 2> /dev/null
+echo yes | run_lightning -d $SOURCE_DIR --backend local 2> /dev/null
 run_sql "SELECT count(*), sum(i) FROM \`$DB\`.$TABLE"
 check_contains "count(*): 7"
 check_contains "sum(i): 413"

@@ -31,9 +31,9 @@ func (r *testStorageSuite) TestGCS(c *C) {
 		CredentialsBlob: "Fake Credentials",
 	}
 	stg, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-		SendCredentials: false,
-		SkipCheckPath:   false,
-		HTTPClient:      server.HTTPClient(),
+		SendCredentials:  false,
+		CheckPermissions: []Permission{AccessBuckets},
+		HTTPClient:       server.HTTPClient(),
 	})
 	c.Assert(err, IsNil)
 
@@ -82,9 +82,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "FakeCredentials",
 		}
 		_, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: true,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  true,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "FakeCredentials")
@@ -99,9 +99,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "FakeCredentials",
 		}
 		_, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: false,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  false,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
@@ -128,9 +128,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "",
 		}
 		_, err = newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: true,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  true,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, `{"type": "service_account"}`)
@@ -157,9 +157,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "",
 		}
 		s, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: false,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  false,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")
@@ -176,9 +176,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "",
 		}
 		_, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: true,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  true,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, NotNil)
 	}
@@ -192,9 +192,9 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 			CredentialsBlob: "FakeCredentials",
 		}
 		s, err := newGCSStorage(ctx, gcs, &ExternalStorageOptions{
-			SendCredentials: false,
-			SkipCheckPath:   false,
-			HTTPClient:      server.HTTPClient(),
+			SendCredentials:  false,
+			CheckPermissions: []Permission{AccessBuckets},
+			HTTPClient:       server.HTTPClient(),
 		})
 		c.Assert(err, IsNil)
 		c.Assert(gcs.CredentialsBlob, Equals, "")

@@ -51,7 +51,7 @@ for BACKEND in tidb local; do
   # Start importing the tables.
   run_sql "DROP DATABASE IF EXISTS $DB"
 
-  run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
+  echo yes | run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
   run_sql "SELECT count(*) FROM $DB.t"
   check_contains "count(*): $ROW_COUNT"
 

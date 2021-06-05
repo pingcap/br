@@ -13,61 +13,76 @@
 
 package restore
 
-import "github.com/jedib0t/go-pretty/v6/table"
+import (
+	"fmt"
+
+	"github.com/jedib0t/go-pretty/v6/table"
+	"github.com/jedib0t/go-pretty/v6/text"
+)
+
+type CheckType string
+
+const (
+	Critical CheckType = "critical"
+	Warn     CheckType = "performance"
+)
 
 type Template interface {
-	// InfoCollect records some infos from checks' results.
-	// It used to remind user some meta infos of this import task.
-	// e.g. which tables will be import into cluster.
-	InfoCollect(msg string)
-
-	// PerformanceCollect mainly collect performance related checks' results.
-	// If the performance is not as expect. It will output a warn to user.
-	// and it won't break the whole import task.
-	PerformanceCollect(passed bool, msg string)
-
-	// CriticalCollect records critical level checks' results.
+	// Collect mainly collect performance related checks' results and critical level checks' results.
+	// If the performance is not as expect. It will output a warn to user and it won't break the whole import task.
 	// if one of critical check not passed. it will stop import task.
-	CriticalCollect(passed bool, msg string)
+	Collect(t CheckType, passed bool, msg string)
 
 	// Success represents the whole check has passed or not.
 	Success() bool
+
+	// FailedCount represents (the warn check failed count, the critical check failed count)
+	FailedCount(t CheckType) int
 
 	// Output print all checks results.
 	Output() string
 }
 
 type SimpleTemplate struct {
-	count  int
-	passed bool
-	t      table.Writer
+	count               int
+	warnFailedCount     int
+	criticalFailedCount int
+	passed              bool
+	t                   table.Writer
 }
 
 func NewSimpleTemplate() Template {
 	t := table.NewWriter()
-	t.AppendHeader(table.Row{"#", "Check Item", "Passed"})
+	t.AppendHeader(table.Row{"#", "Check Item", "Type", "Passed"})
+	t.SetColumnConfigs([]table.ColumnConfig{
+		{Name: "#", WidthMax: 6},
+		{Name: "Check Item", WidthMax: 130},
+		{Name: "Type", WidthMax: 20},
+		{Name: "Passed", WidthMax: 6},
+	})
 	return &SimpleTemplate{
+		0,
+		0,
 		0,
 		true,
 		t,
 	}
 }
 
-func (c *SimpleTemplate) InfoCollect(msg string) {
-}
-
-func (c *SimpleTemplate) PerformanceCollect(passed bool, msg string) {
+func (c *SimpleTemplate) Collect(t CheckType, passed bool, msg string) {
 	c.count++
-	c.t.AppendRow(table.Row{c.count, msg, passed})
-	c.t.AppendSeparator()
-}
-
-func (c *SimpleTemplate) CriticalCollect(passed bool, msg string) {
 	if !passed {
-		c.passed = false
+		switch t {
+		case Critical:
+			{
+				c.passed = false
+				c.criticalFailedCount++
+			}
+		case Warn:
+			c.warnFailedCount++
+		}
 	}
-	c.count++
-	c.t.AppendRow(table.Row{c.count, msg, passed})
+	c.t.AppendRow(table.Row{c.count, msg, t, passed})
 	c.t.AppendSeparator()
 }
 
@@ -75,6 +90,44 @@ func (c *SimpleTemplate) Success() bool {
 	return c.passed
 }
 
+func (c *SimpleTemplate) FailedCount(t CheckType) int {
+	if t == Warn {
+		return c.warnFailedCount
+	}
+	if t == Critical {
+		return c.criticalFailedCount
+	}
+	return 0
+}
+
 func (c *SimpleTemplate) Output() string {
-	return c.t.Render()
+	c.t.SetAllowedRowLength(170)
+	c.t.SetRowPainter(table.RowPainter(func(row table.Row) text.Colors {
+		if passed, ok := row[3].(bool); ok {
+			if !passed {
+				if typ, ok := row[2].(CheckType); ok {
+					if typ == Warn {
+						return text.Colors{text.FgYellow}
+					}
+					if typ == Critical {
+						return text.Colors{text.FgRed}
+					}
+				}
+			}
+		}
+		return nil
+	}))
+	res := c.t.Render()
+	summary := "\n"
+	if c.criticalFailedCount > 0 {
+		summary += fmt.Sprintf("%d critical check failed", c.criticalFailedCount)
+	}
+	if c.warnFailedCount > 0 {
+		msg := fmt.Sprintf("%d performance check failed", c.warnFailedCount)
+		if len(summary) > 1 {
+			msg = "," + msg
+		}
+		summary += msg
+	}
+	return res + summary
 }

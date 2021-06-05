@@ -21,7 +21,7 @@ for backend in tidb importer local; do
     fi
 
     run_sql 'DROP DATABASE IF EXISTS too_many_columns;'
-    run_lightning --backend $backend
+    echo yes | run_lightning --backend $backend
 
     run_sql "SELECT * FROM too_many_columns.t"
     check_contains 'COL001: 1001'

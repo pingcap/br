@@ -23,7 +23,7 @@ for BACKEND in local importer tidb; do
   fi
 
   run_sql 'DROP DATABASE IF EXISTS rowid;'
-  run_lightning -backend $BACKEND
+  echo yes | run_lightning -backend $BACKEND
   echo 'Import finished'
 
   # we can't determine the exact `_tidb_row_id` alloc logic, so just skip this check with tidb backend.

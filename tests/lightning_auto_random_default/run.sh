@@ -24,7 +24,7 @@ for backend in tidb importer local; do
     fi
 
     run_sql 'DROP DATABASE IF EXISTS auto_random;'
-    run_lightning --backend $backend
+    echo yes | run_lightning --backend $backend
 
     run_sql "SELECT count(*) from auto_random.t"
     check_contains "count(*): 6"
