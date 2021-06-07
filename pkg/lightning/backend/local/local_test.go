@@ -389,9 +389,10 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
-	err = w.Close(context.Background())
+	flushStatus, err := w.Close(context.Background())
 	c.Assert(err, IsNil)
 	c.Assert(f.flushEngineWithoutLock(ctx), IsNil)
+	c.Assert(flushStatus.Flushed(), IsTrue)
 	o := &pebble.IterOptions{}
 	it := db.NewIter(o)
 
@@ -520,8 +521,13 @@ func (i testIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) 
 	} else if len(metas) == 1 {
 		return metas[0], nil
 	}
+	if metas[len(metas)-1].seq-metas[0].seq != int32(len(metas)-1) {
+		panic("metas is not add in order")
+	}
 
-	newMeta := &sstMeta{}
+	newMeta := &sstMeta{
+		seq: metas[len(metas)-1].seq,
+	}
 	for _, m := range metas {
 		newMeta.totalSize += m.totalSize
 		newMeta.totalCount += m.totalCount
@@ -574,15 +580,18 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 	totalSize := int64(0)
 	concurrency := 4
 	count := 500
+	var metaSeqLock sync.Mutex
+	maxMetaSeq := int32(0)
 	for i := 0; i < concurrency; i++ {
 		go func() {
 			defer wg.Done()
 			flushCnt := rand.Int31n(10) + 1
+			seq := int32(0)
 			for i := 0; i < count; i++ {
 				size := int64(rand.Int31n(50) + 1)
 				m := &sstMeta{totalSize: size, totalCount: 1}
 				atomic.AddInt64(&totalSize, size)
-				err := f.addSST(engineCtx, m)
+				metaSeq, err := f.addSST(engineCtx, m)
 				c.Assert(err, IsNil)
 				if int32(i) >= flushCnt {
 					f.mutex.RLock()
@@ -591,7 +600,13 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 					f.mutex.RUnlock()
 					flushCnt += rand.Int31n(10) + 1
 				}
+				seq = metaSeq
 			}
+			metaSeqLock.Lock()
+			if atomic.LoadInt32(&maxMetaSeq) < seq {
+				atomic.StoreInt32(&maxMetaSeq, seq)
+			}
+			metaSeqLock.Unlock()
 		}()
 	}
 	wg.Wait()
@@ -606,6 +621,7 @@ func (s *localSuite) TestLocalIngestLoop(c *C) {
 	c.Assert(f.ingestErr.Get(), IsNil)
 	c.Assert(totalSize, Equals, f.TotalSize.Load())
 	c.Assert(f.Length.Load(), Equals, int64(concurrency*count))
+	c.Assert(f.finishedMetaSeq.Load(), Equals, atomic.LoadInt32(&maxMetaSeq))
 }
 
 func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {

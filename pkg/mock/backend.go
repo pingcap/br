@@ -305,15 +305,30 @@ func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3, arg4 
 }
 
 // Close mocks base method.
-func (m *MockEngineWriter) Close(arg0 context.Context) error {
+func (m *MockEngineWriter) Close(arg0 context.Context) (backend.ChunkFlushStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Close", arg0)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(backend.ChunkFlushStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Close indicates an expected call of Close.
 func (mr *MockEngineWriterMockRecorder) Close(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEngineWriter)(nil).Close), arg0)
+}
+
+// IsSynced mocks base method.
+func (m *MockEngineWriter) IsSynced() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsSynced")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsSynced indicates an expected call of IsSynced.
+func (mr *MockEngineWriterMockRecorder) IsSynced() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsSynced", reflect.TypeOf((*MockEngineWriter)(nil).IsSynced))
 }
