@@ -816,7 +816,7 @@ func (cfg *Config) AdjustMydumper() {
 		cfg.Mydumper.CharacterSet = "auto"
 	}
 
-	if len(cfg.Mydumper.IgnoreColumns) != 0  {
+	if len(cfg.Mydumper.IgnoreColumns) != 0 {
 		// Tolower columns cause we use Name.L to compare column in tidb.
 		for _, ig := range cfg.Mydumper.IgnoreColumns {
 			cols := make([]string, len(ig.Columns))
