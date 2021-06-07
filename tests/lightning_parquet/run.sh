@@ -28,7 +28,7 @@ for BACKEND in local importer tidb; do
     run_sql 'CREATE DATABASE test'
     run_sql "source tests/$TEST_NAME/db.sql;" -D test
 
-    echo yes | run_lightning --backend $BACKEND
+    run_lightning --backend $BACKEND
 
     check_row_count customer 20
     check_row_count district 10

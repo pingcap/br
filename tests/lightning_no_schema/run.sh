@@ -21,7 +21,7 @@ run_sql "create database noschema;"
 run_sql "create table noschema.t (x int primary key);"
 
 # Starting importing
-echo yes | run_lightning --no-schema=1
+run_lightning --no-schema=1
 
 run_sql "SELECT sum(x) FROM noschema.t;"
 check_contains 'sum(x): 120'

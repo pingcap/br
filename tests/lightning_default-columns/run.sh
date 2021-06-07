@@ -17,7 +17,7 @@ set -eu
 
 run_sql 'DROP DATABASE IF EXISTS defcol'
 
-echo yes | run_lightning --log-file "$TEST_DIR/defcol-errors.log"
+run_lightning --log-file "$TEST_DIR/defcol-errors.log"
 
 run_sql 'SELECT min(pk), count(pk) FROM defcol.t'
 check_contains 'min(pk): 1'

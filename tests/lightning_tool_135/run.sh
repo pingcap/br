@@ -18,7 +18,7 @@
 set -eu
 
 run_sql 'DROP DATABASE IF EXISTS tool_135;'
-echo yes | run_lightning
+run_lightning
 echo 'Import finished'
 
 run_sql 'SELECT count(a), sum(a), min(a), max(a) FROM tool_135.bar1;'

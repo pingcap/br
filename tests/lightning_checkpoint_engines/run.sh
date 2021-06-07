@@ -16,7 +16,7 @@
 set -eux
 
 do_run_lightning() {
-    echo yes | run_lightning --backend $1 --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-checkpoint-engines.log" --config "tests/$TEST_NAME/$2.toml"
+    run_lightning --backend $1 --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-checkpoint-engines.log" --config "tests/$TEST_NAME/$2.toml"
 }
 
 for BACKEND in importer local; do

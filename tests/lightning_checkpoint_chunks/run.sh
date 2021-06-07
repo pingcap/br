@@ -21,7 +21,7 @@ CHUNK_COUNT=5
 ROW_COUNT=1000
 
 do_run_lightning() {
-    echo yes | run_lightning -d "$DBPATH" --enable-checkpoint=1 --config "tests/$TEST_NAME/$1.toml"
+    run_lightning -d "$DBPATH" --enable-checkpoint=1 --config "tests/$TEST_NAME/$1.toml"
 }
 
 verify_checkpoint_noop() {

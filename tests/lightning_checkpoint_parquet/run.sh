@@ -20,7 +20,7 @@ DBPATH="$TEST_DIR/cppq.mydump"
 ROW_COUNT=100
 
 do_run_lightning() {
-    echo yes | run_lightning -d "$DBPATH" --enable-checkpoint=1
+    run_lightning -d "$DBPATH" --enable-checkpoint=1
 }
 
 mkdir -p $DBPATH
@@ -38,7 +38,7 @@ run_sql 'DROP DATABASE IF EXISTS cppq_tsr'
 run_sql 'DROP DATABASE IF EXISTS checkpoint_test_parquet'
 
 set +e
-echo yes | run_lightning -d "$DBPATH" --backend tidb --enable-checkpoint=1 2> /dev/null
+run_lightning -d "$DBPATH" --backend tidb --enable-checkpoint=1 2> /dev/null
 set -e
 run_sql 'SELECT count(*), sum(iVal) FROM `cppq_tsr`.tbl'
 check_contains "count(*): 1"
@@ -52,7 +52,7 @@ run_sql "UPDATE checkpoint_test_parquet.chunk_v5 SET prev_rowid_max = prev_rowid
 # restart lightning from checkpoint, the second line should be written successfully
 export GO_FAILPOINTS=
 set +e
-echo yes | run_lightning -d "$DBPATH" --backend tidb --enable-checkpoint=1 2> /dev/null
+run_lightning -d "$DBPATH" --backend tidb --enable-checkpoint=1 2> /dev/null
 set -e
 
 run_sql 'SELECT count(*), sum(iVal) FROM `cppq_tsr`.tbl'

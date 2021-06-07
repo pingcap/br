@@ -15,7 +15,7 @@
 
 run_sql 'DROP DATABASE IF EXISTS sqlmodedb'
 
-echo yes | run_lightning --config "tests/$TEST_NAME/off.toml"
+run_lightning --config "tests/$TEST_NAME/off.toml"
 
 run_sql 'SELECT a, b, hex(c), d FROM sqlmodedb.t WHERE id = 1'
 check_contains 'a: 0000-00-00 00:00:00'
@@ -50,7 +50,7 @@ check_contains 'd: '
 run_sql 'DROP DATABASE IF EXISTS sqlmodedb'
 
 set +e
-echo yes | run_lightning --config "tests/$TEST_NAME/on.toml" --log-file "$TEST_DIR/sqlmode-error.log"
+run_lightning --config "tests/$TEST_NAME/on.toml" --log-file "$TEST_DIR/sqlmode-error.log"
 [ $? -ne 0 ] || exit 1
 set -e
 

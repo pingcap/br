@@ -41,7 +41,7 @@ for BACKEND in 'local' 'tidb' 'importer'; do
 
     run_sql 'DROP DATABASE IF EXISTS gencol'
 
-    echo yes | run_lightning --backend $BACKEND
+    run_lightning --backend $BACKEND
 
     run_sql 'SELECT * FROM gencol.nested WHERE a = 100'
     check_contains 'a: 100'

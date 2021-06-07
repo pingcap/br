@@ -23,7 +23,7 @@ for BACKEND in importer tidb local; do
   fi
 
   run_sql 'DROP DATABASE IF EXISTS vt;'
-  echo yes | run_lightning --backend $BACKEND
+  run_lightning --backend $BACKEND
   echo Import using $BACKEND finished
 
   run_sql 'SELECT count(pk), bin(min(pk)), bin(max(pk)) FROM vt.bit'

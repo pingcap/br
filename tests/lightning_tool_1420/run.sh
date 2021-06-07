@@ -19,6 +19,6 @@
 set -eu
 
 run_sql 'DROP DATABASE IF EXISTS `EE1420`;'
-echo yes | run_lightning
+run_lightning
 run_sql 'SELECT `ROLE_ID` FROM `EE1420`.`pt_role`;'
 check_contains 'ROLE_ID: 1'

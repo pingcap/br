@@ -717,10 +717,8 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		log.L().Info(rc.checkTemplate.Output())
 	}
 	if !rc.checkTemplate.Success() {
-		return errors.Errorf("lightning pre check failed. please fix the check item and make check passed")
-	}
-	if rc.tidbGlue.OwnsSQLExecutor() && rc.checkTemplate.FailedCount(Warn) != 0 && !common.AskForConfirmation() {
-		return errors.Errorf("lightning stopped by user requirements")
+		return errors.Errorf("lightning pre check failed." +
+			"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
 	}
 	return nil
 }
@@ -1349,8 +1347,6 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		return errors.New("TiDB Lightning has detected tables with illegal checkpoints; please remove these checkpoints first")
 	}
 
-	igColsMap := rc.cfg.Mydumper.IgnoreColumns
-
 	for _, dbMeta := range rc.dbMetas {
 		dbInfo := rc.dbInfos[dbMeta.Name]
 		for _, tableMeta := range dbMeta.Tables {
@@ -1360,11 +1356,11 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			igCols := make([]string, 0)
-			if _, ok := igColsMap[tableName]; ok {
-				igCols = igColsMap[tableName]
+			igCols, err := rc.cfg.Mydumper.IgnoreColumns.GetIgnoreColumns(dbInfo.Name, tableInfo.Name, rc.cfg.Mydumper.CaseSensitive)
+			if err != nil {
+				return errors.Trace(err)
 			}
-			tr, err := NewTableRestore(tableName, tableMeta, dbInfo, tableInfo, cp, igCols)
+			tr, err := NewTableRestore(tableName, tableMeta, dbInfo, tableInfo, cp, igCols.Columns)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -2272,6 +2268,10 @@ func (rc *Controller) isLocalBackend() bool {
 // 3. Lightning configuration
 // before restore tables start.
 func (rc *Controller) preCheckRequirements(ctx context.Context) error {
+	if !rc.cfg.App.CheckRequirements {
+		log.L().Info("skip pre check due to user requirement")
+		return nil
+	}
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
 		return errors.Trace(err)
 	}
@@ -2297,16 +2297,18 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 
 // DataCheck checks the data schema which needs #rc.restoreSchema finished.
 func (rc *Controller) DataCheck(ctx context.Context) error {
+	if !rc.cfg.App.CheckRequirements {
+		log.L().Info("skip data check due to user requirement")
+		return nil
+	}
 	var err error
 	err = rc.HasLargeCSV(rc.dbMetas)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	checkPointCriticalMsgs := make([]string, 0, len(rc.dbMetas))
-	dataCriticalMsgs := make([]string, 0, len(rc.dbMetas))
 	schemaCriticalMsgs := make([]string, 0, len(rc.dbMetas))
 	var msgs []string
-	var msg string
 	for _, dbInfo := range rc.dbMetas {
 		for _, tableInfo := range dbInfo.Tables {
 			// if hasCheckpoint is true, the table will start import from the checkpoint
@@ -2321,13 +2323,6 @@ func (rc *Controller) DataCheck(ctx context.Context) error {
 				}
 			}
 			if noCheckpoint && rc.cfg.TikvImporter.Backend != config.BackendTiDB {
-				uniqueName := common.UniqueTable(tableInfo.DB, tableInfo.Name)
-				if msg, err = rc.TableHasDataInCluster(ctx, uniqueName); err != nil {
-					return errors.Trace(err)
-				}
-				if len(msg) != 0 {
-					dataCriticalMsgs = append(dataCriticalMsgs, msg)
-				}
 				if msgs, err = rc.SchemaIsValid(ctx, tableInfo); err != nil {
 					return errors.Trace(err)
 				}
@@ -2341,11 +2336,6 @@ func (rc *Controller) DataCheck(ctx context.Context) error {
 		rc.checkTemplate.Collect(Critical, false, strings.Join(checkPointCriticalMsgs, "\n"))
 	} else {
 		rc.checkTemplate.Collect(Critical, true, "checkpoints are valid")
-	}
-	if len(dataCriticalMsgs) != 0 {
-		rc.checkTemplate.Collect(Critical, false, strings.Join(dataCriticalMsgs, "\n"))
-	} else {
-		rc.checkTemplate.Collect(Critical, true, "table has no data before import")
 	}
 	if len(schemaCriticalMsgs) != 0 {
 		rc.checkTemplate.Collect(Critical, false, strings.Join(schemaCriticalMsgs, "\n"))
