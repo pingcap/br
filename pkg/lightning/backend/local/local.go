@@ -171,6 +171,13 @@ type File struct {
 	sstIngester    sstIngester
 	finishedRanges syncedRanges
 
+	// sst seq lock
+	seqLock sync.Mutex
+	// seq number for incoming sst meta
+	nextSeq int32
+	// max seq of sst metas ingested into pebble
+	finishedMetaSeq atomic.Int32
+
 	config backend.LocalEngineConfig
 
 	// total size of SST files waiting to be ingested
@@ -332,27 +339,36 @@ func (e *File) unlock() {
 	e.mutex.Unlock()
 }
 
-type intHeap struct {
-	arr []int32
+type metaSeq struct {
+	// the sequence for this flush message, a flush call can return only if
+	// all the other flush will lower `flushSeq` are done
+	flushSeq int32
+	// the max sstMeta sequence number in this flush, after the flush is done (all SSTs are ingested),
+	// we can save chunks will a lower meta sequence number safely.
+	metaSeq int32
 }
 
-func (h *intHeap) Len() int {
+type metaSeqHeap struct {
+	arr []metaSeq
+}
+
+func (h *metaSeqHeap) Len() int {
 	return len(h.arr)
 }
 
-func (h *intHeap) Less(i, j int) bool {
-	return h.arr[i] < h.arr[j]
+func (h *metaSeqHeap) Less(i, j int) bool {
+	return h.arr[i].flushSeq < h.arr[j].flushSeq
 }
 
-func (h *intHeap) Swap(i, j int) {
+func (h *metaSeqHeap) Swap(i, j int) {
 	h.arr[i], h.arr[j] = h.arr[j], h.arr[i]
 }
 
-func (h *intHeap) Push(x interface{}) {
-	h.arr = append(h.arr, x.(int32))
+func (h *metaSeqHeap) Push(x interface{}) {
+	h.arr = append(h.arr, x.(metaSeq))
 }
 
-func (h *intHeap) Pop() interface{} {
+func (h *metaSeqHeap) Pop() interface{} {
 	item := h.arr[len(h.arr)-1]
 	h.arr = h.arr[:len(h.arr)-1]
 	return item
@@ -373,7 +389,7 @@ func (e *File) ingestSSTLoop() {
 	flushQueue := make([]flushSeq, 0)
 	// inSyncSeqs is a heap that stores all the finished compaction tasks whose seq is bigger than `finishedSeq + 1`
 	// this mean there are still at lease one compaction task with a lower seq unfinished.
-	inSyncSeqs := &intHeap{arr: make([]int32, 0)}
+	inSyncSeqs := &metaSeqHeap{arr: make([]metaSeq, 0)}
 
 	type metaAndSeq struct {
 		metas []*sstMeta
@@ -417,6 +433,8 @@ func (e *File) ingestSSTLoop() {
 						}
 						ingestMetas = []*sstMeta{newMeta}
 					}
+					// batchIngestSSTs will change ingestMetas' order, so we record the max seq here
+					metasMaxSeq := ingestMetas[len(ingestMetas)-1].seq
 
 					if err := e.batchIngestSSTs(ingestMetas); err != nil {
 						e.setError(err)
@@ -426,9 +444,11 @@ func (e *File) ingestSSTLoop() {
 					finSeq := finishedSeq.Load()
 					if metas.seq == finSeq+1 {
 						finSeq = metas.seq
+						finMetaSeq := metasMaxSeq
 						for len(inSyncSeqs.arr) > 0 {
-							if inSyncSeqs.arr[0] == finSeq+1 {
+							if inSyncSeqs.arr[0].flushSeq == finSeq+1 {
 								finSeq++
+								finMetaSeq = inSyncSeqs.arr[0].metaSeq
 								heap.Remove(inSyncSeqs, 0)
 							} else {
 								break
@@ -445,12 +465,13 @@ func (e *File) ingestSSTLoop() {
 						}
 						flushQueue = flushQueue[len(flushChans):]
 						finishedSeq.Store(finSeq)
+						e.finishedMetaSeq.Store(finMetaSeq)
 						seqLock.Unlock()
 						for _, c := range flushChans {
 							c <- struct{}{}
 						}
 					} else {
-						heap.Push(inSyncSeqs, metas.seq)
+						heap.Push(inSyncSeqs, metaSeq{flushSeq: metas.seq, metaSeq: metasMaxSeq})
 						seqLock.Unlock()
 					}
 				}
@@ -561,16 +582,22 @@ readMetaLoop:
 	}
 }
 
-func (e *File) addSST(ctx context.Context, m *sstMeta) error {
+func (e *File) addSST(ctx context.Context, m *sstMeta) (int32, error) {
 	// set pending size after SST file is generated
 	e.pendingFileSize.Add(m.fileSize)
+	// make sure sstMeta is sent into the chan in order
+	e.seqLock.Lock()
+	defer e.seqLock.Unlock()
+	e.nextSeq++
+	seq := e.nextSeq
+	m.seq = seq
 	select {
 	case e.sstMetasChan <- metaOrFlush{meta: m}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return 0, ctx.Err()
 	case <-e.ctx.Done():
 	}
-	return e.ingestErr.Get()
+	return seq, e.ingestErr.Get()
 }
 
 func (e *File) batchIngestSSTs(metas []*sstMeta) error {
@@ -623,6 +650,7 @@ func (e *File) ingestSSTs(metas []*sstMeta) error {
 	log.L().Info("write data to local DB",
 		zap.Int64("size", totalSize),
 		zap.Int64("kvs", totalCount),
+		zap.Int("files", len(metas)),
 		zap.Int64("sstFileSize", fileSize),
 		zap.String("file", metas[0].path),
 		logutil.Key("firstKey", metas[0].minKey),
@@ -2490,6 +2518,7 @@ type sstMeta struct {
 	totalCount int64
 	// used for calculate disk-quota
 	fileSize int64
+	seq      int32
 }
 
 type Writer struct {
@@ -2507,6 +2536,8 @@ type Writer struct {
 
 	kvBuffer *bytesBuffer
 	writer   *sstWriter
+
+	lastMetaSeq int32
 }
 
 func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
@@ -2610,15 +2641,25 @@ func (w *Writer) flush(ctx context.Context) error {
 			return errors.Trace(err)
 		}
 		w.writer = nil
+		w.batchCount = 0
 		if meta != nil && meta.totalSize > 0 {
-			return w.local.addSST(ctx, meta)
+			return w.addSST(ctx, meta)
 		}
 	}
 
 	return nil
 }
 
-func (w *Writer) Close(ctx context.Context) error {
+type flushStatus struct {
+	local *File
+	seq   int32
+}
+
+func (f flushStatus) Flushed() bool {
+	return f.seq <= f.local.finishedMetaSeq.Load()
+}
+
+func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	defer w.kvBuffer.destroy()
 	defer w.local.localWriters.Delete(w)
 	err := w.flush(ctx)
@@ -2626,7 +2667,11 @@ func (w *Writer) Close(ctx context.Context) error {
 	// this can resolve the memory consistently increasing issue.
 	// maybe this is a bug related to go GC mechanism.
 	w.writeBatch = nil
-	return err
+	return flushStatus{local: w.local, seq: w.lastMetaSeq}, err
+}
+
+func (w *Writer) IsSynced() bool {
+	return w.batchCount == 0 && w.lastMetaSeq <= w.local.finishedMetaSeq.Load()
 }
 
 func (w *Writer) flushKVs(ctx context.Context) error {
@@ -2646,7 +2691,7 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = w.local.addSST(ctx, meta)
+	err = w.addSST(ctx, meta)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -2655,6 +2700,15 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	w.batchSize = 0
 	w.batchCount = 0
 	w.kvBuffer.reset()
+	return nil
+}
+
+func (w *Writer) addSST(ctx context.Context, meta *sstMeta) error {
+	seq, err := w.local.addSST(ctx, meta)
+	if err != nil {
+		return err
+	}
+	w.lastMetaSeq = seq
 	return nil
 }
 
@@ -2822,10 +2876,13 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 	}
 
 	start := time.Now()
-	newMeta := &sstMeta{}
+	newMeta := &sstMeta{
+		seq: metas[len(metas)-1].seq,
+	}
 	mergeIter := &sstIterHeap{
 		iters: make([]*sstIter, 0, len(metas)),
 	}
+
 	for _, p := range metas {
 		f, err := os.Open(p.path)
 		if err != nil {
