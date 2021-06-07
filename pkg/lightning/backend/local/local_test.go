@@ -345,10 +345,17 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 	c.Assert(err, IsNil)
 	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = w.Close()
 	c.Assert(err, IsNil)
 	err = db.Flush()
 	c.Assert(err, IsNil)
+=======
+	flushStatus, err := w.Close(context.Background())
+	c.Assert(err, IsNil)
+	c.Assert(f.flushEngineWithoutLock(ctx), IsNil)
+	c.Assert(flushStatus.Flushed(), IsTrue)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	o := &pebble.IterOptions{}
 	it := db.NewIter(o)
 
@@ -459,6 +466,120 @@ func (s *localSuite) TestIsIngestRetryable(c *C) {
 	c.Assert(err, ErrorMatches, "non-retryable error: unknown error")
 }
 
+<<<<<<< HEAD
+=======
+type testIngester struct{}
+
+func (i testIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
+	if len(metas) == 0 {
+		return nil, errors.New("sst metas is empty")
+	} else if len(metas) == 1 {
+		return metas[0], nil
+	}
+	if metas[len(metas)-1].seq-metas[0].seq != int32(len(metas)-1) {
+		panic("metas is not add in order")
+	}
+
+	newMeta := &sstMeta{
+		seq: metas[len(metas)-1].seq,
+	}
+	for _, m := range metas {
+		newMeta.totalSize += m.totalSize
+		newMeta.totalCount += m.totalCount
+	}
+	return newMeta, nil
+}
+
+func (i testIngester) ingest([]*sstMeta) error {
+	return nil
+}
+
+func (s *localSuite) TestLocalIngestLoop(c *C) {
+	dir := c.MkDir()
+	opt := &pebble.Options{
+		MemTableSize:             1024 * 1024,
+		MaxConcurrentCompactions: 16,
+		L0CompactionThreshold:    math.MaxInt32, // set to max try to disable compaction
+		L0StopWritesThreshold:    math.MaxInt32, // set to max try to disable compaction
+		DisableWAL:               true,
+		ReadOnly:                 false,
+	}
+	db, err := pebble.Open(filepath.Join(dir, "test"), opt)
+	c.Assert(err, IsNil)
+	defer db.Close()
+	tmpPath := filepath.Join(dir, "test.sst")
+	err = os.Mkdir(tmpPath, 0o755)
+	c.Assert(err, IsNil)
+	_, engineUUID := backend.MakeUUID("ww", 0)
+	engineCtx, cancel := context.WithCancel(context.Background())
+	f := File{
+		db:           db,
+		UUID:         engineUUID,
+		sstDir:       "",
+		ctx:          engineCtx,
+		cancel:       cancel,
+		sstMetasChan: make(chan metaOrFlush, 64),
+		config: backend.LocalEngineConfig{
+			Compact:            true,
+			CompactThreshold:   100,
+			CompactConcurrency: 4,
+		},
+	}
+	f.sstIngester = testIngester{}
+	f.wg.Add(1)
+	go f.ingestSSTLoop()
+
+	// add some routines to add ssts
+	var wg sync.WaitGroup
+	wg.Add(4)
+	totalSize := int64(0)
+	concurrency := 4
+	count := 500
+	var metaSeqLock sync.Mutex
+	maxMetaSeq := int32(0)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+			flushCnt := rand.Int31n(10) + 1
+			seq := int32(0)
+			for i := 0; i < count; i++ {
+				size := int64(rand.Int31n(50) + 1)
+				m := &sstMeta{totalSize: size, totalCount: 1}
+				atomic.AddInt64(&totalSize, size)
+				metaSeq, err := f.addSST(engineCtx, m)
+				c.Assert(err, IsNil)
+				if int32(i) >= flushCnt {
+					f.mutex.RLock()
+					err = f.flushEngineWithoutLock(engineCtx)
+					c.Assert(err, IsNil)
+					f.mutex.RUnlock()
+					flushCnt += rand.Int31n(10) + 1
+				}
+				seq = metaSeq
+			}
+			metaSeqLock.Lock()
+			if atomic.LoadInt32(&maxMetaSeq) < seq {
+				atomic.StoreInt32(&maxMetaSeq, seq)
+			}
+			metaSeqLock.Unlock()
+		}()
+	}
+	wg.Wait()
+
+	f.mutex.RLock()
+	err = f.flushEngineWithoutLock(engineCtx)
+	c.Assert(err, IsNil)
+	f.mutex.RUnlock()
+
+	close(f.sstMetasChan)
+	f.wg.Wait()
+	c.Assert(f.ingestErr.Get(), IsNil)
+	c.Assert(totalSize, Equals, f.TotalSize.Load())
+	c.Assert(f.Length.Load(), Equals, int64(concurrency*count))
+	c.Assert(f.finishedMetaSeq.Load(), Equals, atomic.LoadInt32(&maxMetaSeq))
+}
+
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 func (s *localSuite) TestCheckRequirementsTiFlash(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()

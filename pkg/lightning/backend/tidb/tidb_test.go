@@ -124,8 +124,13 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"}, dataRows)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	st, err := writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
+	c.Assert(st, IsNil)
 }
 
 func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
@@ -157,7 +162,11 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	_, err = writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
 
 	// test encode rows with _tidb_rowid
@@ -202,8 +211,13 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	st, err := writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
+	c.Assert(st, IsNil)
 }
 
 // TODO: temporarily disable this test before we fix strict mode

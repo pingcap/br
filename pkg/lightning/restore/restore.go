@@ -1531,6 +1531,23 @@ func (tr *TableRestore) restoreEngine(
 		return closedEngine, nil
 	}
 
+<<<<<<< HEAD
+=======
+	// if the key are ordered, LocalWrite can optimize the writing.
+	// table has auto-incremented _tidb_rowid must satisfy following restrictions:
+	// - clustered index disable and primary key is not number
+	// - no auto random bits (auto random or shard row id)
+	// - no partition table
+	// - no explicit _tidb_rowid field (A this time we can't determine if the source files contain _tidb_rowid field,
+	//   so we will do this check in LocalWriter when the first row is received.)
+	hasAutoIncrementAutoID := common.TableHasAutoRowID(tr.tableInfo.Core) &&
+		tr.tableInfo.Core.AutoRandomBits == 0 && tr.tableInfo.Core.ShardRowIDBits == 0 &&
+		tr.tableInfo.Core.Partition == nil
+	dataWriterCfg := &backend.LocalWriterConfig{
+		IsKVSorted: hasAutoIncrementAutoID,
+	}
+
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 
 	dataEngine, err := rc.backend.OpenEngine(ctx, tr.tableName, engineID, rc.ts)
@@ -1541,11 +1558,51 @@ func (tr *TableRestore) restoreEngine(
 	var wg sync.WaitGroup
 	var chunkErr common.OnceError
 
+	type chunkFlushStatus struct {
+		dataStatus  backend.ChunkFlushStatus
+		indexStatus backend.ChunkFlushStatus
+		chunkCp     *checkpoints.ChunkCheckpoint
+	}
+
+	// chunks that are finished writing, but checkpoints are not finished due to flush not finished.
+	var checkFlushLock sync.Mutex
+	flushPendingChunks := make([]chunkFlushStatus, 0, 16)
+
+	chunkCpChan := make(chan *checkpoints.ChunkCheckpoint, 16)
+	go func() {
+		for {
+			select {
+			case cp, ok := <-chunkCpChan:
+				if !ok {
+					return
+				}
+				saveCheckpoint(rc, tr, engineID, cp)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	// Restore table data
 	for chunkIndex, chunk := range cp.Chunks {
 		if chunk.Chunk.Offset >= chunk.Chunk.EndOffset {
 			continue
 		}
+
+		checkFlushLock.Lock()
+		finished := 0
+		for _, c := range flushPendingChunks {
+			if c.indexStatus.Flushed() && c.dataStatus.Flushed() {
+				chunkCpChan <- c.chunkCp
+				finished++
+			} else {
+				break
+			}
+		}
+		if finished > 0 {
+			flushPendingChunks = flushPendingChunks[finished:]
+		}
+		checkFlushLock.Unlock()
 
 		select {
 		case <-ctx.Done():
@@ -1591,15 +1648,36 @@ func (tr *TableRestore) restoreEngine(
 			}()
 			metric.ChunkCounter.WithLabelValues(metric.ChunkStateRunning).Add(remainChunkCnt)
 			err := cr.restore(ctx, tr, engineID, dataWriter, indexWriter, rc)
+			var dataFlushStatus, indexFlushStaus backend.ChunkFlushStatus
 			if err == nil {
+<<<<<<< HEAD
 				err = dataWriter.Close()
 			}
 			if err == nil {
 				err = indexWriter.Close()
+=======
+				dataFlushStatus, err = dataWriter.Close(ctx)
+			}
+			if err == nil {
+				indexFlushStaus, err = indexWriter.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 			}
 			if err == nil {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFinished).Add(remainChunkCnt)
 				metric.BytesCounter.WithLabelValues(metric.TableStateWritten).Add(float64(cr.chunk.Checksum.SumSize()))
+				if dataFlushStatus != nil && indexFlushStaus != nil {
+					if dataFlushStatus.Flushed() && indexFlushStaus.Flushed() {
+						saveCheckpoint(rc, tr, engineID, cr.chunk)
+					} else {
+						checkFlushLock.Lock()
+						flushPendingChunks = append(flushPendingChunks, chunkFlushStatus{
+							dataStatus:  dataFlushStatus,
+							indexStatus: indexFlushStaus,
+							chunkCp:     cr.chunk,
+						})
+						checkFlushLock.Unlock()
+					}
+				}
 			} else {
 				metric.ChunkCounter.WithLabelValues(metric.ChunkStateFailed).Add(remainChunkCnt)
 				chunkErr.Set(err)
@@ -1624,6 +1702,7 @@ func (tr *TableRestore) restoreEngine(
 		zap.Uint64("written", totalKVSize),
 	)
 
+<<<<<<< HEAD
 	flushAndSaveAllChunks := func() error {
 		if err = indexEngine.Flush(ctx); err != nil {
 			return errors.Trace(err)
@@ -1631,7 +1710,21 @@ func (tr *TableRestore) restoreEngine(
 		// Currently we write all the checkpoints after data&index engine are flushed.
 		for _, chunk := range cp.Chunks {
 			saveCheckpoint(rc, tr, engineID, chunk)
+=======
+	trySavePendingChunks := func(flushCtx context.Context) error {
+		checkFlushLock.Lock()
+		cnt := 0
+		for _, chunk := range flushPendingChunks {
+			if chunk.dataStatus.Flushed() && chunk.indexStatus.Flushed() {
+				saveCheckpoint(rc, tr, engineID, chunk.chunkCp)
+				cnt++
+			} else {
+				break
+			}
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 		}
+		flushPendingChunks = flushPendingChunks[cnt:]
+		checkFlushLock.Unlock()
 		return nil
 	}
 
@@ -1649,7 +1742,11 @@ func (tr *TableRestore) restoreEngine(
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 				return nil, errors.Trace(err)
 			}
+<<<<<<< HEAD
 			if err2 := flushAndSaveAllChunks(); err2 != nil {
+=======
+			if err2 := trySavePendingChunks(context.Background()); err2 != nil {
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 			}
 		}
@@ -1660,13 +1757,15 @@ func (tr *TableRestore) restoreEngine(
 	// For local backend, if checkpoint is enabled, we must flush index engine to avoid data loss.
 	// this flush action impact up to 10% of the performance, so we only do it if necessary.
 	if err == nil && rc.cfg.Checkpoint.Enable && rc.isLocalBackend() {
+<<<<<<< HEAD
 		if err = flushAndSaveAllChunks(); err != nil {
+=======
+		if err = indexEngine.Flush(ctx); err != nil {
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 			return nil, errors.Trace(err)
 		}
-
-		// Currently we write all the checkpoints after data&index engine are flushed.
-		for _, chunk := range cp.Chunks {
-			saveCheckpoint(rc, tr, engineID, chunk)
+		if err = trySavePendingChunks(ctx); err != nil {
+			return nil, errors.Trace(err)
 		}
 	}
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusClosed)
@@ -2372,6 +2471,7 @@ func (cr *chunkRestore) deliverLoop(
 		zap.String("task", "deliver"),
 	)
 
+	dataSynced := true
 	for !channelClosed {
 		var dataChecksum, indexChecksum verify.KVChecksum
 		var columns []string
@@ -2404,15 +2504,14 @@ func (cr *chunkRestore) deliverLoop(
 			}
 		}
 
-		// we are allowed to save checkpoint when the disk quota state moved to "importing"
-		// since all engines are flushed.
-		if atomic.LoadInt32(&rc.diskQuotaState) == diskQuotaStateImporting {
-			saveCheckpoint(rc, t, engineID, cr.chunk)
-		}
-
 		err = func() error {
 			rc.diskQuotaLock.RLock()
 			defer rc.diskQuotaLock.RUnlock()
+
+			// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
+			if !dataSynced {
+				dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
+			}
 
 			// Write KVs into the engine
 			start := time.Now()
@@ -2443,6 +2542,7 @@ func (cr *chunkRestore) deliverLoop(
 		if err != nil {
 			return
 		}
+		dataSynced = false
 
 		// Update the table, and save a checkpoint.
 		// (the write to the importer is effective immediately, thus update these here)
@@ -2452,9 +2552,10 @@ func (cr *chunkRestore) deliverLoop(
 		cr.chunk.Checksum.Add(&indexChecksum)
 		cr.chunk.Chunk.Offset = offset
 		cr.chunk.Chunk.PrevRowIDMax = rowID
-		if !rc.isLocalBackend() && (dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0) {
+
+		if dataChecksum.SumKVS() != 0 || indexChecksum.SumKVS() != 0 {
 			// No need to save checkpoint if nothing was delivered.
-			saveCheckpoint(rc, t, engineID, cr.chunk)
+			dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
 		}
 		failpoint.Inject("SlowDownWriteRows", func() {
 			deliverLogger.Warn("Slowed down write rows")
@@ -2473,6 +2574,20 @@ func (cr *chunkRestore) deliverLoop(
 	}
 
 	return
+}
+
+func (cr *chunkRestore) maybeSaveCheckpoint(
+	rc *Controller,
+	t *TableRestore,
+	engineID int32,
+	chunk *checkpoints.ChunkCheckpoint,
+	data, index *backend.LocalEngineWriter,
+) bool {
+	if data.IsSynced() && index.IsSynced() {
+		saveCheckpoint(rc, t, engineID, chunk)
+		return true
+	}
+	return false
 }
 
 func saveCheckpoint(rc *Controller, t *TableRestore, engineID int32, chunk *checkpoints.ChunkCheckpoint) {

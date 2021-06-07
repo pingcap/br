@@ -1006,7 +1006,12 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
+<<<<<<< HEAD
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
+=======
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 
 	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
 	c.Assert(err, IsNil)

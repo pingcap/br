@@ -594,10 +594,78 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
+<<<<<<< HEAD
 func (w *Writer) Close() error {
 	return nil
+=======
+func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
+	return nil, nil
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 }
 
 func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, arg1 uint64, rows kv.Rows) error {
 	return w.be.WriteRows(ctx, w.engineUUID, tableName, columnNames, arg1, rows)
 }
+<<<<<<< HEAD
+=======
+
+func (w *Writer) IsSynced() bool {
+	return true
+}
+
+type TableAutoIDInfo struct {
+	Column string
+	NextID int64
+	Type   string
+}
+
+func FetchTableAutoIDInfos(ctx context.Context, exec common.QueryExecutor, tableName string) ([]*TableAutoIDInfo, error) {
+	rows, e := exec.QueryContext(ctx, fmt.Sprintf("SHOW TABLE %s NEXT_ROW_ID", tableName))
+	if e != nil {
+		return nil, errors.Trace(e)
+	}
+	var autoIDInfos []*TableAutoIDInfo
+	for rows.Next() {
+		var (
+			dbName, tblName, columnName, idType string
+			nextID                              int64
+		)
+		columns, err := rows.Columns()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		//+--------------+------------+-------------+--------------------+----------------+
+		//| DB_NAME      | TABLE_NAME | COLUMN_NAME | NEXT_GLOBAL_ROW_ID | ID_TYPE        |
+		//+--------------+------------+-------------+--------------------+----------------+
+		//| testsysbench | t          | _tidb_rowid |                  1 | AUTO_INCREMENT |
+		//+--------------+------------+-------------+--------------------+----------------+
+
+		// if columns length is 4, it doesn't contains the last column `ID_TYPE`, and it will always be 'AUTO_INCREMENT'
+		// for v4.0.0~v4.0.2 show table t next_row_id only returns 4 columns.
+		if len(columns) == 4 {
+			err = rows.Scan(&dbName, &tblName, &columnName, &nextID)
+			idType = "AUTO_INCREMENT"
+		} else {
+			err = rows.Scan(&dbName, &tblName, &columnName, &nextID, &idType)
+		}
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		autoIDInfos = append(autoIDInfos, &TableAutoIDInfo{
+			Column: columnName,
+			NextID: nextID,
+			Type:   idType,
+		})
+	}
+	// Defer in for-loop would be costly, anyway, we don't need those rows after this turn of iteration.
+	//nolint:sqlclosecheck
+	if err := rows.Close(); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if rows.Err() != nil {
+		return nil, errors.Trace(rows.Err())
+	}
+	return autoIDInfos, nil
+}
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
