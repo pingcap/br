@@ -71,6 +71,9 @@ const (
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
 
+	// defaultMetaSchemaName is the default database name used to store lightning metadata
+	defaultMetaSchemaName = "lightning_metadata"
+
 	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
 	// millisecond per write thread the local backend may gain on all engines.
 	// This is used to compute the maximum size overshoot between two disk quota
@@ -148,11 +151,12 @@ func (cfg *Config) ToTLS() (*common.TLS, error) {
 }
 
 type Lightning struct {
-	TableConcurrency  int  `toml:"table-concurrency" json:"table-concurrency"`
-	IndexConcurrency  int  `toml:"index-concurrency" json:"index-concurrency"`
-	RegionConcurrency int  `toml:"region-concurrency" json:"region-concurrency"`
-	IOConcurrency     int  `toml:"io-concurrency" json:"io-concurrency"`
-	CheckRequirements bool `toml:"check-requirements" json:"check-requirements"`
+	TableConcurrency  int    `toml:"table-concurrency" json:"table-concurrency"`
+	IndexConcurrency  int    `toml:"index-concurrency" json:"index-concurrency"`
+	RegionConcurrency int    `toml:"region-concurrency" json:"region-concurrency"`
+	IOConcurrency     int    `toml:"io-concurrency" json:"io-concurrency"`
+	CheckRequirements bool   `toml:"check-requirements" json:"check-requirements"`
+	MetaSchemaName    string `toml:"meta-schema-name" json:"meta-schema-name"`
 }
 
 type PostOpLevel int
@@ -656,6 +660,9 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend() {
 	}
 	if cfg.App.TableConcurrency == 0 {
 		cfg.App.TableConcurrency = 6
+	}
+	if len(cfg.App.MetaSchemaName) == 0 {
+		cfg.App.MetaSchemaName = defaultMetaSchemaName
 	}
 	if cfg.TikvImporter.RangeConcurrency == 0 {
 		cfg.TikvImporter.RangeConcurrency = 16

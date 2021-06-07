@@ -863,6 +863,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(err, IsNil)
 
 	cpDB := checkpoints.NewNullCheckpointsDB()
+	g := mock.NewMockGlue(controller)
 	rc := &Controller{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
@@ -882,17 +883,22 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		saveCpCh:          chptCh,
 		pauser:            DeliverPauser,
 		backend:           noop.NewNoopBackend(),
-		tidbGlue:          mock.NewMockGlue(controller),
+		tidbGlue:          g,
 		errorSummaries:    makeErrorSummaries(log.L()),
 		tls:               tls,
 		checkpointsDB:     cpDB,
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
+		metaMgrBuilder:    noopMetaMgrBuilder{},
 	}
 	go func() {
 		for range chptCh {
 		}
 	}()
+	exec := mock.NewMockSQLExecutor(controller)
+	g.EXPECT().GetSQLExecutor().Return(exec).AnyTimes()
+	exec.EXPECT().ObtainStringWithLog(gomock.Any(), "SELECT version()", gomock.Any(), gomock.Any()).
+		Return("5.7.25-TiDB-v5.0.1", nil).AnyTimes()
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
@@ -1485,4 +1491,14 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
+}
+
+type testChecksumMgr struct {
+	checksum RemoteChecksum
+	callCnt  int
+}
+
+func (t *testChecksumMgr) Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
+	t.callCnt++
+	return &t.checksum, nil
 }
