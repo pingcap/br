@@ -458,7 +458,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 					if _, hasDefault := defaultCols[col.Name.L]; !hasDefault {
 						msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s`'s column %s cannot be ignored,"+
 							"because it doesn't hava a default value, please set tables.ignoreColumns properly",
-							tableInfo.DB, tableInfo.Name, col))
+							tableInfo.DB, tableInfo.Name, col.Name.L))
 					}
 				} else {
 					colMap[col.Name.L] = struct{}{}
