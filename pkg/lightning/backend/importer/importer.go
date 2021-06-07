@@ -335,10 +335,19 @@ type Writer struct {
 	engineUUID uuid.UUID
 }
 
+<<<<<<< HEAD
 func (w *Writer) Close() error {
 	return nil
+=======
+func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
+	return nil, nil
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 }
 
 func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
 	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
+}
+
+func (w *Writer) IsSynced() bool {
+	return true
 }

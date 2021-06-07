@@ -156,7 +156,44 @@ type File struct {
 	// isImportingAtomic is an atomic variable indicating whether this engine is importing.
 	// This should not be used as a "spin lock" indicator.
 	isImportingAtomic atomic.Uint32
+<<<<<<< HEAD
 	mutex             sync.Mutex
+=======
+	// flush and ingest sst hold the rlock, other operation hold the wlock.
+	mutex sync.RWMutex
+
+	ctx            context.Context
+	cancel         context.CancelFunc
+	sstDir         string
+	sstMetasChan   chan metaOrFlush
+	ingestErr      common.OnceError
+	wg             sync.WaitGroup
+	sstIngester    sstIngester
+	finishedRanges syncedRanges
+
+	// sst seq lock
+	seqLock sync.Mutex
+	// seq number for incoming sst meta
+	nextSeq int32
+	// max seq of sst metas ingested into pebble
+	finishedMetaSeq atomic.Int32
+
+	config backend.LocalEngineConfig
+
+	// total size of SST files waiting to be ingested
+	pendingFileSize atomic.Int64
+
+	// statistics for pebble kv iter.
+	importedKVSize  atomic.Int64
+	importedKVCount atomic.Int64
+}
+
+func (e *File) setError(err error) {
+	if err != nil {
+		e.ingestErr.Set(err)
+		e.cancel()
+	}
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 }
 
 func (e *File) Close() error {
@@ -261,6 +298,339 @@ func (e *File) unlock() {
 	e.mutex.Unlock()
 }
 
+<<<<<<< HEAD
+=======
+type metaSeq struct {
+	// the sequence for this flush message, a flush call can return only if
+	// all the other flush will lower `flushSeq` are done
+	flushSeq int32
+	// the max sstMeta sequence number in this flush, after the flush is done (all SSTs are ingested),
+	// we can save chunks will a lower meta sequence number safely.
+	metaSeq int32
+}
+
+type metaSeqHeap struct {
+	arr []metaSeq
+}
+
+func (h *metaSeqHeap) Len() int {
+	return len(h.arr)
+}
+
+func (h *metaSeqHeap) Less(i, j int) bool {
+	return h.arr[i].flushSeq < h.arr[j].flushSeq
+}
+
+func (h *metaSeqHeap) Swap(i, j int) {
+	h.arr[i], h.arr[j] = h.arr[j], h.arr[i]
+}
+
+func (h *metaSeqHeap) Push(x interface{}) {
+	h.arr = append(h.arr, x.(metaSeq))
+}
+
+func (h *metaSeqHeap) Pop() interface{} {
+	item := h.arr[len(h.arr)-1]
+	h.arr = h.arr[:len(h.arr)-1]
+	return item
+}
+
+func (e *File) ingestSSTLoop() {
+	defer e.wg.Done()
+
+	type flushSeq struct {
+		seq int32
+		ch  chan struct{}
+	}
+
+	seq := atomic.NewInt32(0)
+	finishedSeq := atomic.NewInt32(0)
+	var seqLock sync.Mutex
+	// a flush is finished iff all the compaction&ingest tasks with a lower seq number are finished.
+	flushQueue := make([]flushSeq, 0)
+	// inSyncSeqs is a heap that stores all the finished compaction tasks whose seq is bigger than `finishedSeq + 1`
+	// this mean there are still at lease one compaction task with a lower seq unfinished.
+	inSyncSeqs := &metaSeqHeap{arr: make([]metaSeq, 0)}
+
+	type metaAndSeq struct {
+		metas []*sstMeta
+		seq   int32
+	}
+
+	concurrency := e.config.CompactConcurrency
+	// when compaction is disabled, ingest is an serial action, so 1 routine is enough
+	if !e.config.Compact {
+		concurrency = 1
+	}
+	metaChan := make(chan metaAndSeq, concurrency)
+	for i := 0; i < concurrency; i++ {
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			defer func() {
+				if e.ingestErr.Get() != nil {
+					seqLock.Lock()
+					for _, f := range flushQueue {
+						f.ch <- struct{}{}
+					}
+					flushQueue = flushQueue[:0]
+					seqLock.Unlock()
+				}
+			}()
+			for {
+				select {
+				case <-e.ctx.Done():
+					return
+				case metas, ok := <-metaChan:
+					if !ok {
+						return
+					}
+					ingestMetas := metas.metas
+					if e.config.Compact {
+						newMeta, err := e.sstIngester.mergeSSTs(metas.metas, e.sstDir)
+						if err != nil {
+							e.setError(err)
+							return
+						}
+						ingestMetas = []*sstMeta{newMeta}
+					}
+					// batchIngestSSTs will change ingestMetas' order, so we record the max seq here
+					metasMaxSeq := ingestMetas[len(ingestMetas)-1].seq
+
+					if err := e.batchIngestSSTs(ingestMetas); err != nil {
+						e.setError(err)
+						return
+					}
+					seqLock.Lock()
+					finSeq := finishedSeq.Load()
+					if metas.seq == finSeq+1 {
+						finSeq = metas.seq
+						finMetaSeq := metasMaxSeq
+						for len(inSyncSeqs.arr) > 0 {
+							if inSyncSeqs.arr[0].flushSeq == finSeq+1 {
+								finSeq++
+								finMetaSeq = inSyncSeqs.arr[0].metaSeq
+								heap.Remove(inSyncSeqs, 0)
+							} else {
+								break
+							}
+						}
+
+						var flushChans []chan struct{}
+						for _, seq := range flushQueue {
+							if seq.seq <= finSeq {
+								flushChans = append(flushChans, seq.ch)
+							} else {
+								break
+							}
+						}
+						flushQueue = flushQueue[len(flushChans):]
+						finishedSeq.Store(finSeq)
+						e.finishedMetaSeq.Store(finMetaSeq)
+						seqLock.Unlock()
+						for _, c := range flushChans {
+							c <- struct{}{}
+						}
+					} else {
+						heap.Push(inSyncSeqs, metaSeq{flushSeq: metas.seq, metaSeq: metasMaxSeq})
+						seqLock.Unlock()
+					}
+				}
+			}
+		}()
+	}
+
+	compactAndIngestSSTs := func(metas []*sstMeta) {
+		if len(metas) > 0 {
+			seqLock.Lock()
+			metaSeq := seq.Add(1)
+			seqLock.Unlock()
+			select {
+			case <-e.ctx.Done():
+			case metaChan <- metaAndSeq{metas: metas, seq: metaSeq}:
+			}
+		}
+	}
+
+	pendingMetas := make([]*sstMeta, 0, 16)
+	totalSize := int64(0)
+	metasTmp := make([]*sstMeta, 0)
+	addMetas := func() {
+		if len(metasTmp) == 0 {
+			return
+		}
+		metas := metasTmp
+		metasTmp = make([]*sstMeta, 0, len(metas))
+		if !e.config.Compact {
+			compactAndIngestSSTs(metas)
+			return
+		}
+		for _, m := range metas {
+			if m.totalCount > 0 {
+				pendingMetas = append(pendingMetas, m)
+				totalSize += m.totalSize
+				if totalSize >= e.config.CompactThreshold {
+					compactMetas := pendingMetas
+					pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
+					totalSize = 0
+					compactAndIngestSSTs(compactMetas)
+				}
+			}
+		}
+	}
+readMetaLoop:
+	for {
+		closed := false
+		select {
+		case <-e.ctx.Done():
+			close(metaChan)
+			return
+		case m, ok := <-e.sstMetasChan:
+			if !ok {
+				closed = true
+				break
+			}
+			if m.flushCh != nil {
+				// meet a flush event, we should trigger a ingest task if there are pending metas,
+				// and then waiting for all the running flush tasks to be done.
+				if len(metasTmp) > 0 {
+					addMetas()
+				}
+				if len(pendingMetas) > 0 {
+					seqLock.Lock()
+					metaSeq := seq.Add(1)
+					flushQueue = append(flushQueue, flushSeq{ch: m.flushCh, seq: metaSeq})
+					seqLock.Unlock()
+					select {
+					case metaChan <- metaAndSeq{metas: pendingMetas, seq: metaSeq}:
+					case <-e.ctx.Done():
+						close(metaChan)
+						return
+					}
+
+					pendingMetas = make([]*sstMeta, 0, len(pendingMetas))
+					totalSize = 0
+				} else {
+					// none remaining metas needed to be ingested
+					seqLock.Lock()
+					curSeq := seq.Load()
+					finSeq := finishedSeq.Load()
+					// if all pending SST files are written, directly do a db.Flush
+					if curSeq == finSeq {
+						seqLock.Unlock()
+						m.flushCh <- struct{}{}
+					} else {
+						// waiting for pending compaction tasks
+						flushQueue = append(flushQueue, flushSeq{ch: m.flushCh, seq: curSeq})
+						seqLock.Unlock()
+					}
+				}
+				continue readMetaLoop
+			}
+			metasTmp = append(metasTmp, m.meta)
+			// try to drain all the sst meta from the chan to make sure all the SSTs are processed before handle a flush msg.
+			if len(e.sstMetasChan) > 0 {
+				continue readMetaLoop
+			}
+
+			addMetas()
+		}
+		if closed {
+			compactAndIngestSSTs(pendingMetas)
+			close(metaChan)
+			return
+		}
+	}
+}
+
+func (e *File) addSST(ctx context.Context, m *sstMeta) (int32, error) {
+	// set pending size after SST file is generated
+	e.pendingFileSize.Add(m.fileSize)
+	// make sure sstMeta is sent into the chan in order
+	e.seqLock.Lock()
+	defer e.seqLock.Unlock()
+	e.nextSeq++
+	seq := e.nextSeq
+	m.seq = seq
+	select {
+	case e.sstMetasChan <- metaOrFlush{meta: m}:
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	case <-e.ctx.Done():
+	}
+	return seq, e.ingestErr.Get()
+}
+
+func (e *File) batchIngestSSTs(metas []*sstMeta) error {
+	if len(metas) == 0 {
+		return nil
+	}
+	sort.Slice(metas, func(i, j int) bool {
+		return bytes.Compare(metas[i].minKey, metas[j].minKey) < 0
+	})
+
+	metaLevels := make([][]*sstMeta, 0)
+	for _, meta := range metas {
+		inserted := false
+		for i, l := range metaLevels {
+			if bytes.Compare(l[len(l)-1].maxKey, meta.minKey) >= 0 {
+				continue
+			}
+			metaLevels[i] = append(l, meta)
+			inserted = true
+			break
+		}
+		if !inserted {
+			metaLevels = append(metaLevels, []*sstMeta{meta})
+		}
+	}
+
+	for _, l := range metaLevels {
+		if err := e.ingestSSTs(l); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *File) ingestSSTs(metas []*sstMeta) error {
+	// use raw RLock to avoid change the lock state during flushing.
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
+	if e.closed.Load() {
+		return errorEngineClosed
+	}
+	totalSize := int64(0)
+	totalCount := int64(0)
+	fileSize := int64(0)
+	for _, m := range metas {
+		totalSize += m.totalSize
+		totalCount += m.totalCount
+		fileSize += m.fileSize
+	}
+	log.L().Info("write data to local DB",
+		zap.Int64("size", totalSize),
+		zap.Int64("kvs", totalCount),
+		zap.Int("files", len(metas)),
+		zap.Int64("sstFileSize", fileSize),
+		zap.String("file", metas[0].path),
+		logutil.Key("firstKey", metas[0].minKey),
+		logutil.Key("lastKey", metas[len(metas)-1].maxKey))
+	if err := e.sstIngester.ingest(metas); err != nil {
+		return errors.Trace(err)
+	}
+	count := int64(0)
+	size := int64(0)
+	for _, m := range metas {
+		count += m.totalCount
+		size += m.totalSize
+	}
+	e.Length.Add(count)
+	e.TotalSize.Add(size)
+	return nil
+}
+
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 func (e *File) flushLocalWriters(parentCtx context.Context) error {
 	eg, ctx := errgroup.WithContext(parentCtx)
 	e.localWriters.Range(func(k, v interface{}) bool {
@@ -1910,6 +2280,82 @@ func (s *sizeProperties) iter(f func(p *rangeProperty) bool) {
 	})
 }
 
+<<<<<<< HEAD
+=======
+type sstMeta struct {
+	path       string
+	minKey     []byte
+	maxKey     []byte
+	totalSize  int64
+	totalCount int64
+	// used for calculate disk-quota
+	fileSize int64
+	seq      int32
+}
+
+type Writer struct {
+	sync.Mutex
+	local              *File
+	sstDir             string
+	memtableSizeLimit  int64
+	writeBatch         []common.KvPair
+	isWriteBatchSorted bool
+
+	batchCount int
+	batchSize  int64
+	totalSize  int64
+	totalCount int64
+
+	kvBuffer *bytesBuffer
+	writer   *sstWriter
+
+	lastMetaSeq int32
+}
+
+func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
+	if w.writer == nil {
+		writer, err := w.createSSTWriter()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		w.writer = writer
+		w.writer.minKey = append([]byte{}, kvs[0].Key...)
+	}
+	for _, pair := range kvs {
+		w.batchSize += int64(len(pair.Key) + len(pair.Val))
+	}
+	w.batchCount += len(kvs)
+	w.totalCount += int64(len(kvs))
+	return w.writer.writeKVs(kvs)
+}
+
+func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) error {
+	l := len(w.writeBatch)
+	cnt := w.batchCount
+	for _, pair := range kvs {
+		w.batchSize += int64(len(pair.Key) + len(pair.Val))
+		key := w.kvBuffer.addBytes(pair.Key)
+		val := w.kvBuffer.addBytes(pair.Val)
+		if cnt < l {
+			w.writeBatch[cnt].Key = key
+			w.writeBatch[cnt].Val = val
+		} else {
+			w.writeBatch = append(w.writeBatch, common.KvPair{Key: key, Val: val})
+		}
+		cnt++
+	}
+	w.batchCount = cnt
+
+	if w.batchSize > w.memtableSizeLimit {
+		if err := w.flushKVs(ctx); err != nil {
+			return err
+		}
+	}
+	w.totalCount += int64(len(kvs))
+	return nil
+}
+
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	local.engines.Range(func(k, v interface{}) bool {
 		engine := v.(*File)
@@ -2054,31 +2500,109 @@ outside:
 		return
 	}
 	if w.writer != nil {
+<<<<<<< HEAD
 		if err := w.writer.ingestInto(w.local, 0); err != nil {
 			w.writeErr.Set(err)
+=======
+		meta, err := w.writer.close()
+		if err != nil {
+			return errors.Trace(err)
+		}
+		w.writer = nil
+		w.batchCount = 0
+		if meta != nil && meta.totalSize > 0 {
+			return w.addSST(ctx, meta)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 		}
 	}
 }
 
+<<<<<<< HEAD
 func (w *Writer) writeKVsOrIngest(desc localIngestDescription) error {
 	if w.writer != nil {
 		if err := w.writer.writeKVs(&w.writeBatch); err != errorUnorderedSSTInsertion {
 			return err
 		}
+=======
+type flushStatus struct {
+	local *File
+	seq   int32
+}
+
+func (f flushStatus) Flushed() bool {
+	return f.seq <= f.local.finishedMetaSeq.Load()
+}
+
+func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
+	defer w.kvBuffer.destroy()
+	defer w.local.localWriters.Delete(w)
+	err := w.flush(ctx)
+	// FIXME: in theory this line is useless, but In our benchmark with go1.15
+	// this can resolve the memory consistently increasing issue.
+	// maybe this is a bug related to go GC mechanism.
+	w.writeBatch = nil
+	return flushStatus{local: w.local, seq: w.lastMetaSeq}, err
+}
+
+func (w *Writer) IsSynced() bool {
+	return w.batchCount == 0 && w.lastMetaSeq <= w.local.finishedMetaSeq.Load()
+}
+
+func (w *Writer) flushKVs(ctx context.Context) error {
+	writer, err := w.createSSTWriter()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	sort.Slice(w.writeBatch[:w.batchCount], func(i, j int) bool {
+		return bytes.Compare(w.writeBatch[i].Key, w.writeBatch[j].Key) < 0
+	})
+	writer.minKey = append(writer.minKey[:0], w.writeBatch[0].Key...)
+	err = writer.writeKVs(w.writeBatch[:w.batchCount])
+	if err != nil {
+		return errors.Trace(err)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	}
 
 	if w.writeBatch.totalSize == 0 {
 		return nil
 	}
+<<<<<<< HEAD
 	// if write failed only because of unorderedness, we immediately ingest the memcache.
 	immWriter, err := newSSTWriter(w.genSSTPath())
+=======
+	err = w.addSST(ctx, meta)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	if err != nil {
 		return err
 	}
 	defer immWriter.cleanUp()
 
+<<<<<<< HEAD
 	if err = immWriter.writeKVs(&w.writeBatch); err != nil {
 		return err
+=======
+	w.totalSize += w.batchSize
+	w.batchSize = 0
+	w.batchCount = 0
+	w.kvBuffer.reset()
+	return nil
+}
+
+func (w *Writer) addSST(ctx context.Context, meta *sstMeta) error {
+	seq, err := w.local.addSST(ctx, meta)
+	if err != nil {
+		return err
+	}
+	w.lastMetaSeq = seq
+	return nil
+}
+
+func (w *Writer) createSSTWriter() (*sstWriter, error) {
+	path := filepath.Join(w.local.sstDir, uuid.New().String()+".sst")
+	writer, err := newSSTWriter(path)
+	if err != nil {
+		return nil, err
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	}
 
 	return immWriter.ingestInto(w.local, desc|localIngestDescriptionImmediate)
@@ -2205,12 +2729,38 @@ type kvMemCache struct {
 	notSorted bool // record "not sorted" instead of "sorted" so that the zero value is correct.
 }
 
+<<<<<<< HEAD
 // append more KV pairs to the kvMemCache.
 func (m *kvMemCache) append(kvs []common.KvPair) {
 	if !m.notSorted {
 		var lastKey []byte
 		if len(m.kvs) > 0 {
 			lastKey = m.kvs[len(m.kvs)-1].Key
+=======
+type dbSSTIngester struct {
+	e *File
+}
+
+func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error) {
+	if len(metas) == 0 {
+		return nil, errors.New("sst metas is empty")
+	} else if len(metas) == 1 {
+		return metas[0], nil
+	}
+
+	start := time.Now()
+	newMeta := &sstMeta{
+		seq: metas[len(metas)-1].seq,
+	}
+	mergeIter := &sstIterHeap{
+		iters: make([]*sstIter, 0, len(metas)),
+	}
+
+	for _, p := range metas {
+		f, err := os.Open(p.path)
+		if err != nil {
+			return nil, errors.Trace(err)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 		}
 		for _, kv := range kvs {
 			if bytes.Compare(kv.Key, lastKey) <= 0 {

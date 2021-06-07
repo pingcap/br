@@ -115,8 +115,13 @@ func (s *importerSuite) TestWriteRows(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	st, err := writer.Close(s.ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
+	c.Assert(st, IsNil)
 }
 
 func (s *importerSuite) TestWriteHeadSendFailed(c *C) {

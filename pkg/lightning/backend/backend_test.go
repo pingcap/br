@@ -138,6 +138,10 @@ func (s *backendSuite) TestWriteEngine(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, "`db`.`table`", []string{"c1", "c2"}, gomock.Any(), rows1).
 		Return(nil)
+<<<<<<< HEAD
+=======
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil).AnyTimes()
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	mockWriter.EXPECT().
 		AppendRows(ctx, "`db`.`table`", []string{"c1", "c2"}, gomock.Any(), rows2).
 		Return(nil)
@@ -151,7 +155,11 @@ func (s *backendSuite) TestWriteEngine(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"c1", "c2"}, rows2)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	_, err = writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
 }
 
@@ -165,8 +173,13 @@ func (s *backendSuite) TestWriteToEngineWithNothing(c *C) {
 
 	s.mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil)
 	mockWriter.EXPECT().AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), emptyRows).Return(nil)
+<<<<<<< HEAD
 	mockWriter.EXPECT().Close().Return(nil)
 	s.mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil)
+=======
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil)
+	s.mockBackend.EXPECT().LocalWriter(ctx, &backend.LocalWriterConfig{}, gomock.Any()).Return(mockWriter, nil)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 
 	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
@@ -174,7 +187,11 @@ func (s *backendSuite) TestWriteToEngineWithNothing(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, emptyRows)
 	c.Assert(err, IsNil)
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	_, err = writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
 }
 
@@ -204,7 +221,11 @@ func (s *backendSuite) TestWriteEngineFailed(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), rows).
 		Return(errors.Annotate(context.Canceled, "fake unrecoverable write error"))
+<<<<<<< HEAD
 	mockWriter.EXPECT().Close().Return(nil)
+=======
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 
 	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
@@ -212,7 +233,11 @@ func (s *backendSuite) TestWriteEngineFailed(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, "fake unrecoverable write error.*")
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	_, err = writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
 }
 
@@ -229,7 +254,11 @@ func (s *backendSuite) TestWriteBatchSendFailedWithRetry(c *C) {
 	mockWriter.EXPECT().AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), rows).
 		Return(errors.New("fake recoverable write batch error")).
 		MinTimes(1)
+<<<<<<< HEAD
 	mockWriter.EXPECT().Close().Return(nil).MinTimes(1)
+=======
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil).MinTimes(1)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 
 	engine, err := s.backend.OpenEngine(ctx, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
@@ -237,7 +266,11 @@ func (s *backendSuite) TestWriteBatchSendFailedWithRetry(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, ".*fake recoverable write batch error")
+<<<<<<< HEAD
 	err = writer.Close()
+=======
+	_, err = writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 	c.Assert(err, IsNil)
 }
 

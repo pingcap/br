@@ -353,8 +353,17 @@ func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string,
 	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
 }
 
+<<<<<<< HEAD
 func (w *LocalEngineWriter) Close() error {
 	return w.writer.Close()
+=======
+func (w *LocalEngineWriter) Close(ctx context.Context) (ChunkFlushStatus, error) {
+	return w.writer.Close(ctx)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
+}
+
+func (w *LocalEngineWriter) IsSynced() bool {
+	return w.writer.IsSynced()
 }
 
 // UnsafeCloseEngine closes the engine without first opening it.
@@ -420,6 +429,10 @@ func (engine *ClosedEngine) Logger() log.Logger {
 	return engine.logger
 }
 
+type ChunkFlushStatus interface {
+	Flushed() bool
+}
+
 type EngineWriter interface {
 	AppendRows(
 		ctx context.Context,
@@ -428,5 +441,10 @@ type EngineWriter interface {
 		commitTS uint64,
 		rows kv.Rows,
 	) error
+<<<<<<< HEAD
 	Close() error
+=======
+	IsSynced() bool
+	Close(ctx context.Context) (ChunkFlushStatus, error)
+>>>>>>> 37433a1b (lightning: save chunk checkpoint timely (#1080))
 }
