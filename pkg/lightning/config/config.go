@@ -815,6 +815,17 @@ func (cfg *Config) AdjustMydumper() {
 	if len(cfg.Mydumper.CharacterSet) == 0 {
 		cfg.Mydumper.CharacterSet = "auto"
 	}
+
+	if len(cfg.Mydumper.IgnoreColumns) != 0  {
+		// Tolower columns cause we use Name.L to compare column in tidb.
+		for _, ig := range cfg.Mydumper.IgnoreColumns {
+			cols := make([]string, len(ig.Columns))
+			for i, col := range ig.Columns {
+				cols[i] = strings.ToLower(col)
+			}
+			ig.Columns = cols
+		}
+	}
 }
 
 func (cfg *Config) CheckAndAdjustSecurity() error {
