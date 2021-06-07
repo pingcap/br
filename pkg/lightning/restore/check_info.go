@@ -421,14 +421,13 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 		colCountFromDataFile := len(parser.LastRow().Row)
 
 		colCountFromTiDB := len(info.Core.Columns)
-		colsFromTiDB := make([]string, 0, colCountFromTiDB)
+		core := info.Core
 		defaultCols := make(map[string]struct{})
-		for _, col := range info.Core.Columns {
+		for _, col := range core.Columns {
 			if hasDefault(col) || (info.Core.ContainsAutoRandomBits() && mysql.HasPriKeyFlag(col.Flag)) {
 				// this column has default value or it's auto random id, so we can ignore it
 				defaultCols[col.Name.L] = struct{}{}
 			}
-			colsFromTiDB = append(colsFromTiDB, col.Name.L)
 		}
 		// tidb_rowid have a default value.
 		defaultCols[model.ExtraHandleName.String()] = struct{}{}
@@ -437,11 +436,11 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			// when there is no columns name in data file. we must insert data in order.
 			// so the last several columns either can be ignored or has a default value.
 			for i := colCountFromDataFile; i < colCountFromTiDB; i++ {
-				if _, ok := defaultCols[colsFromTiDB[i]]; !ok {
+				if _, ok := defaultCols[core.Columns[i].Name.L]; !ok {
 					msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` has %d columns,"+
 						"and data file has %d columns, but column %s are missing the default value,"+
 						"please give column a default value to skip this check",
-						tableInfo.DB, tableInfo.Name, colCountFromTiDB, colCountFromDataFile, colsFromTiDB[i]))
+						tableInfo.DB, tableInfo.Name, colCountFromTiDB, colCountFromDataFile, core.Columns[i].Name.L))
 				}
 			}
 		} else {
@@ -452,17 +451,17 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			for col := range igCols {
 				colMap[col] = struct{}{}
 			}
-			for _, col := range colsFromTiDB {
-				if _, ok := colMap[col]; ok {
+			for _, col := range core.Columns {
+				if _, ok := colMap[col.Name.L]; ok {
 					// tidb's column is ignored
 					// we need ensure this column has the default value.
-					if _, hasDefault := defaultCols[col]; !hasDefault {
+					if _, hasDefault := defaultCols[col.Name.L]; !hasDefault {
 						msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s`'s column %s cannot be ignored,"+
 							"because it doesn't hava a default value, please set tables.ignoreColumns properly",
 							tableInfo.DB, tableInfo.Name, col))
 					}
 				} else {
-					colMap[col] = struct{}{}
+					colMap[col.Name.L] = struct{}{}
 				}
 			}
 			// tidb_rowid can be ignored in check
