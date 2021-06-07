@@ -1498,7 +1498,7 @@ func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
 				]
 			}`),
 			"(.*)Cluster has write flow(.*)",
-			true,
+			false,
 			1,
 			0,
 		},
@@ -1513,7 +1513,7 @@ func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
 				]
 			}`),
 			"(.*)Cluster has read flow(.*)",
-			true,
+			false,
 			1,
 			0,
 		},
@@ -1691,7 +1691,7 @@ func (s *tableRestoreSuite) TestCheckHasLargeCSV(c *C) {
 		{
 			false,
 			"(.*)large csv: /testPath file exists(.*)",
-			true,
+			false,
 			1,
 			[]*mydump.MDDatabaseMeta{
 				{
