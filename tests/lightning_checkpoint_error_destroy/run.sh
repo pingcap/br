@@ -20,12 +20,12 @@ set -eux
 for i in $(seq 8); do
     ARGS="--enable-checkpoint=1 --config tests/$TEST_NAME/mysql.toml -d tests/$TEST_NAME/bad-data"
     set +e
-    echo yes | run_lightning $ARGS
+    run_lightning $ARGS
     set -e
     run_lightning_ctl $ARGS -checkpoint-error-destroy=all
 done
 
-echo yes | run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/mysql.toml" -d "tests/$TEST_NAME/good-data"
+run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/mysql.toml" -d "tests/$TEST_NAME/good-data"
 run_sql 'SELECT * FROM cped.t'
 check_contains 'x: 1999-09-09 09:09:09'
 
@@ -40,13 +40,13 @@ rm -rf CHECK_POINT_FILE
 for i in $(seq 8); do
     ARGS="--enable-checkpoint=1 --config tests/$TEST_NAME/file.toml -d tests/$TEST_NAME/bad-data"
     set +e
-    echo yes | run_lightning $ARGS
+    run_lightning $ARGS
     set -e
     ls -la /tmp/backup_restore_test/importer/.temp/
     run_lightning_ctl $ARGS -checkpoint-error-destroy=all
     ls -la /tmp/backup_restore_test/importer/.temp/
 done
 
-echo yes | run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/file.toml" -d "tests/$TEST_NAME/good-data"
+run_lightning --enable-checkpoint=1 --config "tests/$TEST_NAME/file.toml" -d "tests/$TEST_NAME/good-data"
 run_sql 'SELECT * FROM cped.t'
 check_contains 'x: 1999-09-09 09:09:09'

@@ -17,7 +17,7 @@ export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/FailAfterWrite
 # how many times we restart from beginning, since nothing was written.
 for i in $(seq 5); do
     set +e
-    echo yes | run_lightning --enable-checkpoint=1 2> /dev/null
+    run_lightning --enable-checkpoint=1 2> /dev/null
     [ $? -ne 0 ] || exit 1
     set -e
     # engine sorted kv dir name is 36 length (UUID4).
@@ -29,7 +29,7 @@ export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/FailAfterWrite
 
 # and now we should have 3 engines since one engine will be successfully imported.
 set +e
-echo yes | run_lightning --enable-checkpoint=1 2> /dev/null
+run_lightning --enable-checkpoint=1 2> /dev/null
 [ $? -ne 0 ] || exit 1
 set -e
 # engine sorted kv dir name is 36 length (UUID4).
@@ -38,7 +38,7 @@ set -e
 # allow everything to be written,
 export GO_FAILPOINTS=''
 # to import everything,
-echo yes | run_lightning --enable-checkpoint=1
+run_lightning --enable-checkpoint=1
 # simple check.
 run_sql 'select concat(a, b) from disk_quota_checkpoint.t;'
 check_contains '1one'

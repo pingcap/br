@@ -19,7 +19,7 @@
 set -eu
 
 run_sql 'drop database if exists EE1472;'
-echo yes | run_lightning
+run_lightning
 
 run_sql 'insert into EE1472.pk values ();'
 run_sql 'select count(a), max(a) from EE1472.pk;'

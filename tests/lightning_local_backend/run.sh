@@ -25,7 +25,7 @@ rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
 run_sql 'DROP DATABASE IF EXISTS cpeng;'
 export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=1*return("notleader")'
 
-echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
+run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
 
 # Check that everything is correctly imported
 run_sql 'SELECT count(*), sum(c) FROM cpeng.a'
@@ -42,7 +42,7 @@ rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
 
 export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/backend/local/FailIngestMeta=2*return("epochnotmatch")'
 
-echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
+run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
 
 run_sql 'SELECT count(*), sum(c) FROM cpeng.a'
 check_contains 'count(*): 4'
@@ -61,14 +61,14 @@ set +e
 export GO_FAILPOINTS='github.com/pingcap/br/pkg/lightning/restore/FailIfStatusBecomes=return(90);'
 for i in $(seq "$ENGINE_COUNT"); do
     echo "******** Importing Table Now (step $i/$ENGINE_COUNT) ********"
-    echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
+    run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
     [ $? -ne 0 ] || exit 1
 done
 set -e
 
 export GO_FAILPOINTS=''
 echo "******** Verify checkpoint no-op ********"
-echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
+run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/config.toml"
 
 run_sql 'SELECT count(*), sum(c) FROM cpeng.a'
 check_contains 'count(*): 4'
@@ -88,7 +88,7 @@ for ckpt in mysql file; do
   # before chunk pos is updated, local files could handle lost
   set +e
   export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/FailAfterWriteRows=return"
-  echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
+  run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
   set -e
   run_lightning_ctl --check-local-storage \
     --backend local \
@@ -102,7 +102,7 @@ for ckpt in mysql file; do
   rm -f "/tmp/tidb_lightning_checkpoint_local_backend_test.pb"
   set +e
   export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/LocalBackendSaveCheckpoint=return;github.com/pingcap/br/pkg/lightning/restore/FailIfImportedChunk=return(1)"
-  echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
+  run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
   set -e
   run_lightning_ctl --check-local-storage \
     --backend local \
@@ -115,7 +115,7 @@ for ckpt in mysql file; do
   # after index engine is imported, local file could handle lost
   set +e
   export GO_FAILPOINTS="github.com/pingcap/br/pkg/lightning/restore/FailIfIndexEngineImported=return(1)"
-  echo yes | run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
+  run_lightning --backend local --enable-checkpoint=1 --log-file "$TEST_DIR/lightning-local.log" --config "tests/$TEST_NAME/$ckpt.toml"
   set -e
   run_lightning_ctl --check-local-storage \
     --backend local \

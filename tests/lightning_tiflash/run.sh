@@ -58,7 +58,7 @@ for BACKEND in importer tidb local; do
   run_sql "ALTER TABLE $DB.t2 SET TIFLASH REPLICA 1;"
   tiflash_replica_ready t2
 
-  echo yes | run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
+  run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
 
   run_sql "SELECT /*+ read_from_storage(tiflash[t1]) */ count(*), sum(i) FROM \`$DB\`.t1"
   check_contains "count(*): 5"

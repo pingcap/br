@@ -24,10 +24,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/docker/go-units"
-	"github.com/pingcap/parser/types"
-
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/docker/go-units"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	. "github.com/pingcap/check"
@@ -38,6 +36,7 @@ import (
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/types"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/ddl"
 	tmock "github.com/pingcap/tidb/util/mock"
@@ -1653,61 +1652,6 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 	}
 }
 
-func (s *tableRestoreSuite) TestCheckClusterAvailable(c *C) {
-	cases := []struct {
-		checkRequirements bool
-		expectMsg         string
-		expectResult      bool
-		expectErrorCount  int
-	}{
-		{
-			false,
-			"(.*)Cluster's available check is skipped by user requirement(.*)",
-			true,
-			0,
-		},
-	}
-
-	ctx := context.Background()
-	for _, ca := range cases {
-		template := NewSimpleTemplate()
-		cfg := &config.Config{App: config.Lightning{CheckRequirements: ca.checkRequirements}}
-		rc := &Controller{cfg: cfg, checkTemplate: template}
-		err := rc.ClusterIsAvailable(ctx)
-		c.Assert(err, IsNil)
-
-		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
-		c.Assert(template.Success(), Equals, ca.expectResult)
-		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
-	}
-}
-
-func (s *tableRestoreSuite) TestCheckHasDataInCluster(c *C) {
-	controller := gomock.NewController(c)
-	defer controller.Finish()
-
-	db, dbMock, err := sqlmock.New()
-	c.Assert(err, IsNil)
-	ctx := context.Background()
-
-	mockTiDBGlue := mock.NewMockGlue(controller)
-	mockTiDBGlue.EXPECT().
-		GetDB().
-		AnyTimes().
-		Return(db, nil)
-
-	dbMock.ExpectQuery("select 1").WillReturnRows(
-		sqlmock.NewRows([]string{"cols"}).AddRow(1))
-
-	template := NewSimpleTemplate()
-	rc := &Controller{tidbGlue: mockTiDBGlue, checkTemplate: template}
-	msg, err := rc.TableHasDataInCluster(ctx, "test")
-	c.Assert(err, IsNil)
-	c.Assert(msg, Matches, "Table test is not empty(.*)")
-
-	c.Assert(dbMock.ExpectationsWereMet(), IsNil)
-}
-
 func (s *tableRestoreSuite) TestCheckHasLargeCSV(c *C) {
 	cases := []struct {
 		strictFormat    bool
@@ -1798,7 +1742,7 @@ func (s *tableRestoreSuite) TestSchemaIsValid(c *C) {
 	c.Assert(err, IsNil)
 
 	cases := []struct {
-		ignoreColumns map[string][]string
+		ignoreColumns []*config.IgnoreColumns
 		expectMsg     string
 		// MsgNum == 0 means the check passed.
 		MsgNum    int
@@ -1908,8 +1852,12 @@ func (s *tableRestoreSuite) TestSchemaIsValid(c *C) {
 		// we ignore colA by set config tables.IgnoreColumns
 		// we expect the check success.
 		{
-			map[string][]string{
-				"`db1`.`table2`": {"cola"},
+			[]*config.IgnoreColumns{
+				{
+					DB:      "db1",
+					Table:   "table2",
+					Columns: []string{"cola"},
+				},
 			},
 			"",
 			0,
@@ -1956,8 +1904,12 @@ func (s *tableRestoreSuite) TestSchemaIsValid(c *C) {
 		// colC doesn't have the default value.
 		// we expect the check failed.
 		{
-			map[string][]string{
-				"`db1`.`table2`": {"cola"},
+			[]*config.IgnoreColumns{
+				{
+					DB:      "db1",
+					Table:   "table2",
+					Columns: []string{"cola"},
+				},
 			},
 			"TiDB schema `db1`.`table2` doesn't have the default value for colc(.*)",
 			1,
@@ -1993,6 +1945,100 @@ func (s *tableRestoreSuite) TestSchemaIsValid(c *C) {
 			&mydump.MDTableMeta{
 				DB:   "db1",
 				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 2.4:
+		// csv has two columns(colA, colB) with the header.
+		// tidb has two columns(colB, colC).
+		// we ignore colB by set config tables.IgnoreColumns
+		// colB doesn't have the default value.
+		// we expect the check failed.
+		{
+			[]*config.IgnoreColumns{
+				{
+					TableFilter: []string{"`db1`.`table2`"},
+					Columns:     []string{"colb"},
+				},
+			},
+			"TiDB schema `db1`.`table2`'s column colb cannot be ignored(.*)",
+			2,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table2": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table2",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colB doesn't have the default value
+										Name: model.NewCIStr("colB"),
+										FieldType: types.FieldType{
+											Flag: 1,
+										},
+									},
+									{
+										// colC has the default value
+										Name:          model.NewCIStr("colC"),
+										DefaultIsExpr: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 3:
+		// table3's schema file not found.
+		// tidb has no table3.
+		// we expect the check failed.
+		{
+			[]*config.IgnoreColumns{
+				{
+					TableFilter: []string{"`db1`.`table2`"},
+					Columns:     []string{"colb"},
+				},
+			},
+			"TiDB schema `db1`.`table3` doesn't exists(.*)",
+			1,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"": {},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table3",
 				DataFiles: []mydump.FileInfo{
 					{
 						FileMeta: mydump.SourceFileMeta{

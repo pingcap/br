@@ -2,7 +2,7 @@
 
 set -eux
 
-echo yes | run_lightning \
+run_lightning \
     -L info \
     --log-file "$TEST_DIR/lightning.log" \
     --tidb-host 127.0.0.1 \

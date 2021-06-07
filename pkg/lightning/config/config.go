@@ -254,17 +254,41 @@ type MydumperRuntime struct {
 	Filter           []string         `toml:"filter" json:"filter"`
 	FileRouters      []*FileRouteRule `toml:"files" json:"files"`
 	// Deprecated: only used to keep the compatibility.
-	NoSchema         bool                `toml:"no-schema" json:"no-schema"`
-	CaseSensitive    bool                `toml:"case-sensitive" json:"case-sensitive"`
-	StrictFormat     bool                `toml:"strict-format" json:"strict-format"`
-	DefaultFileRules bool                `toml:"default-file-rules" json:"default-file-rules"`
-	IgnoreColumns    map[string][]string `toml:"ignore-columns" json:"ignore-columns"`
+	NoSchema         bool             `toml:"no-schema" json:"no-schema"`
+	CaseSensitive    bool             `toml:"case-sensitive" json:"case-sensitive"`
+	StrictFormat     bool             `toml:"strict-format" json:"strict-format"`
+	DefaultFileRules bool             `toml:"default-file-rules" json:"default-file-rules"`
+	IgnoreColumns    AllIgnoreColumns `toml:"ignore-data-columns" json:"ignore-data-columns"`
 }
 
+type AllIgnoreColumns []*IgnoreColumns
+
 type IgnoreColumns struct {
-	DB      string   `toml:"db" json:"db"`
-	Table   string   `toml:"table" json:"table"`
-	Columns []string `toml:"columns" json:"columns"`
+	DB          string   `toml:"db" json:"db"`
+	Table       string   `toml:"table" json:"table"`
+	TableFilter []string `toml:"table-filter" json:"table-filter"`
+	Columns     []string `toml:"columns" json:"columns"`
+}
+
+// GetIgnoreColumns gets Ignore config by schema name/regex and table name/regex.
+func (igCols AllIgnoreColumns) GetIgnoreColumns(db string, table string, caseSensitive bool) (*IgnoreColumns, error) {
+	if !caseSensitive {
+		db = strings.ToLower(db)
+		table = strings.ToLower(table)
+	}
+	for i, ig := range igCols {
+		if ig.DB == db && ig.Table == table {
+			return igCols[i], nil
+		}
+		f, err := filter.Parse(ig.TableFilter)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if f.MatchTable(db, table) {
+			return igCols[i], nil
+		}
+	}
+	return &IgnoreColumns{Columns: make([]string, 0)}, nil
 }
 
 type FileRouteRule struct {
@@ -434,17 +458,7 @@ func (cfg *Config) LoadFromGlobal(global *GlobalConfig) error {
 	cfg.PostRestore.Analyze = global.PostRestore.Analyze
 	cfg.App.CheckRequirements = global.App.CheckRequirements
 	cfg.Security = global.Security
-
-	igCols := make(map[string][]string)
-	for _, col := range global.Mydumper.IgnoreColumns {
-		name := common.UniqueTable(col.DB, col.Table)
-		if _, ok := igCols[name]; !ok {
-			igCols[name] = col.Columns
-		} else {
-			igCols[name] = append(igCols[col.Table], col.Columns...)
-		}
-	}
-	cfg.Mydumper.IgnoreColumns = igCols
+	cfg.Mydumper.IgnoreColumns = global.Mydumper.IgnoreColumns
 	return nil
 }
 
@@ -800,15 +814,6 @@ func (cfg *Config) AdjustMydumper() {
 	}
 	if len(cfg.Mydumper.CharacterSet) == 0 {
 		cfg.Mydumper.CharacterSet = "auto"
-	}
-
-	// make ignore columns to lower
-	for table, igCols := range cfg.Mydumper.IgnoreColumns {
-		lowerCols := make([]string, 0, len(igCols))
-		for _, igCol := range igCols {
-			lowerCols = append(lowerCols, strings.ToLower(igCol))
-		}
-		cfg.Mydumper.IgnoreColumns[table] = lowerCols
 	}
 }
 

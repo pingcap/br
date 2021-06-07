@@ -48,19 +48,19 @@ check_even_table_only() {
 # Check if black-white-list works.
 
 drop_dbs
-echo yes | run_lightning --config "tests/$TEST_NAME/firstdb-only.toml"
+run_lightning --config "tests/$TEST_NAME/firstdb-only.toml"
 check_firstdb_only
 
 drop_dbs
-echo yes | run_lightning --config "tests/$TEST_NAME/even-table-only.toml"
+run_lightning --config "tests/$TEST_NAME/even-table-only.toml"
 check_even_table_only
 
 # Check the same for table-filter
 
 drop_dbs
-echo yes | run_lightning -f 'f*.*'
+run_lightning -f 'f*.*'
 check_firstdb_only
 
 drop_dbs
-echo yes | run_lightning -f '!firstdb.*' -f '*.second' -f 'seconddb.fourth'
+run_lightning -f '!firstdb.*' -f '*.second' -f 'seconddb.fourth'
 check_even_table_only

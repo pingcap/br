@@ -30,7 +30,7 @@ undo_rename() {
 trap undo_rename EXIT
 
 do_run_lightning() {
-    echo yes | run_lightning -d $EXAMPLES_PATH --config "tests/$TEST_NAME/$1.toml"
+    run_lightning -d $EXAMPLES_PATH --config "tests/$TEST_NAME/$1.toml"
 }
 
 # Perform the import

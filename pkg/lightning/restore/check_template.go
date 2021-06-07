@@ -47,7 +47,6 @@ type SimpleTemplate struct {
 	count               int
 	warnFailedCount     int
 	criticalFailedCount int
-	passed              bool
 	t                   table.Writer
 }
 
@@ -64,7 +63,6 @@ func NewSimpleTemplate() Template {
 		0,
 		0,
 		0,
-		true,
 		t,
 	}
 }
@@ -75,7 +73,6 @@ func (c *SimpleTemplate) Collect(t CheckType, passed bool, msg string) {
 		switch t {
 		case Critical:
 			{
-				c.passed = false
 				c.criticalFailedCount++
 			}
 		case Warn:
@@ -87,7 +84,7 @@ func (c *SimpleTemplate) Collect(t CheckType, passed bool, msg string) {
 }
 
 func (c *SimpleTemplate) Success() bool {
-	return c.passed
+	return c.warnFailedCount+c.criticalFailedCount == 0
 }
 
 func (c *SimpleTemplate) FailedCount(t CheckType) int {

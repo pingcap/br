@@ -23,7 +23,7 @@ for BACKEND in local importer tidb; do
   run_sql 'DROP DATABASE IF EXISTS db1'
 
   # Start importing the tables.
-  echo yes | run_lightning --backend $BACKEND 2> /dev/null
+  run_lightning --backend $BACKEND 2> /dev/null
 
   run_sql 'SELECT count(*), sum(i) FROM `db1`.v1'
   check_contains "count(*): 3"

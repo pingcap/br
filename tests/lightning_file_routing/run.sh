@@ -55,7 +55,7 @@ for BACKEND in local importer; do
   run_sql 'DROP DATABASE IF EXISTS fr'
 
   # Start importing the tables.
-  echo yes | run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
+  run_lightning -d "$DBPATH" --backend $BACKEND 2> /dev/null
 
   run_sql 'SELECT count(*) FROM `fr`.tbl'
   check_contains "count(*): 10"

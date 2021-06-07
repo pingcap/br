@@ -6,7 +6,7 @@ for BACKEND in local importer tidb; do
     fi
     run_sql 'DROP DATABASE IF EXISTS perm'
 
-    echo yes | run_lightning --backend $BACKEND
+    run_lightning --backend $BACKEND
 
     run_sql 'select count(*) from perm.test_perm;'
     check_contains "count(*): 5"

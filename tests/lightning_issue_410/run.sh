@@ -21,7 +21,7 @@ for backend in tidb importer local; do
     fi
 
     run_sql 'DROP DATABASE IF EXISTS issue410;'
-    echo yes | run_lightning --backend $backend
+    run_lightning --backend $backend
 
     run_sql "SELECT * FROM issue410.row_flow_d"
     check_contains 'A123456789012345678901234567890123456789: A'

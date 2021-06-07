@@ -15,7 +15,6 @@ package restore
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -214,29 +213,6 @@ func (rc *Controller) StoragePermission(ctx context.Context) error {
 	return nil
 }
 
-// TableHasDataInCluster checks whether table already has data in cluster. if table has data before import.
-// in local or import backend, the checksum will failed.
-func (rc *Controller) TableHasDataInCluster(ctx context.Context, tableName string) (string, error) {
-	db, err := rc.tidbGlue.GetDB()
-	if err != nil {
-		return "", err
-	}
-	query := "select 1 from " + tableName + " limit 1"
-	var dump int
-	err = db.QueryRowContext(ctx, query).Scan(&dump)
-
-	switch {
-	case err == sql.ErrNoRows:
-		return "", nil
-	case err != nil:
-		return "", errors.AddStack(err)
-	default:
-		message := fmt.Sprintf("Table %s is not empty, please clean up the table first", tableName)
-		return message, nil
-	}
-	return "", nil
-}
-
 // HasLargeCSV checks whether input csvs is fit for Lightning import.
 // If strictFormat is false, and csv file is large. Lightning will have performance issue.
 // this test cannot be skipped.
@@ -388,15 +364,20 @@ func hasDefault(col *model.ColumnInfo) bool {
 // SchemaIsValid checks the import file and cluster schema is match.
 func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMeta) ([]string, error) {
 	msgs := make([]string, 0)
-	info := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
+	info, ok := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
+	if !ok {
+		msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` doesn't exists,"+
+			"please give a schema file in source dir or create table manually", tableInfo.DB, tableInfo.Name))
+		return msgs, nil
+	}
 	if info != nil {
-		tableIgnoreColsMap := rc.cfg.Mydumper.IgnoreColumns
-		uniqueName := common.UniqueTable(tableInfo.DB, tableInfo.Name)
 		igCols := make(map[string]struct{})
-		if cols, ok := tableIgnoreColsMap[uniqueName]; ok {
-			for _, col := range cols {
-				igCols[col] = struct{}{}
-			}
+		igCol, err := rc.cfg.Mydumper.IgnoreColumns.GetIgnoreColumns(tableInfo.DB, tableInfo.Name, rc.cfg.Mydumper.CaseSensitive)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		for _, col := range igCol.Columns {
+			igCols[col] = struct{}{}
 		}
 
 		if len(tableInfo.DataFiles) == 0 {
@@ -406,7 +387,6 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 		// get columns name from data file.
 		dataFileMeta := tableInfo.DataFiles[0].FileMeta
 		var reader storage.ReadSeekCloser
-		var err error
 		if dataFileMeta.Type == md.SourceTypeParquet {
 			reader, err = md.OpenParquetReader(ctx, rc.store, dataFileMeta.Path, dataFileMeta.FileSize)
 		} else {
@@ -473,7 +453,17 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 				colMap[col] = struct{}{}
 			}
 			for _, col := range colsFromTiDB {
-				colMap[col] = struct{}{}
+				if _, ok := colMap[col]; ok {
+					// tidb's column is ignored
+					// we need ensure this column has the default value.
+					if _, hasDefault := defaultCols[col]; !hasDefault {
+						msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s`'s column %s cannot be ignored,"+
+							"because it doesn't hava a default value, please set tables.ignoreColumns properly",
+							tableInfo.DB, tableInfo.Name, col))
+					}
+				} else {
+					colMap[col] = struct{}{}
+				}
 			}
 			// tidb_rowid can be ignored in check
 			colMap[model.ExtraHandleName.String()] = struct{}{}
@@ -493,7 +483,8 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 					continue
 				}
 				msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` doesn't have the default value for %s"+
-					"please give a default value for %s or add this column in data file", tableInfo.DB, tableInfo.Name, col, col))
+					"please give a default value for %s or choose another column to ignore or add this column in data file",
+					tableInfo.DB, tableInfo.Name, col, col))
 			}
 		}
 	}
