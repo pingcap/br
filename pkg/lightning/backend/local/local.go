@@ -2634,10 +2634,18 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 		w.writer = writer
 		w.writer.minKey = append([]byte{}, kvs[0].Key...)
 	}
-	for i := 0; i < len(kvs); i++ {
-		if w.duplicateDetection {
-			kvs[i].Key = w.encodeKeySuffix(kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
+	if w.duplicateDetection {
+		totalKeyLen := 0
+		for i := 0; i < len(kvs); i++ {
+			totalKeyLen += EncodedKeyBytesLength(kvs[i].Key)
 		}
+		buf := make([]byte, totalKeyLen)
+		for i := 0; i < len(kvs); i++ {
+			kvs[i].Key = EncodeKeySuffix(buf, kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
+			buf = buf[len(kvs[i].Key):]
+		}
+	}
+	for i := 0; i < len(kvs); i++ {
 		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
 	}
 	w.batchCount += len(kvs)
