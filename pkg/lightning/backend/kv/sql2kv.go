@@ -444,6 +444,8 @@ func (kvs *KvPairs) ClassifyAndAppend(
 	if kvs.bytesBuf != nil {
 		dataKVs.bytesBuf = kvs.bytesBuf
 		dataKVs.memBuf = kvs.memBuf
+		kvs.bytesBuf = nil
+		kvs.memBuf = nil
 	}
 
 	*data = dataKVs
