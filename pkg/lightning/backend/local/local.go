@@ -2618,13 +2618,6 @@ type Writer struct {
 	duplicateDetection bool
 }
 
-func (w *Writer) encodeKeySuffix(key []byte, rowID int64, offset int64) []byte {
-	encodedLen := EncodedKeyBytesLength(key)
-	buf := w.kvBuffer.requireBytes(encodedLen)
-	buf = EncodeKeySuffix(buf, key, rowID, offset)
-	return buf
-}
-
 func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 	if w.writer == nil {
 		writer, err := w.createSSTWriter()
@@ -2640,10 +2633,13 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 			totalKeyLen += EncodedKeyBytesLength(kvs[i].Key)
 		}
 		buf := make([]byte, totalKeyLen)
+		newKvs := make([]common.KvPair, len(kvs))
 		for i := 0; i < len(kvs); i++ {
-			kvs[i].Key = EncodeKeySuffix(buf, kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
-			buf = buf[len(kvs[i].Key):]
+			encodedKey := EncodeKeySuffix(buf, kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
+			buf = buf[len(encodedKey):]
+			newKvs[i] = common.KvPair{Key: encodedKey, Val: kvs[i].Val}
 		}
+		kvs = newKvs
 	}
 	for i := 0; i < len(kvs); i++ {
 		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
@@ -2660,7 +2656,8 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
 		var key []byte
 		if w.duplicateDetection {
-			key = w.encodeKeySuffix(pair.Key, pair.RowID, pair.Offset)
+			encodedLen := EncodedKeyBytesLength(pair.Key)
+			key = EncodeKeySuffix(w.kvBuffer.requireBytes(encodedLen), pair.Key, pair.RowID, pair.Offset)
 		} else {
 			key = w.kvBuffer.addBytes(pair.Key)
 		}
