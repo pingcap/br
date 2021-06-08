@@ -140,7 +140,7 @@ func (s *backendSuite) TestWriteEngine(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, "`db`.`table`", []string{"c1", "c2"}, gomock.Any(), rows1).
 		Return(nil)
-	mockWriter.EXPECT().Close(ctx).Return(nil).AnyTimes()
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil).AnyTimes()
 	mockWriter.EXPECT().
 		AppendRows(ctx, "`db`.`table`", []string{"c1", "c2"}, gomock.Any(), rows2).
 		Return(nil)
@@ -153,7 +153,7 @@ func (s *backendSuite) TestWriteEngine(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"c1", "c2"}, rows2)
 	c.Assert(err, IsNil)
-	err = writer.Close(ctx)
+	_, err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
@@ -167,7 +167,7 @@ func (s *backendSuite) TestWriteToEngineWithNothing(c *C) {
 
 	s.mockBackend.EXPECT().OpenEngine(ctx, &backend.EngineConfig{}, gomock.Any()).Return(nil)
 	mockWriter.EXPECT().AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), emptyRows).Return(nil)
-	mockWriter.EXPECT().Close(ctx).Return(nil)
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil)
 	s.mockBackend.EXPECT().LocalWriter(ctx, &backend.LocalWriterConfig{}, gomock.Any()).Return(mockWriter, nil)
 
 	engine, err := s.backend.OpenEngine(ctx, &backend.EngineConfig{}, "`db`.`table`", 1, s.ts)
@@ -176,7 +176,7 @@ func (s *backendSuite) TestWriteToEngineWithNothing(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, emptyRows)
 	c.Assert(err, IsNil)
-	err = writer.Close(ctx)
+	_, err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
@@ -207,7 +207,7 @@ func (s *backendSuite) TestWriteEngineFailed(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), rows).
 		Return(errors.Annotate(context.Canceled, "fake unrecoverable write error"))
-	mockWriter.EXPECT().Close(ctx).Return(nil)
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil)
 
 	engine, err := s.backend.OpenEngine(ctx, &backend.EngineConfig{}, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
@@ -215,7 +215,7 @@ func (s *backendSuite) TestWriteEngineFailed(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, "fake unrecoverable write error.*")
-	err = writer.Close(ctx)
+	_, err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
@@ -233,7 +233,7 @@ func (s *backendSuite) TestWriteBatchSendFailedWithRetry(c *C) {
 	mockWriter.EXPECT().AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), rows).
 		Return(errors.New("fake recoverable write batch error")).
 		MinTimes(1)
-	mockWriter.EXPECT().Close(ctx).Return(nil).MinTimes(1)
+	mockWriter.EXPECT().Close(ctx).Return(nil, nil).MinTimes(1)
 
 	engine, err := s.backend.OpenEngine(ctx, &backend.EngineConfig{}, "`db`.`table`", 1, s.ts)
 	c.Assert(err, IsNil)
@@ -241,7 +241,7 @@ func (s *backendSuite) TestWriteBatchSendFailedWithRetry(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, nil, rows)
 	c.Assert(err, ErrorMatches, ".*fake recoverable write batch error")
-	err = writer.Close(ctx)
+	_, err = writer.Close(ctx)
 	c.Assert(err, IsNil)
 }
 
