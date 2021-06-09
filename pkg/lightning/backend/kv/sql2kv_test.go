@@ -215,6 +215,37 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 	}})
 }
 
+func (s *kvSuite) TestEncodeDoubleAutoIncrement(c *C) {
+	tblInfo := mockTableInfo(c, "create table t (id double not null auto_increment, unique key `u_id` (`id`));")
+	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
+	c.Assert(err, IsNil)
+
+	logger := log.Logger{Logger: zap.NewNop()}
+
+	encoder, err := NewTableKVEncoder(tbl, &SessionOptions{
+		SQLMode: mysql.ModeStrictAllTables,
+		SysVars: map[string]string{
+			"tidb_row_format_version": "2",
+		},
+	})
+	c.Assert(err, IsNil)
+	pairs, err := encoder.Encode(logger, []types.Datum{
+		types.NewStringDatum("1"),
+	}, 70, []int{0, -1})
+	c.Assert(err, IsNil)
+	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+		{
+			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+			Val: []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x8, 0x0, 0xbf, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		},
+		{
+			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x69, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5, 0xbf, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			Val: []uint8{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+		},
+	}))
+	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoIncrementType).Base(), Equals, int64(70))
+}
+
 func mockTableInfo(c *C, createSQL string) *model.TableInfo {
 	parser := parser.New()
 	node, err := parser.ParseOneStmt(createSQL, "", "")
