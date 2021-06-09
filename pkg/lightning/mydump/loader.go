@@ -221,7 +221,9 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 				return errors.Errorf("invalid database schema file, duplicated item - %s", fileInfo.FileMeta.Path)
 			}
 		}
+	}
 
+	if len(s.tableSchemas) != 0 {
 		// setup table schema
 		for _, fileInfo := range s.tableSchemas {
 			_, dbExists, tableExists := s.insertTable(fileInfo)
@@ -231,7 +233,9 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 				return errors.Errorf("invalid table schema file, duplicated item - %s", fileInfo.FileMeta.Path)
 			}
 		}
+	}
 
+	if len(s.viewSchemas) != 0 {
 		// setup view schema
 		for _, fileInfo := range s.viewSchemas {
 			dbExists, tableExists := s.insertView(fileInfo)
