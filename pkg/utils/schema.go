@@ -42,7 +42,6 @@ func (db *Database) GetTable(name string) *metautil.Table {
 func LoadBackupTables(ctx context.Context, reader *metautil.MetaReader) (map[string]*Database, error) {
 	ch := make(chan *metautil.Table)
 	errCh := make(chan error)
-	defer close(errCh)
 	go func() {
 		if err := reader.ReadSchemasFiles(ctx, ch); err != nil {
 			errCh <- errors.Trace(err)
@@ -54,9 +53,12 @@ func LoadBackupTables(ctx context.Context, reader *metautil.MetaReader) (map[str
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, nil
+			return nil, ctx.Err()
+		case err := <-errCh:
+			return nil, errors.Trace(err)
 		case table, ok := <-ch:
 			if !ok {
+				close(errCh)
 				return databases, nil
 			}
 			dbName := table.DB.Name.String()

@@ -29,7 +29,6 @@ func FastChecksum(
 
 	ch := make(chan *metautil.Table)
 	errCh := make(chan error)
-	defer close(errCh)
 	go func() {
 		reader := metautil.NewMetaReader(backupMeta, storage)
 		if err := reader.ReadSchemasFiles(ctx, ch); err != nil {
@@ -46,6 +45,7 @@ func FastChecksum(
 			return errors.Trace(ctx.Err())
 		case tbl, ok = <-ch:
 			if !ok {
+				close(errCh)
 				return nil
 			}
 		}

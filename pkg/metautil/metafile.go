@@ -152,7 +152,6 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
-	defer close(errCh)
 	go func() {
 		if err = reader.readDDLs(ctx, func(s []byte) { ch <- s }); err != nil {
 			errCh <- errors.Trace(err)
@@ -193,7 +192,6 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *Table) error {
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error, 1)
-	defer close(errCh)
 	go func() {
 		if err := reader.readSchemas(ctx, func(s *backuppb.Schema) { ch <- s }); err != nil {
 			errCh <- errors.Trace(err)

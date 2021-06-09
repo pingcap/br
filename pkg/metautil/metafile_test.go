@@ -45,7 +45,7 @@ func (m *metaSuit) TestWalkMetaFileEmpty(c *C) {
 
 func (m *metaSuit) TestWalkMetaFileLeaf(c *C) {
 	leaf := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db"), Table: []byte("table")},
+		{Db: []byte("db"), Table: []byte("table")},
 	}}
 	files := []*backuppb.MetaFile{}
 	collect := func(m *backuppb.MetaFile) { files = append(files, m) }
@@ -62,12 +62,12 @@ func (m *metaSuit) TestWalkMetaFileInvalid(c *C) {
 
 	ctx := context.Background()
 	leaf := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db"), Table: []byte("table")},
+		{Db: []byte("db"), Table: []byte("table")},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "leaf").Return(leaf.Marshal())
 
 	root := &backuppb.MetaFile{MetaFiles: []*backuppb.File{
-		&backuppb.File{Name: "leaf", Sha256: []byte{}},
+		{Name: "leaf", Sha256: []byte{}},
 	}}
 
 	collect := func(m *backuppb.MetaFile) { panic("unreachable") }
@@ -83,44 +83,44 @@ func (m *metaSuit) TestWalkMetaFile(c *C) {
 	ctx := context.Background()
 	expect := make([]*backuppb.MetaFile, 0, 6)
 	leaf31S1 := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db31S1"), Table: []byte("table31S1")},
+		{Db: []byte("db31S1"), Table: []byte("table31S1")},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "leaf31S1").Return(leaf31S1.Marshal())
 	expect = append(expect, leaf31S1)
 
 	leaf31S2 := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db31S2"), Table: []byte("table31S2")},
+		{Db: []byte("db31S2"), Table: []byte("table31S2")},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "leaf31S2").Return(leaf31S2.Marshal())
 	expect = append(expect, leaf31S2)
 
 	leaf32S1 := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db32S1"), Table: []byte("table32S1")},
+		{Db: []byte("db32S1"), Table: []byte("table32S1")},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "leaf32S1").Return(leaf32S1.Marshal())
 	expect = append(expect, leaf32S1)
 
 	node21 := &backuppb.MetaFile{MetaFiles: []*backuppb.File{
-		&backuppb.File{Name: "leaf31S1", Sha256: checksum(leaf31S1)},
-		&backuppb.File{Name: "leaf31S2", Sha256: checksum(leaf31S2)},
+		{Name: "leaf31S1", Sha256: checksum(leaf31S1)},
+		{Name: "leaf31S2", Sha256: checksum(leaf31S2)},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "node21").Return(node21.Marshal())
 
 	node22 := &backuppb.MetaFile{MetaFiles: []*backuppb.File{
-		&backuppb.File{Name: "leaf32S1", Sha256: checksum(leaf32S1)},
+		{Name: "leaf32S1", Sha256: checksum(leaf32S1)},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "node22").Return(node22.Marshal())
 
 	leaf23S1 := &backuppb.MetaFile{Schemas: []*backuppb.Schema{
-		&backuppb.Schema{Db: []byte("db23S1"), Table: []byte("table23S1")},
+		{Db: []byte("db23S1"), Table: []byte("table23S1")},
 	}}
 	mockStorage.EXPECT().ReadFile(ctx, "leaf23S1").Return(leaf23S1.Marshal())
 	expect = append(expect, leaf23S1)
 
 	root := &backuppb.MetaFile{MetaFiles: []*backuppb.File{
-		&backuppb.File{Name: "node21", Sha256: checksum(node21)},
-		&backuppb.File{Name: "node22", Sha256: checksum(node22)},
-		&backuppb.File{Name: "leaf23S1", Sha256: checksum(leaf23S1)},
+		{Name: "node21", Sha256: checksum(node21)},
+		{Name: "node22", Sha256: checksum(node22)},
+		{Name: "leaf23S1", Sha256: checksum(leaf23S1)},
 	}}
 
 	files := []*backuppb.MetaFile{}
