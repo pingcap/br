@@ -143,7 +143,6 @@ func (s *metaMgrSuite) TestAllocTableRowIDsSingleTableSkipChecksum(c *C) {
 		{int64(1), int64(0), int64(0), uint64(0), uint64(0), uint64(0), "initialized"},
 	}
 	nextID := int64(999)
-	//checksum := verification.MakeKVChecksum(1, 2, 3)
 	newStatus := "restore"
 	updateArgs := []driver.Value{int64(998), int64(1008), "allocated", int64(1), int64(1)}
 	s.prepareMock(rows, &nextID, updateArgs, nil, &newStatus)
