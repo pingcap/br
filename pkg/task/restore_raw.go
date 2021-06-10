@@ -5,6 +5,8 @@ package task
 import (
 	"context"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
@@ -88,12 +90,12 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	}
 	client.SetSwitchModeInterval(cfg.SwitchModeInterval)
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
+	u, s, backupMeta, err := ReadBackupMeta(ctx, metautil.MetaFile, &cfg.Config)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
-	if err = client.InitBackupMeta(c, backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
 		return errors.Trace(err)
 	}
 

@@ -13,6 +13,22 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 )
 
+// Permission represents the permission we need to check in create storage.
+type Permission string
+
+const (
+	// AccessBuckets represents bucket access permission
+	// it replace the origin skip-check-path.
+	AccessBuckets Permission = "AccessBucket"
+
+	// ListObjects represents listObjects permission
+	ListObjects Permission = "ListObjects"
+	// GetObject represents GetObject permission
+	GetObject Permission = "GetObject"
+	// PutObject represents PutObject permission
+	PutObject Permission = "PutObject"
+)
+
 // WalkOption is the option of storage.WalkDir.
 type WalkOption struct {
 	// walk on SubDir of specify directory
@@ -112,11 +128,17 @@ type ExternalStorageOptions struct {
 	// function will ensure the path referred by the backend exists by
 	// recursively creating the folders. This will also throw an error if such
 	// operation is impossible (e.g. when the bucket storing the path is missing).
+
+	// deprecated: use checkPermissions and specify the checkPermission instead.
 	SkipCheckPath bool
 
 	// HTTPClient to use. The created storage may ignore this field if it is not
 	// directly using HTTP (e.g. the local storage).
 	HTTPClient *http.Client
+
+	// CheckPermissions check the given permission in New() function.
+	// make sure we can access the storage correctly before execute tasks.
+	CheckPermissions []Permission
 }
 
 // Create creates ExternalStorage.
