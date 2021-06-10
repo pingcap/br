@@ -2236,7 +2236,13 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 		local:              f,
 		memtableSizeLimit:  cacheSize,
 		kvBuffer:           newBytesBuffer(),
-		isWriteBatchSorted: cfg.IsKVSorted,
+		isKVSorted:         cfg.IsKVSorted,
+		isWriteBatchSorted: true,
+	}
+	// pre-allocate a long enough buffer to avoid a lot of runtime.growslice
+	// this can help save about 3% of CPU.
+	if !w.isKVSorted {
+		w.writeBatch = make([]common.KvPair, units.MiB)
 	}
 	f.localWriters.Store(w, nil)
 	return w, nil
@@ -2531,19 +2537,26 @@ type sstMeta struct {
 
 type Writer struct {
 	sync.Mutex
-	local              *File
-	sstDir             string
-	memtableSizeLimit  int64
-	writeBatch         []common.KvPair
+	local             *File
+	sstDir            string
+	memtableSizeLimit int64
+
+	// if the KVs are append in order, we can directly write the into SST file,
+	// else we must first store them in writeBatch and then batch flush into SST file.
+	isKVSorted bool
+	writer     *sstWriter
+
+	// bytes buffer for writeBatch
+	kvBuffer   *bytesBuffer
+	writeBatch []common.KvPair
+	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
+	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
 	isWriteBatchSorted bool
 
 	batchCount int
 	batchSize  int64
 	totalSize  int64
 	totalCount int64
-
-	kvBuffer *bytesBuffer
-	writer   *sstWriter
 
 	lastMetaSeq int32
 }
@@ -2568,7 +2581,15 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) error {
 	l := len(w.writeBatch)
 	cnt := w.batchCount
+	var lastKey []byte
+	if len(w.writeBatch) > 0 {
+		lastKey = w.writeBatch[len(w.writeBatch)-1].Key
+	}
 	for _, pair := range kvs {
+		if w.isWriteBatchSorted && bytes.Compare(lastKey, pair.Key) > 0 {
+			w.isWriteBatchSorted = false
+		}
+		lastKey = pair.Key
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
 		key := w.kvBuffer.addBytes(pair.Key)
 		val := w.kvBuffer.addBytes(pair.Val)
@@ -2614,16 +2635,16 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 	defer w.Unlock()
 
 	// if chunk has _tidb_rowid field, we can't ensure that the rows are sorted.
-	if w.isWriteBatchSorted && w.writer == nil {
+	if w.isKVSorted && w.writer == nil {
 		for _, c := range columnNames {
 			if c == model.ExtraHandleName.L {
-				w.isWriteBatchSorted = false
+				w.isKVSorted = false
 			}
 		}
 	}
 
 	w.local.TS = ts
-	if w.isWriteBatchSorted {
+	if w.isKVSorted {
 		return w.appendRowsSorted(kvs)
 	}
 	return w.appendRowsUnsorted(ctx, kvs)
@@ -2687,9 +2708,13 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	sort.Slice(w.writeBatch[:w.batchCount], func(i, j int) bool {
-		return bytes.Compare(w.writeBatch[i].Key, w.writeBatch[j].Key) < 0
-	})
+	if !w.isWriteBatchSorted {
+		sort.Slice(w.writeBatch[:w.batchCount], func(i, j int) bool {
+			return bytes.Compare(w.writeBatch[i].Key, w.writeBatch[j].Key) < 0
+		})
+		w.isWriteBatchSorted = true
+	}
+
 	writer.minKey = append(writer.minKey[:0], w.writeBatch[0].Key...)
 	err = writer.writeKVs(w.writeBatch[:w.batchCount])
 	if err != nil {
@@ -2770,7 +2795,12 @@ func (sw *sstWriter) writeKVs(kvs []common.KvPair) error {
 	internalKey := sstable.InternalKey{
 		Trailer: uint64(sstable.InternalKeyKindSet),
 	}
+	var lastKey []byte
 	for _, p := range kvs {
+		if bytes.Equal(p.Key, lastKey) {
+			log.L().Warn("duplicated key found, skip write", logutil.Key("key", p.Key))
+			continue
+		}
 		internalKey.UserKey = p.Key
 		if err := sw.writer.Add(internalKey, p.Val); err != nil {
 			return errors.Trace(err)
