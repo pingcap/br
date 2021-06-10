@@ -2130,7 +2130,6 @@ func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.Che
 	}
 
 	tidbVersion, _ := version.ExtractTiDBVersion(versionStr)
-
 	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
 }
 

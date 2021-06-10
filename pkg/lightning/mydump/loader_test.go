@@ -78,7 +78,8 @@ func (s *testMydumpLoaderSuite) TestLoader(c *C) {
 	ctx := context.Background()
 	cfg := newConfigWithSourceDir("./not-exists")
 	_, err := md.NewMyDumpLoader(ctx, cfg)
-	c.Assert(err, NotNil)
+	// will check schema in tidb and data file later in DataCheck.
+	c.Assert(err, IsNil)
 
 	cfg = newConfigWithSourceDir("./examples")
 	mdl, err := md.NewMyDumpLoader(ctx, cfg)
@@ -108,7 +109,8 @@ func (s *testMydumpLoaderSuite) TestLoader(c *C) {
 
 func (s *testMydumpLoaderSuite) TestEmptyDB(c *C) {
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, "no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database")
+	// will check schema in tidb and data file later in DataCheck.
+	c.Assert(err, IsNil)
 }
 
 func (s *testMydumpLoaderSuite) TestDuplicatedDB(c *C) {
@@ -216,7 +218,8 @@ func (s *testMydumpLoaderSuite) TestDataNoHostDB(c *C) {
 	s.touch(c, "db.tbl.sql")
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, `invalid data file, miss host db 'db' - .*[/\\]?db\.tbl\.sql`)
+	// will check schema in tidb and data file later in DataCheck.
+	c.Assert(err, IsNil)
 }
 
 func (s *testMydumpLoaderSuite) TestDataNoHostTable(c *C) {
@@ -230,7 +233,8 @@ func (s *testMydumpLoaderSuite) TestDataNoHostTable(c *C) {
 	s.touch(c, "db.tbl.sql")
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, `invalid data file, miss host table 'tbl' - .*[/\\]?db\.tbl\.sql`)
+	// will check schema in tidb and data file later in DataCheck.
+	c.Assert(err, IsNil)
 }
 
 func (s *testMydumpLoaderSuite) TestViewNoHostDB(c *C) {
@@ -265,8 +269,6 @@ func (s *testMydumpLoaderSuite) TestDataWithoutSchema(c *C) {
 	p := filepath.Join(dir, "db.tbl.sql")
 	err := ioutil.WriteFile(p, nil, 0o644)
 	c.Assert(err, IsNil)
-
-	s.cfg.Mydumper.NoSchema = true
 
 	mdl, err := md.NewMyDumpLoader(context.Background(), s.cfg)
 	c.Assert(err, IsNil)
