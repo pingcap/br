@@ -310,9 +310,9 @@ func (s *kvSuite) TestShardRowId(c *C) {
 	for i := int64(1); i <= 32; i++ {
 		pairs, err := encoder.Encode(logger, []types.Datum{types.NewStringDatum(fmt.Sprintf("%d", i))}, i, []int{0, -1})
 		c.Assert(err, IsNil)
-		kvs := pairs.(kvPairs)
-		c.Assert(len(pairs.(kvPairs)), Equals, 1)
-		_, h, err := tablecodec.DecodeRecordKey(kvs[0].Key)
+		kvs := pairs.(*KvPairs)
+		c.Assert(len(kvs.pairs), Equals, 1)
+		_, h, err := tablecodec.DecodeRecordKey(kvs.pairs[0].Key)
 		c.Assert(err, IsNil)
 		rowID := h.IntValue()
 		c.Assert(rowID&((1<<60)-1), Equals, i)
