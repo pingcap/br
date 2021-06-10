@@ -15,6 +15,7 @@ package mydump
 
 import (
 	"context"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -365,7 +366,11 @@ func SplitLargeFile(
 			}
 			pos, err := parser.ReadUntilTokNewLine()
 			if err != nil {
-				return 0, nil, nil, err
+				if !errors.ErrorEqual(err, io.EOF) {
+					return 0, nil, nil, err
+				}
+				log.L().Warn("file contains no '\r\n' at end", zap.String("path", dataFile.FileMeta.Path))
+				pos = dataFile.FileMeta.FileSize
 			}
 			endOffset = pos
 			parser.Close()
