@@ -17,6 +17,7 @@ require (
 	github.com/go-sql-driver/mysql v1.5.0
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/mock v1.4.4
+	github.com/golang/protobuf v1.3.4
 	github.com/google/btree v1.0.0
 	github.com/google/uuid v1.1.1
 	github.com/jedib0t/go-pretty/v6 v6.1.1
@@ -25,12 +26,12 @@ require (
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
 	github.com/pingcap/errors v0.11.5-0.20201126102027-b0a155152ca3
 	github.com/pingcap/failpoint v0.0.0-20210316064728-7acb0f0a3dfd
-	github.com/pingcap/kvproto v0.0.0-20210507074444-0ec2d0dc2e4b
+	github.com/pingcap/kvproto v0.0.0-20210609044018-c9b3ba48af7e
 	github.com/pingcap/log v0.0.0-20210317133921-96f4fcab92a4
 	github.com/pingcap/parser v0.0.0-20210525032559-c37778aff307
-	github.com/pingcap/tidb v1.1.0-beta.0.20210602080826-ca3d88eba5c6
+	github.com/pingcap/tidb v1.1.0-beta.0.20210609052828-6026b6389195
 	github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible
-	github.com/pingcap/tipb v0.0.0-20210525032549-b80be13ddf6c
+	github.com/pingcap/tipb v0.0.0-20210603161937-cfb5a9225f95
 	github.com/prometheus/client_golang v1.5.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/shurcooL/httpgzip v0.0.0-20190720172056-320755c1c1b0
