@@ -3,8 +3,15 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/golang/protobuf/proto"
+
+	"github.com/pingcap/br/pkg/storage"
+
+	"github.com/pingcap/br/pkg/metautil"
 
 	. "github.com/pingcap/check"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -13,9 +20,18 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 )
 
-type testSchemaSuite struct{}
+type testSchemaSuite struct {
+	store storage.ExternalStorage
+}
 
 var _ = Suite(&testSchemaSuite{})
+
+func (r *testSchemaSuite) SetUpSuite(c *C) {
+	var err error
+	base := c.MkDir()
+	r.store, err = storage.NewLocalStorage(base)
+	c.Assert(err, IsNil)
+}
 
 func mockBackupMeta(mockSchemas []*backuppb.Schema, mockFiles []*backuppb.File) *backuppb.BackupMeta {
 	return &backuppb.BackupMeta{
@@ -74,7 +90,14 @@ func (r *testSchemaSuite) TestLoadBackupMeta(c *C) {
 	}
 
 	meta := mockBackupMeta(mockSchemas, mockFiles)
-	dbs, err := LoadBackupTables(meta)
+	data, err := proto.Marshal(meta)
+	c.Assert(err, IsNil)
+
+	ctx := context.Background()
+	err = r.store.WriteFile(ctx, metautil.MetaFile, data)
+	c.Assert(err, IsNil)
+
+	dbs, err := LoadBackupTables(ctx, metautil.NewMetaReader(meta, r.store))
 	tbl := dbs[dbName.String()].GetTable(tblName.String())
 	c.Assert(err, IsNil)
 	c.Assert(tbl.Files, HasLen, 1)
@@ -149,7 +172,15 @@ func (r *testSchemaSuite) TestLoadBackupMetaPartionTable(c *C) {
 	}
 
 	meta := mockBackupMeta(mockSchemas, mockFiles)
-	dbs, err := LoadBackupTables(meta)
+
+	data, err := proto.Marshal(meta)
+	c.Assert(err, IsNil)
+
+	ctx := context.Background()
+	err = r.store.WriteFile(ctx, metautil.MetaFile, data)
+	c.Assert(err, IsNil)
+
+	dbs, err := LoadBackupTables(ctx, metautil.NewMetaReader(meta, r.store))
 	tbl := dbs[dbName.String()].GetTable(tblName.String())
 	c.Assert(err, IsNil)
 	c.Assert(tbl.Files, HasLen, 3)
@@ -216,7 +247,14 @@ func (r *testSchemaSuite) BenchmarkLoadBackupMeta64(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 64, 64)
 	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
-		dbs, err := LoadBackupTables(meta)
+		data, err := proto.Marshal(meta)
+		c.Assert(err, IsNil)
+
+		ctx := context.Background()
+		err = r.store.WriteFile(ctx, metautil.MetaFile, data)
+		c.Assert(err, IsNil)
+
+		dbs, err := LoadBackupTables(ctx, metautil.NewMetaReader(meta, r.store))
 		c.Assert(err, IsNil)
 		c.Assert(dbs, HasLen, 1)
 		c.Assert(dbs, HasKey, "bench")
@@ -228,7 +266,14 @@ func (r *testSchemaSuite) BenchmarkLoadBackupMeta1024(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 1024, 64)
 	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
-		dbs, err := LoadBackupTables(meta)
+		data, err := proto.Marshal(meta)
+		c.Assert(err, IsNil)
+
+		ctx := context.Background()
+		err = r.store.WriteFile(ctx, metautil.MetaFile, data)
+		c.Assert(err, IsNil)
+
+		dbs, err := LoadBackupTables(ctx, metautil.NewMetaReader(meta, r.store))
 		c.Assert(err, IsNil)
 		c.Assert(dbs, HasLen, 1)
 		c.Assert(dbs, HasKey, "bench")
@@ -240,7 +285,14 @@ func (r *testSchemaSuite) BenchmarkLoadBackupMeta10240(c *C) {
 	meta := buildBenchmarkBackupmeta(c, "bench", 10240, 64)
 	c.ResetTimer()
 	for i := 0; i < c.N; i++ {
-		dbs, err := LoadBackupTables(meta)
+		data, err := proto.Marshal(meta)
+		c.Assert(err, IsNil)
+
+		ctx := context.Background()
+		err = r.store.WriteFile(ctx, metautil.MetaFile, data)
+		c.Assert(err, IsNil)
+
+		dbs, err := LoadBackupTables(ctx, metautil.NewMetaReader(meta, r.store))
 		c.Assert(err, IsNil)
 		c.Assert(dbs, HasLen, 1)
 		c.Assert(dbs, HasKey, "bench")
