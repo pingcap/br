@@ -104,12 +104,12 @@ func (s *kvSuite) TestEncode(c *C) {
 	}
 	pairs, err = strictMode.Encode(logger, rowsWithPk2, 2, []int{0, 1})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
 			Val: []uint8{0x8, 0x2, 0x8, 0x2},
 		},
-	}))
+	}})
 
 	// Mock add record error
 	mockTbl := &mockTable{Table: tbl}
@@ -130,12 +130,12 @@ func (s *kvSuite) TestEncode(c *C) {
 	c.Assert(err, IsNil)
 	pairs, err = noneMode.Encode(logger, rows, 1, []int{0, 1})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
 			Val: []uint8{0x8, 0x2, 0x8, 0xfe, 0x1},
 		},
-	}))
+	}})
 }
 
 func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
@@ -160,7 +160,7 @@ func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
 	c.Assert(err, IsNil)
 	pairs, err := noneMode.Encode(logger, rows, 1, []int{0, 1})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			// the key should be the same as TestEncode()
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
@@ -174,7 +174,7 @@ func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
 				0x7f, // column version = 127 (10000000 clamped to TINYINT)
 			},
 		},
-	}))
+	}})
 }
 
 func (s *kvSuite) TestEncodeTimestamp(c *C) {
@@ -207,14 +207,48 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 	c.Assert(err, IsNil)
 	pairs, err := encoder.Encode(logger, nil, 70, []int{-1, 1})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
 			Val: []uint8{0x8, 0x2, 0x9, 0x80, 0x80, 0x80, 0xf0, 0xfd, 0x8e, 0xf7, 0xc0, 0x19},
 		},
-	}))
+	}})
 }
 
+<<<<<<< HEAD
+=======
+func (s *kvSuite) TestEncodeDoubleAutoIncrement(c *C) {
+	tblInfo := mockTableInfo(c, "create table t (id double not null auto_increment, unique key `u_id` (`id`));")
+	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
+	c.Assert(err, IsNil)
+
+	logger := log.Logger{Logger: zap.NewNop()}
+
+	encoder, err := NewTableKVEncoder(tbl, &SessionOptions{
+		SQLMode: mysql.ModeStrictAllTables,
+		SysVars: map[string]string{
+			"tidb_row_format_version": "2",
+		},
+	})
+	c.Assert(err, IsNil)
+	pairs, err := encoder.Encode(logger, []types.Datum{
+		types.NewStringDatum("1"),
+	}, 70, []int{0, -1})
+	c.Assert(err, IsNil)
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
+		{
+			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+			Val: []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x1, 0x8, 0x0, 0xbf, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+		},
+		{
+			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x69, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5, 0xbf, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+			Val: []uint8{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
+		},
+	}})
+	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoIncrementType).Base(), Equals, int64(70))
+}
+
+>>>>>>> 221bed67 (lightning: optimize lightning memory and perf (#1020))
 func mockTableInfo(c *C, createSQL string) *model.TableInfo {
 	parser := parser.New()
 	node, err := parser.ParseOneStmt(createSQL, "", "")
@@ -242,22 +276,22 @@ func (s *kvSuite) TestDefaultAutoRandoms(c *C) {
 	logger := log.Logger{Logger: zap.NewNop()}
 	pairs, err := encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 70, []int{-1, 0})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x46},
 			Val: []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
 		},
-	}))
+	}})
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(70))
 
 	pairs, err = encoder.Encode(logger, []types.Datum{types.NewStringDatum("")}, 71, []int{-1, 0})
 	c.Assert(err, IsNil)
-	c.Assert(pairs, DeepEquals, kvPairs([]common.KvPair{
+	c.Assert(pairs, DeepEquals, &KvPairs{pairs: []common.KvPair{
 		{
 			Key: []uint8{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x47},
 			Val: []uint8{0x80, 0x0, 0x1, 0x0, 0x0, 0x0, 0x2, 0x0, 0x0},
 		},
-	}))
+	}})
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(71))
 }
 
