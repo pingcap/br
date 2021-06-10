@@ -313,9 +313,10 @@ func NewRestoreControllerWithPauser(
 			return nil, errors.Trace(err)
 		}
 		metaBuilder = &dbMetaMgrBuilder{
-			db:     db,
-			taskID: cfg.TaskID,
-			schema: cfg.App.MetaSchemaName,
+			db:           db,
+			taskID:       cfg.TaskID,
+			schema:       cfg.App.MetaSchemaName,
+			needChecksum: cfg.PostRestore.Checksum != config.OpLevelOff,
 		}
 	default:
 		metaBuilder = noopMetaMgrBuilder{}
