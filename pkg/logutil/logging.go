@@ -129,6 +129,11 @@ func Region(region *metapb.Region) zap.Field {
 	return zap.Object("region", zapMarshalRegionMarshaler{region})
 }
 
+// RegionBy make the zap fields for a region with name.
+func RegionBy(key string, region *metapb.Region) zap.Field {
+	return zap.Object(key, zapMarshalRegionMarshaler{region})
+}
+
 // Leader make the zap fields for a peer.
 // nolint:interfacer
 func Leader(peer *metapb.Peer) zap.Field {
