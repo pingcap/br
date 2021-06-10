@@ -275,7 +275,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		name           string
 		s3             *backuppb.S3
 		errReturn      bool
-		hackCheck      bool
+		hackPermission []Permission
 		sendCredential bool
 	}
 	testFn := func(test *testcase, c *C) {
@@ -287,8 +287,9 @@ func (s *s3Suite) TestS3Storage(c *C) {
 			},
 		}
 		_, err := New(ctx, s3, &ExternalStorageOptions{
-			SendCredentials: test.sendCredential,
-			SkipCheckPath:   test.hackCheck,
+			SendCredentials:  test.sendCredential,
+			CheckPermissions: test.hackPermission,
+			SkipCheckPath:    true,
 		})
 		if test.errReturn {
 			c.Assert(err, NotNil)
@@ -311,6 +312,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -322,6 +324,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -333,6 +336,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -344,7 +348,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -356,7 +359,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -369,7 +371,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:          "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -381,7 +382,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:          "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -393,7 +393,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:    "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -405,7 +404,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:    "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: false,
 		},
 	}

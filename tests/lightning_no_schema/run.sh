@@ -15,11 +15,8 @@
 
 set -eu
 
+# keep this test for check the compatibility of noschema config.
 run_sql "DROP DATABASE IF EXISTS noschema;"
-run_lightning --no-schema=1 -d "tests/$TEST_NAME/schema-data"
-run_sql "show databases"
-check_not_contains "noschema"
-
 run_sql "create database noschema;"
 run_sql "create table noschema.t (x int primary key);"
 
