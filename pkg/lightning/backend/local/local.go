@@ -76,14 +76,14 @@ import (
 )
 
 const (
-	dialTimeout             = 5 * time.Second
+	dialTimeout             = 5 * time.Minute
 	bigValueSize            = 1 << 16 // 64K
 	maxRetryTimes           = 5
 	defaultRetryBackoffTime = 3 * time.Second
 
-	gRPCKeepAliveTime    = 10 * time.Second
-	gRPCKeepAliveTimeout = 3 * time.Second
-	gRPCBackOffMaxDelay  = 3 * time.Second
+	gRPCKeepAliveTime    = 10 * time.Minute
+	gRPCKeepAliveTimeout = 5 * time.Minute
+	gRPCBackOffMaxDelay  = 10 * time.Minute
 
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
 	regionMaxKeyCount      = 1_440_000

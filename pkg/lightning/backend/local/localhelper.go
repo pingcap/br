@@ -112,6 +112,25 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 			break
 		}
 
+		needSplitRanges := make([]Range, 0, len(ranges))
+		startKey := make([]byte, 0)
+		endKey := make([]byte, 0)
+		for _, r := range ranges {
+			startKey = codec.EncodeBytes(startKey, r.start)
+			endKey = codec.EncodeBytes(endKey, r.end)
+			idx := sort.Search(len(regions), func(i int) bool {
+				return beforeEnd(startKey, regions[i].Region.EndKey)
+			})
+			if bytes.Compare(startKey, regions[idx].Region.StartKey) > 0 || bytes.Compare(endKey, regions[idx].Region.EndKey) < 0 {
+				needSplitRanges = append(needSplitRanges, r)
+			}
+		}
+		ranges = needSplitRanges
+		if len(ranges) == 0 {
+			log.L().Info("no ranges need to be split, skipped.")
+			return nil
+		}
+
 		regionMap := make(map[uint64]*split.RegionInfo)
 		for _, region := range regions {
 			regionMap[region.Region.GetId()] = region
