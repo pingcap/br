@@ -227,6 +227,7 @@ func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorage
 		// so we need find sst in slash directory
 		gcs.Prefix += "//"
 	}
+	// TODO remove it after BR remove cfg skip-check-path
 	if !opts.SkipCheckPath {
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)

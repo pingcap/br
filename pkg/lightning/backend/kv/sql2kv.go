@@ -16,6 +16,8 @@
 package kv
 
 import (
+	"fmt"
+	"math"
 	"math/rand"
 	"sort"
 
@@ -360,7 +362,7 @@ func (kvcodec *tableKVEncoder) Encode(
 			}
 		}
 		if isAutoIncCol {
-			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.AutoIncrementType); err != nil {
+			if err := kvcodec.tbl.RebaseAutoID(kvcodec.se, getAutoRecordID(value, &col.FieldType), false, autoid.AutoIncrementType); err != nil {
 				return nil, errors.Trace(err)
 			}
 		}
@@ -413,9 +415,6 @@ func (kvcodec *tableKVEncoder) Encode(
 	return pairs, nil
 }
 
-<<<<<<< HEAD
-func (kvs kvPairs) Size() uint64 {
-=======
 // get record value for auto-increment field
 //
 // See: https://github.com/pingcap/tidb/blob/47f0f15b14ed54fc2222f3e304e29df7b05e6805/executor/insert_common.go#L781-L852
@@ -431,7 +430,6 @@ func getAutoRecordID(d types.Datum, target *types.FieldType) int64 {
 }
 
 func (kvs *KvPairs) Size() uint64 {
->>>>>>> 221bed67 (lightning: optimize lightning memory and perf (#1020))
 	size := uint64(0)
 	for _, kv := range kvs.pairs {
 		size += uint64(len(kv.Key) + len(kv.Val))

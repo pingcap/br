@@ -131,6 +131,7 @@ type Config struct {
 	// EnableOpenTracing is whether to enable opentracing
 	EnableOpenTracing bool `json:"enable-opentracing" toml:"enable-opentracing"`
 	// SkipCheckPath skips verifying the path
+	// deprecated
 	SkipCheckPath bool `json:"skip-check-path" toml:"skip-check-path"`
 	// Filter should not be used, use TableFilter instead.
 	//

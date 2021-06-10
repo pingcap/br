@@ -51,6 +51,11 @@ error = '''
 invalid external storage config
 '''
 
+["BR:ExternalStorage:ErrStorageInvalidPermission"]
+error = '''
+external storage permission
+'''
+
 ["BR:ExternalStorage:ErrStorageUnknown"]
 error = '''
 unknown external storage error

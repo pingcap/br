@@ -15,6 +15,8 @@ import (
 const (
 	localDirPerm  os.FileMode = 0o755
 	localFilePerm os.FileMode = 0o644
+	// LocalURIPrefix represents the local storage prefix.
+	LocalURIPrefix = "file://"
 )
 
 // LocalStorage represents local file system storage.
@@ -82,7 +84,7 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 
 // URI returns the base path as an URI with a file:/// prefix.
 func (l *LocalStorage) URI() string {
-	return "file:///" + l.base
+	return LocalURIPrefix + "/" + l.base
 }
 
 // Open a Reader by file path, path is a relative path to base path.

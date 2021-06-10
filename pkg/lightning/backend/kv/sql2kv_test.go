@@ -215,8 +215,6 @@ func (s *kvSuite) TestEncodeTimestamp(c *C) {
 	}})
 }
 
-<<<<<<< HEAD
-=======
 func (s *kvSuite) TestEncodeDoubleAutoIncrement(c *C) {
 	tblInfo := mockTableInfo(c, "create table t (id double not null auto_increment, unique key `u_id` (`id`));")
 	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
@@ -248,7 +246,6 @@ func (s *kvSuite) TestEncodeDoubleAutoIncrement(c *C) {
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoIncrementType).Base(), Equals, int64(70))
 }
 
->>>>>>> 221bed67 (lightning: optimize lightning memory and perf (#1020))
 func mockTableInfo(c *C, createSQL string) *model.TableInfo {
 	parser := parser.New()
 	node, err := parser.ParseOneStmt(createSQL, "", "")
