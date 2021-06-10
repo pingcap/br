@@ -15,6 +15,7 @@ package kv
 
 import (
 	"errors"
+	"fmt"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser"
@@ -27,6 +28,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
+	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/mock"
 	"go.uber.org/zap"
@@ -292,8 +294,6 @@ func (s *kvSuite) TestDefaultAutoRandoms(c *C) {
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(71))
 }
 
-<<<<<<< HEAD
-=======
 func (s *kvSuite) TestShardRowId(c *C) {
 	tblInfo := mockTableInfo(c, "create table t (s varchar(16)) shard_row_id_bits = 3;")
 	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
@@ -322,7 +322,6 @@ func (s *kvSuite) TestShardRowId(c *C) {
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.RowIDAllocType).Base(), Equals, int64(32))
 }
 
->>>>>>> 9da896a6 (lightning: more flexiable region max keys (#1194))
 func (s *kvSuite) TestSplitIntoChunks(c *C) {
 	pairs := []common.KvPair{
 		{
