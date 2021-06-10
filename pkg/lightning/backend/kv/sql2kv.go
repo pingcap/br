@@ -172,6 +172,7 @@ func collectGeneratedColumns(se *session, meta *model.TableInfo, cols []*table.C
 }
 
 func (kvcodec *tableKVEncoder) Close() {
+	kvcodec.se.Close()
 	metric.KvEncoderCounter.WithLabelValues("closed").Inc()
 }
 
@@ -268,20 +269,24 @@ func logEvalGenExprFailed(logger log.Logger, row []types.Datum, colInfo *model.C
 	)
 }
 
-type kvPairs []common.KvPair
+type KvPairs struct {
+	pairs    []common.KvPair
+	bytesBuf *bytesBuf
+	memBuf   *kvMemBuf
+}
 
 // MakeRowsFromKvPairs converts a KvPair slice into a Rows instance. This is
 // mainly used for testing only. The resulting Rows instance should only be used
 // for the importer backend.
 func MakeRowsFromKvPairs(pairs []common.KvPair) Rows {
-	return kvPairs(pairs)
+	return &KvPairs{pairs: pairs}
 }
 
 // MakeRowFromKvPairs converts a KvPair slice into a Row instance. This is
 // mainly used for testing only. The resulting Row instance should only be used
 // for the importer backend.
 func MakeRowFromKvPairs(pairs []common.KvPair) Row {
-	return kvPairs(pairs)
+	return &KvPairs{pairs: pairs}
 }
 
 // KvPairsFromRows converts a Rows instance constructed from MakeRowsFromKvPairs
@@ -289,7 +294,7 @@ func MakeRowFromKvPairs(pairs []common.KvPair) Row {
 // constructed in such way.
 // nolint:golint // kv.KvPairsFromRows sounds good.
 func KvPairsFromRows(rows Rows) []common.KvPair {
-	return []common.KvPair(rows.(kvPairs))
+	return rows.(*KvPairs).pairs
 }
 
 // Encode a row of data into KV pairs.
@@ -407,7 +412,7 @@ func (kvcodec *tableKVEncoder) Encode(
 	}
 	pairs := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
-	return kvPairs(pairs), nil
+	return pairs, nil
 }
 
 // get record value for auto-increment field
@@ -424,59 +429,81 @@ func getAutoRecordID(d types.Datum, target *types.FieldType) int64 {
 	}
 }
 
-func (kvs kvPairs) Size() uint64 {
+func (kvs *KvPairs) Size() uint64 {
 	size := uint64(0)
-	for _, kv := range kvs {
+	for _, kv := range kvs.pairs {
 		size += uint64(len(kv.Key) + len(kv.Val))
 	}
 	return size
 }
 
-func (kvs kvPairs) ClassifyAndAppend(
+func (kvs *KvPairs) ClassifyAndAppend(
 	data *Rows,
 	dataChecksum *verification.KVChecksum,
 	indices *Rows,
 	indexChecksum *verification.KVChecksum,
 ) {
-	dataKVs := (*data).(kvPairs)
-	indexKVs := (*indices).(kvPairs)
+	dataKVs := (*data).(*KvPairs)
+	indexKVs := (*indices).(*KvPairs)
 
-	for _, kv := range kvs {
+	for _, kv := range kvs.pairs {
 		if kv.Key[tablecodec.TableSplitKeyLen+1] == 'r' {
-			dataKVs = append(dataKVs, kv)
+			dataKVs.pairs = append(dataKVs.pairs, kv)
 			dataChecksum.UpdateOne(kv)
 		} else {
-			indexKVs = append(indexKVs, kv)
+			indexKVs.pairs = append(indexKVs.pairs, kv)
 			indexChecksum.UpdateOne(kv)
 		}
+	}
+
+	// the related buf is shared, so we only need to set it into one of the kvs so it can be released
+	if kvs.bytesBuf != nil {
+		dataKVs.bytesBuf = kvs.bytesBuf
+		dataKVs.memBuf = kvs.memBuf
+		kvs.bytesBuf = nil
+		kvs.memBuf = nil
 	}
 
 	*data = dataKVs
 	*indices = indexKVs
 }
 
-func (kvs kvPairs) SplitIntoChunks(splitSize int) []Rows {
-	if len(kvs) == 0 {
+func (kvs *KvPairs) SplitIntoChunks(splitSize int) []Rows {
+	if len(kvs.pairs) == 0 {
 		return nil
 	}
 
 	res := make([]Rows, 0, 1)
 	i := 0
 	cumSize := 0
-
-	for j, pair := range kvs {
+	for j, pair := range kvs.pairs {
 		size := len(pair.Key) + len(pair.Val)
 		if i < j && cumSize+size > splitSize {
-			res = append(res, kvs[i:j])
+			res = append(res, &KvPairs{pairs: kvs.pairs[i:j]})
 			i = j
 			cumSize = 0
 		}
 		cumSize += size
 	}
 
-	return append(res, kvs[i:])
+	if i == 0 {
+		res = append(res, kvs)
+	} else {
+		res = append(res, &KvPairs{
+			pairs:    kvs.pairs[i:],
+			bytesBuf: kvs.bytesBuf,
+			memBuf:   kvs.memBuf,
+		})
+	}
+	return res
 }
 
-func (kvs kvPairs) Clear() Rows {
-	return kvs[:0]
+func (kvs *KvPairs) Clear() Rows {
+	if kvs.bytesBuf != nil {
+		kvs.memBuf.Recycle(kvs.bytesBuf)
+		kvs.bytesBuf = nil
+		kvs.memBuf = nil
+	}
+	kvs.pairs = kvs.pairs[:0]
+	return kvs
 }
