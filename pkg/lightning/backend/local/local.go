@@ -76,17 +76,18 @@ import (
 )
 
 const (
-	dialTimeout             = 5 * time.Second
+	dialTimeout             = 5 * time.Minute
 	bigValueSize            = 1 << 16 // 64K
 	maxRetryTimes           = 5
 	defaultRetryBackoffTime = 3 * time.Second
 
-	gRPCKeepAliveTime    = 10 * time.Second
-	gRPCKeepAliveTimeout = 3 * time.Second
-	gRPCBackOffMaxDelay  = 3 * time.Second
+	gRPCKeepAliveTime    = 10 * time.Minute
+	gRPCKeepAliveTimeout = 5 * time.Minute
+	gRPCBackOffMaxDelay  = 10 * time.Minute
 
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
-	regionMaxKeyCount = 1_440_000
+	regionMaxKeyCount      = 1_440_000
+	defaultRegionSplitSize = 96 * units.MiB
 
 	propRangeIndex = "tikv.range_index"
 
@@ -776,6 +777,7 @@ type local struct {
 
 	localStoreDir   string
 	regionSplitSize int64
+	regionSplitKeys int64
 
 	rangeConcurrency  *worker.Pool
 	ingestConcurrency *worker.Pool
@@ -885,6 +887,12 @@ func NewLocalBackend(
 		}
 	}
 
+	regionSplitSize := int64(cfg.RegionSplitSize)
+	regionSplitKeys := int64(regionMaxKeyCount)
+	if regionSplitSize > defaultRegionSplitSize {
+		regionSplitKeys = int64(float64(regionSplitSize) / float64(defaultRegionSplitSize) * float64(regionMaxKeyCount))
+	}
+
 	local := &local{
 		engines:  sync.Map{},
 		splitCli: splitCli,
@@ -893,7 +901,8 @@ func NewLocalBackend(
 		g:        g,
 
 		localStoreDir:   localFile,
-		regionSplitSize: int64(cfg.RegionSplitSize),
+		regionSplitSize: regionSplitSize,
+		regionSplitKeys: regionSplitKeys,
 
 		rangeConcurrency:  worker.NewPool(ctx, rangeConcurrency, "range"),
 		ingestConcurrency: worker.NewPool(ctx, rangeConcurrency*2, "ingest"),
@@ -1353,7 +1362,7 @@ func (local *local) WriteToTiKV(
 			bytesBuf.reset()
 			firstLoop = false
 		}
-		if size >= regionMaxSize || totalCount >= regionMaxKeyCount {
+		if size >= regionMaxSize || totalCount >= local.regionSplitKeys {
 			break
 		}
 	}
@@ -1514,7 +1523,7 @@ func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	engineFileLength := engineFile.Length.Load()
 
 	// <= 96MB no need to split into range
-	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= regionMaxKeyCount {
+	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= local.regionSplitKeys {
 		ranges := []Range{{start: firstKey, end: endKey}}
 		return ranges, nil
 	}
@@ -1525,7 +1534,7 @@ func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	}
 
 	ranges := splitRangeBySizeProps(Range{start: firstKey, end: endKey}, sizeProps,
-		local.regionSplitSize, regionMaxKeyCount*2/3)
+		local.regionSplitSize, local.regionSplitKeys)
 
 	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.UUID),
 		zap.Int64("totalSize", engineFileTotalSize), zap.Int64("totalCount", engineFileLength),
@@ -1945,7 +1954,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 
 		// if all the kv can fit in one region, skip split regions. TiDB will split one region for
 		// the table when table is created.
-		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
+		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > local.regionSplitKeys
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
 			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)

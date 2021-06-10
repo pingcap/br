@@ -261,6 +261,37 @@ func (s *kvSuite) TestDefaultAutoRandoms(c *C) {
 	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.AutoRandomType).Base(), Equals, int64(71))
 }
 
+<<<<<<< HEAD
+=======
+func (s *kvSuite) TestShardRowId(c *C) {
+	tblInfo := mockTableInfo(c, "create table t (s varchar(16)) shard_row_id_bits = 3;")
+	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
+	c.Assert(err, IsNil)
+	encoder, err := NewTableKVEncoder(tbl, &SessionOptions{
+		SQLMode:        mysql.ModeStrictAllTables,
+		Timestamp:      1234567893,
+		SysVars:        map[string]string{"tidb_row_format_version": "2"},
+		AutoRandomSeed: 456,
+	})
+	c.Assert(err, IsNil)
+	logger := log.Logger{Logger: zap.NewNop()}
+	keyMap := make(map[int64]struct{}, 16)
+	for i := int64(1); i <= 32; i++ {
+		pairs, err := encoder.Encode(logger, []types.Datum{types.NewStringDatum(fmt.Sprintf("%d", i))}, i, []int{0, -1})
+		c.Assert(err, IsNil)
+		kvs := pairs.(*KvPairs)
+		c.Assert(len(kvs.pairs), Equals, 1)
+		_, h, err := tablecodec.DecodeRecordKey(kvs.pairs[0].Key)
+		c.Assert(err, IsNil)
+		rowID := h.IntValue()
+		c.Assert(rowID&((1<<60)-1), Equals, i)
+		keyMap[rowID>>60] = struct{}{}
+	}
+	c.Assert(len(keyMap), Equals, 8)
+	c.Assert(tbl.Allocators(encoder.(*tableKVEncoder).se).Get(autoid.RowIDAllocType).Base(), Equals, int64(32))
+}
+
+>>>>>>> 9da896a6 (lightning: more flexiable region max keys (#1194))
 func (s *kvSuite) TestSplitIntoChunks(c *C) {
 	pairs := []common.KvPair{
 		{
