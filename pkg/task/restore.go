@@ -471,8 +471,8 @@ func filterRestoreFiles(
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
 		dbName := db.Info.Name.O
-		if utils.IsSysDB(utils.GetSysDBName(db.Info.Name)) {
-			dbName = utils.GetSysDBName(db.Info.Name)
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
 		}
 		for _, table := range db.Tables {
 			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
