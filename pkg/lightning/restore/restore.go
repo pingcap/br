@@ -2757,6 +2757,9 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 var (
 	maxKVQueueSize         = 32             // Cache at most this number of rows before blocking the encode loop
 	minDeliverBytes uint64 = 96 * units.KiB // 96 KB (data + index). batch at least this amount of bytes to reduce number of messages
+
+	// 4 GB - 256 MB (data + index). Pebble cannot allow > 4.0G kv in one batch. So add this limit to avoid batch larger than 4G.
+	maxDeliverBytes uint64 = 3840 * units.MiB
 )
 
 type deliveredKVs struct {
@@ -3028,7 +3031,7 @@ func (cr *chunkRestore) encodeLoop(
 			// pebble cannot allow > 4.0G kv in one batch.
 			// we will meet pebble panic when import sql file and each kv has the size larger than 4G / maxKvPairsCnt.
 			// so add this check.
-			if kvSize >= minDeliverBytes || len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
+			if kvSize >= maxDeliverBytes || len(kvPacket) >= maxKvPairsCnt || newOffset == cr.chunk.Chunk.EndOffset {
 				canDeliver = true
 				kvSize = 0
 			}
