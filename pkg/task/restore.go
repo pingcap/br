@@ -4,6 +4,7 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pingcap/br/pkg/metautil"
@@ -311,7 +312,7 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	}
 
 	// nothing to restore, maybe only ddl changes in incremental restore
-	if len(dbs) == 0 && len(tables) == 0 && !restore.HasSysSchemaToRestore(cfg.TableFilter) {
+	if len(dbs) == 0 && len(tables) == 0 {
 		log.Info("nothing to restore, all databases and tables are filtered out")
 		// even nothing to restore, we show a success message since there is no failure.
 		summary.SetSuccessStatus(true)
@@ -470,8 +471,14 @@ func filterRestoreFiles(
 ) (files []*backuppb.File, tables []*metautil.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
+		dbName := db.Info.Name.O
+		if utils.IsSysDB(utils.GetSysDBName(db.Info.Name)) {
+			dbName = utils.GetSysDBName(db.Info.Name)
+			msg := fmt.Sprintf("database %v is system database %v", db.Info.Name.O, dbName)
+			log.Info(msg)
+		}
 		for _, table := range db.Tables {
-			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
+			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
 				continue
 			}
 			if !createdDatabase {

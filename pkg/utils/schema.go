@@ -104,3 +104,9 @@ func IsSysDB(dbLowerName string) bool {
 func TemporaryDBName(db string) model.CIStr {
 	return model.NewCIStr("__TiDB_BR_Temporary_" + db)
 }
+
+// GetSysDBName get the original name of system DB
+func GetSysDBName(tempDB model.CIStr) string {
+	i := strings.LastIndex(tempDB.O, "_")
+	return tempDB.O[i+1:]
+}
