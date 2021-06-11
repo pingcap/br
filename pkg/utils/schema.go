@@ -106,7 +106,8 @@ func TemporaryDBName(db string) model.CIStr {
 }
 
 // GetSysDBName get the original name of system DB
-func GetSysDBName(tempDB model.CIStr) string {
+func GetSysDBName(tempDB model.CIStr) (string, bool) {
+	ok := strings.Contains(tempDB.O, "__TiDB_BR_Temporary_")
 	i := strings.LastIndex(tempDB.O, "_")
-	return tempDB.O[i+1:]
+	return tempDB.O[i+1:], ok
 }
