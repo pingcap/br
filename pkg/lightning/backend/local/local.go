@@ -76,17 +76,18 @@ import (
 )
 
 const (
-	dialTimeout             = 5 * time.Second
+	dialTimeout             = 5 * time.Minute
 	bigValueSize            = 1 << 16 // 64K
 	maxRetryTimes           = 5
 	defaultRetryBackoffTime = 3 * time.Second
 
-	gRPCKeepAliveTime    = 10 * time.Second
-	gRPCKeepAliveTimeout = 3 * time.Second
-	gRPCBackOffMaxDelay  = 3 * time.Second
+	gRPCKeepAliveTime    = 10 * time.Minute
+	gRPCKeepAliveTimeout = 5 * time.Minute
+	gRPCBackOffMaxDelay  = 10 * time.Minute
 
 	// See: https://github.com/tikv/tikv/blob/e030a0aae9622f3774df89c62f21b2171a72a69e/etc/config-template.toml#L360
-	regionMaxKeyCount = 1_440_000
+	regionMaxKeyCount      = 1_440_000
+	defaultRegionSplitSize = 96 * units.MiB
 
 	propRangeIndex = "tikv.range_index"
 
@@ -170,6 +171,13 @@ type File struct {
 	wg             sync.WaitGroup
 	sstIngester    sstIngester
 	finishedRanges syncedRanges
+
+	// sst seq lock
+	seqLock sync.Mutex
+	// seq number for incoming sst meta
+	nextSeq int32
+	// max seq of sst metas ingested into pebble
+	finishedMetaSeq atomic.Int32
 
 	config backend.LocalEngineConfig
 
@@ -332,27 +340,36 @@ func (e *File) unlock() {
 	e.mutex.Unlock()
 }
 
-type intHeap struct {
-	arr []int32
+type metaSeq struct {
+	// the sequence for this flush message, a flush call can return only if
+	// all the other flush will lower `flushSeq` are done
+	flushSeq int32
+	// the max sstMeta sequence number in this flush, after the flush is done (all SSTs are ingested),
+	// we can save chunks will a lower meta sequence number safely.
+	metaSeq int32
 }
 
-func (h *intHeap) Len() int {
+type metaSeqHeap struct {
+	arr []metaSeq
+}
+
+func (h *metaSeqHeap) Len() int {
 	return len(h.arr)
 }
 
-func (h *intHeap) Less(i, j int) bool {
-	return h.arr[i] < h.arr[j]
+func (h *metaSeqHeap) Less(i, j int) bool {
+	return h.arr[i].flushSeq < h.arr[j].flushSeq
 }
 
-func (h *intHeap) Swap(i, j int) {
+func (h *metaSeqHeap) Swap(i, j int) {
 	h.arr[i], h.arr[j] = h.arr[j], h.arr[i]
 }
 
-func (h *intHeap) Push(x interface{}) {
-	h.arr = append(h.arr, x.(int32))
+func (h *metaSeqHeap) Push(x interface{}) {
+	h.arr = append(h.arr, x.(metaSeq))
 }
 
-func (h *intHeap) Pop() interface{} {
+func (h *metaSeqHeap) Pop() interface{} {
 	item := h.arr[len(h.arr)-1]
 	h.arr = h.arr[:len(h.arr)-1]
 	return item
@@ -373,7 +390,7 @@ func (e *File) ingestSSTLoop() {
 	flushQueue := make([]flushSeq, 0)
 	// inSyncSeqs is a heap that stores all the finished compaction tasks whose seq is bigger than `finishedSeq + 1`
 	// this mean there are still at lease one compaction task with a lower seq unfinished.
-	inSyncSeqs := &intHeap{arr: make([]int32, 0)}
+	inSyncSeqs := &metaSeqHeap{arr: make([]metaSeq, 0)}
 
 	type metaAndSeq struct {
 		metas []*sstMeta
@@ -417,6 +434,8 @@ func (e *File) ingestSSTLoop() {
 						}
 						ingestMetas = []*sstMeta{newMeta}
 					}
+					// batchIngestSSTs will change ingestMetas' order, so we record the max seq here
+					metasMaxSeq := ingestMetas[len(ingestMetas)-1].seq
 
 					if err := e.batchIngestSSTs(ingestMetas); err != nil {
 						e.setError(err)
@@ -426,9 +445,11 @@ func (e *File) ingestSSTLoop() {
 					finSeq := finishedSeq.Load()
 					if metas.seq == finSeq+1 {
 						finSeq = metas.seq
+						finMetaSeq := metasMaxSeq
 						for len(inSyncSeqs.arr) > 0 {
-							if inSyncSeqs.arr[0] == finSeq+1 {
+							if inSyncSeqs.arr[0].flushSeq == finSeq+1 {
 								finSeq++
+								finMetaSeq = inSyncSeqs.arr[0].metaSeq
 								heap.Remove(inSyncSeqs, 0)
 							} else {
 								break
@@ -445,12 +466,13 @@ func (e *File) ingestSSTLoop() {
 						}
 						flushQueue = flushQueue[len(flushChans):]
 						finishedSeq.Store(finSeq)
+						e.finishedMetaSeq.Store(finMetaSeq)
 						seqLock.Unlock()
 						for _, c := range flushChans {
 							c <- struct{}{}
 						}
 					} else {
-						heap.Push(inSyncSeqs, metas.seq)
+						heap.Push(inSyncSeqs, metaSeq{flushSeq: metas.seq, metaSeq: metasMaxSeq})
 						seqLock.Unlock()
 					}
 				}
@@ -561,16 +583,22 @@ readMetaLoop:
 	}
 }
 
-func (e *File) addSST(ctx context.Context, m *sstMeta) error {
+func (e *File) addSST(ctx context.Context, m *sstMeta) (int32, error) {
 	// set pending size after SST file is generated
 	e.pendingFileSize.Add(m.fileSize)
+	// make sure sstMeta is sent into the chan in order
+	e.seqLock.Lock()
+	defer e.seqLock.Unlock()
+	e.nextSeq++
+	seq := e.nextSeq
+	m.seq = seq
 	select {
 	case e.sstMetasChan <- metaOrFlush{meta: m}:
 	case <-ctx.Done():
-		return ctx.Err()
+		return 0, ctx.Err()
 	case <-e.ctx.Done():
 	}
-	return e.ingestErr.Get()
+	return seq, e.ingestErr.Get()
 }
 
 func (e *File) batchIngestSSTs(metas []*sstMeta) error {
@@ -623,6 +651,7 @@ func (e *File) ingestSSTs(metas []*sstMeta) error {
 	log.L().Info("write data to local DB",
 		zap.Int64("size", totalSize),
 		zap.Int64("kvs", totalCount),
+		zap.Int("files", len(metas)),
 		zap.Int64("sstFileSize", fileSize),
 		zap.String("file", metas[0].path),
 		logutil.Key("firstKey", metas[0].minKey),
@@ -748,6 +777,7 @@ type local struct {
 
 	localStoreDir   string
 	regionSplitSize int64
+	regionSplitKeys int64
 
 	rangeConcurrency  *worker.Pool
 	ingestConcurrency *worker.Pool
@@ -857,6 +887,12 @@ func NewLocalBackend(
 		}
 	}
 
+	regionSplitSize := int64(cfg.RegionSplitSize)
+	regionSplitKeys := int64(regionMaxKeyCount)
+	if regionSplitSize > defaultRegionSplitSize {
+		regionSplitKeys = int64(float64(regionSplitSize) / float64(defaultRegionSplitSize) * float64(regionMaxKeyCount))
+	}
+
 	local := &local{
 		engines:  sync.Map{},
 		splitCli: splitCli,
@@ -865,7 +901,8 @@ func NewLocalBackend(
 		g:        g,
 
 		localStoreDir:   localFile,
-		regionSplitSize: int64(cfg.RegionSplitSize),
+		regionSplitSize: regionSplitSize,
+		regionSplitKeys: regionSplitKeys,
 
 		rangeConcurrency:  worker.NewPool(ctx, rangeConcurrency, "range"),
 		ingestConcurrency: worker.NewPool(ctx, rangeConcurrency*2, "ingest"),
@@ -1325,7 +1362,7 @@ func (local *local) WriteToTiKV(
 			bytesBuf.reset()
 			firstLoop = false
 		}
-		if size >= regionMaxSize || totalCount >= regionMaxKeyCount {
+		if size >= regionMaxSize || totalCount >= local.regionSplitKeys {
 			break
 		}
 	}
@@ -1486,7 +1523,7 @@ func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	engineFileLength := engineFile.Length.Load()
 
 	// <= 96MB no need to split into range
-	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= regionMaxKeyCount {
+	if engineFileTotalSize <= local.regionSplitSize && engineFileLength <= local.regionSplitKeys {
 		ranges := []Range{{start: firstKey, end: endKey}}
 		return ranges, nil
 	}
@@ -1497,7 +1534,7 @@ func (local *local) readAndSplitIntoRange(engineFile *File) ([]Range, error) {
 	}
 
 	ranges := splitRangeBySizeProps(Range{start: firstKey, end: endKey}, sizeProps,
-		local.regionSplitSize, regionMaxKeyCount*2/3)
+		local.regionSplitSize, local.regionSplitKeys)
 
 	log.L().Info("split engine key ranges", zap.Stringer("engine", engineFile.UUID),
 		zap.Int64("totalSize", engineFileTotalSize), zap.Int64("totalCount", engineFileLength),
@@ -1917,7 +1954,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 
 		// if all the kv can fit in one region, skip split regions. TiDB will split one region for
 		// the table when table is created.
-		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
+		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > local.regionSplitKeys
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
 			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)
@@ -2102,7 +2139,6 @@ func (local *local) CheckRequirements(ctx context.Context, checkCtx *backend.Che
 	}
 
 	tidbVersion, _ := version.ExtractTiDBVersion(versionStr)
-
 	return checkTiFlashVersion(ctx, local.g, checkCtx, *tidbVersion)
 }
 
@@ -2200,7 +2236,13 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 		local:              f,
 		memtableSizeLimit:  cacheSize,
 		kvBuffer:           newBytesBuffer(),
-		isWriteBatchSorted: cfg.IsKVSorted,
+		isKVSorted:         cfg.IsKVSorted,
+		isWriteBatchSorted: true,
+	}
+	// pre-allocate a long enough buffer to avoid a lot of runtime.growslice
+	// this can help save about 3% of CPU.
+	if !w.isKVSorted {
+		w.writeBatch = make([]common.KvPair, units.MiB)
 	}
 	f.localWriters.Store(w, nil)
 	return w, nil
@@ -2490,14 +2532,25 @@ type sstMeta struct {
 	totalCount int64
 	// used for calculate disk-quota
 	fileSize int64
+	seq      int32
 }
 
 type Writer struct {
 	sync.Mutex
-	local              *File
-	sstDir             string
-	memtableSizeLimit  int64
-	writeBatch         []common.KvPair
+	local             *File
+	sstDir            string
+	memtableSizeLimit int64
+
+	// if the KVs are append in order, we can directly write the into SST file,
+	// else we must first store them in writeBatch and then batch flush into SST file.
+	isKVSorted bool
+	writer     *sstWriter
+
+	// bytes buffer for writeBatch
+	kvBuffer   *bytesBuffer
+	writeBatch []common.KvPair
+	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
+	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
 	isWriteBatchSorted bool
 
 	batchCount int
@@ -2505,8 +2558,7 @@ type Writer struct {
 	totalSize  int64
 	totalCount int64
 
-	kvBuffer *bytesBuffer
-	writer   *sstWriter
+	lastMetaSeq int32
 }
 
 func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
@@ -2529,7 +2581,15 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) error {
 	l := len(w.writeBatch)
 	cnt := w.batchCount
+	var lastKey []byte
+	if len(w.writeBatch) > 0 {
+		lastKey = w.writeBatch[len(w.writeBatch)-1].Key
+	}
 	for _, pair := range kvs {
+		if w.isWriteBatchSorted && bytes.Compare(lastKey, pair.Key) > 0 {
+			w.isWriteBatchSorted = false
+		}
+		lastKey = pair.Key
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
 		key := w.kvBuffer.addBytes(pair.Key)
 		val := w.kvBuffer.addBytes(pair.Val)
@@ -2575,16 +2635,16 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 	defer w.Unlock()
 
 	// if chunk has _tidb_rowid field, we can't ensure that the rows are sorted.
-	if w.isWriteBatchSorted && w.writer == nil {
+	if w.isKVSorted && w.writer == nil {
 		for _, c := range columnNames {
 			if c == model.ExtraHandleName.L {
-				w.isWriteBatchSorted = false
+				w.isKVSorted = false
 			}
 		}
 	}
 
 	w.local.TS = ts
-	if w.isWriteBatchSorted {
+	if w.isKVSorted {
 		return w.appendRowsSorted(kvs)
 	}
 	return w.appendRowsUnsorted(ctx, kvs)
@@ -2610,15 +2670,25 @@ func (w *Writer) flush(ctx context.Context) error {
 			return errors.Trace(err)
 		}
 		w.writer = nil
+		w.batchCount = 0
 		if meta != nil && meta.totalSize > 0 {
-			return w.local.addSST(ctx, meta)
+			return w.addSST(ctx, meta)
 		}
 	}
 
 	return nil
 }
 
-func (w *Writer) Close(ctx context.Context) error {
+type flushStatus struct {
+	local *File
+	seq   int32
+}
+
+func (f flushStatus) Flushed() bool {
+	return f.seq <= f.local.finishedMetaSeq.Load()
+}
+
+func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	defer w.kvBuffer.destroy()
 	defer w.local.localWriters.Delete(w)
 	err := w.flush(ctx)
@@ -2626,7 +2696,11 @@ func (w *Writer) Close(ctx context.Context) error {
 	// this can resolve the memory consistently increasing issue.
 	// maybe this is a bug related to go GC mechanism.
 	w.writeBatch = nil
-	return err
+	return flushStatus{local: w.local, seq: w.lastMetaSeq}, err
+}
+
+func (w *Writer) IsSynced() bool {
+	return w.batchCount == 0 && w.lastMetaSeq <= w.local.finishedMetaSeq.Load()
 }
 
 func (w *Writer) flushKVs(ctx context.Context) error {
@@ -2634,9 +2708,13 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	sort.Slice(w.writeBatch[:w.batchCount], func(i, j int) bool {
-		return bytes.Compare(w.writeBatch[i].Key, w.writeBatch[j].Key) < 0
-	})
+	if !w.isWriteBatchSorted {
+		sort.Slice(w.writeBatch[:w.batchCount], func(i, j int) bool {
+			return bytes.Compare(w.writeBatch[i].Key, w.writeBatch[j].Key) < 0
+		})
+		w.isWriteBatchSorted = true
+	}
+
 	writer.minKey = append(writer.minKey[:0], w.writeBatch[0].Key...)
 	err = writer.writeKVs(w.writeBatch[:w.batchCount])
 	if err != nil {
@@ -2646,7 +2724,7 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = w.local.addSST(ctx, meta)
+	err = w.addSST(ctx, meta)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -2655,6 +2733,15 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	w.batchSize = 0
 	w.batchCount = 0
 	w.kvBuffer.reset()
+	return nil
+}
+
+func (w *Writer) addSST(ctx context.Context, meta *sstMeta) error {
+	seq, err := w.local.addSST(ctx, meta)
+	if err != nil {
+		return err
+	}
+	w.lastMetaSeq = seq
 	return nil
 }
 
@@ -2708,7 +2795,12 @@ func (sw *sstWriter) writeKVs(kvs []common.KvPair) error {
 	internalKey := sstable.InternalKey{
 		Trailer: uint64(sstable.InternalKeyKindSet),
 	}
+	var lastKey []byte
 	for _, p := range kvs {
+		if bytes.Equal(p.Key, lastKey) {
+			log.L().Warn("duplicated key found, skip write", logutil.Key("key", p.Key))
+			continue
+		}
 		internalKey.UserKey = p.Key
 		if err := sw.writer.Add(internalKey, p.Val); err != nil {
 			return errors.Trace(err)
@@ -2822,10 +2914,13 @@ func (i dbSSTIngester) mergeSSTs(metas []*sstMeta, dir string) (*sstMeta, error)
 	}
 
 	start := time.Now()
-	newMeta := &sstMeta{}
+	newMeta := &sstMeta{
+		seq: metas[len(metas)-1].seq,
+	}
 	mergeIter := &sstIterHeap{
 		iters: make([]*sstIter, 0, len(metas)),
 	}
+
 	for _, p := range metas {
 		f, err := os.Open(p.path)
 		if err != nil {

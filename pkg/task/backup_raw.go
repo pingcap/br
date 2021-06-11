@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -211,25 +213,29 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 		CompressionType:  cfg.CompressionType,
 		CompressionLevel: cfg.CompressionLevel,
 	}
-	files, err := client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, progressCallBack)
+	metaWriter := metautil.NewMetaWriter(client.GetStorage(), metautil.MetaFileSize, false)
+	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendDataFile)
+	err = client.BackupRange(ctx, backupRange.StartKey, backupRange.EndKey, req, metaWriter, progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
-
-	// Checksum
 	rawRanges := []*backuppb.RawRange{{StartKey: backupRange.StartKey, EndKey: backupRange.EndKey, Cf: cfg.CF}}
-	backupMeta, err := backup.BuildBackupMeta(&req, files, rawRanges, nil, clusterVersion, brVersion)
+	metaWriter.Update(func(m *backuppb.BackupMeta) {
+		m.StartVersion = req.StartVersion
+		m.EndVersion = req.EndVersion
+		m.IsRawKv = req.IsRawKv
+		m.RawRanges = rawRanges
+		m.ClusterId = req.ClusterId
+		m.ClusterVersion = clusterVersion
+		m.BrVersion = brVersion
+	})
+	err = metaWriter.FinishWriteMetas(ctx, metautil.AppendDataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = client.SaveBackupMeta(ctx, &backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	g.Record(summary.BackupDataSize, utils.ArchiveSize(&backupMeta))
+	g.Record(summary.BackupDataSize, metaWriter.ArchiveSize())
 
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)

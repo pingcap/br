@@ -65,10 +65,11 @@ func (s *metaMgrSuite) SetUpTest(c *C) {
 	c.Assert(err, IsNil)
 
 	s.mgr = &dbTableMetaMgr{
-		session:   db,
-		taskID:    1,
-		tr:        s.tr,
-		tableName: common.UniqueTable("test", tableMetaTableName),
+		session:      db,
+		taskID:       1,
+		tr:           s.tr,
+		tableName:    common.UniqueTable("test", tableMetaTableName),
+		needChecksum: true,
 	}
 	s.mockDB = m
 	s.checksumMgr = &testChecksumMgr{}
@@ -129,6 +130,28 @@ func (s *metaMgrSuite) TestAllocTableRowIDsSingleTableContainsData(c *C) {
 	c.Assert(rowIDBase, Equals, int64(998))
 	c.Assert(ck, DeepEquals, &checksum)
 	c.Assert(s.checksumMgr.callCnt, Equals, 1)
+}
+
+func (s *metaMgrSuite) TestAllocTableRowIDsSingleTableSkipChecksum(c *C) {
+	s.mgr.needChecksum = false
+	defer func() {
+		s.mgr.needChecksum = true
+	}()
+	ctx := context.WithValue(context.Background(), &checksumManagerKey, s.checksumMgr)
+
+	rows := [][]driver.Value{
+		{int64(1), int64(0), int64(0), uint64(0), uint64(0), uint64(0), "initialized"},
+	}
+	nextID := int64(999)
+	newStatus := "restore"
+	updateArgs := []driver.Value{int64(998), int64(1008), "allocated", int64(1), int64(1)}
+	s.prepareMock(rows, &nextID, updateArgs, nil, &newStatus)
+
+	ck, rowIDBase, err := s.mgr.AllocTableRowIDs(ctx, 10)
+	c.Assert(err, IsNil)
+	c.Assert(rowIDBase, Equals, int64(998))
+	c.Assert(ck, IsNil)
+	c.Assert(s.checksumMgr.callCnt, Equals, 0)
 }
 
 func (s *metaMgrSuite) TestAllocTableRowIDsAllocated(c *C) {
