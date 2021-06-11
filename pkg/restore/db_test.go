@@ -18,9 +18,9 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
+	"github.com/tikv/client-go/v2/oracle"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/gluetidb"
