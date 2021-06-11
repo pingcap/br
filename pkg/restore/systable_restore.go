@@ -45,13 +45,6 @@ func isStatsTable(tableName string) bool {
 	return ok
 }
 
-// HasSysSchemaToRestore If there is System schema to restore, return true, else return false
-func HasSysSchemaToRestore(f filter.Filter) bool {
-	sysDB := mysql.SystemDB
-	return f.MatchSchema(sysDB)
-}
-
-// RestoreSystemSchemas restores the system schema(i.e. the `mysql` schema).
 // Detail see https://github.com/pingcap/br/issues/679#issuecomment-762592254.
 func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	sysDB := mysql.SystemDB
