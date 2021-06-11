@@ -4,7 +4,6 @@ package task
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/pingcap/br/pkg/metautil"
@@ -474,8 +473,6 @@ func filterRestoreFiles(
 		dbName := db.Info.Name.O
 		if utils.IsSysDB(utils.GetSysDBName(db.Info.Name)) {
 			dbName = utils.GetSysDBName(db.Info.Name)
-			msg := fmt.Sprintf("database %v is system database %v", db.Info.Name.O, dbName)
-			log.Info(msg)
 		}
 		for _, table := range db.Tables {
 			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
