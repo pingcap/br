@@ -1171,7 +1171,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 
 	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
 	c.Assert(failpoint.Enable(
-		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
+		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(4089446400)"), IsNil)
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 
 	// we have 3 kvs total. after the failpoint injected.
