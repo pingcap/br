@@ -18,6 +18,7 @@ import (
 	"github.com/pingcap/br/pkg/logutil"
 )
 
+<<<<<<< HEAD
 const (
 	// LockFile represents file name
 	LockFile = "backup.lock"
@@ -45,6 +46,10 @@ type Table struct {
 func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
+=======
+// temporaryDBNamePrefix is the prefix name of system db, e.g. mysql system db will be rename to __TiDB_BR_Temporary_mysql
+const temporaryDBNamePrefix = "__TiDB_BR_Temporary_"
+>>>>>>> 2a9727fa (restore: Fix system tables are filtered bug (#1207))
 
 // NeedAutoID checks whether the table needs backing up with an autoid.
 func NeedAutoID(tblInfo *model.TableInfo) bool {
@@ -171,5 +176,13 @@ func IsSysDB(dbLowerName string) bool {
 
 // TemporaryDBName makes a 'private' database name.
 func TemporaryDBName(db string) model.CIStr {
-	return model.NewCIStr("__TiDB_BR_Temporary_" + db)
+	return model.NewCIStr(temporaryDBNamePrefix + db)
+}
+
+// GetSysDBName get the original name of system DB
+func GetSysDBName(tempDB model.CIStr) (string, bool) {
+	if ok := strings.HasPrefix(tempDB.O, temporaryDBNamePrefix); !ok {
+		return tempDB.O, false
+	}
+	return tempDB.O[len(temporaryDBNamePrefix):], true
 }
