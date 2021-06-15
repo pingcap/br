@@ -19,9 +19,9 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/statistics/handle"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
+	"github.com/tikv/client-go/v2/oracle"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"

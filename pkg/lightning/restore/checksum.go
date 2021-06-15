@@ -15,8 +15,8 @@ import (
 	tidbcfg "github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/driver"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tipb/go-tipb"
+	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 
