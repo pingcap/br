@@ -25,6 +25,24 @@ modify_systables() {
     run_sql "ANALYZE TABLE mysql.usertable;"
 }
 
+add_user() {
+    run_sql "CREATE USER 'newuser' IDENTIFIED BY 'newuserpassword';"
+}
+
+delete_user() {
+    run_sql "DROP USER 'newuser'"
+}
+
+add_test_data() {
+    run_sql "CREATE DATABASE usertest;"
+    run_sql "CREATE TABLE usertest.test(pk int primary key auto_increment, field varchar(255));"
+    run_sql "INSERT INTO usertest.test(field) VALUES $test_data"
+}
+
+delete_test_data() {
+    run_sql "DROP TABLE usertest.test;"
+}
+
 rollback_modify() {
     run_sql "DROP TABLE mysql.foo;"
     run_sql "DROP TABLE mysql.bar;"
@@ -46,8 +64,33 @@ check() {
     # TODO check stats after supportting.
 }
 
+check2() {
+    run_sql "SELECT count(*) from usertest.test;" | grep 11
+    run_sql "SELECT user FROM mysql.user WHERE user='newuser';" | grep 'newuser'
+}
+
 modify_systables
 run_br backup full -s "local://$backup_dir"
 rollback_modify
 run_br restore full -f '*.*' -f '!mysql.bar' -s "local://$backup_dir"
 check
+
+run_br restore full -f 'mysql.bar' -s "local://$backup_dir"
+run_sql "SELECT count(*) from mysql.bar;" | grep 11
+
+rollback_modify 
+run_br restore full -f "mysql*.*" -f '!mysql.bar' -s "local://$backup_dir"
+check
+
+add_user
+add_test_data
+run_br backup full -s "local://${backup_dir}1"
+delete_user
+delete_test_data
+run_br restore full -f "mysql*.*" -f "usertest.*" -s "local://${backup_dir}1"
+check2
+
+delete_user 
+run_br restore db --db mysql -s "local://${backup_dir}1"
+check2
+
