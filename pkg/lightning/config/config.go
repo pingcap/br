@@ -647,13 +647,41 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 
 	storageSizeDir := filepath.Clean(cfg.TikvImporter.SortedKVDir)
 	sortedKVDirInfo, err := os.Stat(storageSizeDir)
-	if os.IsNotExist(err) {
-		return nil
+
+	switch {
+	case os.IsNotExist(err):
+		// the sorted-kv-dir does not exist, meaning we will create it automatically.
+		// so we extract the storage size from its parent directory.
+		storageSizeDir = filepath.Dir(storageSizeDir)
+	case err == nil:
+		if !sortedKVDirInfo.IsDir() {
+			return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
+		}
+	default:
+		return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
 	}
-	if err == nil && !sortedKVDirInfo.IsDir() {
-		return errors.Errorf("tikv-importer.sorted-kv-dir ('%s') is not a directory", storageSizeDir)
+
+	// we need to calculate quota if disk-quota == 0
+	if cfg.TikvImporter.DiskQuota == 0 {
+		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
+		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
+		reservedSize := enginesCount*uint64(cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
+
+		storageSize, err := common.GetStorageSize(storageSizeDir)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if storageSize.Available <= reservedSize {
+			return errors.Errorf(
+				"insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space, or specify `tikv-importer.disk-quota`",
+				cfg.TikvImporter.SortedKVDir,
+				units.BytesSize(float64(storageSize.Available)),
+				units.BytesSize(float64(reservedSize)))
+		}
+		cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
 	}
-	return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
+
+	return nil
 }
 
 func (cfg *Config) DefaultVarsForTiDBBackend() {
