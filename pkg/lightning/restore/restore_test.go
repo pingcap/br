@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -218,15 +219,79 @@ func (s *restoreSuite) TestDiskQuotaLock(c *C) {
 	lock := newDiskQuotaLock()
 
 	lock.Lock()
-	c.Assert(lock.TryRLock(), Equals, false)
+	c.Assert(lock.TryRLock(), IsFalse)
 	lock.Unlock()
-	c.Assert(lock.TryRLock(), Equals, true)
-	c.Assert(lock.TryRLock(), Equals, true)
-	c.Assert(lock.TryRLock(), Equals, true)
-	lock.RUnlock()
-	lock.RUnlock()
-	lock.RUnlock()
-	// TODO: more test
+	c.Assert(lock.TryRLock(), IsTrue)
+	c.Assert(lock.TryRLock(), IsTrue)
+
+	rLocked := 2
+	lockHeld := make(chan struct{})
+	go func() {
+		lock.Lock()
+		lockHeld <- struct{}{}
+	}()
+	for lock.TryRLock() {
+		rLocked++
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-lockHeld:
+		c.Fatal("lock is held before all read locks are released")
+	case <-time.NewTimer(10 * time.Millisecond).C:
+	}
+	for ; rLocked > 0; rLocked-- {
+		lock.RUnlock()
+	}
+	<-lockHeld
+	lock.Unlock()
+
+	done := make(chan struct{})
+	count := int32(0)
+	reader := func() {
+		for i := 0; i < 1000; i++ {
+			if lock.TryRLock() {
+				n := atomic.AddInt32(&count, 1)
+				if n < 1 || n >= 10000 {
+					lock.RUnlock()
+					panic(fmt.Sprintf("unexpected count(%d)", n))
+				}
+				for i := 0; i < 100; i++ {
+				}
+				atomic.AddInt32(&count, -1)
+				lock.RUnlock()
+			}
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	writer := func() {
+		for i := 0; i < 1000; i++ {
+			lock.Lock()
+			n := atomic.AddInt32(&count, 10000)
+			if n != 10000 {
+				lock.RUnlock()
+				panic(fmt.Sprintf("unexpected count(%d)", n))
+			}
+			for i := 0; i < 100; i++ {
+			}
+			atomic.AddInt32(&count, -10000)
+			lock.Unlock()
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 2; i++ {
+		go writer()
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 12; i++ {
+		<-done
+	}
 }
 
 var _ = Suite(&tableRestoreSuite{})
