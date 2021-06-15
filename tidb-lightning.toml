@@ -32,6 +32,10 @@ table-concurrency = 6
 # adjusted according to monitoring.
 # Ref: https://en.wikipedia.org/wiki/Disk_buffer#Read-ahead/read-behind
 # io-concurrency = 5
+# meta-schema-name is (database name) to store lightning task and table metadata.
+# the meta schema and tables is store in target tidb cluster.
+# this config is only used in "local" and "importer" backend.
+# meta-schema-name = "lightning_metadata"
 
 # logging
 level = "info"

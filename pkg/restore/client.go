@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -24,9 +26,9 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/statistics/handle"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/server/schedule/placement"
 	"go.uber.org/zap"
@@ -169,18 +171,23 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
+func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend, externalStorage storage.ExternalStorage) error {
 	if !backupMeta.IsRawKv {
-		databases, err := utils.LoadBackupTables(backupMeta)
+		reader := metautil.NewMetaReader(backupMeta, externalStorage)
+		databases, err := utils.LoadBackupTables(c, reader)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		rc.databases = databases
 
 		var ddlJobs []*model.Job
-		err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
-		if err != nil {
-			return errors.Trace(err)
+		// ddls is the bytes of json.Marshal
+		ddls, err := reader.ReadDDLs(c)
+		if len(ddls) != 0 {
+			err = json.Unmarshal(ddls, &ddlJobs)
+			if err != nil {
+				return errors.Trace(err)
+			}
 		}
 		rc.ddlJobs = ddlJobs
 	}
@@ -350,7 +357,7 @@ func (rc *Client) CreateDatabase(ctx context.Context, db *model.DBInfo) error {
 // CreateTables creates multiple tables, and returns their rewrite rules.
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	newTS uint64,
 ) (*RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &RewriteRules{
@@ -389,7 +396,7 @@ func (rc *Client) createTable(
 	ctx context.Context,
 	db *DB,
 	dom *domain.Domain,
-	table *utils.Table,
+	table *metautil.Table,
 	newTS uint64,
 ) (CreatedTable, error) {
 	if rc.IsSkipCreateSQL() {
@@ -426,7 +433,7 @@ func (rc *Client) createTable(
 func (rc *Client) GoCreateTables(
 	ctx context.Context,
 	dom *domain.Domain,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	newTS uint64,
 	dbPool []*DB,
 	errCh chan<- error,
@@ -441,7 +448,7 @@ func (rc *Client) GoCreateTables(
 	}
 
 	outCh := make(chan CreatedTable, len(tables))
-	createOneTable := func(c context.Context, db *DB, t *utils.Table) error {
+	createOneTable := func(c context.Context, db *DB, t *metautil.Table) error {
 		select {
 		case <-c.Done():
 			return c.Err()
@@ -479,8 +486,8 @@ func (rc *Client) GoCreateTables(
 }
 
 func (rc *Client) createTablesWithSoleDB(ctx context.Context,
-	createOneTable func(ctx context.Context, db *DB, t *utils.Table) error,
-	tables []*utils.Table) error {
+	createOneTable func(ctx context.Context, db *DB, t *metautil.Table) error,
+	tables []*metautil.Table) error {
 	for _, t := range tables {
 		if err := createOneTable(ctx, rc.db, t); err != nil {
 			return errors.Trace(err)
@@ -490,8 +497,8 @@ func (rc *Client) createTablesWithSoleDB(ctx context.Context,
 }
 
 func (rc *Client) createTablesWithDBPool(ctx context.Context,
-	createOneTable func(ctx context.Context, db *DB, t *utils.Table) error,
-	tables []*utils.Table, dbPool []*DB) error {
+	createOneTable func(ctx context.Context, db *DB, t *metautil.Table) error,
+	tables []*metautil.Table, dbPool []*DB) error {
 	eg, ectx := errgroup.WithContext(ctx)
 	workers := utils.NewWorkerPool(uint(len(dbPool)), "DDL workers")
 	for _, t := range tables {
@@ -1045,7 +1052,7 @@ func (rc *Client) IsSkipCreateSQL() bool {
 // PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
 func (rc *Client) PreCheckTableTiFlashReplica(
 	ctx context.Context,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 ) error {
 	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
 	if err != nil {
@@ -1065,7 +1072,7 @@ func (rc *Client) PreCheckTableTiFlashReplica(
 
 // PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。
 func (rc *Client) PreCheckTableClusterIndex(
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	ddlJobs []*model.Job,
 	dom *domain.Domain,
 ) error {

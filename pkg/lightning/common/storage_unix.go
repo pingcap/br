@@ -19,6 +19,7 @@ package common
 
 import (
 	"reflect"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -54,4 +55,20 @@ func GetStorageSize(dir string) (size StorageSize, err error) {
 	size.Capacity = stat.Blocks * bSize
 
 	return
+}
+
+// SameDisk is used to check dir1 and dir2 in the same disk.
+func SameDisk(dir1 string, dir2 string) (bool, error) {
+	st1 := syscall.Stat_t{}
+	st2 := syscall.Stat_t{}
+
+	if err := syscall.Stat(dir1, &st1); err != nil {
+		return false, err
+	}
+
+	if err := syscall.Stat(dir2, &st2); err != nil {
+		return false, err
+	}
+
+	return st1.Dev == st2.Dev, nil
 }

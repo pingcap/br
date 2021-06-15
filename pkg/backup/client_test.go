@@ -13,20 +13,19 @@ import (
 	"github.com/pingcap/kvproto/pkg/errorpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/store/tikv/mockstore/mocktikv"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/client-go/v2/mockstore/mocktikv"
+	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/gluetidb"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBackup struct {
@@ -230,34 +229,19 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 	}
 }
 
-func (r *testBackup) TestBuildBackupMeta(c *C) {
-	req := backuppb.BackupRequest{
-		ClusterId:    r.mockPDClient.GetClusterID(r.ctx),
-		StartVersion: 0,
-		EndVersion:   0,
-	}
-	clusterVersion := "v4.0.10"
-	brVersion := gluetidb.New().GetVersion()
-	backupMeta, err := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
-	c.Assert(err, IsNil)
-	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
-	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
-	c.Assert(backupMeta.BrVersion, Equals, brVersion)
-}
-
 func (r *testBackup) TestGetLockOrMetaPath(c *C) {
 	backend, err := storage.ParseBackend("s3://bucket/prefix/", nil)
 	c.Assert(err, IsNil)
-	path := backup.GetLockOrMetaFilePath(utils.MetaFile, backend)
+	path := backup.GetLockOrMetaFilePath(metautil.MetaFile, backend)
 	c.Assert(path, Equals, "s3://bucket/prefix/backupmeta")
 
 	backend, err = storage.ParseBackend("gcs://bucket/prefix/", nil)
 	c.Assert(err, IsNil)
-	path = backup.GetLockOrMetaFilePath(utils.LockFile, backend)
+	path = backup.GetLockOrMetaFilePath(metautil.LockFile, backend)
 	c.Assert(path, Equals, "gcs://bucket/prefix/backup.lock")
 
 	backend, err = storage.ParseBackend("local:///tmp/", nil)
 	c.Assert(err, IsNil)
-	path = backup.GetLockOrMetaFilePath(utils.LockFile, backend)
+	path = backup.GetLockOrMetaFilePath(metautil.LockFile, backend)
 	c.Assert(path, Equals, "local:///tmp/backup.lock")
 }

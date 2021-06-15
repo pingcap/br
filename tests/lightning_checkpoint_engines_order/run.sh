@@ -33,7 +33,10 @@ run_lightning --enable-checkpoint=1 2> /dev/null
 [ $? -ne 0 ] || exit 1
 set -e
 # engine sorted kv dir name is 36 length (UUID4).
-[ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 3 ]
+if [ ! $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 3 ]; then
+  ls -al "$TEST_DIR/$TEST_NAME.sorted"
+  exit 1
+fi
 
 # allow everything to be written,
 export GO_FAILPOINTS=''

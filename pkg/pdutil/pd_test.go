@@ -127,7 +127,7 @@ func (s *testPDControllerSuite) TestRegionCount(c *C) {
 		EndKey:      codec.EncodeBytes(nil, []byte{3, 4}),
 		RegionEpoch: &metapb.RegionEpoch{},
 	}, nil))
-	c.Assert(regions.Length(), Equals, 3)
+	c.Assert(regions.Len(), Equals, 3)
 
 	mock := func(
 		_ context.Context, addr string, prefix string, _ *http.Client, _ string, _ io.Reader,
