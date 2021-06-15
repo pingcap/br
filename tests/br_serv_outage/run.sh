@@ -21,19 +21,19 @@ single_point_fault() {
     echo "Will make failure($type) to store#$victim."
     case $type in
         outage)
-            wait_file_exist "$hint_backup_start" $2
+            wait_file_exist "$hint_backup_start"
             kv_outage -d 30 -i $victim;;
         outage-after-request)
-            wait_file_exist "$hint_get_backup_client" $2
+            wait_file_exist "$hint_get_backup_client"
             kv_outage -d 30 -i $victim;;
         outage-at-finegrained)
-            wait_file_exist "$hint_finegrained" $2
+            wait_file_exist "$hint_finegrained"
             kv_outage --kill -i $victim;;
         shutdown)
-            wait_file_exist "$hint_backup_start" $2
+            wait_file_exist "$hint_backup_start"
             kv_outage --kill -i $victim;;
         scale-out)
-            wait_file_exist "$hint_backup_start" $2
+            wait_file_exist "$hint_backup_start"
             kv_outage --kill -i $victim
             kv_outage --scale-out -i 4;;
     esac
@@ -74,7 +74,7 @@ github.com/pingcap/br/pkg/conn/hint-get-backup-client=1*return(\"$hint_get_backu
     rm -rf "${backup_dir:?}"
     run_br backup full -s local://"$backup_dir" --ratelimit 128 --ratelimit-unit 1024 &
     backup_pid=$!
-    single_point_fault $failure $backup_pid
+    single_point_fault $failure
     wait $backup_pid
     case $failure in
     scale-out | shutdown | outage-at-finegrained ) stop_services
