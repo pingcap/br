@@ -226,8 +226,10 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	if len(s.tableSchemas) != 0 {
 		// setup table schema
 		for _, fileInfo := range s.tableSchemas {
-			_, _, tableExists := s.insertTable(fileInfo)
-			if tableExists && s.loader.router == nil {
+			_, dbExists, tableExists := s.insertTable(fileInfo)
+			if !dbExists {
+				return errors.Errorf("invalid table schema file, cannot find db '%s' - %s", fileInfo.TableName.Schema, fileInfo.FileMeta.Path)
+			} else if tableExists && s.loader.router == nil {
 				return errors.Errorf("invalid table schema file, duplicated item - %s", fileInfo.FileMeta.Path)
 			}
 		}
@@ -236,8 +238,10 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	if len(s.viewSchemas) != 0 {
 		// setup view schema
 		for _, fileInfo := range s.viewSchemas {
-			_, tableExists := s.insertView(fileInfo)
-			if !tableExists {
+			dbExists, tableExists := s.insertView(fileInfo)
+			if !dbExists {
+				return errors.Errorf("invalid table schema file, cannot find db '%s' - %s", fileInfo.TableName.Schema, fileInfo.FileMeta.Path)
+			} else if !tableExists {
 				// remove the last `-view.sql` from path as the relate table schema file path
 				return errors.Errorf("invalid view schema file, miss host table schema for view '%s'", fileInfo.TableName.Name)
 			}
