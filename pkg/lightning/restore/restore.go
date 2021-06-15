@@ -172,7 +172,51 @@ const (
 	diskQuotaStateIdle int32 = iota
 	diskQuotaStateChecking
 	diskQuotaStateImporting
+
+	diskQuotaMaxReaders = 1 << 30
 )
+
+// diskQuotaLock is essentially a read/write lock. The implement here is inspired by sync.RWMutex.
+// diskQuotaLock removed unused blocking RLock method add unblocking TryRLock method.
+type diskQuotaLock struct {
+	w           sync.Mutex    // held if there are pending writers
+	writerSem   chan struct{} // semaphore for writers to wait for completing readers
+	readerCount int32         // number of pending readers
+	readerWait  int32         // number of departing readers
+}
+
+func newDiskQuotaLock() *diskQuotaLock {
+	return &diskQuotaLock{writerSem: make(chan struct{})}
+}
+
+func (d *diskQuotaLock) Lock() {
+	d.w.Lock()
+	// Announce to readers there is a pending writer.
+	r := atomic.AddInt32(&d.readerCount, -diskQuotaMaxReaders) + diskQuotaMaxReaders
+	if r != 0 && atomic.AddInt32(&d.readerWait, r) != 0 {
+		// Wait for active readers.
+		<-d.writerSem
+	}
+}
+
+func (d *diskQuotaLock) Unlock() {
+	atomic.AddInt32(&d.readerCount, diskQuotaMaxReaders)
+	d.w.Unlock()
+}
+
+func (d *diskQuotaLock) TryRLock() (locked bool) {
+	r := atomic.LoadInt32(&d.readerCount)
+	return r >= 0 && atomic.CompareAndSwapInt32(&d.readerCount, r, r+1)
+}
+
+func (d *diskQuotaLock) RUnlock() {
+	if atomic.AddInt32(&d.readerCount, -1) < 0 {
+		if atomic.AddInt32(&d.readerWait, -1) == 0 {
+			// The last reader unblocks the writer.
+			d.writerSem <- struct{}{}
+		}
+	}
+}
 
 type Controller struct {
 	cfg           *config.Config
@@ -202,7 +246,7 @@ type Controller struct {
 	store             storage.ExternalStorage
 	metaMgrBuilder    metaMgrBuilder
 
-	diskQuotaLock  sync.RWMutex
+	diskQuotaLock  *diskQuotaLock
 	diskQuotaState int32
 	compactState   int32
 }
@@ -326,6 +370,7 @@ func NewRestoreControllerWithPauser(
 
 		store:          s,
 		metaMgrBuilder: metaBuilder,
+		diskQuotaLock:  newDiskQuotaLock(),
 	}
 
 	return rc, nil
@@ -2275,7 +2320,7 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 			if locker == nil {
 				// blocks all writers when we detected disk quota being exceeded.
 				rc.diskQuotaLock.Lock()
-				locker = &rc.diskQuotaLock
+				locker = rc.diskQuotaLock
 			}
 
 			logger.Warn("disk quota exceeded")
@@ -2857,13 +2902,19 @@ func (cr *chunkRestore) deliverLoop(
 		}
 
 		err = func() error {
-			rc.diskQuotaLock.RLock()
+			// We use `TryRLock` with sleep here to avoid blocking current goroutine during importing when disk-quota is
+			// triggered, so that we can save chunkCheckpoint as soon as possible after `FlushEngine` is called.
+			// This implementation may not be very elegant or even completely correct, but it is currently a relatively
+			// simple and effective solution.
+			for !rc.diskQuotaLock.TryRLock() {
+				// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
+				if !dataSynced {
+					dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
+				}
+				time.Sleep(time.Millisecond)
+			}
 			defer rc.diskQuotaLock.RUnlock()
 
-			// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
-			if !dataSynced {
-				dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
-			}
 			// When enabled DiskQuota, `enforceDiskQuota` may force the backend to import the content of a large engine
 			// into the target and then reset the engine to empty. When this happen, we need to use a new commitTS.
 			if err = rc.ensureEngineTS(ctx, t.tableName, engineID); err != nil {
