@@ -957,6 +957,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
 		metaMgrBuilder:    noopMetaMgrBuilder{},
+		diskQuotaLock:     newDiskQuotaLock(),
 	}
 	go func() {
 		for range chptCh {
@@ -1062,7 +1063,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, backend: importer}
+	rc := &Controller{cfg: cfg, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
@@ -1158,7 +1159,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	}()
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
 	c.Assert(err, IsNil)
@@ -1391,10 +1392,11 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 
 	saveCpCh := make(chan saveCp, 2)
 	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &Controller{
-		cfg:      s.cfg,
-		saveCpCh: saveCpCh,
-		backend:  importer,
-		pauser:   DeliverPauser,
+		cfg:           s.cfg,
+		saveCpCh:      saveCpCh,
+		backend:       importer,
+		pauser:        DeliverPauser,
+		diskQuotaLock: newDiskQuotaLock(),
 	})
 	c.Assert(err, IsNil)
 	c.Assert(saveCpCh, HasLen, 2)
