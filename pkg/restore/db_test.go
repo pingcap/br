@@ -162,3 +162,57 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	}
 	c.Assert(len(ddlJobs), Equals, 7)
 }
+
+func (s *testRestoreSchemaSuite) TestFilterDDLJobsV2(c *C) {
+	tk := testkit.NewTestKit(c, s.mock.Storage)
+	tk.MustExec("CREATE DATABASE IF NOT EXISTS test_db;")
+	tk.MustExec("CREATE TABLE IF NOT EXISTS test_db.test_table (c1 INT);")
+	lastTS, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
+	c.Assert(err, IsNil, Commentf("Error get last ts: %s", err))
+	tk.MustExec("RENAME TABLE test_db.test_table to test_db.test_table1;")
+	tk.MustExec("DROP TABLE test_db.test_table1;")
+	tk.MustExec("DROP DATABASE test_db;")
+	tk.MustExec("CREATE DATABASE test_db;")
+	tk.MustExec("USE test_db;")
+	tk.MustExec("CREATE TABLE test_table1 (c2 CHAR(255));")
+	tk.MustExec("RENAME TABLE test_table1 to test_table;")
+	tk.MustExec("TRUNCATE TABLE test_table;")
+
+	ts, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
+	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
+
+	metaWriter := metautil.NewMetaWriter(s.storage, metautil.MetaFileSize, true)
+	ctx := context.Background()
+	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
+	err = backup.WriteBackupDDLJobs(metaWriter, s.mock.Storage, lastTS, ts)
+	c.Assert(err, IsNil, Commentf("Error get ddl jobs: %s", err))
+	err = metaWriter.FinishWriteMetas(ctx, metautil.AppendDDL)
+	c.Assert(err, IsNil, Commentf("Flush failed", err))
+	infoSchema, err := s.mock.Domain.GetSnapshotInfoSchema(ts)
+	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))
+	dbInfo, ok := infoSchema.SchemaByName(model.NewCIStr("test_db"))
+	c.Assert(ok, IsTrue, Commentf("DB info not exist"))
+	tableInfo, err := infoSchema.TableByName(model.NewCIStr("test_db"), model.NewCIStr("test_table"))
+	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
+	tables := []*metautil.Table{{
+		DB:   dbInfo,
+		Info: tableInfo.Meta(),
+	}}
+	metaBytes, err := s.storage.ReadFile(ctx, metautil.MetaFile)
+	c.Assert(err, IsNil)
+	mockMeta := &backuppb.BackupMeta{}
+	err = proto.Unmarshal(metaBytes, mockMeta)
+	c.Assert(err, IsNil)
+	metaReader := metautil.NewMetaReader(mockMeta, s.storage)
+	allDDLJobsBytes, err := metaReader.ReadDDLs(ctx)
+	c.Assert(err, IsNil)
+	var allDDLJobs []*model.Job
+	err = json.Unmarshal(allDDLJobsBytes, &allDDLJobs)
+	c.Assert(err, IsNil)
+
+	ddlJobs := restore.FilterDDLJobs(allDDLJobs, tables)
+	for _, job := range ddlJobs {
+		c.Logf("get ddl job: %s", job.Query)
+	}
+	c.Assert(len(ddlJobs), Equals, 7)
+}
