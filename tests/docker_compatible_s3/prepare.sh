@@ -16,6 +16,9 @@
 # This test is used to generate backup for later compatible test.
 set -eux
 
+# Skip test temporarily. Reopen after TiDB update.
+exit 0
+
 BUCKET="test"
 # start the s3 server
 MINIO_ACCESS_KEY='brs3accesskey'

@@ -18,6 +18,9 @@ set -eux
 
 BUCKET="test"
 
+# Skip test temporarily. Reopen after TiDB update.
+exit 0
+
 # create gcs bucket
 curl -XPOST http://$GCS_HOST:$GCS_PORT/storage/v1/b -d '{"name":"test"}'
 
