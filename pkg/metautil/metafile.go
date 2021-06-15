@@ -106,7 +106,9 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 
 func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) error {
 	// Read backupmeta v1 metafiles.
-	output(reader.backupMeta.Ddls)
+	if reader.backupMeta.DdlIndexes == nil {
+		output(reader.backupMeta.Ddls)
+	}
 	// Read backupmeta v2 metafiles.
 	outputFn := func(m *backuppb.MetaFile) {
 		for _, s := range m.Ddls {
@@ -148,7 +150,8 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 	var err error
-	isV1Meta := len(reader.backupMeta.Ddls) != 0
+	// if we use v2 backupmeta, then ddlIndexes must not be nil.
+	isV1Meta := reader.backupMeta.DdlIndexes == nil
 
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
