@@ -16,19 +16,20 @@ import (
 	"github.com/pingcap/failpoint"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
-	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/statistics/handle"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/types"
 	"github.com/spf13/pflag"
+	"github.com/tikv/client-go/v2/oracle"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/backup"
+	"github.com/pingcap/br/pkg/checksum"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -42,6 +43,7 @@ const (
 	flagCompressionLevel = "compression-level"
 	flagRemoveSchedulers = "remove-schedulers"
 	flagIgnoreStats      = "ignore-stats"
+	flagUseBackupMetaV2  = "use-backupmeta-v2"
 
 	flagGCTTL = "gcttl"
 
@@ -65,6 +67,7 @@ type BackupConfig struct {
 	GCTTL            int64         `json:"gc-ttl" toml:"gc-ttl"`
 	RemoveSchedulers bool          `json:"remove-schedulers" toml:"remove-schedulers"`
 	IgnoreStats      bool          `json:"ignore-stats" toml:"ignore-stats"`
+	UseBackupMetaV2  bool          `json:"use-backupmeta-v2"`
 	CompressionConfig
 }
 
@@ -96,6 +99,17 @@ func DefineBackupFlags(flags *pflag.FlagSet) {
 	flags.Bool(flagIgnoreStats, true, "ignore backup stats, used for test")
 	// This flag is used for test. we should backup stats all the time.
 	_ = flags.MarkHidden(flagIgnoreStats)
+
+	flags.Bool(flagUseBackupMetaV2, false,
+		"use backup meta v2 to store meta info")
+	// This flag will change the structure of backupmeta.
+	// we must make sure the old three version of br can parse the v2 meta to keep compatibility.
+	// so this flag should set to false for three version by default.
+	// for example:
+	// if we put this feature in v4.0.14, then v4.0.14 br can parse v2 meta
+	// but will generate v1 meta due to this flag is false. the behaviour is as same as v4.0.15, v4.0.16.
+	// finally v4.0.17 will set this flag to true, and generate v2 meta.
+	_ = flags.MarkHidden(flagUseBackupMetaV2)
 }
 
 // ParseFromFlags parses the backup-related flags from the flag set.
@@ -140,6 +154,10 @@ func (cfg *BackupConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 		return errors.Trace(err)
 	}
 	cfg.IgnoreStats, err = flags.GetBool(flagIgnoreStats)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfg.UseBackupMetaV2, err = flags.GetBool(flagUseBackupMetaV2)
 	return errors.Trace(err)
 }
 
@@ -310,19 +328,28 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// Metafile size should be less than 64MB.
+	metawriter := metautil.NewMetaWriter(client.GetStorage(), metautil.MetaFileSize, cfg.UseBackupMetaV2)
+
 	// nothing to backup
 	if ranges == nil {
-		backupMeta, err2 := backup.BuildBackupMeta(&req, nil, nil, nil, clusterVersion, brVersion)
-		if err2 != nil {
-			return errors.Trace(err2)
-		}
+		// Hack way to update backupmeta.
+		metawriter.StartWriteMetasAsync(ctx, metautil.AppendSchema)
+		metawriter.Update(func(m *backuppb.BackupMeta) {
+			m.StartVersion = req.StartVersion
+			m.EndVersion = req.EndVersion
+			m.IsRawKv = req.IsRawKv
+			m.ClusterId = req.ClusterId
+			m.ClusterVersion = clusterVersion
+			m.BrVersion = brVersion
+		})
 		pdAddress := strings.Join(cfg.PD, ",")
 		log.Warn("Nothing to backup, maybe connected to cluster for restoring",
 			zap.String("PD address", pdAddress))
-		return client.SaveBackupMeta(ctx, &backupMeta)
+		return metawriter.FinishWriteMetas(ctx, metautil.AppendSchema)
 	}
 
-	ddlJobs := make([]*model.Job, 0)
 	if isIncrementalBackup {
 		if backupTS <= cfg.LastBackupTS {
 			log.Error("LastBackupTS is larger or equal to current TS")
@@ -333,8 +360,13 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			log.Error("Check gc safepoint for last backup ts failed", zap.Error(err))
 			return errors.Trace(err)
 		}
-		ddlJobs, err = backup.GetBackupDDLJobs(mgr.GetStorage(), cfg.LastBackupTS, backupTS)
+
+		metawriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
+		err = backup.WriteBackupDDLJobs(metawriter, mgr.GetStorage(), cfg.LastBackupTS, backupTS)
 		if err != nil {
+			return errors.Trace(err)
+		}
+		if err = metawriter.FinishWriteMetas(ctx, metautil.AppendDDL); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -374,9 +406,9 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
 				log.Info("failpoint progress-call-back injected")
 				if fileName, ok := v.(string); ok {
-					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
-					if err != nil {
-						log.Warn("failed to create file", zap.Error(err))
+					f, osErr := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+					if osErr != nil {
+						log.Warn("failed to create file", zap.Error(osErr))
 					}
 					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
 					_, err = f.Write(msg)
@@ -387,18 +419,27 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			})
 		}
 	}
-
-	files, err := client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), progressCallBack)
+	metawriter.StartWriteMetasAsync(ctx, metautil.AppendDataFile)
+	err = client.BackupRanges(ctx, ranges, req, uint(cfg.Concurrency), metawriter, progressCallBack)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Backup has finished
 	updateCh.Close()
 
-	backupMeta, err := backup.BuildBackupMeta(&req, files, nil, ddlJobs, clusterVersion, brVersion)
+	err = metawriter.FinishWriteMetas(ctx, metautil.AppendDataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	metawriter.Update(func(m *backuppb.BackupMeta) {
+		m.StartVersion = req.StartVersion
+		m.EndVersion = req.EndVersion
+		m.IsRawKv = req.IsRawKv
+		m.ClusterId = req.ClusterId
+		m.ClusterVersion = clusterVersion
+		m.BrVersion = brVersion
+	})
 
 	skipChecksum := !cfg.Checksum || isIncrementalBackup
 	checksumProgress := int64(schemas.Len())
@@ -414,44 +455,40 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 	}
 	updateCh = g.StartProgress(ctx, "Checksum", checksumProgress, !cfg.LogProgress)
 	schemasConcurrency := uint(utils.MinInt(backup.DefaultSchemaConcurrency, schemas.Len()))
-	backupMeta.Schemas, err = schemas.BackupSchemas(
-		ctx, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
+
+	err = schemas.BackupSchemas(
+		ctx, metawriter, mgr.GetStorage(), statsHandle, backupTS, schemasConcurrency, cfg.ChecksumConcurrency, skipChecksum, updateCh)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	// Checksum has finished, close checksum progress.
 	updateCh.Close()
+
 	if !skipChecksum {
 		// Check if checksum from files matches checksum from coprocessor.
-		err = checkChecksums(&backupMeta)
+		err = checksum.FastChecksum(ctx, metawriter.Backupmeta(), client.GetStorage())
 		if err != nil {
 			return errors.Trace(err)
 		}
 	}
 
-	err = client.SaveBackupMeta(ctx, &backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	g.Record(summary.BackupDataSize, utils.ArchiveSize(&backupMeta))
-
+	g.Record(summary.BackupDataSize, metawriter.ArchiveSize())
+	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
+		log.Info("failpoint s3-outage-during-writing-file injected, " +
+			"process will sleep for 3s and notify the shell to kill s3 service.")
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	// Set task summary to success status.
 	summary.SetSuccessStatus(true)
-	return nil
-}
-
-// checkChecksums checks the checksum of the client, once failed,
-// returning a error with message: "mismatched checksum".
-func checkChecksums(backupMeta *backuppb.BackupMeta) error {
-	checksums, err := backup.CollectChecksums(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = backup.ChecksumMatches(backupMeta, checksums)
-	if err != nil {
-		return errors.Trace(err)
-	}
 	return nil
 }
 

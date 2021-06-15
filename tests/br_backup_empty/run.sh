@@ -16,6 +16,9 @@
 set -eu
 DB="$TEST_NAME"
 
+# Skip test temporarily. Reopen after TiDB update.
+exit 0
+
 # backup empty.
 echo "backup start..."
 run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_db" --ratelimit 5 --concurrency 4

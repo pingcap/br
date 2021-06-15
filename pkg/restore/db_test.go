@@ -4,22 +4,28 @@ package restore_test
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"strconv"
 	"testing"
 
+	"github.com/golang/protobuf/proto"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
+
+	"github.com/pingcap/br/pkg/metautil"
+	"github.com/pingcap/br/pkg/storage"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
+	"github.com/tikv/client-go/v2/oracle"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 func TestT(t *testing.T) {
@@ -29,12 +35,16 @@ func TestT(t *testing.T) {
 var _ = Suite(&testRestoreSchemaSuite{})
 
 type testRestoreSchemaSuite struct {
-	mock *mock.Cluster
+	mock    *mock.Cluster
+	storage storage.ExternalStorage
 }
 
 func (s *testRestoreSchemaSuite) SetUpSuite(c *C) {
 	var err error
 	s.mock, err = mock.NewCluster()
+	c.Assert(err, IsNil)
+	base := c.MkDir()
+	s.storage, err = storage.NewLocalStorage(base)
 	c.Assert(err, IsNil)
 	c.Assert(s.mock.Start(), IsNil)
 }
@@ -65,7 +75,7 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	c.Assert(exists, IsTrue, Commentf("Error get db info"))
 	tableInfo, err := info.TableByName(model.NewCIStr("test"), model.NewCIStr("\"t\""))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-	table := utils.Table{
+	table := metautil.Table{
 		Info: tableInfo.Meta(),
 		DB:   dbInfo,
 	}
@@ -116,18 +126,36 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 
 	ts, err := s.mock.GetOracle().GetTimestamp(context.Background(), &oracle.Option{TxnScope: oracle.GlobalTxnScope})
 	c.Assert(err, IsNil, Commentf("Error get ts: %s", err))
-	allDDLJobs, err := backup.GetBackupDDLJobs(s.mock.Storage, lastTS, ts)
+
+	metaWriter := metautil.NewMetaWriter(s.storage, metautil.MetaFileSize, false)
+	ctx := context.Background()
+	metaWriter.StartWriteMetasAsync(ctx, metautil.AppendDDL)
+	err = backup.WriteBackupDDLJobs(metaWriter, s.mock.Storage, lastTS, ts)
 	c.Assert(err, IsNil, Commentf("Error get ddl jobs: %s", err))
+	err = metaWriter.FinishWriteMetas(ctx, metautil.AppendDDL)
+	c.Assert(err, IsNil, Commentf("Flush failed", err))
 	infoSchema, err := s.mock.Domain.GetSnapshotInfoSchema(ts)
 	c.Assert(err, IsNil, Commentf("Error get snapshot info schema: %s", err))
 	dbInfo, ok := infoSchema.SchemaByName(model.NewCIStr("test_db"))
 	c.Assert(ok, IsTrue, Commentf("DB info not exist"))
 	tableInfo, err := infoSchema.TableByName(model.NewCIStr("test_db"), model.NewCIStr("test_table"))
 	c.Assert(err, IsNil, Commentf("Error get table info: %s", err))
-	tables := []*utils.Table{{
+	tables := []*metautil.Table{{
 		DB:   dbInfo,
 		Info: tableInfo.Meta(),
 	}}
+	metaBytes, err := s.storage.ReadFile(ctx, metautil.MetaFile)
+	c.Assert(err, IsNil)
+	mockMeta := &backuppb.BackupMeta{}
+	err = proto.Unmarshal(metaBytes, mockMeta)
+	c.Assert(err, IsNil)
+	metaReader := metautil.NewMetaReader(mockMeta, s.storage)
+	allDDLJobsBytes, err := metaReader.ReadDDLs(ctx)
+	c.Assert(err, IsNil)
+	var allDDLJobs []*model.Job
+	err = json.Unmarshal(allDDLJobsBytes, &allDDLJobs)
+	c.Assert(err, IsNil)
+
 	ddlJobs := restore.FilterDDLJobs(allDDLJobs, tables)
 	for _, job := range ddlJobs {
 		c.Logf("get ddl job: %s", job.Query)

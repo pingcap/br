@@ -12,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/google/btree"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -26,11 +27,11 @@ import (
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
+	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -139,7 +140,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 // SetLockFile set write lock file.
 func (bc *Client) SetLockFile(ctx context.Context) error {
-	return bc.storage.WriteFile(ctx, utils.LockFile,
+	return bc.storage.WriteFile(ctx, metautil.LockFile,
 		[]byte("DO NOT DELETE\n"+
 			"This file exists to remind other backup jobs won't use this path"))
 }
@@ -157,6 +158,11 @@ func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
 }
 
+// GetStorage gets storage for this backup.
+func (bc *Client) GetStorage() storage.ExternalStorage {
+	return bc.storage
+}
+
 // SetStorage set ExternalStorage for client.
 func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, opts *storage.ExternalStorageOptions) error {
 	var err error
@@ -165,79 +171,22 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 		return errors.Trace(err)
 	}
 	// backupmeta already exists
-	exist, err := bc.storage.FileExists(ctx, utils.MetaFile)
+	exist, err := bc.storage.FileExists(ctx, metautil.MetaFile)
 	if err != nil {
-		return errors.Annotatef(err, "error occurred when checking %s file", utils.MetaFile)
+		return errors.Annotatef(err, "error occurred when checking %s file", metautil.MetaFile)
 	}
 	if exist {
 		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
 	}
-	exist, err = bc.storage.FileExists(ctx, utils.LockFile)
+	exist, err = bc.storage.FileExists(ctx, metautil.LockFile)
 	if err != nil {
-		return errors.Annotatef(err, "error occurred when checking %s file", utils.LockFile)
+		return errors.Annotatef(err, "error occurred when checking %s file", metautil.LockFile)
 	}
 	if exist {
 		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
 	}
 	bc.backend = backend
 	return nil
-}
-
-// BuildBackupMeta constructs the backup meta file from its components.
-func BuildBackupMeta(
-	req *backuppb.BackupRequest,
-	files []*backuppb.File,
-	rawRanges []*backuppb.RawRange,
-	ddlJobs []*model.Job,
-	clusterVersion string,
-	brVersion string,
-) (backupMeta backuppb.BackupMeta, err error) {
-	backupMeta.StartVersion = req.StartVersion
-	backupMeta.EndVersion = req.EndVersion
-	backupMeta.IsRawKv = req.IsRawKv
-	backupMeta.RawRanges = rawRanges
-	backupMeta.Files = files
-	backupMeta.ClusterId = req.ClusterId
-	backupMeta.ClusterVersion = clusterVersion
-	backupMeta.BrVersion = brVersion
-	backupMeta.Ddls, err = json.Marshal(ddlJobs)
-	if err != nil {
-		err = errors.Trace(err)
-		return
-	}
-	return
-}
-
-// SaveBackupMeta saves the current backup meta at the given path.
-func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.BackupMeta) error {
-	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
-		span1 := span.Tracer().StartSpan("Client.SaveBackupMeta", opentracing.ChildOf(span.Context()))
-		defer span1.Finish()
-		ctx = opentracing.ContextWithSpan(ctx, span1)
-	}
-
-	backupMetaData, err := proto.Marshal(backupMeta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Debug("backup meta", zap.Reflect("meta", backupMeta))
-	backendURL := storage.FormatBackendURL(bc.backend)
-	log.Info("save backup meta", zap.Stringer("path", &backendURL), zap.Int("size", len(backupMetaData)))
-	failpoint.Inject("s3-outage-during-writing-file", func(v failpoint.Value) {
-		log.Info("failpoint s3-outage-during-writing-file injected, " +
-			"process will sleep for 3s and notify the shell to kill s3 service.")
-		if sigFile, ok := v.(string); ok {
-			file, err := os.Create(sigFile)
-			if err != nil {
-				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
-			}
-			if file != nil {
-				file.Close()
-			}
-		}
-		time.Sleep(3 * time.Second)
-	})
-	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
 // GetClusterID returns the cluster ID of the tidb cluster to backup.
@@ -402,45 +351,50 @@ func BuildBackupRangeAndSchema(
 	return ranges, backupSchemas, nil
 }
 
-// GetBackupDDLJobs returns the ddl jobs are done in (lastBackupTS, backupTS].
-func GetBackupDDLJobs(store kv.Storage, lastBackupTS, backupTS uint64) ([]*model.Job, error) {
+// WriteBackupDDLJobs sends the ddl jobs are done in (lastBackupTS, backupTS] to metaWriter.
+func WriteBackupDDLJobs(metaWriter *metautil.MetaWriter, store kv.Storage, lastBackupTS, backupTS uint64) error {
 	snapshot := store.GetSnapshot(kv.NewVersion(backupTS))
 	snapMeta := meta.NewSnapshotMeta(snapshot)
 	lastSnapshot := store.GetSnapshot(kv.NewVersion(lastBackupTS))
 	lastSnapMeta := meta.NewSnapshotMeta(lastSnapshot)
 	lastSchemaVersion, err := lastSnapMeta.GetSchemaVersion()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	allJobs := make([]*model.Job, 0)
 	defaultJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.DefaultJobListKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get default jobs", zap.Int("jobs", len(defaultJobs)))
 	allJobs = append(allJobs, defaultJobs...)
 	addIndexJobs, err := snapMeta.GetAllDDLJobsInQueue(meta.AddIndexJobListKey)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get add index jobs", zap.Int("jobs", len(addIndexJobs)))
 	allJobs = append(allJobs, addIndexJobs...)
 	historyJobs, err := snapMeta.GetAllHistoryDDLJobs()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Debug("get history jobs", zap.Int("jobs", len(historyJobs)))
 	allJobs = append(allJobs, historyJobs...)
 
-	completedJobs := make([]*model.Job, 0)
+	count := 0
 	for _, job := range allJobs {
 		if (job.State == model.JobStateDone || job.State == model.JobStateSynced) &&
 			(job.BinlogInfo != nil && job.BinlogInfo.SchemaVersion > lastSchemaVersion) {
-			completedJobs = append(completedJobs, job)
+			jobBytes, err := json.Marshal(job)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			metaWriter.Send(jobBytes, metautil.AppendDDL)
+			count++
 		}
 	}
-	log.Debug("get completed jobs", zap.Int("jobs", len(completedJobs)))
-	return completedJobs, nil
+	log.Debug("get completed jobs", zap.Int("jobs", count))
+	return nil
 }
 
 // BackupRanges make a backup of the given key ranges.
@@ -449,66 +403,32 @@ func (bc *Client) BackupRanges(
 	ranges []rtree.Range,
 	req backuppb.BackupRequest,
 	concurrency uint,
+	metaWriter *metautil.MetaWriter,
 	progressCallBack func(ProgressUnit),
-) ([]*backuppb.File, error) {
+) error {
+	init := time.Now()
+	defer log.Info("Backup Ranges", zap.Duration("take", time.Now().Sub(init)))
+
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
 
-	errCh := make(chan error)
-
 	// we collect all files in a single goroutine to avoid thread safety issues.
-	filesCh := make(chan []*backuppb.File, concurrency)
-	allFiles := make([]*backuppb.File, 0, len(ranges))
-	allFilesCollected := make(chan struct{}, 1)
-	go func() {
-		init := time.Now()
-		// nolint:ineffassign
-		lastBackupStart, currentBackupStart := init, init
-		for files := range filesCh {
-			lastBackupStart, currentBackupStart = currentBackupStart, time.Now()
-			allFiles = append(allFiles, files...)
-			summary.CollectSuccessUnit("backup ranges", 1, currentBackupStart.Sub(lastBackupStart))
-		}
-		log.Info("Backup Ranges", zap.Duration("take", currentBackupStart.Sub(init)))
-		allFilesCollected <- struct{}{}
-	}()
-
-	go func() {
-		defer close(filesCh)
-		workerPool := utils.NewWorkerPool(concurrency, "Ranges")
-		eg, ectx := errgroup.WithContext(ctx)
-		for _, r := range ranges {
-			sk, ek := r.StartKey, r.EndKey
-			workerPool.ApplyOnErrorGroup(eg, func() error {
-				files, err := bc.BackupRange(ectx, sk, ek, req, progressCallBack)
-				if err == nil {
-					filesCh <- files
-				}
+	workerPool := utils.NewWorkerPool(concurrency, "Ranges")
+	eg, ectx := errgroup.WithContext(ctx)
+	for _, r := range ranges {
+		sk, ek := r.StartKey, r.EndKey
+		workerPool.ApplyOnErrorGroup(eg, func() error {
+			err := bc.BackupRange(ectx, sk, ek, req, metaWriter, progressCallBack)
+			if err != nil {
 				return errors.Trace(err)
-			})
-		}
-		if err := eg.Wait(); err != nil {
-			errCh <- err
-			return
-		}
-		close(errCh)
-	}()
-
-	for err := range errCh {
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
+			}
+			return nil
+		})
 	}
-
-	select {
-	case <-allFilesCollected:
-		return allFiles, nil
-	case <-ctx.Done():
-		return nil, errors.Trace(ctx.Err())
-	}
+	return eg.Wait()
 }
 
 // BackupRange make a backup of the given key range.
@@ -517,8 +437,9 @@ func (bc *Client) BackupRange(
 	ctx context.Context,
 	startKey, endKey []byte,
 	req backuppb.BackupRequest,
+	metaWriter *metautil.MetaWriter,
 	progressCallBack func(ProgressUnit),
-) (files []*backuppb.File, err error) {
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -537,7 +458,7 @@ func (bc *Client) BackupRange(
 	var allStores []*metapb.Store
 	allStores, err = conn.GetAllTiKVStores(ctx, bc.mgr.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	req.StartKey = startKey
@@ -549,7 +470,7 @@ func (bc *Client) BackupRange(
 	var results rtree.RangeTree
 	results, err = push.pushBackup(ctx, req, allStores, progressCallBack)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
@@ -559,7 +480,7 @@ func (bc *Client) BackupRange(
 		ctx, startKey, endKey, req.StartVersion, req.EndVersion, req.CompressionType, req.CompressionLevel,
 		req.RateLimit, req.Concurrency, results, progressCallBack)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	// update progress of range unit
@@ -576,17 +497,29 @@ func (bc *Client) BackupRange(
 			zap.Reflect("EndVersion", req.EndVersion))
 	}
 
+	var ascendErr error
 	results.Ascend(func(i btree.Item) bool {
 		r := i.(*rtree.Range)
-		files = append(files, r.Files...)
+		for _, f := range r.Files {
+			summary.CollectSuccessUnit(summary.TotalKV, 1, f.TotalKvs)
+			summary.CollectSuccessUnit(summary.TotalBytes, 1, f.TotalBytes)
+		}
+		// we need keep the files in order after we support multi_ingest sst.
+		// default_sst and write_sst need to be together.
+		if err := metaWriter.Send(r.Files, metautil.AppendDataFile); err != nil {
+			ascendErr = err
+			return false
+		}
 		return true
 	})
+	if ascendErr != nil {
+		return errors.Trace(ascendErr)
+	}
 
 	// Check if there are duplicated files.
 	checkDupFiles(&results)
-	collectFileInfo(files)
 
-	return files, nil
+	return nil
 }
 
 func (bc *Client) findRegionLeader(ctx context.Context, key []byte) (*metapb.Peer, error) {
@@ -731,9 +664,8 @@ func (bc *Client) fineGrainedBackup(
 		max.mu.Unlock()
 		if ms != 0 {
 			log.Info("handle fine grained", zap.Int("backoffMs", ms))
-			// 2 means tikv.boTxnLockFast
 			// TODO: fill a meaningful error.
-			err := bo.BackoffWithMaxSleep(2, ms, berrors.ErrUnknown)
+			err := bo.BackoffWithMaxSleepTxnLockFast(ms, berrors.ErrUnknown)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -1004,104 +936,6 @@ backupLoop:
 		}
 	}
 	return nil
-}
-
-// ChecksumMatches tests whether the "local" checksum matches the checksum from TiKV.
-func ChecksumMatches(backupMeta *backuppb.BackupMeta, local []Checksum) error {
-	if len(local) != len(backupMeta.Schemas) {
-		return errors.Annotatef(berrors.ErrBackupChecksumMismatch,
-			"checksum mismatch, checksum len %d, schema len %d", len(local), len(backupMeta.Schemas))
-	}
-
-	for i, schema := range backupMeta.Schemas {
-		localChecksum := local[i]
-		dbInfo := &model.DBInfo{}
-		err := json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse db info")
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return errors.Annotate(berrors.ErrBackupChecksumMismatch, "failed in checksum, and cannot parse table info")
-		}
-		if localChecksum.Crc64Xor != schema.Crc64Xor ||
-			localChecksum.TotalBytes != schema.TotalBytes ||
-			localChecksum.TotalKvs != schema.TotalKvs {
-			log.Error("checksum mismatch",
-				zap.Stringer("db", dbInfo.Name),
-				zap.Stringer("table", tblInfo.Name),
-				zap.Uint64("origin tidb crc64", schema.Crc64Xor),
-				zap.Uint64("calculated crc64", localChecksum.Crc64Xor),
-				zap.Uint64("origin tidb total kvs", schema.TotalKvs),
-				zap.Uint64("calculated total kvs", localChecksum.TotalKvs),
-				zap.Uint64("origin tidb total bytes", schema.TotalBytes),
-				zap.Uint64("calculated total bytes", localChecksum.TotalBytes))
-			// TODO enhance error
-			return berrors.ErrBackupChecksumMismatch
-		}
-		log.Info("checksum success",
-			zap.String("database", dbInfo.Name.L),
-			zap.String("table", tblInfo.Name.L))
-	}
-	return nil
-}
-
-// collectFileInfo collects ungrouped file summary information, like kv count and size.
-func collectFileInfo(files []*backuppb.File) {
-	for _, file := range files {
-		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
-		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
-	}
-}
-
-// CollectChecksums check data integrity by xor all(sst_checksum) per table
-// it returns the checksum of all local files.
-func CollectChecksums(backupMeta *backuppb.BackupMeta) ([]Checksum, error) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("backup fast checksum", elapsed)
-	}()
-
-	dbs, err := utils.LoadBackupTables(backupMeta)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	checksums := make([]Checksum, 0, len(backupMeta.Schemas))
-	for _, schema := range backupMeta.Schemas {
-		dbInfo := &model.DBInfo{}
-		err = json.Unmarshal(schema.Db, dbInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		tblInfo := &model.TableInfo{}
-		err = json.Unmarshal(schema.Table, tblInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		tbl := dbs[dbInfo.Name.String()].GetTable(tblInfo.Name.String())
-
-		checksum := uint64(0)
-		totalKvs := uint64(0)
-		totalBytes := uint64(0)
-		for _, file := range tbl.Files {
-			checksum ^= file.Crc64Xor
-			totalKvs += file.TotalKvs
-			totalBytes += file.TotalBytes
-		}
-
-		log.Info("fast checksum calculated", zap.Stringer("db", dbInfo.Name), zap.Stringer("table", tblInfo.Name))
-		localChecksum := Checksum{
-			Crc64Xor:   checksum,
-			TotalKvs:   totalKvs,
-			TotalBytes: totalBytes,
-		}
-		checksums = append(checksums, localChecksum)
-	}
-
-	return checksums, nil
 }
 
 // isRetryableError represents whether we should retry reset grpc connection.

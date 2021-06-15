@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -16,7 +15,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/tikv"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -384,8 +383,7 @@ func (mgr *Mgr) Close() {
 		if mgr.dom != nil {
 			mgr.dom.Close()
 		}
-
-		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		tikv.StoreShuttingDown(1)
 		mgr.storage.Close()
 	}
 
