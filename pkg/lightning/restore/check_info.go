@@ -34,7 +34,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
-	config2 "github.com/pingcap/br/pkg/lightning/config"
 	md "github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/storage"
 )
@@ -275,33 +274,11 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 		message = fmt.Sprintf("local disk resources are rich, source dir has %s, local available is %s",
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
-	case localAvailable > sourceSize:
-		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, but local available is %s",
+	default:
+		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, but local available is %s,"+
+			"we may use disk-quota(%s) to finish imports", units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)),
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
-	case sourceSize > localAvailable:
-		{
-			if rc.cfg.TikvImporter.DiskQuota == 0 {
-				// enable DiskQuota if possible
-				enginesCount := uint64(rc.cfg.App.IndexConcurrency + rc.cfg.App.TableConcurrency)
-				writeAmount := uint64(rc.cfg.App.RegionConcurrency) * uint64(rc.cfg.Cron.CheckDiskQuota.Milliseconds())
-				reservedSize := enginesCount*uint64(rc.cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
-
-				if localAvailable <= reservedSize {
-					message = fmt.Sprintf(
-						"failed to enable disk-quota, insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space",
-						rc.cfg.TikvImporter.SortedKVDir,
-						units.BytesSize(float64(localAvailable)),
-						units.BytesSize(float64(reservedSize)))
-					passed = false
-				} else {
-					message = fmt.Sprintf("local disk space is not enough to finish import, source dir has %s, but local available is %s,"+
-						"so, enable disk-quota automatically", units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
-					passed = true
-					rc.cfg.TikvImporter.DiskQuota = config2.ByteSize(localAvailable - reservedSize)
-				}
-			}
-		}
 	}
 	rc.checkTemplate.Collect(Critical, passed, message)
 	return nil
