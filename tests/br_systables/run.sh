@@ -77,6 +77,7 @@ run_br restore full -f '*.*' -f '!mysql.bar' -s "local://$backup_dir"
 check
 
 run_br restore full -f 'mysql.bar' -s "local://$backup_dir"
+run_sql "SELECT count(*) from mysql.bar;" | grep 11
 
 rollback_modify 
 run_br restore full -f "mysql*.*" -f '!mysql.bar' -s "local://$backup_dir"
@@ -88,5 +89,9 @@ run_br backup full -s "local://${backup_dir}1"
 delete_user
 delete_test_data
 run_br restore full -f "mysql*.*" -f "usertest.*" -s "local://${backup_dir}1"
+check2
+
+delete_user 
+run_br restore db --db mysql -s "local://${backup_dir}1"
 check2
 
