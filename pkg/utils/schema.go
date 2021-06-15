@@ -15,6 +15,9 @@ import (
 	"github.com/pingcap/br/pkg/metautil"
 )
 
+// temporaryDBNamePrefix is the prefix name of system db, e.g. mysql system db will be rename to __TiDB_BR_Temporary_mysql
+const temporaryDBNamePrefix = "__TiDB_BR_Temporary_"
+
 // NeedAutoID checks whether the table needs backing up with an autoid.
 func NeedAutoID(tblInfo *model.TableInfo) bool {
 	hasRowID := !tblInfo.PKIsHandle && !tblInfo.IsCommonHandle
@@ -102,12 +105,13 @@ func IsSysDB(dbLowerName string) bool {
 
 // TemporaryDBName makes a 'private' database name.
 func TemporaryDBName(db string) model.CIStr {
-	return model.NewCIStr("__TiDB_BR_Temporary_" + db)
+	return model.NewCIStr(temporaryDBNamePrefix + db)
 }
 
 // GetSysDBName get the original name of system DB
 func GetSysDBName(tempDB model.CIStr) (string, bool) {
-	ok := strings.Contains(tempDB.O, "__TiDB_BR_Temporary_")
-	i := strings.LastIndex(tempDB.O, "_")
-	return tempDB.O[i+1:], ok
+	if ok := strings.HasPrefix(tempDB.O, temporaryDBNamePrefix); !ok {
+		return tempDB.O, false
+	}
+	return tempDB.O[len(temporaryDBNamePrefix):], true
 }
