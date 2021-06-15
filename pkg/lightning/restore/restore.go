@@ -206,7 +206,13 @@ func (d *diskQuotaLock) Unlock() {
 
 func (d *diskQuotaLock) TryRLock() (locked bool) {
 	r := atomic.LoadInt32(&d.readerCount)
-	return r >= 0 && atomic.CompareAndSwapInt32(&d.readerCount, r, r+1)
+	for r >= 0 {
+		if atomic.CompareAndSwapInt32(&d.readerCount, r, r+1) {
+			return true
+		}
+		r = atomic.LoadInt32(&d.readerCount)
+	}
+	return false
 }
 
 func (d *diskQuotaLock) RUnlock() {

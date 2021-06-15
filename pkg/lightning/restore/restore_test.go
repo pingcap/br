@@ -214,6 +214,21 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 	}
 }
 
+func (s *restoreSuite) TestDiskQuotaLock(c *C) {
+	lock := newDiskQuotaLock()
+
+	lock.Lock()
+	c.Assert(lock.TryRLock(), Equals, false)
+	lock.Unlock()
+	c.Assert(lock.TryRLock(), Equals, true)
+	c.Assert(lock.TryRLock(), Equals, true)
+	c.Assert(lock.TryRLock(), Equals, true)
+	lock.RUnlock()
+	lock.RUnlock()
+	lock.RUnlock()
+	// TODO: more test
+}
+
 var _ = Suite(&tableRestoreSuite{})
 
 type tableRestoreSuiteBase struct {
