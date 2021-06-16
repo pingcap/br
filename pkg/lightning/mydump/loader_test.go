@@ -261,7 +261,7 @@ func (s *testMydumpLoaderSuite) TestViewNoHostTable(c *C) {
 	s.touch(c, "db.tbl-schema-view.sql")
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, IsNil)
+	c.Assert(err, ErrorMatches, `invalid view schema file, miss host table schema for view 'tbl'`)
 }
 
 func (s *testMydumpLoaderSuite) TestDataWithoutSchema(c *C) {
