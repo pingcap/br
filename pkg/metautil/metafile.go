@@ -42,10 +42,12 @@ const (
 	MetaFileSize = 128 * units.MiB
 )
 
+type metaVersion int32
+
 const (
 	// MetaV1 represents the old version of backupmeta.
 	// because the old version doesn't have version field, so set it to 0 for compatibility.
-	MetaV1 = iota
+	MetaV1 metaVersion = iota
 	// MetaV2 represents the new version of backupmeta.
 	MetaV2
 )
