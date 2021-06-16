@@ -106,8 +106,9 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 
 func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) error {
 	// Read backupmeta v1 metafiles.
-	if reader.backupMeta.DdlIndexes == nil {
+	if reader.backupMeta.Version == 1 {
 		output(reader.backupMeta.Ddls)
+		return nil
 	}
 	// Read backupmeta v2 metafiles.
 	outputFn := func(m *backuppb.MetaFile) {
@@ -150,9 +151,6 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 	var err error
-	// if we use v2 backupmeta, then ddlIndexes must not be nil.
-	isV1Meta := reader.backupMeta.DdlIndexes == nil
-
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
 	go func() {
@@ -168,7 +166,7 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 		itemCount := 0
 		err := receiveBatch(ctx, errCh, ch, MaxBatchSize, func(item interface{}) error {
 			itemCount++
-			if isV1Meta {
+			if reader.backupMeta.Version == 1 {
 				ddlBytes = item.([]byte)
 			} else {
 				// we collect all ddls from files.
@@ -518,12 +516,16 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	var err error
 	// flush the buffered meta
 	if !writer.useV2Meta {
+		// Set schema version
+		writer.backupMeta.Version = 1
 		err = writer.flushMetasV1(ctx, op)
 	} else {
 		err = writer.flushMetasV2(ctx, op)
 		if err != nil {
 			return errors.Trace(err)
 		}
+		// Set schema version
+		writer.backupMeta.Version = 2
 		// flush the final backupmeta
 		err = writer.flushBackupMeta(ctx)
 	}
