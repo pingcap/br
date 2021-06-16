@@ -42,6 +42,14 @@ const (
 	MetaFileSize = 128 * units.MiB
 )
 
+const (
+	// MetaV1 represents the old version of backupmeta.
+	// because the old version doesn't have version field, so set it to 0 for compatibility.
+	MetaV1 = iota
+	// MetaV2 represents the new version of backupmeta.
+	MetaV2
+)
+
 func walkLeafMetaFile(
 	ctx context.Context, storage storage.ExternalStorage, file *backuppb.MetaFile, output func(*backuppb.MetaFile),
 ) error {
@@ -106,7 +114,11 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 
 func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) error {
 	// Read backupmeta v1 metafiles.
-	output(reader.backupMeta.Ddls)
+	// if the backupmeta equals to v1, or doesn't not exists(old version).
+	if reader.backupMeta.Version == MetaV1 {
+		output(reader.backupMeta.Ddls)
+		return nil
+	}
 	// Read backupmeta v2 metafiles.
 	outputFn := func(m *backuppb.MetaFile) {
 		for _, s := range m.Ddls {
@@ -148,8 +160,6 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 	var err error
-	isV1Meta := len(reader.backupMeta.Ddls) != 0
-
 	ch := make(chan interface{}, MaxBatchSize)
 	errCh := make(chan error)
 	go func() {
@@ -165,7 +175,7 @@ func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
 		itemCount := 0
 		err := receiveBatch(ctx, errCh, ch, MaxBatchSize, func(item interface{}) error {
 			itemCount++
-			if isV1Meta {
+			if reader.backupMeta.Version == MetaV1 {
 				ddlBytes = item.([]byte)
 			} else {
 				// we collect all ddls from files.
@@ -515,12 +525,16 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	var err error
 	// flush the buffered meta
 	if !writer.useV2Meta {
+		// Set schema version
+		writer.backupMeta.Version = MetaV1
 		err = writer.flushMetasV1(ctx, op)
 	} else {
 		err = writer.flushMetasV2(ctx, op)
 		if err != nil {
 			return errors.Trace(err)
 		}
+		// Set schema version
+		writer.backupMeta.Version = MetaV2
 		// flush the final backupmeta
 		err = writer.flushBackupMeta(ctx)
 	}
