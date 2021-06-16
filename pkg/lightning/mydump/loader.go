@@ -235,8 +235,12 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	if len(s.viewSchemas) != 0 {
 		// setup view schema
 		for _, fileInfo := range s.viewSchemas {
-			// if create table sql not exists. we expect the table created in tidb already. or we will get an error in restore.
-			s.insertView(fileInfo)
+			_, tableExists := s.insertView(fileInfo)
+			if !tableExists {
+				// we are not expect the user only has view schema without table schema when user use dumpling to get view.
+				// remove the last `-view.sql` from path as the relate table schema file path
+				return errors.Errorf("invalid view schema file, miss host table schema for view '%s'", fileInfo.TableName.Name)
+			}
 		}
 	}
 
