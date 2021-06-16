@@ -711,15 +711,13 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 
-	if rc.tidbGlue.OwnsSQLExecutor() {
+	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
+		// print check template only if check requirements is true.
 		fmt.Println(rc.checkTemplate.Output())
-	} else {
-		// TODO use a new template to log
-		log.L().Info(rc.checkTemplate.Output())
-	}
-	if !rc.checkTemplate.Success() {
-		return errors.Errorf("lightning pre check failed." +
-			"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
+		if !rc.checkTemplate.Success() {
+			return errors.Errorf("lightning pre check failed." +
+				"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
+		}
 	}
 	return nil
 }
