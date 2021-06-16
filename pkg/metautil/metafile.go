@@ -42,6 +42,13 @@ const (
 	MetaFileSize = 128 * units.MiB
 )
 
+const (
+	// metaV1 represents the version of backupmeta.
+	// because the old version doesn't have version field, so set it to 0 for compatibility.
+	metaV1 = iota
+	metaV2
+)
+
 func walkLeafMetaFile(
 	ctx context.Context, storage storage.ExternalStorage, file *backuppb.MetaFile, output func(*backuppb.MetaFile),
 ) error {
@@ -106,7 +113,8 @@ func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStora
 
 func (reader *MetaReader) readDDLs(ctx context.Context, output func([]byte)) error {
 	// Read backupmeta v1 metafiles.
-	if reader.backupMeta.Version == 1 {
+	// if the backupmeta equals to v1, or doesn't not exists(old version).
+	if reader.backupMeta.Version == metaV1 {
 		output(reader.backupMeta.Ddls)
 		return nil
 	}
@@ -517,7 +525,7 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	// flush the buffered meta
 	if !writer.useV2Meta {
 		// Set schema version
-		writer.backupMeta.Version = 1
+		writer.backupMeta.Version = metaV1
 		err = writer.flushMetasV1(ctx, op)
 	} else {
 		err = writer.flushMetasV2(ctx, op)
@@ -525,7 +533,7 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 			return errors.Trace(err)
 		}
 		// Set schema version
-		writer.backupMeta.Version = 2
+		writer.backupMeta.Version = metaV2
 		// flush the final backupmeta
 		err = writer.flushBackupMeta(ctx)
 	}
