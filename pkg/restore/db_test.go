@@ -150,7 +150,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
 	err = proto.Unmarshal(metaBytes, mockMeta)
 	c.Assert(err, IsNil)
 	// check the schema version
-	c.Assert(mockMeta.Version, Equals, metautil.MetaV1)
+	c.Assert(mockMeta.Version, Equals, int32(metautil.MetaV1))
 	metaReader := metautil.NewMetaReader(mockMeta, s.storage)
 	allDDLJobsBytes, err := metaReader.ReadDDLs(ctx)
 	c.Assert(err, IsNil)
@@ -206,7 +206,7 @@ func (s *testRestoreSchemaSuite) TestFilterDDLJobsV2(c *C) {
 	err = proto.Unmarshal(metaBytes, mockMeta)
 	c.Assert(err, IsNil)
 	// check the schema version
-	c.Assert(mockMeta.Version, Equals, metautil.MetaV2)
+	c.Assert(mockMeta.Version, Equals, int32(metautil.MetaV2))
 	metaReader := metautil.NewMetaReader(mockMeta, s.storage)
 	allDDLJobsBytes, err := metaReader.ReadDDLs(ctx)
 	c.Assert(err, IsNil)
