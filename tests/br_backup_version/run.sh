@@ -16,9 +16,6 @@
 set -eu
 DB="$TEST_NAME"
 
-# Skip test temporarily. Reopen after TiDB update.
-exit 0
-
 # example
 #    "cluster_id": 6931331682760961243
 expected_cluster_id=`run_curl "https://$PD_ADDR/pd/api/v1/members" | grep "cluster_id"`
