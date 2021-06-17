@@ -138,6 +138,9 @@ outside:
 		switch {
 		case err == nil:
 			return nil
+		// do not retry NotFound error
+		case errors.IsNotFound(err):
+			break outside
 		case IsRetryableError(err):
 			logger.Warn(purpose+" failed but going to try again", log.ShortError(err))
 			continue
@@ -226,7 +229,7 @@ func isSingleRetryableError(err error) bool {
 	err = errors.Cause(err)
 
 	switch err {
-	case nil, context.Canceled, context.DeadlineExceeded, io.EOF:
+	case nil, context.Canceled, context.DeadlineExceeded, io.EOF, sql.ErrNoRows:
 		return false
 	}
 

@@ -29,9 +29,10 @@ type metaMgrBuilder interface {
 }
 
 type dbMetaMgrBuilder struct {
-	db     *sql.DB
-	taskID int64
-	schema string
+	db           *sql.DB
+	taskID       int64
+	schema       string
+	needChecksum bool
 }
 
 func (b *dbMetaMgrBuilder) Init(ctx context.Context) error {
@@ -67,10 +68,11 @@ func (b *dbMetaMgrBuilder) TaskMetaMgr(pd *pdutil.PdController) taskMetaMgr {
 
 func (b *dbMetaMgrBuilder) TableMetaMgr(tr *TableRestore) tableMetaMgr {
 	return &dbTableMetaMgr{
-		session:   b.db,
-		taskID:    b.taskID,
-		tr:        tr,
-		tableName: common.UniqueTable(b.schema, tableMetaTableName),
+		session:      b.db,
+		taskID:       b.taskID,
+		tr:           tr,
+		tableName:    common.UniqueTable(b.schema, tableMetaTableName),
+		needChecksum: b.needChecksum,
 	}
 }
 
@@ -84,10 +86,11 @@ type tableMetaMgr interface {
 }
 
 type dbTableMetaMgr struct {
-	session   *sql.DB
-	taskID    int64
-	tr        *TableRestore
-	tableName string
+	session      *sql.DB
+	taskID       int64
+	tr           *TableRestore
+	tableName    string
+	needChecksum bool
 }
 
 func (m *dbTableMetaMgr) InitTableMeta(ctx context.Context) error {
@@ -294,7 +297,7 @@ func (m *dbTableMetaMgr) AllocTableRowIDs(ctx context.Context, rawRowIDMax int64
 	// need to do checksum and update checksum meta since we are the first one.
 	if curStatus < metaStatusRestoreStarted {
 		// table contains data but haven't do checksum yet
-		if (newRowIDBase > 0 || !needAutoID) && baseTotalKvs == 0 {
+		if (newRowIDBase > 0 || !needAutoID) && m.needChecksum && baseTotalKvs == 0 {
 			remoteCk, err := DoChecksum(ctx, m.tr.tableInfo)
 			if err != nil {
 				return nil, 0, errors.Trace(err)

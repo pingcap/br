@@ -115,8 +115,9 @@ func (s *importerSuite) TestWriteRows(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, IsNil)
-	err = writer.Close(s.ctx)
+	st, err := writer.Close(s.ctx)
 	c.Assert(err, IsNil)
+	c.Assert(st, IsNil)
 }
 
 func (s *importerSuite) TestWriteHeadSendFailed(c *C) {

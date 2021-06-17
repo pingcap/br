@@ -18,7 +18,7 @@ import (
 const (
 	// DefaultMergeRegionSizeBytes is the default region split size, 96MB.
 	// See https://github.com/tikv/tikv/blob/v4.0.8/components/raftstore/src/coprocessor/config.rs#L35-L38
-	DefaultMergeRegionSizeBytes uint64 = 96 * units.MB
+	DefaultMergeRegionSizeBytes uint64 = 96 * units.MiB
 
 	// DefaultMergeRegionKeyCount is the default region key count, 960000.
 	DefaultMergeRegionKeyCount uint64 = 960000

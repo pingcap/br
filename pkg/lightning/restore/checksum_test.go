@@ -15,8 +15,8 @@ import (
 	"github.com/pingcap/parser"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/tidb/ddl"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	tmock "github.com/pingcap/tidb/util/mock"
+	"github.com/tikv/client-go/v2/oracle"
 
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tipb/go-tipb"
