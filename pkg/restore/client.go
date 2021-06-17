@@ -611,7 +611,8 @@ func (rc *Client) RestoreFiles(
 	}
 
 	var rangeFiles []*backuppb.File
-	for rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest) {
+	var leftFiles []*backuppb.File
+	for rangeFiles, leftFiles = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, leftFiles = drainFilesByRange(leftFiles, rc.fileImporter.supportMultiIngest) {
 		filesReplica := rangeFiles
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
