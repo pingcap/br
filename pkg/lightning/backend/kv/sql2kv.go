@@ -430,13 +430,13 @@ func (kvcodec *tableKVEncoder) Encode(
 		)
 		return nil, errors.Trace(err)
 	}
-	pairs := kvcodec.se.takeKvPairs()
-	for i := 0; i < len(pairs); i++ {
-		pairs[i].RowID = rowID
-		pairs[i].Offset = offset
+	kvPairs := kvcodec.se.takeKvPairs()
+	for i := 0; i < len(kvPairs.pairs); i++ {
+		kvPairs.pairs[i].RowID = rowID
+		kvPairs.pairs[i].Offset = offset
 	}
 	kvcodec.recordCache = record[:0]
-	return pairs, nil
+	return kvPairs, nil
 }
 
 // get record value for auto-increment field
