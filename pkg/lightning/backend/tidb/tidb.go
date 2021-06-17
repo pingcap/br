@@ -351,7 +351,7 @@ func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.U
 	return nil
 }
 
-func (be *tidbBackend) CloseEngine(context.Context, uuid.UUID) error {
+func (be *tidbBackend) CloseEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 

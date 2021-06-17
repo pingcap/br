@@ -136,7 +136,7 @@ func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineCon
 	return errors.Trace(err)
 }
 
-func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (importer *importer) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: engineUUID[:],
 	}

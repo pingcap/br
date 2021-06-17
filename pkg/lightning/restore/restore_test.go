@@ -774,7 +774,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	engineUUID := uuid.New()
 
 	mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	mockBackend.EXPECT().
 		ImportEngine(ctx, engineUUID).
@@ -783,7 +783,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 		CleanupEngine(ctx, engineUUID).
 		Return(nil)
 
-	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, "tag", engineUUID)
+	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, nil, "tag", engineUUID)
 	c.Assert(err, IsNil)
 	err = s.tr.importKV(ctx, closedEngine, rc, 1)
 	c.Assert(err, IsNil)
@@ -806,13 +806,13 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	engineUUID := uuid.New()
 
 	mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	mockBackend.EXPECT().
 		ImportEngine(ctx, engineUUID).
 		Return(errors.Annotate(context.Canceled, "fake import error"))
 
-	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, "tag", engineUUID)
+	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, nil, "tag", engineUUID)
 	c.Assert(err, IsNil)
 	err = s.tr.importKV(ctx, closedEngine, rc, 1)
 	c.Assert(err, ErrorMatches, "fake import error.*")

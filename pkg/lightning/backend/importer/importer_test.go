@@ -217,7 +217,7 @@ func (s *importerSuite) TestCloseImportCleanupEngine(c *C) {
 		CleanupEngine(s.ctx, &kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
-	engine, err := s.engine.Close(s.ctx)
+	engine, err := s.engine.Close(s.ctx, nil)
 	c.Assert(err, IsNil)
 	err = engine.Import(s.ctx)
 	c.Assert(err, IsNil)
