@@ -42,7 +42,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	temporaryDB := utils.TemporaryDBName(sysDB)
 	defer rc.cleanTemporaryDatabase(ctx, sysDB)
 
-	if !f.MatchSchema(temporaryDB.O) {
+	if !f.MatchSchema(sysDB) {
 		log.Debug("system database filtered out", zap.String("database", sysDB))
 		return
 	}
