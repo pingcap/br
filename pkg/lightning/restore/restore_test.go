@@ -1495,26 +1495,11 @@ func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
 				"regions": [
 					{
 						"id": 1,
-						"written_bytes": 1100000
+						"written_bytes": 11000000
 					}
 				]
 			}`),
-			"(.*)Cluster has write flow(.*)",
-			false,
-			1,
-			0,
-		},
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1,
-						"read_keys": 1001
-					}
-				]
-			}`),
-			"(.*)Cluster has read flow(.*)",
+			"(.*)write flow(.*)",
 			false,
 			1,
 			0,
