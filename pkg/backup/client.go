@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -159,22 +158,6 @@ func (bc *Client) GetGCTTL() int64 {
 	return bc.gcTTL
 }
 
-// GetLockOrMetaFilePath get the path of lockfile or metafile
-func GetLockOrMetaFilePath(fileName string, backend *backuppb.StorageBackend) string {
-	var path string
-	switch backend := backend.Backend.(type) {
-	case *backuppb.StorageBackend_Local:
-		path = "local://" + filepath.Join(backend.Local.Path, fileName)
-	case *backuppb.StorageBackend_S3:
-		bucket, prefix := backend.S3.Bucket, backend.S3.Prefix
-		path = "s3://" + bucket + "/" + prefix + "/" + fileName
-	case *backuppb.StorageBackend_Gcs:
-		bucket, prefix := backend.Gcs.Bucket, backend.Gcs.Prefix
-		path = "gcs://" + bucket + "/" + prefix + "/" + fileName
-	}
-	return path
-}
-
 // GetStorage gets storage for this backup.
 func (bc *Client) GetStorage() storage.ExternalStorage {
 	return bc.storage
@@ -195,7 +178,7 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 	if exist {
 		errMsg := fmt.Sprintf(`backup meta file exists in %v, 
 							there may be some backup files in the path already, 
-							please specify a correct backup directory!`, GetLockOrMetaFilePath(metautil.MetaFile, backend))
+							please specify a correct backup directory!`, bc.storage.URI()+"/"+metautil.MetaFile)
 		return errors.Annotate(berrors.ErrInvalidArgument, errMsg)
 	}
 	exist, err = bc.storage.FileExists(ctx, metautil.LockFile)
@@ -205,7 +188,7 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 	if exist {
 		errMsg := fmt.Sprintf(`backup lock file exists in %v, 
 							there may be some backup files in the path already, 
-							please specify a correct backup directory!`, GetLockOrMetaFilePath(metautil.LockFile, backend))
+							please specify a correct backup directory!`, bc.storage.URI()+"/"+metautil.LockFile)
 		return errors.Annotate(berrors.ErrInvalidArgument, errMsg)
 	}
 	bc.backend = backend

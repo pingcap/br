@@ -23,9 +23,7 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
-	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/pdutil"
-	"github.com/pingcap/br/pkg/storage"
 )
 
 type testBackup struct {
@@ -227,21 +225,4 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 			c.Assert(err, IsNil)
 		}
 	}
-}
-
-func (r *testBackup) TestGetLockOrMetaPath(c *C) {
-	backend, err := storage.ParseBackend("s3://bucket/prefix/", nil)
-	c.Assert(err, IsNil)
-	path := backup.GetLockOrMetaFilePath(metautil.MetaFile, backend)
-	c.Assert(path, Equals, "s3://bucket/prefix/backupmeta")
-
-	backend, err = storage.ParseBackend("gcs://bucket/prefix/", nil)
-	c.Assert(err, IsNil)
-	path = backup.GetLockOrMetaFilePath(metautil.LockFile, backend)
-	c.Assert(path, Equals, "gcs://bucket/prefix/backup.lock")
-
-	backend, err = storage.ParseBackend("local:///tmp/", nil)
-	c.Assert(err, IsNil)
-	path = backup.GetLockOrMetaFilePath(metautil.LockFile, backend)
-	c.Assert(path, Equals, "local:///tmp/backup.lock")
 }
