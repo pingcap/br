@@ -21,13 +21,9 @@ for i in $(seq 5); do
     [ $? -ne 0 ] || exit 1
     set -e
     # engine sorted kv dir name is 36 length (UUID4).
-<<<<<<< HEAD
-    [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" | wc -l) -eq 2 ]
-=======
     [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 2 ]
     # load all engines into tmp file (will repeat)
     ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" >> $TEST_DIR/$TEST_NAME.sorted/engines_name
->>>>>>> fbfd8861 (restore: fix [files lost] in log info (#1243))
 done
 
 # allow one file to be written at a time,
