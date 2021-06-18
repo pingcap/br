@@ -351,12 +351,8 @@ func (be *tidbBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.U
 	return nil
 }
 
-func (be *tidbBackend) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
+func (be *tidbBackend) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
 	return nil
-}
-
-func (be *tidbBackend) GetEngineTS(ctx context.Context, engineUUID uuid.UUID) (uint64, error) {
-	return 0, nil
 }
 
 func (be *tidbBackend) CloseEngine(context.Context, uuid.UUID) error {

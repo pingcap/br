@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
+	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
@@ -770,6 +771,7 @@ type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
 	conns    gRPCConns
+	pdCli    pd.Client
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -895,6 +897,7 @@ func NewLocalBackend(
 
 	local := &local{
 		engines:  sync.Map{},
+		pdCli:    pdCli,
 		splitCli: splitCli,
 		tls:      tls,
 		pdAddr:   pdAddr,
@@ -1181,25 +1184,23 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	return nil
 }
 
-func (local *local) SetEngineTSIfNotExists(_ context.Context, engineUUID uuid.UUID, ts uint64) error {
+func (local *local) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
 	engine, ok := local.engines.Load(engineUUID)
 	if !ok {
 		return errors.Errorf("engine '%s' not found", engineUUID)
 	}
 	engineFile := engine.(*File)
 
+	if engineFile.TS.Load() > 0 {
+		return nil
+	}
+	physical, logical, err := local.pdCli.GetTS(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	ts := oracle.ComposeTS(physical, logical)
 	engineFile.TS.CAS(0, ts)
 	return nil
-}
-
-func (local *local) GetEngineTS(_ context.Context, engineUUID uuid.UUID) (uint64, error) {
-	engine, ok := local.engines.Load(engineUUID)
-	if !ok {
-		return 0, errors.Errorf("engine '%s' not found", engineUUID)
-	}
-	engineFile := engine.(*File)
-
-	return engineFile.TS.Load(), nil
 }
 
 // CloseEngine closes backend engine by uuid

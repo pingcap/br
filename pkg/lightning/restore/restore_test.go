@@ -970,11 +970,6 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
-	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/AllocateCommitTS", "return")
-	defer func() {
-		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/AllocateCommitTS")
-	}()
-
 	err = rc.restoreTables(ctx)
 	c.Assert(err, IsNil)
 
@@ -1050,6 +1045,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
+	mockBackend.EXPECT().AllocateTSIfNotExists(ctx, gomock.Any()).Return(nil).AnyTimes()
 
 	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
@@ -1090,6 +1086,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockWriter := mock.NewMockEngineWriter(controller)
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
+	mockBackend.EXPECT().AllocateTSIfNotExists(ctx, gomock.Any()).Return(nil).AnyTimes()
 
 	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
@@ -1358,11 +1355,7 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 
 	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	err = importer.SetEngineTSIfNotExists(ctx, s.tr.tableName, 0, uint64(time.Now().UnixNano()))
-	c.Assert(err, IsNil)
 	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
-	c.Assert(err, IsNil)
-	err = importer.SetEngineTSIfNotExists(ctx, s.tr.tableName, -1, uint64(time.Now().UnixNano()))
 	c.Assert(err, IsNil)
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)

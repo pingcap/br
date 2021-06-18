@@ -74,12 +74,8 @@ func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUI
 	return nil
 }
 
-func (b noopBackend) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
+func (b noopBackend) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
 	return nil
-}
-
-func (b noopBackend) GetEngineTS(ctx context.Context, engineUUID uuid.UUID) (uint64, error) {
-	return 0, nil
 }
 
 func (b noopBackend) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {

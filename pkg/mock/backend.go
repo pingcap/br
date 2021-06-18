@@ -42,6 +42,20 @@ func (m *MockBackend) EXPECT() *MockBackendMockRecorder {
 	return m.recorder
 }
 
+// AllocateTSIfNotExists mocks base method.
+func (m *MockBackend) AllocateTSIfNotExists(arg0 context.Context, arg1 uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllocateTSIfNotExists", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AllocateTSIfNotExists indicates an expected call of AllocateTSIfNotExists.
+func (mr *MockBackendMockRecorder) AllocateTSIfNotExists(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateTSIfNotExists", reflect.TypeOf((*MockBackend)(nil).AllocateTSIfNotExists), arg0, arg1)
+}
+
 // CheckRequirements mocks base method.
 func (m *MockBackend) CheckRequirements(arg0 context.Context, arg1 *backend.CheckCtx) error {
 	m.ctrl.T.Helper()
@@ -153,21 +167,6 @@ func (mr *MockBackendMockRecorder) FlushEngine(arg0, arg1 interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FlushEngine", reflect.TypeOf((*MockBackend)(nil).FlushEngine), arg0, arg1)
 }
 
-// GetEngineTS mocks base method.
-func (m *MockBackend) GetEngineTS(arg0 context.Context, arg1 uuid.UUID) (uint64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEngineTS", arg0, arg1)
-	ret0, _ := ret[0].(uint64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetEngineTS indicates an expected call of GetEngineTS.
-func (mr *MockBackendMockRecorder) GetEngineTS(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEngineTS", reflect.TypeOf((*MockBackend)(nil).GetEngineTS), arg0, arg1)
-}
-
 // ImportEngine mocks base method.
 func (m *MockBackend) ImportEngine(arg0 context.Context, arg1 uuid.UUID) error {
 	m.ctrl.T.Helper()
@@ -266,20 +265,6 @@ func (m *MockBackend) RetryImportDelay() time.Duration {
 func (mr *MockBackendMockRecorder) RetryImportDelay() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RetryImportDelay", reflect.TypeOf((*MockBackend)(nil).RetryImportDelay))
-}
-
-// SetEngineTSIfNotExists mocks base method.
-func (m *MockBackend) SetEngineTSIfNotExists(arg0 context.Context, arg1 uuid.UUID, arg2 uint64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetEngineTSIfNotExists", arg0, arg1, arg2)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SetEngineTSIfNotExists indicates an expected call of SetEngineTSIfNotExists.
-func (mr *MockBackendMockRecorder) SetEngineTSIfNotExists(arg0, arg1, arg2 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEngineTSIfNotExists", reflect.TypeOf((*MockBackend)(nil).SetEngineTSIfNotExists), arg0, arg1, arg2)
 }
 
 // ShouldPostProcess mocks base method.

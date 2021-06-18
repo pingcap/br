@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/table"
+	"github.com/tikv/client-go/v2/oracle"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
@@ -64,6 +66,8 @@ type importer struct {
 	lock sync.Mutex
 
 	tsMap sync.Map // engineUUID -> commitTS
+	// For testing convenience.
+	getTSFunc func(ctx context.Context) (uint64, error)
 }
 
 // NewImporter creates a new connection to tikv-importer. A single connection
@@ -74,12 +78,27 @@ func NewImporter(ctx context.Context, tls *common.TLS, importServerAddr string, 
 		return backend.MakeBackend(nil), errors.Trace(err)
 	}
 
+	getTSFunc := func(ctx context.Context) (uint64, error) {
+		pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
+		if err != nil {
+			return 0, err
+		}
+		defer pdCli.Close()
+
+		physical, logical, err := pdCli.GetTS(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return oracle.ComposeTS(physical, logical), nil
+	}
+
 	return backend.MakeBackend(&importer{
 		conn:         conn,
 		cli:          import_kvpb.NewImportKVClient(conn),
 		pdAddr:       pdAddr,
 		tls:          tls,
 		mutationPool: sync.Pool{New: func() interface{} { return &import_kvpb.Mutation{} }},
+		getTSFunc:    getTSFunc,
 	}), nil
 }
 
@@ -92,6 +111,9 @@ func NewMockImporter(cli import_kvpb.ImportKVClient, pdAddr string) backend.Back
 		cli:          cli,
 		pdAddr:       pdAddr,
 		mutationPool: sync.Pool{New: func() interface{} { return &import_kvpb.Mutation{} }},
+		getTSFunc: func(ctx context.Context) (uint64, error) {
+			return uint64(time.Now().UnixNano()), nil
+		},
 	})
 }
 
@@ -138,20 +160,23 @@ func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineCon
 	return errors.Trace(err)
 }
 
-func (importer *importer) SetEngineTSIfNotExists(ctx context.Context, engineUUID uuid.UUID, ts uint64) error {
-	importer.tsMap.LoadOrStore(engineUUID, ts)
-	return nil
-}
-
-func (importer *importer) loadEngineTS(engineUUID uuid.UUID) uint64 {
+func (importer *importer) getEngineTS(engineUUID uuid.UUID) uint64 {
 	if v, ok := importer.tsMap.Load(engineUUID); ok {
 		return v.(uint64)
 	}
 	return 0
 }
 
-func (importer *importer) GetEngineTS(_ context.Context, engineUUID uuid.UUID) (uint64, error) {
-	return importer.loadEngineTS(engineUUID), nil
+func (importer *importer) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
+	if importer.getEngineTS(engineUUID) > 0 {
+		return nil
+	}
+	ts, err := importer.getTSFunc(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	importer.tsMap.LoadOrStore(engineUUID, ts)
+	return nil
 }
 
 func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
@@ -202,7 +227,7 @@ func (importer *importer) WriteRows(
 	rows kv.Rows,
 ) (finalErr error) {
 	var err error
-	ts := importer.loadEngineTS(engineUUID)
+	ts := importer.getEngineTS(engineUUID)
 outside:
 	for _, r := range rows.SplitIntoChunks(importer.MaxChunkSize()) {
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
