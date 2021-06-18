@@ -236,7 +236,7 @@ func (s *restoreSuite) TestDiskQuotaLock(c *C) {
 	}
 	select {
 	case <-lockHeld:
-		c.Fatal("lock is held before all read locks are released")
+		c.Fatal("write lock is held before all read locks are released")
 	case <-time.NewTimer(10 * time.Millisecond).C:
 	}
 	for ; rLocked > 0; rLocked-- {

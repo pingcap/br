@@ -176,7 +176,7 @@ const (
 )
 
 // diskQuotaLock is essentially a read/write lock. The implement here is inspired by sync.RWMutex.
-// diskQuotaLock removed the unnecessary blocking the `RLock` method add a non-blocking `TryRLock` method.
+// diskQuotaLock removed the unnecessary blocking `RLock` method and add a non-blocking `TryRLock` method.
 type diskQuotaLock struct {
 	w           sync.Mutex    // held if there are pending writers
 	writerSem   chan struct{} // semaphore for writers to wait for completing readers
