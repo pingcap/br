@@ -121,6 +121,11 @@ error = '''
 storage is not tikv
 '''
 
+["BR:Lightning:ErrDuplicateDetected"]
+error = '''
+duplicate detected
+'''
+
 ["BR:PD:ErrPDInvalidResponse"]
 error = '''
 PD invalid response

@@ -39,6 +39,7 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -2708,7 +2709,7 @@ func (tr *TableRestore) importKV(
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
 	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
-	if err == nil || err == backend.ErrDuplicateDetected {
+	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
 		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 

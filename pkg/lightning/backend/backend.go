@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/tidb/table"
 	"go.uber.org/zap"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
@@ -36,11 +37,6 @@ import (
 const (
 	importMaxRetryTimes = 3 // tikv-importer has done retry internally. so we don't retry many times.
 )
-
-// ErrDuplicateDetected means duplicate is detected during Import.
-// After this error returned, all data in the engine must be imported.
-// So it's safe to reset or cleanup the engine data.
-var ErrDuplicateDetected = errors.New("duplicate detected")
 
 /*
 
@@ -316,7 +312,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 			uuid:    engineUUID,
 		},
 	}
-	if err := closedEngine.Import(ctx); err != nil && err != ErrDuplicateDetected {
+	if err := closedEngine.Import(ctx); err != nil && !berrors.Is(err, berrors.ErrDuplicateDetected) {
 		return err
 	}
 	return be.abstract.ResetEngine(ctx, engineUUID)
@@ -431,7 +427,7 @@ func (engine *ClosedEngine) Import(ctx context.Context) error {
 	for i := 0; i < importMaxRetryTimes; i++ {
 		task := engine.logger.With(zap.Int("retryCnt", i)).Begin(zap.InfoLevel, "import")
 		err = engine.backend.ImportEngine(ctx, engine.uuid)
-		if err == ErrDuplicateDetected {
+		if berrors.Is(err, berrors.ErrDuplicateDetected) {
 			return err
 		}
 		if !common.IsRetryableError(err) {

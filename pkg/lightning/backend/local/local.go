@@ -59,6 +59,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -2077,7 +2078,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		log.L().Warn("duplicate detected during import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
-		return backend.ErrDuplicateDetected
+		return berrors.ErrDuplicateDetected
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
