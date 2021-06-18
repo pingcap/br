@@ -54,7 +54,7 @@ hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
 
-cases=${cases:-'outage outage-after-request outage-at-finegrained shutdown scale-out'}
+cases=${cases:-'outage-at-finegrained shutdown scale-out outage outage-after-request'}
 
 for failure in $cases; do
     rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"
