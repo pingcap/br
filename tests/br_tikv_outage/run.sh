@@ -5,7 +5,12 @@ set -eux
 . run_services
 
 wait_file_exist() {
+    timeout=0
     until [ -e "$1" ]; do
+        timeout=$(( $timeout + 1 ))
+        if [[ $timeout -gt 100 ]]; then
+            echo "timeout! maybe BR process is exited!"; exit 1;
+        fi
         sleep 1
     done
 }
