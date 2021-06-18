@@ -549,8 +549,15 @@ func (rc *Client) RestoreFiles(
 		return errors.Trace(err)
 	}
 
+<<<<<<< HEAD
 	for _, file := range files {
 		fileReplica := file
+=======
+	var rangeFiles []*backuppb.File
+	var leftFiles []*backuppb.File
+	for rangeFiles, leftFiles = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, leftFiles = drainFilesByRange(leftFiles, rc.fileImporter.supportMultiIngest) {
+		filesReplica := rangeFiles
+>>>>>>> fbfd8861 (restore: fix [files lost] in log info (#1243))
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				fileStart := time.Now()
