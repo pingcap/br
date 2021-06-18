@@ -2356,10 +2356,6 @@ func (rc *Controller) isLocalBackend() bool {
 	return rc.cfg.TikvImporter.Backend == config.BackendLocal
 }
 
-func (rc *Controller) isImporterBackend() bool {
-	return rc.cfg.TikvImporter.Backend == config.BackendImporter
-}
-
 // preCheckRequirements checks
 // 1. Cluster resource
 // 2. Local node resource
