@@ -62,5 +62,5 @@ for casename in $SELECTED_TEST_NAME; do
     TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
     BR_LOG_TO_TERM=1 \
-    bash "$script" && echo "TEST: [$TEST_NAME] success!"
+    bash "$script" && echo "TEST: [$casename] success!"
 done
