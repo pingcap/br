@@ -31,6 +31,7 @@ add_user() {
 
 delete_user() {
     # FIXME don't check the user table until we support restore user correctly.
+    echo "delete user newuser"
     # run_sql "DROP USER 'newuser'"
 }
 
