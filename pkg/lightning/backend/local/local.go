@@ -1683,8 +1683,7 @@ func (local *local) writeAndIngestByRange(
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
 			logutil.Key("start", start),
-			logutil.Key("end", end),
-			logutil.Key("next end", nextKey(end)))
+			logutil.Key("end", end))
 		engineFile.finishedRanges.add(Range{start: start, end: end})
 		return nil
 	}
