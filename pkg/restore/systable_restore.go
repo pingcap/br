@@ -33,6 +33,23 @@ var unRecoverableTable = map[string]struct{}{
 	// some variables in tidb (e.g. gc_safe_point) cannot be recovered.
 	"tidb":             {},
 	"global_variables": {},
+
+	// all user related tables cannot be recovered for now.
+	"columns_priv":  {},
+	"db":            {},
+	"default_roles": {},
+	"global_grants": {},
+	"global_priv":   {},
+	"role_edges":    {},
+	"tables_priv":   {},
+	"user":          {},
+
+	// gc info don't need to recover.
+	"gc_delete_range":      {},
+	"gc_delete_range_done": {},
+
+	// schema_index_usage has table id need to be rewrite.
+	"schema_index_usage": {},
 }
 
 func isUnrecoverableTable(tableName string) bool {
