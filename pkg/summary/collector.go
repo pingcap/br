@@ -26,7 +26,7 @@ const (
 	// BackupDataSize is a field we collect after backup finish
 	BackupDataSize = "backup data size(after compressed)"
 	// RestoreDataSize is a field we collection after restore finish
-	RestoreDataSize = "restore data size(after decompressed)"
+	RestoreDataSize = "restore data size(after compressed)"
 )
 
 // LogCollector collects infos into summary log.

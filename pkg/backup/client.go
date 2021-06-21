@@ -176,14 +176,18 @@ func (bc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBacke
 		return errors.Annotatef(err, "error occurred when checking %s file", metautil.MetaFile)
 	}
 	if exist {
-		return errors.Annotate(berrors.ErrInvalidArgument, "backup meta exists, may be some backup files in the path already")
+		return errors.Annotatef(berrors.ErrInvalidArgument, "backup meta file exists in %v, "+
+			"there may be some backup files in the path already, "+
+			"please specify a correct backup directory!", bc.storage.URI()+"/"+metautil.MetaFile)
 	}
 	exist, err = bc.storage.FileExists(ctx, metautil.LockFile)
 	if err != nil {
 		return errors.Annotatef(err, "error occurred when checking %s file", metautil.LockFile)
 	}
 	if exist {
-		return errors.Annotate(berrors.ErrInvalidArgument, "backup lock exists, may be some backup files in the path already")
+		return errors.Annotatef(berrors.ErrInvalidArgument, "backup lock file exists in %v, "+
+			"there may be some backup files in the path already, "+
+			"please specify a correct backup directory!", bc.storage.URI()+"/"+metautil.LockFile)
 	}
 	bc.backend = backend
 	return nil
