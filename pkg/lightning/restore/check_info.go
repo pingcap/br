@@ -46,8 +46,8 @@ const (
 	// Bytes/Keys used per region from pdWriteFlow/pdReadFlow
 	// this determines whether the cluster has some region that have other loads
 	// and might influence the import task in the future.
-	OnlineBytesLimitation = units.MiB
-	OnlineKeysLimitation  = 1000
+	OnlineBytesLimitation = 10 * units.MiB
+	OnlineKeysLimitation  = 5000
 
 	pdStores    = "/pd/api/v1/stores"
 	pdReplicate = "/pd/api/v1/config/replicate"
@@ -97,23 +97,7 @@ func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 			if err != nil {
 				return errors.Trace(err)
 			}
-			message = fmt.Sprintf("Cluster has write flow more than expection, %s", string(regionStr))
-			return nil
-		}
-	}
-	result = &api.RegionsInfo{}
-	err = rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdReadFlow, &result)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	for _, region := range result.Regions {
-		if region.ReadBytes > OnlineBytesLimitation || region.ReadKeys > OnlineKeysLimitation {
-			passed = false
-			regionStr, err := json.Marshal(region)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			message = fmt.Sprintf("Cluster has read flow more than expection, %s", string(regionStr))
+			message = fmt.Sprintf("The write flow on cluster are more than expection, %s", string(regionStr))
 			return nil
 		}
 	}

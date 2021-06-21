@@ -383,11 +383,11 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		rows2 = kvs[6000:12000]
 		rows3 = kvs[12000:]
 	}
-	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows1))
+	err = w.AppendRows(ctx, "", []string{}, kv.MakeRowsFromKvPairs(rows1))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows2))
+	err = w.AppendRows(ctx, "", []string{}, kv.MakeRowsFromKvPairs(rows2))
 	c.Assert(err, IsNil)
-	err = w.AppendRows(ctx, "", []string{}, 1, kv.MakeRowsFromKvPairs(rows3))
+	err = w.AppendRows(ctx, "", []string{}, kv.MakeRowsFromKvPairs(rows3))
 	c.Assert(err, IsNil)
 	flushStatus, err := w.Close(context.Background())
 	c.Assert(err, IsNil)

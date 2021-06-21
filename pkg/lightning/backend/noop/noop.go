@@ -163,7 +163,7 @@ func (r noopRow) ClassifyAndAppend(*kv.Rows, *verification.KVChecksum, *kv.Rows,
 
 type noopWriter struct{}
 
-func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Rows) error {
+func (w noopWriter) AppendRows(context.Context, string, []string, kv.Rows) error {
 	return nil
 }
 

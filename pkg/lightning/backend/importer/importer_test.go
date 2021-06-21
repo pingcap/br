@@ -75,7 +75,7 @@ func (s *importerSuite) setUpTest(c *C) {
 		Return(nil, nil)
 
 	var err error
-	s.engine, err = importer.OpenEngine(s.ctx, &backend.EngineConfig{}, "`db`.`table`", -1, 0)
+	s.engine, err = importer.OpenEngine(s.ctx, &backend.EngineConfig{}, "`db`.`table`", -1)
 	c.Assert(err, IsNil)
 }
 
