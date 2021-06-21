@@ -127,7 +127,7 @@ type Range struct {
 // localFileMeta contains some field that is necessary to continue the engine restore/import process.
 // These field should be written to disk when we update chunk checkpoint
 type localFileMeta struct {
-	TS atomic.Uint64 `json:"ts"`
+	TS uint64 `json:"ts"`
 	// Length is the number of KV pairs stored by the engine.
 	Length atomic.Int64 `json:"length"`
 	// TotalSize is the total pre-compressed KV byte size stored by engine.
@@ -737,20 +737,24 @@ func (e *File) saveEngineMeta() error {
 	return errors.Trace(e.db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false}))
 }
 
-func (e *File) loadEngineMeta() {
+func (e *File) loadEngineMeta() error {
 	jsonBytes, closer, err := e.db.Get(engineMetaKey)
 	if err != nil {
-		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
-		return
+		if err == pebble.ErrNotFound {
+			log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
+			return nil
+		}
+		return err
 	}
 	defer closer.Close()
 
-	err = json.Unmarshal(jsonBytes, &e.localFileMeta)
-	if err != nil {
+	if err = json.Unmarshal(jsonBytes, &e.localFileMeta); err != nil {
 		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.UUID), zap.ByteString("content", jsonBytes), zap.Error(err))
+		return err
 	}
 	log.L().Debug("load engine meta", zap.Stringer("uuid", e.UUID), zap.Int64("count", e.Length.Load()),
 		zap.Int64("size", e.TotalSize.Load()))
+	return nil
 }
 
 type gRPCConns struct {
@@ -1178,29 +1182,28 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 	engine := e.(*File)
 	engine.db = db
 	engine.sstIngester = dbSSTIngester{e: engine}
-	engine.loadEngineMeta()
+	if err = engine.loadEngineMeta(); err != nil {
+		return errors.Trace(err)
+	}
+	if err = local.allocateTSIfNotExists(ctx, engine); err != nil {
+		return errors.Trace(err)
+	}
 	engine.wg.Add(1)
 	go engine.ingestSSTLoop()
 	return nil
 }
 
-func (local *local) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
-	engine, ok := local.engines.Load(engineUUID)
-	if !ok {
-		return errors.Errorf("engine '%s' not found", engineUUID)
-	}
-	engineFile := engine.(*File)
-
-	if engineFile.TS.Load() > 0 {
+func (local *local) allocateTSIfNotExists(ctx context.Context, engine *File) error {
+	if engine.TS > 0 {
 		return nil
 	}
 	physical, logical, err := local.pdCli.GetTS(ctx)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 	ts := oracle.ComposeTS(physical, logical)
-	engineFile.TS.CAS(0, ts)
-	return nil
+	engine.TS = ts
+	return engine.saveEngineMeta()
 }
 
 // CloseEngine closes backend engine by uuid
@@ -1226,7 +1229,9 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			sstMetasChan: make(chan metaOrFlush),
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
-		engineFile.loadEngineMeta()
+		if err = engineFile.loadEngineMeta(); err != nil {
+			return err
+		}
 		local.engines.Store(engineUUID, engineFile)
 		return nil
 	}
@@ -1341,7 +1346,7 @@ func (local *local) WriteToTiKV(
 		}
 		req.Chunk = &sst.WriteRequest_Batch{
 			Batch: &sst.WriteBatch{
-				CommitTs: engineFile.TS.Load(),
+				CommitTs: engineFile.TS,
 			},
 		}
 		clients = append(clients, wstream)
@@ -2106,6 +2111,9 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 			if err := os.Mkdir(localEngine.sstDir, 0o755); err != nil {
 				return errors.Trace(err)
 			}
+		}
+		if err = local.allocateTSIfNotExists(ctx, localEngine); err != nil {
+			return errors.Trace(err)
 		}
 	}
 	localEngine.pendingFileSize.Store(0)

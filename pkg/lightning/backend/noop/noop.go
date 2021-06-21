@@ -74,10 +74,6 @@ func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUI
 	return nil
 }
 
-func (b noopBackend) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
-	return nil
-}
-
 func (b noopBackend) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
 	return nil
 }

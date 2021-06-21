@@ -1045,7 +1045,6 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockWriter.EXPECT().
 		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
-	mockBackend.EXPECT().AllocateTSIfNotExists(ctx, gomock.Any()).Return(nil).AnyTimes()
 
 	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
@@ -1086,7 +1085,6 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockWriter := mock.NewMockEngineWriter(controller)
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
-	mockBackend.EXPECT().AllocateTSIfNotExists(ctx, gomock.Any()).Return(nil).AnyTimes()
 
 	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)

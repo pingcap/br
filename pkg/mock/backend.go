@@ -42,20 +42,6 @@ func (m *MockBackend) EXPECT() *MockBackendMockRecorder {
 	return m.recorder
 }
 
-// AllocateTSIfNotExists mocks base method.
-func (m *MockBackend) AllocateTSIfNotExists(arg0 context.Context, arg1 uuid.UUID) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AllocateTSIfNotExists", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AllocateTSIfNotExists indicates an expected call of AllocateTSIfNotExists.
-func (mr *MockBackendMockRecorder) AllocateTSIfNotExists(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllocateTSIfNotExists", reflect.TypeOf((*MockBackend)(nil).AllocateTSIfNotExists), arg0, arg1)
-}
-
 // CheckRequirements mocks base method.
 func (m *MockBackend) CheckRequirements(arg0 context.Context, arg1 *backend.CheckCtx) error {
 	m.ctrl.T.Helper()

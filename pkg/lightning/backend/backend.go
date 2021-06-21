@@ -143,8 +143,6 @@ type AbstractBackend interface {
 
 	OpenEngine(ctx context.Context, config *EngineConfig, engineUUID uuid.UUID) error
 
-	AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error
-
 	CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	ImportEngine(ctx context.Context, engineUUID uuid.UUID) error
@@ -345,11 +343,6 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 		},
 		tableName: tableName,
 	}, nil
-}
-
-func (be Backend) AllocateTSIfNotExists(ctx context.Context, tableName string, engineID int32) error {
-	_, engineUUID := MakeUUID(tableName, engineID)
-	return be.abstract.AllocateTSIfNotExists(ctx, engineUUID)
 }
 
 // Close the opened engine to prepare it for importing.

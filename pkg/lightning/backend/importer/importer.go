@@ -157,7 +157,13 @@ func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineCon
 	}
 
 	_, err := importer.cli.OpenEngine(ctx, req)
-	return errors.Trace(err)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err = importer.allocateTSIfNotExists(ctx, engineUUID); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (importer *importer) getEngineTS(engineUUID uuid.UUID) uint64 {
@@ -167,7 +173,7 @@ func (importer *importer) getEngineTS(engineUUID uuid.UUID) uint64 {
 	return 0
 }
 
-func (importer *importer) AllocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
+func (importer *importer) allocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
 	if importer.getEngineTS(engineUUID) > 0 {
 		return nil
 	}

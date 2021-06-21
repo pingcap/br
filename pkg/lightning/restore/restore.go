@@ -1646,9 +1646,6 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				if err != nil {
 					return errors.Trace(err)
 				}
-				if err = rc.backend.AllocateTSIfNotExists(ctx, tr.tableName, indexEngineID); err != nil {
-					return errors.Trace(err)
-				}
 				break
 			}
 		}
@@ -1799,9 +1796,6 @@ func (tr *TableRestore) restoreEngine(
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
 	dataEngine, err := rc.backend.OpenEngine(ctx, &backend.EngineConfig{}, tr.tableName, engineID)
 	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if err = rc.backend.AllocateTSIfNotExists(ctx, tr.tableName, engineID); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -2871,15 +2865,6 @@ func (cr *chunkRestore) deliverLoop(
 				time.Sleep(time.Millisecond)
 			}
 			defer rc.diskQuotaLock.RUnlock()
-
-			// When enabled DiskQuota, `enforceDiskQuota` may force the backend to import the content of a large engine
-			// into the target and then reset the engine to empty. When this happen, we need to use a new commitTS.
-			if err = rc.backend.AllocateTSIfNotExists(ctx, t.tableName, engineID); err != nil {
-				return errors.Trace(err)
-			}
-			if err = rc.backend.AllocateTSIfNotExists(ctx, t.tableName, indexEngineID); err != nil {
-				return errors.Trace(err)
-			}
 
 			// Write KVs into the engine
 			start := time.Now()
