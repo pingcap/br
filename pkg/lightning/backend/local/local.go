@@ -1083,15 +1083,8 @@ func (local *local) writeAndIngestByRange(
 	}
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
-<<<<<<< HEAD
 			log.ZapRedactBinary("start", start),
-			log.ZapRedactBinary("end", end),
-			log.ZapRedactBinary("next end", nextKey(end)))
-=======
-			logutil.Key("start", start),
-			logutil.Key("end", end))
-		engineFile.finishedRanges.add(Range{start: start, end: end})
->>>>>>> 88936a3a (lightning: fix panic in `nextKey` (#1261))
+			log.ZapRedactBinary("end", end))
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
