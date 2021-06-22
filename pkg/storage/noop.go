@@ -37,15 +37,9 @@ func (s *noopStorage) URI() string {
 	return "noop:///"
 }
 
-<<<<<<< HEAD
 // CreateUploader implenments ExternalStorage interface.
 func (*noopStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	panic("noop storage not support multi-upload")
-=======
-// Create implements ExternalStorage interface.
-func (*noopStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
 	return &noopWriter{}, nil
->>>>>>> bc572e72 (storage: fix noop writer to help dumpling to do some tests (#1248))
 }
 
 func newNoopStorage() *noopStorage {
@@ -68,10 +62,10 @@ func (noopReader) Seek(offset int64, whence int) (int64, error) {
 
 type noopWriter struct{}
 
-func (noopWriter) Write(ctx context.Context, p []byte) (int, error) {
-	return len(p), nil
+func (noopWriter) UploadPart(ctx context.Context, p []byte) error {
+	return nil
 }
 
-func (noopWriter) Close(ctx context.Context) error {
+func (noopWriter) CompleteUpload(ctx context.Context) error {
 	return nil
 }
