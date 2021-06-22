@@ -25,11 +25,35 @@ modify_systables() {
     run_sql "ANALYZE TABLE mysql.usertable;"
 }
 
+<<<<<<< HEAD
+=======
+add_user() {
+    run_sql "CREATE USER 'newuser' IDENTIFIED BY 'newuserpassword';"
+}
+
+delete_user() {
+    # FIXME don't check the user table until we support restore user correctly.
+    echo "delete user newuser"
+    # run_sql "DROP USER 'newuser'"
+}
+
+add_test_data() {
+    run_sql "CREATE DATABASE usertest;"
+    run_sql "CREATE TABLE usertest.test(pk int primary key auto_increment, field varchar(255));"
+    run_sql "INSERT INTO usertest.test(field) VALUES $test_data"
+}
+
+delete_test_data() {
+    run_sql "DROP TABLE usertest.test;"
+}
+
+>>>>>>> 00ce6bdc (systable: add more sys tables to blocklist  (#1259))
 rollback_modify() {
     run_sql "DROP TABLE mysql.foo;"
     run_sql "DROP TABLE mysql.bar;"
     run_sql "UPDATE mysql.tidb SET VARIABLE_VALUE = '10m' WHERE VARIABLE_NAME = 'tikv_gc_life_time';"
-    run_sql "DROP USER 'Alyssa P. Hacker';"
+    # FIXME don't check the user table until we support restore user correctly.
+    # run_sql "DROP USER 'Alyssa P. Hacker';"
     run_sql "DROP TABLE mysql.usertable;"
 }
 
@@ -40,13 +64,23 @@ check() {
     # we cannot let user overwrite `mysql.tidb` through br in any time.
     run_sql "SELECT VARIABLE_VALUE FROM mysql.tidb WHERE VARIABLE_NAME = 'tikv_gc_life_time'" | awk '/1h/{exit 1}'
 
+    # FIXME don't check the user table until we support restore user correctly.
     # TODO remove this after supporting auto flush.
-    run_sql "FLUSH PRIVILEGES;"
-    run_sql "SELECT CURRENT_USER();" -u'Alyssa P. Hacker' -p'password' | grep 'Alyssa P. Hacker'
-    run_sql "SHOW DATABASES" | grep -v '__TiDB_BR_Temporary_'
+    # run_sql "FLUSH PRIVILEGES;"
+    # run_sql "SELECT CURRENT_USER();" -u'Alyssa P. Hacker' -p'password' | grep 'Alyssa P. Hacker'
+    # run_sql "SHOW DATABASES" | grep -v '__TiDB_BR_Temporary_'
     # TODO check stats after supportting.
 }
 
+<<<<<<< HEAD
+=======
+check2() {
+    run_sql "SELECT count(*) from usertest.test;" | grep 11
+    # FIXME don't check the user table until we support restore user correctly.
+    # run_sql "SELECT user FROM mysql.user WHERE user='newuser';" | grep 'newuser'
+}
+
+>>>>>>> 00ce6bdc (systable: add more sys tables to blocklist  (#1259))
 modify_systables
 run_br backup full -s "local://$backup_dir"
 rollback_modify
