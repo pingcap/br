@@ -21,7 +21,9 @@ for i in $(seq 5); do
     [ $? -ne 0 ] || exit 1
     set -e
     # engine sorted kv dir name is 36 length (UUID4).
-    [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" | wc -l) -eq 2 ]
+    [ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 2 ]
+    # load all engines into tmp file (will repeat)
+    ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" >> $TEST_DIR/$TEST_NAME.sorted/engines_name
 done
 
 # allow one file to be written at a time,
@@ -33,7 +35,11 @@ run_lightning --enable-checkpoint=1 2> /dev/null
 [ $? -ne 0 ] || exit 1
 set -e
 # engine sorted kv dir name is 36 length (UUID4).
-[ $(ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" |  wc -l) -eq 3 ]
+ls -1q "$TEST_DIR/$TEST_NAME.sorted" | grep -E "^\S{36}$" >> $TEST_DIR/$TEST_NAME.sorted/engines_name
+if [ ! $(cat $TEST_DIR/$TEST_NAME.sorted/engines_name | sort -n | uniq | wc -l) -eq 3 ]; then
+  ls -al "$TEST_DIR/$TEST_NAME.sorted"
+  exit 1
+fi
 
 # allow everything to be written,
 export GO_FAILPOINTS=''
