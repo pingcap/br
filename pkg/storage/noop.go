@@ -39,7 +39,7 @@ func (s *noopStorage) URI() string {
 
 // CreateUploader implenments ExternalStorage interface.
 func (*noopStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
-	panic("noop storage not support multi-upload")
+	return &noopWriter{}, nil
 }
 
 func newNoopStorage() *noopStorage {
@@ -49,7 +49,7 @@ func newNoopStorage() *noopStorage {
 type noopReader struct{}
 
 func (noopReader) Read(p []byte) (n int, err error) {
-	return 0, nil
+	return len(p), nil
 }
 
 func (noopReader) Close() error {
@@ -57,5 +57,15 @@ func (noopReader) Close() error {
 }
 
 func (noopReader) Seek(offset int64, whence int) (int64, error) {
-	return 0, nil
+	return offset, nil
+}
+
+type noopWriter struct{}
+
+func (noopWriter) UploadPart(ctx context.Context, p []byte) error {
+	return nil
+}
+
+func (noopWriter) CompleteUpload(ctx context.Context) error {
+	return nil
 }
