@@ -23,6 +23,7 @@ bin/tidb-lightning-ctl.test -test.coverprofile="$TEST_DIR/cov.ctl.$TEST_NAME.$$.
     --tidb-port 4000 \
     --pd-urls '127.0.0.1:2379' \
     -d "tests/$TEST_NAME/data" \
+    --backend 'local' \
     --importer '127.0.0.1:8808' \
     --sorted-kv-dir "$TEST_DIR/sorted" \
     --enable-checkpoint=0 \
