@@ -257,6 +257,8 @@ func (s testParquetParserSuite) TestParquetAurora(c *C) {
 				c.Assert(v, Equals, row[j].GetInt64())
 			case string:
 				c.Assert(v, Equals, row[j].GetString())
+			default:
+				c.Error("unexpected value: ", expectedValues[j])
 			}
 		}
 	}

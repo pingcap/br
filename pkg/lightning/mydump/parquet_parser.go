@@ -229,24 +229,28 @@ func convertToLogicType(se *parquet.SchemaElement) error {
 		logicalType.DATE = &parquet.DateType{}
 	case parquet.ConvertedType_TIME_MILLIS:
 		logicalType.TIME = &parquet.TimeType{
+			IsAdjustedToUTC: true,
 			Unit: &parquet.TimeUnit{
 				MILLIS: parquet.NewMilliSeconds(),
 			},
 		}
 	case parquet.ConvertedType_TIME_MICROS:
 		logicalType.TIME = &parquet.TimeType{
+			IsAdjustedToUTC: true,
 			Unit: &parquet.TimeUnit{
 				MICROS: parquet.NewMicroSeconds(),
 			},
 		}
 	case parquet.ConvertedType_TIMESTAMP_MILLIS:
 		logicalType.TIMESTAMP = &parquet.TimestampType{
+			IsAdjustedToUTC: true,
 			Unit: &parquet.TimeUnit{
 				MILLIS: parquet.NewMilliSeconds(),
 			},
 		}
 	case parquet.ConvertedType_TIMESTAMP_MICROS:
 		logicalType.TIMESTAMP = &parquet.TimestampType{
+			IsAdjustedToUTC: true,
 			Unit: &parquet.TimeUnit{
 				MICROS: parquet.NewMicroSeconds(),
 			},
@@ -401,7 +405,7 @@ func setDatumValue(d *types.Datum, v reflect.Value, meta *parquet.SchemaElement)
 			return setDatumValue(d, v.Elem(), meta)
 		}
 	default:
-		log.L().Fatal("unknown value", zap.Stringer("kind", v.Kind()),
+		log.L().Error("unknown value", zap.Stringer("kind", v.Kind()),
 			zap.String("type", v.Type().Name()), zap.Reflect("value", v.Interface()))
 		return errors.Errorf("unknown value: %v", v)
 	}
@@ -440,11 +444,11 @@ func binaryToDecimalStr(rawBytes []byte, scale int) string {
 	if dotIndex == 0 {
 		res.WriteByte('0')
 	} else {
-		res.Write([]byte(val[:dotIndex]))
+		res.WriteString(val[:dotIndex])
 	}
 	if scale > 0 {
 		res.WriteByte('.')
-		res.Write([]byte(val[dotIndex:]))
+		res.WriteString(val[dotIndex:])
 	}
 	return res.String()
 }
@@ -488,7 +492,7 @@ func setDatumByInt(d *types.Datum, v int64, meta *parquet.SchemaElement) error {
 			sec = v / 1e9
 			nsec = v % 1e9
 		}
-		// TODO: how to deal with TimeZone
+		// TODO: how to deal with TimeZone if `IsAdjustedToUTC = false`
 		dateStr := time.Unix(sec, nsec).Format("2006-01-02 15:04:05.999")
 		d.SetString(dateStr, "")
 	case logicalType.TIME != nil:
