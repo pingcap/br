@@ -225,46 +225,46 @@ func (s *testRestoreUtilSuite) TestPaginateScanRegion(c *C) {
 	ctx := context.Background()
 	regionMap := make(map[uint64]*restore.RegionInfo)
 	regions := []*restore.RegionInfo{}
-	batch, err := restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err := restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(1)
-	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(2)
-	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(3)
-	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(8)
-	batch, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
+	batch, err = restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{}, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions)
 
 	regionMap, regions = makeRegions(8)
 	batch, err = restore.PaginateScanRegion(
-		ctx, newTestClient(stores, regionMap, 0), regions[1].Region.StartKey, []byte{}, 3)
+		ctx, NewTestClient(stores, regionMap, 0), regions[1].Region.StartKey, []byte{}, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[1:])
 
 	batch, err = restore.PaginateScanRegion(
-		ctx, newTestClient(stores, regionMap, 0), []byte{}, regions[6].Region.EndKey, 3)
+		ctx, NewTestClient(stores, regionMap, 0), []byte{}, regions[6].Region.EndKey, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[:7])
 
 	batch, err = restore.PaginateScanRegion(
-		ctx, newTestClient(stores, regionMap, 0), regions[1].Region.StartKey, regions[1].Region.EndKey, 3)
+		ctx, NewTestClient(stores, regionMap, 0), regions[1].Region.StartKey, regions[1].Region.EndKey, 3)
 	c.Assert(err, IsNil)
 	c.Assert(batch, DeepEquals, regions[1:2])
 
-	_, err = restore.PaginateScanRegion(ctx, newTestClient(stores, regionMap, 0), []byte{2}, []byte{1}, 3)
+	_, err = restore.PaginateScanRegion(ctx, NewTestClient(stores, regionMap, 0), []byte{2}, []byte{1}, 3)
 	c.Assert(err, ErrorMatches, ".*startKey >= endKey.*")
 }
