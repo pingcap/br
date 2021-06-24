@@ -15,11 +15,7 @@ package kv
 
 import (
 	"fmt"
-<<<<<<< HEAD
-=======
 	"math"
-	"sort"
->>>>>>> 8bac225d (lightning: fix id allocator base for double auto_increment field (#1178))
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
