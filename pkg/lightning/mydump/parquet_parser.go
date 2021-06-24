@@ -479,40 +479,38 @@ func setDatumByInt(d *types.Datum, v int64, meta *parquet.SchemaElement) error {
 		d.SetString(dateStr, "")
 	case logicalType.TIMESTAMP != nil:
 		// convert all timestamp types (datetime/timestamp) to string
-		var sec, nsec int64
-		units := logicalType.TIMESTAMP.Unit
-		if units.MICROS != nil {
-			sec = v / 1e6
-			nsec = (v % 1e6) * 1e3
-		} else if units.MILLIS != nil {
-			sec = v / 1e3
-			nsec = (v % 1e3) * 1e6
-		} else {
-			// nano
-			sec = v / 1e9
-			nsec = v % 1e9
-		}
-		// TODO: how to deal with TimeZone if `IsAdjustedToUTC = false`
-		dateStr := time.Unix(sec, nsec).Format("2006-01-02 15:04:05.999")
-		d.SetString(dateStr, "")
+		timeStr := formatTime(v, logicalType.TIMESTAMP.Unit, "2006-01-02 15:04:05.999999",
+			"2006-01-02 15:04:05.999999Z", logicalType.TIMESTAMP.IsAdjustedToUTC)
+		d.SetString(timeStr, "")
 	case logicalType.TIME != nil:
-		units := logicalType.TIME.Unit
-		if units.NANOS != nil {
-			v /= 1e6
-		} else if units.MICROS != nil {
-			v /= 1e3
-		}
-		millis := v % 1e3
-		v /= 1e3
-		sec := v % 60
-		v /= 60
-		min := v % 60
-		v /= 60
-		d.SetString(fmt.Sprintf("%d:%d:%d.%3d", v, min, sec, millis), "")
+		// convert all timestamp types (datetime/timestamp) to string
+		timeStr := formatTime(v, logicalType.TIME.Unit, "15:04:05.999999", "15:04:05.999999Z",
+			logicalType.TIME.IsAdjustedToUTC)
+		d.SetString(timeStr, "")
 	default:
 		d.SetInt64(v)
 	}
 	return nil
+}
+
+func formatTime(v int64, units *parquet.TimeUnit, format, utcFormat string, utc bool) string {
+	var sec, nsec int64
+	if units.MICROS != nil {
+		sec = v / 1e6
+		nsec = (v % 1e6) * 1e3
+	} else if units.MILLIS != nil {
+		sec = v / 1e3
+		nsec = (v % 1e3) * 1e6
+	} else {
+		// nano
+		sec = v / 1e9
+		nsec = v % 1e9
+	}
+	t := time.Unix(sec, nsec)
+	if utc {
+		return t.UTC().Format(utcFormat)
+	}
+	return t.Format(format)
 }
 
 func (pp *ParquetParser) LastRow() Row {
