@@ -746,8 +746,8 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		// print check template only if check requirements is true.
 		fmt.Println(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
-			return errors.Errorf("lightning pre check failed." +
-				"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
+			return errors.Errorf("tidb-lightning pre-check failed." +
+				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
 		}
 	}
 	return nil
