@@ -116,9 +116,9 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 	v := &Test{
 		Date:            18564,              // 2020-10-29
 		TimeMillis:      62775123,           // 17:26:15.123 (note all time are in UTC+8!)
-		TimeMicros:      62775123000,        // 17:26:15.123
-		TimestampMillis: 1603963672356,      // 2020-10-29T17:27:52.356
-		TimestampMicros: 1603963672356956,   // 2020-10-29T17:27:52.356956
+		TimeMicros:      62775123456,        // 17:26:15.123
+		TimestampMillis: 1603963672356,      // 2020-10-29T09:27:52.356Z
+		TimestampMicros: 1603963672356956,   // 2020-10-29T09:27:52.356956Z
 		Decimal1:        -12345678,          // -123456.78
 		Decimal2:        456,                // 0.0456
 		Decimal3:        123456789012345678, // 1234567890123456.78
@@ -140,7 +140,7 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 
 	c.Assert(reader.ReadRow(), IsNil)
 	rowValue := []string{
-		"2020-10-29", "17:26:15.123", "17:26:15.123", "2020-10-29 17:27:52.356000Z", "2020-10-29 17:27:52.356956Z",
+		"2020-10-29", "17:26:15.123Z", "17:26:15.123456Z", "2020-10-29 09:27:52.356Z", "2020-10-29 09:27:52.356956Z",
 		"-123456.78", "0.0456", "1234567890123456.78", "-0.0001",
 	}
 	row := reader.lastRow.Row
