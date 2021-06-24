@@ -212,7 +212,6 @@ type engine struct {
 type OpenedEngine struct {
 	engine
 	tableName string
-	ts        uint64
 }
 
 // // import_ the data written to the engine into the target.
@@ -231,7 +230,6 @@ type ClosedEngine struct {
 type LocalEngineWriter struct {
 	writer    EngineWriter
 	tableName string
-	ts        uint64
 }
 
 func MakeBackend(ab AbstractBackend) Backend {
@@ -318,7 +316,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 }
 
 // OpenEngine opens an engine with the given table name and engine ID.
-func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
+func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableName string, engineID int32) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)
 	logger := makeLogger(tag, engineUUID)
 
@@ -347,7 +345,6 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 			uuid:    engineUUID,
 		},
 		tableName: tableName,
-		ts:        ts,
 	}, nil
 }
 
@@ -370,12 +367,12 @@ func (engine *OpenedEngine) LocalWriter(ctx context.Context, cfg *LocalWriterCon
 	if err != nil {
 		return nil, err
 	}
-	return &LocalEngineWriter{writer: w, ts: engine.ts, tableName: engine.tableName}, nil
+	return &LocalEngineWriter{writer: w, tableName: engine.tableName}, nil
 }
 
 // WriteRows writes a collection of encoded rows into the engine.
 func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string, rows kv.Rows) error {
-	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
+	return w.writer.AppendRows(ctx, w.tableName, columnNames, rows)
 }
 
 func (w *LocalEngineWriter) Close(ctx context.Context) (ChunkFlushStatus, error) {
@@ -458,7 +455,6 @@ type EngineWriter interface {
 		ctx context.Context,
 		tableName string,
 		columnNames []string,
-		commitTS uint64,
 		rows kv.Rows,
 	) error
 	IsSynced() bool
