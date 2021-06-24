@@ -506,9 +506,9 @@ func formatTime(v int64, units *parquet.TimeUnit, format, utcFormat string, utc 
 		sec = v / 1e9
 		nsec = v % 1e9
 	}
-	t := time.Unix(sec, nsec)
+	t := time.Unix(sec, nsec).UTC()
 	if utc {
-		return t.UTC().Format(utcFormat)
+		return t.Format(utcFormat)
 	}
 	return t.Format(format)
 }
