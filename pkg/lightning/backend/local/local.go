@@ -789,18 +789,6 @@ func (e *File) loadEngineMeta() error {
 	return nil
 }
 
-func (e *File) newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
-	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
-		newOpts := *opts
-		newOpts.LowerBound = normalIterStartKey
-		opts = &newOpts
-	}
-	if !e.duplicateDetection {
-		return engineFile.db.NewIter(opts)
-	}
-	return newDuplicateIterator(ctx, engineFile, opts)
-}
-
 type gRPCConns struct {
 	mu    sync.Mutex
 	conns map[uint64]*connPool
@@ -1132,14 +1120,23 @@ func (local *local) Close() {
 	if local.duplicateDB != nil {
 		// Check whether there are duplicates.
 		iter := local.duplicateDB.NewIter(&pebble.IterOptions{})
-		hasNoDuplicates := !iter.First() && iter.Error() == nil
-		iter.Close()
+		hasDuplicates := iter.First()
+		allIsWell := true
+		if err := iter.Error(); err != nil {
+			log.L().Warn("iterate duplicate db failed", zap.Error(err))
+			allIsWell = false
+		}
+		if err := iter.Close(); err != nil {
+			log.L().Warn("close duplicate db iter failed", zap.Error(err))
+			allIsWell = false
+		}
 		if err := local.duplicateDB.Close(); err != nil {
 			log.L().Warn("close duplicate db failed", zap.Error(err))
+			allIsWell = false
 		}
 		// If checkpoint is disabled or we don't detect any duplicate, then this duplicate
 		// db dir will be useless, so we clean up this dir.
-		if !local.checkpointEnabled || hasNoDuplicates {
+		if allIsWell && (!local.checkpointEnabled || !hasDuplicates) {
 			if err := os.RemoveAll(filepath.Join(local.localStoreDir, duplicateDBName)); err != nil {
 				log.L().Warn("remove duplicate db file failed", zap.Error(err))
 			}
@@ -1230,10 +1227,6 @@ func (local *local) openEngineDB(engineUUID uuid.UUID, readOnly bool) (*pebble.D
 	dbPath := filepath.Join(local.localStoreDir, engineUUID.String())
 	db, err := pebble.Open(dbPath, opt)
 	return db, errors.Trace(err)
-}
-
-func engineDuplicateDBPath(storeDir string, engineUUID uuid.UUID) string {
-	return filepath.Join(storeDir, engineUUID.String()+".duplicate")
 }
 
 // This method must be called with holding mutex of File
@@ -1377,7 +1370,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := engineFile.newNormalKeyIter(ctx, engineFile, opt)
+	iter := newNormalKeyIter(ctx, engineFile, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1611,7 +1604,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 }
 
 func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
-	iter := engineFile.newNormalKeyIter(ctx, engineFile, &pebble.IterOptions{})
+	iter := newNormalKeyIter(ctx, engineFile, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1765,7 +1758,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := engineFile.newNormalKeyIter(ctxt, engineFile, ito)
+	iter := newNormalKeyIter(ctxt, engineFile, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()

@@ -18,28 +18,18 @@ import (
 	"context"
 
 	"github.com/cockroachdb/pebble"
+	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/tidb/util/codec"
 	"go.uber.org/multierr"
 
+	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/logutil"
 )
 
-// Iterator is the abstract interface for iterating an engine.
-type Iterator interface {
-	First() bool
-	Last() bool
-	Next() bool
-	Key() []byte
-	Value() []byte
-	Valid() bool
-	Error() error
-	Close() error
-}
-
 const maxDuplicateBatchSize = 4 << 20
 
-type duplicateIterator struct {
+type duplicateIter struct {
 	ctx       context.Context
 	iter      *pebble.Iterator
 	curKey    []byte
@@ -53,35 +43,39 @@ type duplicateIterator struct {
 	writeBatchSize int64
 }
 
-func (d *duplicateIterator) First() bool {
+func (d *duplicateIter) Seek(_ []byte) bool {
+	panic("unsupported operation")
+}
+
+func (d *duplicateIter) First() bool {
 	if d.err != nil || !d.iter.First() {
 		return false
 	}
-	d.fillCurKV()
+	d.fill()
 	return d.err == nil
 }
 
-func (d *duplicateIterator) Last() bool {
+func (d *duplicateIter) Last() bool {
 	if d.err != nil || !d.iter.Last() {
 		return false
 	}
-	d.fillCurKV()
+	d.fill()
 	return d.err == nil
 }
 
-func (d *duplicateIterator) fillCurKV() {
+func (d *duplicateIter) fill() {
 	d.curKey, _, _, d.err = DecodeKeySuffix(d.curKey[:0], d.iter.Key())
 	d.curRawKey = append(d.curRawKey[:0], d.iter.Key()...)
 	d.curVal = append(d.curVal[:0], d.iter.Value()...)
 }
 
-func (d *duplicateIterator) flush() {
+func (d *duplicateIter) flush() {
 	d.err = d.writeBatch.Commit(pebble.Sync)
 	d.writeBatch.Reset()
 	d.writeBatchSize = 0
 }
 
-func (d *duplicateIterator) record(key []byte, val []byte) {
+func (d *duplicateIter) record(key []byte, val []byte) {
 	d.engineFile.Duplicates.Inc()
 	d.err = d.writeBatch.Set(key, val, nil)
 	if d.err != nil {
@@ -93,7 +87,7 @@ func (d *duplicateIterator) record(key []byte, val []byte) {
 	}
 }
 
-func (d *duplicateIterator) Next() bool {
+func (d *duplicateIter) Next() bool {
 	recordFirst := false
 	for d.err == nil && d.ctx.Err() == nil && d.iter.Next() {
 		d.nextKey, _, _, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
@@ -119,23 +113,23 @@ func (d *duplicateIterator) Next() bool {
 	return false
 }
 
-func (d *duplicateIterator) Key() []byte {
+func (d *duplicateIter) Key() []byte {
 	return d.curKey
 }
 
-func (d *duplicateIterator) Value() []byte {
+func (d *duplicateIter) Value() []byte {
 	return d.curVal
 }
 
-func (d *duplicateIterator) Valid() bool {
+func (d *duplicateIter) Valid() bool {
 	return d.err == nil && d.iter.Valid()
 }
 
-func (d *duplicateIterator) Error() error {
+func (d *duplicateIter) Error() error {
 	return multierr.Combine(d.iter.Error(), d.err)
 }
 
-func (d *duplicateIterator) Close() error {
+func (d *duplicateIter) Close() error {
 	if d.err == nil {
 		d.flush()
 	}
@@ -143,9 +137,13 @@ func (d *duplicateIterator) Close() error {
 	return d.iter.Close()
 }
 
-var _ Iterator = &duplicateIterator{}
+func (d *duplicateIter) OpType() sst.Pair_OP {
+	return sst.Pair_Put
+}
 
-func newDuplicateIterator(ctx context.Context, engineFile *File, opts *pebble.IterOptions) Iterator {
+var _ kv.Iter = &duplicateIter{}
+
+func newDuplicateIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) kv.Iter {
 	newOpts := &pebble.IterOptions{TableFilter: opts.TableFilter}
 	if len(opts.LowerBound) > 0 {
 		newOpts.LowerBound = codec.EncodeBytes(nil, opts.LowerBound)
@@ -153,10 +151,36 @@ func newDuplicateIterator(ctx context.Context, engineFile *File, opts *pebble.It
 	if len(opts.UpperBound) > 0 {
 		newOpts.UpperBound = codec.EncodeBytes(nil, opts.UpperBound)
 	}
-	return &duplicateIterator{
+	return &duplicateIter{
 		ctx:        ctx,
 		iter:       engineFile.db.NewIter(newOpts),
 		engineFile: engineFile,
 		writeBatch: engineFile.duplicateDB.NewBatch(),
 	}
+}
+
+type pebbleIter struct {
+	*pebble.Iterator
+}
+
+func (p pebbleIter) Seek(_ []byte) bool {
+	panic("unsupported operation")
+}
+
+func (p pebbleIter) OpType() sst.Pair_OP {
+	return sst.Pair_Put
+}
+
+var _ kv.Iter = pebbleIter{}
+
+func newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) kv.Iter {
+	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
+		newOpts := *opts
+		newOpts.LowerBound = normalIterStartKey
+		opts = &newOpts
+	}
+	if !engineFile.duplicateDetection {
+		return pebbleIter{Iterator: engineFile.db.NewIter(opts)}
+	}
+	return newDuplicateIter(ctx, engineFile, opts)
 }

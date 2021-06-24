@@ -119,7 +119,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 		db:          db,
 		duplicateDB: duplicateDB,
 	}
-	iter := newDuplicateIterator(context.Background(), engineFile, &pebble.IterOptions{})
+	iter := newDuplicateIter(context.Background(), engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
 		key1 := EncodeKeySuffix(nil, pairs[i].Key, 1, pairs[i].Offset)
 		key2 := EncodeKeySuffix(nil, pairs[j].Key, 1, pairs[j].Offset)
@@ -149,7 +149,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(engineFile.Close(), IsNil)
 
 	// Check duplicates detected by duplicate iterator.
-	iter = duplicateDB.NewIter(&pebble.IterOptions{})
+	iter = pebbleIter{Iterator: duplicateDB.NewIter(&pebble.IterOptions{})}
 	var detectedPairs []common.KvPair
 	for iter.First(); iter.Valid(); iter.Next() {
 		key, _, _, err := DecodeKeySuffix(nil, iter.Key())
