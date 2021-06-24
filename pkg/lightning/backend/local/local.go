@@ -1084,8 +1084,7 @@ func (local *local) writeAndIngestByRange(
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
 			log.ZapRedactBinary("start", start),
-			log.ZapRedactBinary("end", end),
-			log.ZapRedactBinary("next end", nextKey(end)))
+			log.ZapRedactBinary("end", end))
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
