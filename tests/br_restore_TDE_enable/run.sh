@@ -18,8 +18,7 @@ DB="$TEST_NAME"
 TABLE="usertable"
 DB_COUNT=3
 
-# start the s3 server
-
+# start Minio KMS service
 curl -sSL --tlsv1.2 \
      -O 'https://raw.githubusercontent.com/minio/kes/master/root.key' \
      -O 'https://raw.githubusercontent.com/minio/kes/master/root.cert'
@@ -29,6 +28,7 @@ export MINIO_KMS_KES_KEY_FILE=root.key
 export MINIO_KMS_KES_CERT_FILE=root.cert
 export MINIO_KMS_KES_KEY_NAME=my-minio-key
 
+# start the s3 server
 export MINIO_ACCESS_KEY='KEXI7MANNASOPDLAOIEF'
 export MINIO_SECRET_KEY='MaKYxEGDInMPtEYECXRJLU+FPNKb/wAX/MElir7E'
 export MINIO_BROWSER=off
