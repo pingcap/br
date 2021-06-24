@@ -11,6 +11,8 @@ import (
 	"path"
 	"reflect"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -18,11 +20,11 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/spf13/cobra"
-	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/mock/mockid"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"
@@ -72,12 +74,13 @@ func newCheckSumCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, metautil.MetaFile, &cfg)
 			if err != nil {
 				return errors.Trace(err)
 			}
 
-			dbs, err := utils.LoadBackupTables(backupMeta)
+			reader := metautil.NewMetaReader(backupMeta, s)
+			dbs, err := utils.LoadBackupTables(ctx, reader)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -170,18 +173,19 @@ func newBackupMetaValidateCommand() *cobra.Command {
 			if err = cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return errors.Trace(err)
 			}
-			_, _, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, metautil.MetaFile, &cfg)
 			if err != nil {
 				log.Error("read backupmeta failed", zap.Error(err))
 				return errors.Trace(err)
 			}
-			dbs, err := utils.LoadBackupTables(backupMeta)
+			reader := metautil.NewMetaReader(backupMeta, s)
+			dbs, err := utils.LoadBackupTables(ctx, reader)
 			if err != nil {
 				log.Error("load tables failed", zap.Error(err))
 				return errors.Trace(err)
 			}
 			files := make([]*backuppb.File, 0)
-			tables := make([]*utils.Table, 0)
+			tables := make([]*metautil.Table, 0)
 			for _, db := range dbs {
 				for _, table := range db.Tables {
 					files = append(files, table.Files...)
@@ -259,7 +263,7 @@ func decodeBackupMetaCommand() *cobra.Command {
 			if err := cfg.ParseFromFlags(cmd.Flags()); err != nil {
 				return errors.Trace(err)
 			}
-			_, s, backupMeta, err := task.ReadBackupMeta(ctx, utils.MetaFile, &cfg)
+			_, s, backupMeta, err := task.ReadBackupMeta(ctx, metautil.MetaFile, &cfg)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -271,11 +275,11 @@ func decodeBackupMetaCommand() *cobra.Command {
 				if err != nil {
 					return errors.Trace(err)
 				}
-				err = s.WriteFile(ctx, utils.MetaJSONFile, backupMetaJSON)
+				err = s.WriteFile(ctx, metautil.MetaJSONFile, backupMetaJSON)
 				if err != nil {
 					return errors.Trace(err)
 				}
-				cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, utils.MetaJSONFile))
+				cmd.Printf("backupmeta decoded at %s\n", path.Join(cfg.Storage, metautil.MetaJSONFile))
 				return nil
 			}
 
@@ -325,7 +329,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			metaData, err := s.ReadFile(ctx, utils.MetaJSONFile)
+			metaData, err := s.ReadFile(ctx, metautil.MetaJSONFile)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -339,7 +343,7 @@ func encodeBackupMetaCommand() *cobra.Command {
 				return errors.Trace(err)
 			}
 
-			fileName := utils.MetaFile
+			fileName := metautil.MetaFile
 			if ok, _ := s.FileExists(ctx, fileName); ok {
 				// Do not overwrite origin meta file
 				fileName += "_from_json"

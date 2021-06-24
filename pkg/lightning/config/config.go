@@ -71,6 +71,9 @@ const (
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
 
+	// defaultMetaSchemaName is the default database name used to store lightning metadata
+	defaultMetaSchemaName = "lightning_metadata"
+
 	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
 	// millisecond per write thread the local backend may gain on all engines.
 	// This is used to compute the maximum size overshoot between two disk quota
@@ -148,11 +151,12 @@ func (cfg *Config) ToTLS() (*common.TLS, error) {
 }
 
 type Lightning struct {
-	TableConcurrency  int  `toml:"table-concurrency" json:"table-concurrency"`
-	IndexConcurrency  int  `toml:"index-concurrency" json:"index-concurrency"`
-	RegionConcurrency int  `toml:"region-concurrency" json:"region-concurrency"`
-	IOConcurrency     int  `toml:"io-concurrency" json:"io-concurrency"`
-	CheckRequirements bool `toml:"check-requirements" json:"check-requirements"`
+	TableConcurrency  int    `toml:"table-concurrency" json:"table-concurrency"`
+	IndexConcurrency  int    `toml:"index-concurrency" json:"index-concurrency"`
+	RegionConcurrency int    `toml:"region-concurrency" json:"region-concurrency"`
+	IOConcurrency     int    `toml:"io-concurrency" json:"io-concurrency"`
+	CheckRequirements bool   `toml:"check-requirements" json:"check-requirements"`
+	MetaSchemaName    string `toml:"meta-schema-name" json:"meta-schema-name"`
 }
 
 type PostOpLevel int
@@ -249,10 +253,42 @@ type MydumperRuntime struct {
 	MaxRegionSize    ByteSize         `toml:"max-region-size" json:"max-region-size"`
 	Filter           []string         `toml:"filter" json:"filter"`
 	FileRouters      []*FileRouteRule `toml:"files" json:"files"`
+	// Deprecated: only used to keep the compatibility.
 	NoSchema         bool             `toml:"no-schema" json:"no-schema"`
 	CaseSensitive    bool             `toml:"case-sensitive" json:"case-sensitive"`
 	StrictFormat     bool             `toml:"strict-format" json:"strict-format"`
 	DefaultFileRules bool             `toml:"default-file-rules" json:"default-file-rules"`
+	IgnoreColumns    AllIgnoreColumns `toml:"ignore-data-columns" json:"ignore-data-columns"`
+}
+
+type AllIgnoreColumns []*IgnoreColumns
+
+type IgnoreColumns struct {
+	DB          string   `toml:"db" json:"db"`
+	Table       string   `toml:"table" json:"table"`
+	TableFilter []string `toml:"table-filter" json:"table-filter"`
+	Columns     []string `toml:"columns" json:"columns"`
+}
+
+// GetIgnoreColumns gets Ignore config by schema name/regex and table name/regex.
+func (igCols AllIgnoreColumns) GetIgnoreColumns(db string, table string, caseSensitive bool) (*IgnoreColumns, error) {
+	if !caseSensitive {
+		db = strings.ToLower(db)
+		table = strings.ToLower(table)
+	}
+	for i, ig := range igCols {
+		if ig.DB == db && ig.Table == table {
+			return igCols[i], nil
+		}
+		f, err := filter.Parse(ig.TableFilter)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if f.MatchTable(db, table) {
+			return igCols[i], nil
+		}
+	}
+	return &IgnoreColumns{Columns: make([]string, 0)}, nil
 }
 
 type FileRouteRule struct {
@@ -411,8 +447,8 @@ func (cfg *Config) LoadFromGlobal(global *GlobalConfig) error {
 	cfg.TiDB.Psw = global.TiDB.Psw
 	cfg.TiDB.StatusPort = global.TiDB.StatusPort
 	cfg.TiDB.PdAddr = global.TiDB.PdAddr
-	cfg.Mydumper.SourceDir = global.Mydumper.SourceDir
 	cfg.Mydumper.NoSchema = global.Mydumper.NoSchema
+	cfg.Mydumper.SourceDir = global.Mydumper.SourceDir
 	cfg.Mydumper.Filter = global.Mydumper.Filter
 	cfg.TikvImporter.Addr = global.TikvImporter.Addr
 	cfg.TikvImporter.Backend = global.TikvImporter.Backend
@@ -422,7 +458,7 @@ func (cfg *Config) LoadFromGlobal(global *GlobalConfig) error {
 	cfg.PostRestore.Analyze = global.PostRestore.Analyze
 	cfg.App.CheckRequirements = global.App.CheckRequirements
 	cfg.Security = global.Security
-
+	cfg.Mydumper.IgnoreColumns = global.Mydumper.IgnoreColumns
 	return nil
 }
 
@@ -536,6 +572,11 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.PostRestore.Checksum = OpLevelOff
 		cfg.PostRestore.Analyze = OpLevelOff
 	case BackendImporter, BackendLocal:
+		// RegionConcurrency > NumCPU is meaningless.
+		cpuCount := runtime.NumCPU()
+		if cfg.App.RegionConcurrency > cpuCount {
+			cfg.App.RegionConcurrency = cpuCount
+		}
 		cfg.DefaultVarsForImporterAndLocalBackend()
 	default:
 		return errors.Errorf("invalid config: unsupported `tikv-importer.backend` (%s)", cfg.TikvImporter.Backend)
@@ -606,6 +647,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 
 	storageSizeDir := filepath.Clean(cfg.TikvImporter.SortedKVDir)
 	sortedKVDirInfo, err := os.Stat(storageSizeDir)
+
 	switch {
 	case os.IsNotExist(err):
 		// the sorted-kv-dir does not exist, meaning we will create it automatically.
@@ -619,6 +661,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 		return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
 	}
 
+	// we need to calculate quota if disk-quota == 0
 	if cfg.TikvImporter.DiskQuota == 0 {
 		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
 		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
@@ -637,6 +680,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 		}
 		cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
 	}
+
 	return nil
 }
 
@@ -655,6 +699,9 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend() {
 	}
 	if cfg.App.TableConcurrency == 0 {
 		cfg.App.TableConcurrency = 6
+	}
+	if len(cfg.App.MetaSchemaName) == 0 {
+		cfg.App.MetaSchemaName = defaultMetaSchemaName
 	}
 	if cfg.TikvImporter.RangeConcurrency == 0 {
 		cfg.TikvImporter.RangeConcurrency = 16
@@ -795,6 +842,17 @@ func (cfg *Config) AdjustMydumper() {
 	}
 	if len(cfg.Mydumper.CharacterSet) == 0 {
 		cfg.Mydumper.CharacterSet = "auto"
+	}
+
+	if len(cfg.Mydumper.IgnoreColumns) != 0 {
+		// Tolower columns cause we use Name.L to compare column in tidb.
+		for _, ig := range cfg.Mydumper.IgnoreColumns {
+			cols := make([]string, len(ig.Columns))
+			for i, col := range ig.Columns {
+				cols[i] = strings.ToLower(col)
+			}
+			ig.Columns = cols
+		}
 	}
 }
 

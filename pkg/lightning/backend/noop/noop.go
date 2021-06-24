@@ -34,12 +34,24 @@ func NewNoopBackend() backend.Backend {
 
 type noopBackend struct{}
 
+type noopRows struct{}
+
+func (r noopRows) SplitIntoChunks(int) []kv.Rows {
+	return []kv.Rows{r}
+}
+
+// Clear returns a new collection with empty content. It may share the
+// capacity with the current instance. The typical usage is `x = x.Clear()`.
+func (r noopRows) Clear() kv.Rows {
+	return r
+}
+
 // Close the connection to the backend.
 func (b noopBackend) Close() {}
 
 // MakeEmptyRows creates an empty collection of encoded rows.
 func (b noopBackend) MakeEmptyRows() kv.Rows {
-	return nil
+	return noopRows{}
 }
 
 // RetryImportDelay returns the duration to sleep when retrying an import
@@ -58,7 +70,7 @@ func (b noopBackend) NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv
 	return noopEncoder{}, nil
 }
 
-func (b noopBackend) OpenEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUID) error {
 	return nil
 }
 
@@ -126,7 +138,7 @@ func (b noopBackend) ResetEngine(ctx context.Context, engineUUID uuid.UUID) erro
 }
 
 // LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-func (b noopBackend) LocalWriter(ctx context.Context, engineUUID uuid.UUID) (backend.EngineWriter, error) {
+func (b noopBackend) LocalWriter(context.Context, *backend.LocalWriterConfig, uuid.UUID) (backend.EngineWriter, error) {
 	return noopWriter{}, nil
 }
 
@@ -142,15 +154,23 @@ func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int) (kv.Row, er
 
 type noopRow struct{}
 
+func (r noopRow) Size() uint64 {
+	return 0
+}
+
 func (r noopRow) ClassifyAndAppend(*kv.Rows, *verification.KVChecksum, *kv.Rows, *verification.KVChecksum) {
 }
 
 type noopWriter struct{}
 
-func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Rows) error {
+func (w noopWriter) AppendRows(context.Context, string, []string, kv.Rows) error {
 	return nil
 }
 
-func (w noopWriter) Close() error {
-	return nil
+func (w noopWriter) IsSynced() bool {
+	return true
+}
+
+func (w noopWriter) Close(context.Context) (backend.ChunkFlushStatus, error) {
+	return nil, nil
 }

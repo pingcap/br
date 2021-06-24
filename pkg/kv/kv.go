@@ -16,9 +16,11 @@ package kv
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/pingcap/errors"
+	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
@@ -57,6 +59,10 @@ type Iter interface {
 	Value() []byte
 	// Close close this iter.
 	Close() error
+	// OpType represents operations of pair. currently we have two types.
+	// 1. Put
+	// 2. Delete
+	OpType() sst.Pair_OP
 }
 
 // IterProducer produces iterator with given range.
@@ -169,6 +175,14 @@ func (s *SimpleKVIter) Value() []byte {
 // Close implements Iter.Close.
 func (s *SimpleKVIter) Close() error {
 	return nil
+}
+
+// OpType implements Iter.KeyIsDelete.
+func (s *SimpleKVIter) OpType() sst.Pair_OP {
+	if s.Valid() && s.pairs[s.index].IsDelete {
+		return sst.Pair_Delete
+	}
+	return sst.Pair_Put
 }
 
 // Encoder encodes a row of SQL values into some opaque type which can be
@@ -339,7 +353,7 @@ func (kvcodec *tableKVEncoder) AddRecord(
 		}
 		if isAutoIncCol {
 			// TODO use auto incremental type
-			_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, value.GetInt64(), false, autoid.RowIDAllocType)
+			_ = kvcodec.tbl.RebaseAutoID(kvcodec.se, getAutoRecordID(value, &col.FieldType), false, autoid.RowIDAllocType)
 		}
 	}
 
@@ -369,6 +383,21 @@ func (kvcodec *tableKVEncoder) AddRecord(
 	pairs, size := kvcodec.se.takeKvPairs()
 	kvcodec.recordCache = record[:0]
 	return Pairs(pairs), size, nil
+}
+
+// get record value for auto-increment field
+//
+// See: https://github.com/pingcap/tidb/blob/47f0f15b14ed54fc2222f3e304e29df7b05e6805/executor/insert_common.go#L781-L852
+// TODO: merge this with pkg/lightning/backend/kv/sql2kv.go
+func getAutoRecordID(d types.Datum, target *types.FieldType) int64 {
+	switch target.Tp {
+	case mysql.TypeFloat, mysql.TypeDouble:
+		return int64(math.Round(d.GetFloat64()))
+	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong:
+		return d.GetInt64()
+	default:
+		panic(fmt.Sprintf("unsupported auto-increment field type '%d'", target.Tp))
+	}
 }
 
 // RemoveRecord encode a row of data into KV pairs.

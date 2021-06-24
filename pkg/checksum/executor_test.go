@@ -7,6 +7,8 @@ import (
 	"math"
 	"testing"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/kv"
@@ -14,9 +16,9 @@ import (
 	"github.com/pingcap/tidb/util/testkit"
 	"github.com/pingcap/tidb/util/testleak"
 
+	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/mock"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 func TestT(t *testing.T) {
@@ -94,7 +96,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	// Test rewrite rules
 	tk.MustExec("alter table t1 add index i2(a);")
 	tableInfo1 = s.getTableInfo(c, "test", "t1")
-	oldTable := utils.Table{Info: tableInfo1}
+	oldTable := metautil.Table{Info: tableInfo1}
 	exe2, err = checksum.NewExecutorBuilder(tableInfo2, math.MaxUint64).
 		SetOldTable(&oldTable).Build()
 	c.Assert(err, IsNil)
@@ -108,4 +110,23 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	resp2, err = exe2.Execute(context.TODO(), s.mock.Storage.GetClient(), func() {})
 	c.Assert(err, IsNil)
 	c.Assert(resp2, NotNil)
+
+	// Test commonHandle ranges
+
+	tk.MustExec("drop table if exists t3;")
+	tk.MustExec("create table t3 (a char(255), b int, primary key(a) CLUSTERED);")
+	tk.MustExec("insert into t3 values ('fffffffff', 1), ('010101010', 2), ('394393fj39efefe', 3);")
+	tableInfo3 := s.getTableInfo(c, "test", "t3")
+	exe3, err := checksum.NewExecutorBuilder(tableInfo3, math.MaxUint64).Build()
+	c.Assert(err, IsNil)
+	first := true
+	exe3.Each(func(req *kv.Request) error {
+		if first {
+			first = false
+			ranges, err := backup.BuildTableRanges(tableInfo3)
+			c.Assert(err, IsNil)
+			c.Assert(req.KeyRanges, DeepEquals, ranges[:1], Commentf("%v", req.KeyRanges))
+		}
+		return nil
+	})
 }

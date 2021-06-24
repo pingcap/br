@@ -35,7 +35,7 @@ func NewTestClient(
 ) *TestClient {
 	regionsInfo := core.NewRegionsInfo()
 	for _, regionInfo := range regions {
-		regionsInfo.AddRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
+		regionsInfo.SetRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
 	}
 	return &TestClient{
 		stores:       stores,

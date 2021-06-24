@@ -19,6 +19,8 @@ TABLE="usertable"
 
 run_sql "CREATE DATABASE $DB;"
 
+table_names=${cases:-'t0 t1 t2 t_bit t_bool t_tinyint t_smallint t_mediumint t_int t_date t_time t_datetime t_timestamp t_year t_char t_varcher t_text t_binary t_blob t_enum t_set t8 t9 t10 t11 t12'}
+
 run_sql "
 USE $DB;
 
@@ -165,11 +167,30 @@ clustered_table_count=$(run_sql "\
 echo "backup start..."
 run_br --pd $PD_ADDR backup db -s "local://$TEST_DIR/$DB" --db $DB --ratelimit 5 --concurrency 4
 
+# count
+echo "count rows..."
+row_counts=()
+for table_name in $table_names; do
+    row_counts+=($(run_sql "SELECT COUNT(*) FROM $DB.$table_name;" | awk '/COUNT/{print $2}'))
+done
+
 run_sql "DROP DATABASE $DB;"
 run_sql "CREATE DATABASE $DB;"
 
 # restore table
 echo "restore start..."
 run_br restore db --db $DB -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+
+# check count
+echo "check count..."
+idx=0
+for table_name in $table_names; do
+    row_count=$(run_sql "SELECT COUNT(*) FROM $DB.$table_name;" | awk '/COUNT/{print $2}')
+    if [[ $row_count -ne ${row_counts[$idx]} ]]; then
+        echo "Lost some rows in table $table_name. Expect ${row_counts[$idx]}; Get $row_count."
+        exit 1
+    fi
+    idx=$(( $idx + 1 ))
+done
 
 run_sql "DROP DATABASE $DB;"

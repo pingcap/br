@@ -70,7 +70,6 @@ func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStora
 */
 type MDLoader struct {
 	store      storage.ExternalStorage
-	noSchema   bool
 	dbs        []*MDDatabaseMeta
 	filter     filter.Filter
 	router     *router.Table
@@ -93,7 +92,7 @@ func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{SkipCheckPath: true})
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -142,7 +141,6 @@ func NewMyDumpLoaderWithStore(ctx context.Context, cfg *config.Config, store sto
 
 	mdl := &MDLoader{
 		store:      store,
-		noSchema:   cfg.Mydumper.NoSchema,
 		filter:     f,
 		router:     r,
 		charSet:    cfg.Mydumper.CharacterSet,
@@ -216,33 +214,30 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 		return errors.Trace(err)
 	}
 
-	if !s.loader.noSchema {
-		// setup database schema
-		if len(s.dbSchemas) == 0 {
-			return errors.New("no schema create sql files found. Please either set `mydumper.no-schema` to true or add schema sql file for each database")
-		}
+	// setup database schema
+	if len(s.dbSchemas) != 0 {
 		for _, fileInfo := range s.dbSchemas {
 			if _, dbExists := s.insertDB(fileInfo.TableName.Schema, fileInfo.FileMeta.Path); dbExists && s.loader.router == nil {
 				return errors.Errorf("invalid database schema file, duplicated item - %s", fileInfo.FileMeta.Path)
 			}
 		}
+	}
 
+	if len(s.tableSchemas) != 0 {
 		// setup table schema
 		for _, fileInfo := range s.tableSchemas {
-			_, dbExists, tableExists := s.insertTable(fileInfo)
-			if !dbExists {
-				return errors.Errorf("invalid table schema file, cannot find db '%s' - %s", fileInfo.TableName.Schema, fileInfo.FileMeta.Path)
-			} else if tableExists && s.loader.router == nil {
+			if _, _, tableExists := s.insertTable(fileInfo); tableExists && s.loader.router == nil {
 				return errors.Errorf("invalid table schema file, duplicated item - %s", fileInfo.FileMeta.Path)
 			}
 		}
+	}
 
+	if len(s.viewSchemas) != 0 {
 		// setup view schema
 		for _, fileInfo := range s.viewSchemas {
-			dbExists, tableExists := s.insertView(fileInfo)
-			if !dbExists {
-				return errors.Errorf("invalid table schema file, cannot find db '%s' - %s", fileInfo.TableName.Schema, fileInfo.FileMeta.Path)
-			} else if !tableExists {
+			_, tableExists := s.insertView(fileInfo)
+			if !tableExists {
+				// we are not expect the user only has view schema without table schema when user use dumpling to get view.
 				// remove the last `-view.sql` from path as the relate table schema file path
 				return errors.Errorf("invalid view schema file, miss host table schema for view '%s'", fileInfo.TableName.Name)
 			}
@@ -252,14 +247,7 @@ func (s *mdLoaderSetup) setup(ctx context.Context, store storage.ExternalStorage
 	// Sql file for restore data
 	for _, fileInfo := range s.tableDatas {
 		// set a dummy `FileInfo` here without file meta because we needn't restore the table schema
-		tableMeta, dbExists, tableExists := s.insertTable(FileInfo{TableName: fileInfo.TableName})
-		if !s.loader.noSchema {
-			if !dbExists {
-				return errors.Errorf("invalid data file, miss host db '%s' - %s", fileInfo.TableName.Schema, fileInfo.FileMeta.Path)
-			} else if !tableExists {
-				return errors.Errorf("invalid data file, miss host table '%s' - %s", fileInfo.TableName.Name, fileInfo.FileMeta.Path)
-			}
-		}
+		tableMeta, _, _ := s.insertTable(FileInfo{TableName: fileInfo.TableName})
 		tableMeta.DataFiles = append(tableMeta.DataFiles, fileInfo)
 		tableMeta.TotalSize += fileInfo.FileMeta.FileSize
 	}

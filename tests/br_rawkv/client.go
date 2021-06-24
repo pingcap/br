@@ -12,8 +12,8 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
-	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/store/tikv/config"
+	"github.com/tikv/client-go/v2/config"
+	"github.com/tikv/client-go/v2/tikv"
 	"go.uber.org/zap"
 )
 

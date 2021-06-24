@@ -21,6 +21,8 @@ import (
 	"github.com/pingcap/errors"
 )
 
+type Rlim_t = uint64
+
 // return a big value as unlimited, since rlimit verify is skipped in windows.
 func GetSystemRLimit() (uint64, error) {
 	return math.MaxInt32, nil

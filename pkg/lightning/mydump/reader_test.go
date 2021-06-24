@@ -19,11 +19,12 @@ import (
 	"io/ioutil"
 	"os"
 
+	mockstorage "github.com/pingcap/br/pkg/mock/storage"
+
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 
 	. "github.com/pingcap/br/pkg/lightning/mydump"
-	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
 )
 
@@ -170,7 +171,7 @@ func (s *testMydumpReaderSuite) TestExportStatementHandleNonEOFError(c *C) {
 
 	ctx := context.TODO()
 
-	mockStorage := mock.NewMockExternalStorage(controller)
+	mockStorage := mockstorage.NewMockExternalStorage(controller)
 	mockStorage.EXPECT().
 		Open(ctx, "no-perm-file").
 		Return(AlwaysErrorReadSeekCloser{}, nil)

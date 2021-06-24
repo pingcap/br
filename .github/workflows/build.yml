@@ -4,10 +4,28 @@ on:
     branches:
       - master
       - 'release-[0-9].[0-9]*'
+    paths-ignore:
+      - '**.html'
+      - '**.md'
+      - 'CNAME'
+      - 'LICENSE'
+      - 'docs/**'
+      - 'tests/**'
+      - 'docker/**'
+      - '.github/workflows/**.yml'
   pull_request:
     branches:
       - master
       - 'release-[0-9].[0-9]*'
+    paths-ignore:
+      - '**.html'
+      - '**.md'
+      - 'CNAME'
+      - 'LICENSE'
+      - 'docs/**'
+      - 'tests/**'
+      - 'docker/**'
+      - '.github/workflows/**.yml'
 
 jobs:
   compile:
@@ -30,7 +48,21 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.15
+          go-version: 1.16
 
       - name: Run build
         run: make build
+
+  compile-freebsd:
+    name: Compile for FreeBSD job
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2.1.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.16
+
+      - name: Compile for FreeBSD
+        run: GOOS=freebsd make build

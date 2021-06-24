@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
@@ -126,7 +127,7 @@ func (s *testPDControllerSuite) TestRegionCount(c *C) {
 		EndKey:      codec.EncodeBytes(nil, []byte{3, 4}),
 		RegionEpoch: &metapb.RegionEpoch{},
 	}, nil))
-	c.Assert(regions.Length(), Equals, 3)
+	c.Assert(regions.Len(), Equals, 3)
 
 	mock := func(
 		_ context.Context, addr string, prefix string, _ *http.Client, _ string, _ io.Reader,
@@ -167,4 +168,35 @@ func (s *testPDControllerSuite) TestPDVersion(c *C) {
 	c.Assert(r.Major, Equals, expectV.Major)
 	c.Assert(r.Minor, Equals, expectV.Minor)
 	c.Assert(r.PreRelease, Equals, expectV.PreRelease)
+}
+
+func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
+	ctx := context.Background()
+	count := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count <= 5 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	cli := http.DefaultClient
+	taddr := ts.URL
+	_, reqErr := pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
+	c.Assert(reqErr, IsNil)
+	ts.Close()
+	count = 0
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count <= 11 {
+			w.WriteHeader(http.StatusGatewayTimeout)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	taddr = ts.URL
+	_, reqErr = pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
+	c.Assert(reqErr, NotNil)
 }

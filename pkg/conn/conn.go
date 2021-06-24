@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/opentracing/opentracing-go"
@@ -16,7 +15,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tidb/store/tikv"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -197,7 +196,7 @@ func NewMgr(
 		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
-		err = version.CheckClusterVersion(ctx, controller.GetPDClient())
+		err = version.CheckClusterVersion(ctx, controller.GetPDClient(), version.CheckVersionForBR)
 		if err != nil {
 			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
 				"if you believe it's OK, use --check-requirements=false to skip.")
@@ -217,12 +216,6 @@ func NewMgr(
 			continue
 		}
 		liveStoreCount++
-	}
-	if liveStoreCount == 0 &&
-		// Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
 	}
 
 	var dom *domain.Domain
@@ -390,8 +383,7 @@ func (mgr *Mgr) Close() {
 		if mgr.dom != nil {
 			mgr.dom.Close()
 		}
-
-		atomic.StoreUint32(&tikv.ShuttingDown, 1)
+		tikv.StoreShuttingDown(1)
 		mgr.storage.Close()
 	}
 

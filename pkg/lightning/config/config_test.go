@@ -652,3 +652,17 @@ func (s *configTestSuite) TestAdjustWithLegacyBlackWhiteList(c *C) {
 	c.Assert(cfg.Adjust(ctx), IsNil)
 	c.Assert(cfg.HasLegacyBlackWhiteList(), IsTrue)
 }
+
+func (s *configTestSuite) TestAdjustDiskQuota(c *C) {
+	cfg := config.NewConfig()
+	assignMinimalLegalValue(cfg)
+
+	base := c.MkDir()
+	ctx := context.Background()
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.DiskQuota = 0
+	cfg.TikvImporter.SortedKVDir = base
+	c.Assert(cfg.Adjust(ctx), IsNil)
+	// DiskQuota must greater than 0 after adjust
+	c.Assert(int64(cfg.TikvImporter.DiskQuota), Greater, int64(0))
+}

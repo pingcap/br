@@ -168,18 +168,18 @@ func (mr *MockBackendMockRecorder) ImportEngine(arg0, arg1 interface{}) *gomock.
 }
 
 // LocalWriter mocks base method.
-func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 uuid.UUID) (backend.EngineWriter, error) {
+func (m *MockBackend) LocalWriter(arg0 context.Context, arg1 *backend.LocalWriterConfig, arg2 uuid.UUID) (backend.EngineWriter, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LocalWriter", arg0, arg1)
+	ret := m.ctrl.Call(m, "LocalWriter", arg0, arg1, arg2)
 	ret0, _ := ret[0].(backend.EngineWriter)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // LocalWriter indicates an expected call of LocalWriter.
-func (mr *MockBackendMockRecorder) LocalWriter(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockBackendMockRecorder) LocalWriter(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalWriter", reflect.TypeOf((*MockBackend)(nil).LocalWriter), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalWriter", reflect.TypeOf((*MockBackend)(nil).LocalWriter), arg0, arg1, arg2)
 }
 
 // MakeEmptyRows mocks base method.
@@ -212,17 +212,17 @@ func (mr *MockBackendMockRecorder) NewEncoder(arg0, arg1 interface{}) *gomock.Ca
 }
 
 // OpenEngine mocks base method.
-func (m *MockBackend) OpenEngine(arg0 context.Context, arg1 uuid.UUID) error {
+func (m *MockBackend) OpenEngine(arg0 context.Context, arg1 *backend.EngineConfig, arg2 uuid.UUID) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "OpenEngine", arg0, arg1)
+	ret := m.ctrl.Call(m, "OpenEngine", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // OpenEngine indicates an expected call of OpenEngine.
-func (mr *MockBackendMockRecorder) OpenEngine(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockBackendMockRecorder) OpenEngine(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenEngine", reflect.TypeOf((*MockBackend)(nil).OpenEngine), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenEngine", reflect.TypeOf((*MockBackend)(nil).OpenEngine), arg0, arg1, arg2)
 }
 
 // ResetEngine mocks base method.
@@ -291,29 +291,44 @@ func (m *MockEngineWriter) EXPECT() *MockEngineWriterMockRecorder {
 }
 
 // AppendRows mocks base method.
-func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 uint64, arg4 kv.Rows) error {
+func (m *MockEngineWriter) AppendRows(arg0 context.Context, arg1 string, arg2 []string, arg3 kv.Rows) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AppendRows", arg0, arg1, arg2, arg3, arg4)
+	ret := m.ctrl.Call(m, "AppendRows", arg0, arg1, arg2, arg3)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AppendRows indicates an expected call of AppendRows.
-func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+func (mr *MockEngineWriterMockRecorder) AppendRows(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendRows", reflect.TypeOf((*MockEngineWriter)(nil).AppendRows), arg0, arg1, arg2, arg3, arg4)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AppendRows", reflect.TypeOf((*MockEngineWriter)(nil).AppendRows), arg0, arg1, arg2, arg3)
 }
 
 // Close mocks base method.
-func (m *MockEngineWriter) Close() error {
+func (m *MockEngineWriter) Close(arg0 context.Context) (backend.ChunkFlushStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Close")
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "Close", arg0)
+	ret0, _ := ret[0].(backend.ChunkFlushStatus)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Close indicates an expected call of Close.
-func (mr *MockEngineWriterMockRecorder) Close() *gomock.Call {
+func (mr *MockEngineWriterMockRecorder) Close(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEngineWriter)(nil).Close))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockEngineWriter)(nil).Close), arg0)
+}
+
+// IsSynced mocks base method.
+func (m *MockEngineWriter) IsSynced() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsSynced")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsSynced indicates an expected call of IsSynced.
+func (mr *MockEngineWriterMockRecorder) IsSynced() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsSynced", reflect.TypeOf((*MockEngineWriter)(nil).IsSynced))
 }

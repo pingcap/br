@@ -175,6 +175,10 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 		AllocBase: 132861,
 	}
 	rcm.MergeInto(cpd)
+	cksum := checkpoints.TableChecksumMerger{
+		Checksum: verification.MakeKVChecksum(4492, 686, 486070148910),
+	}
+	cksum.MergeInto(cpd)
 	ccm := checkpoints.ChunkCheckpointMerger{
 		EngineID: 0,
 		Key:      checkpoints.ChunkCheckpointKey{Path: "/tmp/path/1.sql", Offset: 0},
@@ -208,6 +212,12 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 		ExpectExec().
 		WithArgs(60, "`db1`.`t2`").
 		WillReturnResult(sqlmock.NewResult(14, 1))
+	s.mock.
+		ExpectPrepare("UPDATE `mock-schema`\\.table_v\\d+ SET kv_bytes = .+").
+		ExpectExec().
+		WithArgs(4492, 686, 486070148910, "`db1`.`t2`").
+		WillReturnResult(sqlmock.NewResult(15, 1))
+
 	s.mock.ExpectCommit()
 
 	s.mock.MatchExpectationsInOrder(false)
@@ -245,8 +255,8 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 		ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
 		WithArgs("`db1`.`t2`").
 		WillReturnRows(
-			sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}).
-				AddRow(60, 132861, int64(2)),
+			sqlmock.NewRows([]string{"status", "alloc_base", "table_id", "kv_bytes", "kv_kvs", "kv_checksum"}).
+				AddRow(60, 132861, int64(2), uint64(4492), uint64(686), uint64(486070148910)),
 		)
 	s.mock.ExpectCommit()
 
@@ -282,6 +292,7 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 				}},
 			},
 		},
+		Checksum: verification.MakeKVChecksum(4492, 686, 486070148910),
 	})
 	c.Assert(s.mock.ExpectationsWereMet(), IsNil)
 }
@@ -294,28 +305,25 @@ func (s *cpSQLSuite) TestRemoveAllCheckpoints(c *C) {
 	err := s.cpdb.RemoveCheckpoint(ctx, "all")
 	c.Assert(err, IsNil)
 
-	// to respect the internal retry 3 time of cp.db.Get
-	for i := 0; i < 3; i++ {
-		s.mock.ExpectBegin()
-		s.mock.
-			ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
-			WithArgs("`db1`.`t2`").
-			WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
-		s.mock.
-			ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
-			WithArgs("`db1`.`t2`").
-			WillReturnRows(
-				sqlmock.NewRows([]string{
-					"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
-					"pos", "end_offset", "prev_rowid_max", "rowid_max",
-					"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
-				}))
-		s.mock.
-			ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
-			WithArgs("`db1`.`t2`").
-			WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
-		s.mock.ExpectRollback()
-	}
+	s.mock.ExpectBegin()
+	s.mock.
+		ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
+	s.mock.
+		ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(
+			sqlmock.NewRows([]string{
+				"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
+				"pos", "end_offset", "prev_rowid_max", "rowid_max",
+				"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
+			}))
+	s.mock.
+		ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
+		WithArgs("`db1`.`t2`").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
+	s.mock.ExpectRollback()
 
 	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
 	c.Assert(cp, IsNil)

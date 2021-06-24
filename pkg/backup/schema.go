@@ -22,6 +22,7 @@ import (
 	"github.com/pingcap/br/pkg/checksum"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
 )
@@ -67,6 +68,7 @@ func (ss *Schemas) addSchema(
 // BackupSchemas backups table info, including checksum and stats.
 func (ss *Schemas) BackupSchemas(
 	ctx context.Context,
+	metaWriter *metautil.MetaWriter,
 	store kv.Storage,
 	statsHandle *handle.Handle,
 	backupTS uint64,
@@ -74,7 +76,7 @@ func (ss *Schemas) BackupSchemas(
 	copConcurrency uint,
 	skipChecksum bool,
 	updateCh glue.Progress,
-) ([]*backuppb.Schema, error) {
+) error {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Schemas.BackupSchemas", opentracing.ChildOf(span.Context()))
 		defer span1.Finish()
@@ -84,9 +86,14 @@ func (ss *Schemas) BackupSchemas(
 	workerPool := utils.NewWorkerPool(concurrency, "Schemas")
 	errg, ectx := errgroup.WithContext(ctx)
 	startAll := time.Now()
+	op := metautil.AppendSchema
+	metaWriter.StartWriteMetasAsync(ctx, op)
 	for _, s := range ss.schemas {
 		schema := s
 		workerPool.ApplyOnErrorGroup(errg, func() error {
+			if utils.IsSysDB(schema.dbInfo.Name.L) {
+				schema.dbInfo.Name = utils.TemporaryDBName(schema.dbInfo.Name.O)
+			}
 			logger := log.With(
 				zap.String("db", schema.dbInfo.Name.O),
 				zap.String("table", schema.tableInfo.Name.O),
@@ -117,48 +124,44 @@ func (ss *Schemas) BackupSchemas(
 				}
 				schema.stats = jsonTable
 			}
+			// Send schema to metawriter
+			dbBytes, err := json.Marshal(schema.dbInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			tableBytes, err := json.Marshal(schema.tableInfo)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			var statsBytes []byte
+			if schema.stats != nil {
+				statsBytes, err = json.Marshal(schema.stats)
+				if err != nil {
+					return errors.Trace(err)
+				}
+			}
+			s := &backuppb.Schema{
+				Db:         dbBytes,
+				Table:      tableBytes,
+				Crc64Xor:   schema.crc64xor,
+				TotalKvs:   schema.totalKvs,
+				TotalBytes: schema.totalBytes,
+				Stats:      statsBytes,
+			}
 
+			if err := metaWriter.Send(s, op); err != nil {
+				return errors.Trace(err)
+			}
 			updateCh.Inc()
 			return nil
 		})
 	}
 	if err := errg.Wait(); err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	log.Info("backup checksum", zap.Duration("take", time.Since(startAll)))
 	summary.CollectDuration("backup checksum", time.Since(startAll))
-
-	schemas := make([]*backuppb.Schema, 0, len(ss.schemas))
-	for name, schema := range ss.schemas {
-		dbBytes, err := json.Marshal(schema.dbInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		tableBytes, err := json.Marshal(schema.tableInfo)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		var statsBytes []byte
-		if schema.stats != nil {
-			statsBytes, err = json.Marshal(schema.stats)
-			if err != nil {
-				return nil, errors.Trace(err)
-			}
-		}
-		s := &backuppb.Schema{
-			Db:         dbBytes,
-			Table:      tableBytes,
-			Crc64Xor:   schema.crc64xor,
-			TotalKvs:   schema.totalKvs,
-			TotalBytes: schema.totalBytes,
-			Stats:      statsBytes,
-		}
-		// Delete scheme ASAP to help GC.
-		delete(ss.schemas, name)
-
-		schemas = append(schemas, s)
-	}
-	return schemas, nil
+	return metaWriter.FinishWriteMetas(ctx, op)
 }
 
 // Len returns the number of schemas.

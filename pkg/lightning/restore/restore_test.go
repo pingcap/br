@@ -17,10 +17,17 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/docker/go-units"
 	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	. "github.com/pingcap/check"
@@ -31,6 +38,7 @@ import (
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/types"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/ddl"
 	tmock "github.com/pingcap/tidb/util/mock"
@@ -89,7 +97,7 @@ func (s *restoreSuite) TestNewTableRestore(c *C) {
 	for _, tc := range testCases {
 		tableInfo := dbInfo.Tables[tc.name]
 		tableName := common.UniqueTable("mockdb", tableInfo.Name)
-		tr, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{})
+		tr, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{}, nil)
 		c.Assert(tr, NotNil)
 		c.Assert(err, IsNil)
 	}
@@ -105,7 +113,7 @@ func (s *restoreSuite) TestNewTableRestoreFailure(c *C) {
 	}}
 	tableName := common.UniqueTable("mockdb", "failure")
 
-	_, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{})
+	_, err := NewTableRestore(tableName, nil, dbInfo, tableInfo, &checkpoints.TableCheckpoint{}, nil)
 	c.Assert(err, ErrorMatches, `failed to tables\.TableFromMeta.*`)
 }
 
@@ -204,6 +212,85 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		fn(cfg)
 		err := cpdb.Initialize(context.Background(), cfg, map[string]*checkpoints.TidbDBInfo{})
 		c.Assert(err, IsNil)
+	}
+}
+
+func (s *restoreSuite) TestDiskQuotaLock(c *C) {
+	lock := newDiskQuotaLock()
+
+	lock.Lock()
+	c.Assert(lock.TryRLock(), IsFalse)
+	lock.Unlock()
+	c.Assert(lock.TryRLock(), IsTrue)
+	c.Assert(lock.TryRLock(), IsTrue)
+
+	rLocked := 2
+	lockHeld := make(chan struct{})
+	go func() {
+		lock.Lock()
+		lockHeld <- struct{}{}
+	}()
+	for lock.TryRLock() {
+		rLocked++
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-lockHeld:
+		c.Fatal("write lock is held before all read locks are released")
+	case <-time.NewTimer(10 * time.Millisecond).C:
+	}
+	for ; rLocked > 0; rLocked-- {
+		lock.RUnlock()
+	}
+	<-lockHeld
+	lock.Unlock()
+
+	done := make(chan struct{})
+	count := int32(0)
+	reader := func() {
+		for i := 0; i < 1000; i++ {
+			if lock.TryRLock() {
+				n := atomic.AddInt32(&count, 1)
+				if n < 1 || n >= 10000 {
+					lock.RUnlock()
+					panic(fmt.Sprintf("unexpected count(%d)", n))
+				}
+				for i := 0; i < 100; i++ {
+				}
+				atomic.AddInt32(&count, -1)
+				lock.RUnlock()
+			}
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	writer := func() {
+		for i := 0; i < 1000; i++ {
+			lock.Lock()
+			n := atomic.AddInt32(&count, 10000)
+			if n != 10000 {
+				lock.RUnlock()
+				panic(fmt.Sprintf("unexpected count(%d)", n))
+			}
+			for i := 0; i < 100; i++ {
+			}
+			atomic.AddInt32(&count, -10000)
+			lock.Unlock()
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 2; i++ {
+		go writer()
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 12; i++ {
+		<-done
 	}
 }
 
@@ -309,7 +396,7 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 func (s *tableRestoreSuiteBase) SetUpTest(c *C) {
 	// Collect into the test TableRestore structure
 	var err error
-	s.tr, err = NewTableRestore("`db`.`table`", s.tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{})
+	s.tr, err = NewTableRestore("`db`.`table`", s.tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{}, nil)
 	c.Assert(err, IsNil)
 
 	s.cfg = config.NewConfig()
@@ -496,7 +583,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 	cfg.Mydumper.StrictFormat = true
 	rc := &Controller{cfg: cfg, ioWorkers: worker.NewPool(context.Background(), 1, "io"), store: store}
 
-	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{})
+	tr, err := NewTableRestore("`db`.`table`", tableMeta, s.dbInfo, s.tableInfo, &checkpoints.TableCheckpoint{}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(tr.populateChunks(context.Background(), rc, cp), IsNil)
 
@@ -812,26 +899,6 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	c.Assert(err, ErrorMatches, "fake import error.*")
 }
 
-func (s *tableRestoreSuite) TestCheckRequirements(c *C) {
-	controller := gomock.NewController(c)
-	defer controller.Finish()
-	mockBackend := mock.NewMockBackend(controller)
-	backend := backend.MakeBackend(mockBackend)
-
-	ctx := context.Background()
-
-	mockBackend.EXPECT().
-		CheckRequirements(ctx, gomock.Any()).
-		Return(errors.Annotate(context.Canceled, "fake check requirement error"))
-	rc := &Controller{
-		cfg:     &config.Config{App: config.Lightning{CheckRequirements: true}},
-		backend: backend,
-	}
-
-	err := rc.checkRequirements(ctx)
-	c.Assert(err, ErrorMatches, "fake check requirement error.*")
-}
-
 func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	controller := gomock.NewController(c)
 	defer controller.Finish()
@@ -863,6 +930,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(err, IsNil)
 
 	cpDB := checkpoints.NewNullCheckpointsDB()
+	g := mock.NewMockGlue(controller)
 	rc := &Controller{
 		cfg: cfg,
 		dbMetas: []*mydump.MDDatabaseMeta{
@@ -882,17 +950,23 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		saveCpCh:          chptCh,
 		pauser:            DeliverPauser,
 		backend:           noop.NewNoopBackend(),
-		tidbGlue:          mock.NewMockGlue(controller),
+		tidbGlue:          g,
 		errorSummaries:    makeErrorSummaries(log.L()),
 		tls:               tls,
 		checkpointsDB:     cpDB,
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
+		metaMgrBuilder:    noopMetaMgrBuilder{},
+		diskQuotaLock:     newDiskQuotaLock(),
 	}
 	go func() {
 		for range chptCh {
 		}
 	}()
+	exec := mock.NewMockSQLExecutor(controller)
+	g.EXPECT().GetSQLExecutor().Return(exec).AnyTimes()
+	exec.EXPECT().ObtainStringWithLog(gomock.Any(), "SELECT version()", gomock.Any(), gomock.Any()).
+		Return("5.7.25-TiDB-v5.0.1", nil).AnyTimes()
 
 	web.BroadcastInitProgress(rc.dbMetas)
 
@@ -964,27 +1038,27 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockBackend := mock.NewMockBackend(controller)
 	importer := backend.MakeBackend(mockBackend)
 
-	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
+	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().
-		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, backend: importer}
+	rc := &Controller{cfg: cfg, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
@@ -1004,25 +1078,28 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend := mock.NewMockBackend(controller)
 	importer := backend.MakeBackend(mockBackend)
 
-	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil).Times(2)
-	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).AnyTimes()
+	mockBackend.EXPECT().OpenEngine(ctx, gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	// avoid return the same object at each call
+	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).Times(1)
+	mockBackend.EXPECT().MakeEmptyRows().Return(kv.MakeRowsFromKvPairs(nil)).Times(1)
 	mockWriter := mock.NewMockEngineWriter(controller)
-	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
+	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Set up the expected API calls to the data engine...
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_ryyyyyyyy"),
 				Val: []byte("value1"),
@@ -1039,7 +1116,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	// Note: This test assumes data engine is written before the index engine.
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_izzzzzzzz"),
 				Val: []byte("index1"),
@@ -1077,7 +1154,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	}()
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
 	c.Assert(err, IsNil)
@@ -1104,7 +1181,6 @@ func (s *chunkRestoreSuite) TestEncodeLoop(c *C) {
 
 	kvs := <-kvsCh
 	c.Assert(kvs, HasLen, 1)
-	c.Assert(kvs[0].kvs, HasLen, 2)
 	c.Assert(kvs[0].rowID, Equals, int64(19))
 	c.Assert(kvs[0].offset, Equals, int64(36))
 
@@ -1148,6 +1224,57 @@ func (s *chunkRestoreSuite) TestEncodeLoopForcedError(c *C) {
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
 	c.Assert(err, ErrorMatches, `in file .*[/\\]?db\.table\.2\.sql:0 at offset 0:.*file already closed`)
 	c.Assert(kvsCh, HasLen, 0)
+}
+
+func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
+	ctx := context.Background()
+	kvsCh := make(chan []deliveredKVs, 4)
+	deliverCompleteCh := make(chan deliverResult)
+	kvEncoder, err := kv.NewTableKVEncoder(s.tr.encTable, &kv.SessionOptions{
+		SQLMode:   s.cfg.TiDB.SQLMode,
+		Timestamp: 1234567898,
+	})
+	c.Assert(err, IsNil)
+
+	dir := c.MkDir()
+	fileName := "db.limit.000.csv"
+	err = ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
+	c.Assert(err, IsNil)
+
+	store, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+	cfg := config.NewConfig()
+
+	reader, err := store.Open(ctx, fileName)
+	c.Assert(err, IsNil)
+	w := worker.NewPool(ctx, 1, "io")
+	p := mydump.NewCSVParser(&cfg.Mydumper.CSV, reader, 111, w, false)
+	s.cr.parser = p
+
+	rc := &Controller{pauser: DeliverPauser, cfg: cfg}
+	c.Assert(failpoint.Enable(
+		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
+	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
+
+	// we have 3 kvs total. after the failpoint injected.
+	// we will send one kv each time.
+	count := 0
+	for {
+		kvs, ok := <-kvsCh
+		if !ok {
+			break
+		}
+		count += 1
+		if count <= 3 {
+			c.Assert(kvs, HasLen, 1)
+		}
+		if count == 4 {
+			// we will send empty kvs before encodeLoop exists
+			// so, we can receive 4 batch and 1 is empty
+			c.Assert(kvs, HasLen, 0)
+			break
+		}
+	}
 }
 
 func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
@@ -1224,13 +1351,13 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 
-	dataEngine, err := importer.OpenEngine(ctx, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
-	dataWriter, err := dataEngine.LocalWriter(ctx)
+	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexWriter, err := indexEngine.LocalWriter(ctx)
+	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
 
 	// Expected API sequence
@@ -1256,10 +1383,11 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 
 	saveCpCh := make(chan saveCp, 2)
 	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &Controller{
-		cfg:      s.cfg,
-		saveCpCh: saveCpCh,
-		backend:  importer,
-		pauser:   DeliverPauser,
+		cfg:           s.cfg,
+		saveCpCh:      saveCpCh,
+		backend:       importer,
+		pauser:        DeliverPauser,
+		diskQuotaLock: newDiskQuotaLock(),
 	})
 	c.Assert(err, IsNil)
 	c.Assert(saveCpCh, HasLen, 2)
@@ -1320,13 +1448,13 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		c.Assert(err, IsNil)
 	}
 	config := config.NewConfig()
-	config.Mydumper.NoSchema = false
 	config.Mydumper.DefaultFileRules = true
 	config.Mydumper.CharacterSet = "utf8mb4"
 	config.App.RegionConcurrency = 8
 	mydumpLoader, err := mydump.NewMyDumpLoaderWithStore(ctx, config, store)
 	c.Assert(err, IsNil)
 	s.rc = &Controller{
+		checkTemplate: NewSimpleTemplate(),
 		cfg:           config,
 		store:         store,
 		dbMetas:       mydumpLoader.GetDatabases(),
@@ -1391,7 +1519,7 @@ func (s *restoreSchemaSuite) TestRestoreSchemaSuccessful(c *C) {
 }
 
 func (s *restoreSchemaSuite) TestRestoreSchemaFailed(c *C) {
-	injectErr := errors.New("Somthing wrong")
+	injectErr := errors.New("Something wrong")
 	mockSession := mock.NewMockSession(s.controller)
 	mockSession.EXPECT().
 		Close().
@@ -1434,4 +1562,605 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
+}
+
+func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
+	cases := []struct {
+		mockHttpResponse []byte
+		expectMsg        string
+		expectResult     bool
+		expectWarnCount  int
+		expectErrorCount int
+	}{
+		{
+			[]byte(`{
+				"count": 1,
+				"regions": [
+					{
+						"id": 1,
+						"written_bytes": 11000000
+					}
+				]
+			}`),
+			"(.*)write flow(.*)",
+			false,
+			1,
+			0,
+		},
+		{
+			[]byte(`{
+				"count": 1,
+				"regions": [
+					{
+						"id": 1
+					}
+				]
+			}`),
+			"(.*)Cluster has no other loads(.*)",
+			true,
+			0,
+			0,
+		},
+	}
+
+	ctx := context.Background()
+	for _, ca := range cases {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			_, err := w.Write(ca.mockHttpResponse)
+			c.Assert(err, IsNil)
+		}))
+
+		tls := common.NewTLSFromMockServer(server)
+		template := NewSimpleTemplate()
+
+		url := strings.TrimPrefix(server.URL, "https://")
+		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
+		rc := &Controller{cfg: cfg, tls: tls, checkTemplate: template}
+		err := rc.ClusterIsOnline(ctx)
+		c.Assert(err, IsNil)
+
+		c.Assert(template.FailedCount(Warn), Equals, ca.expectWarnCount)
+		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
+		c.Assert(template.Success(), Equals, ca.expectResult)
+		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
+
+		server.Close()
+	}
+}
+
+func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
+	cases := []struct {
+		mockStoreResponse   []byte
+		mockReplicaResponse []byte
+		expectMsg           string
+		expectResult        bool
+		expectErrorCount    int
+	}{
+		{
+			[]byte(`{
+				"count": 1,
+				"stores": [
+					{
+						"store": {
+							"id": 2
+						},
+						"status": {
+							"available": "24"
+						}
+					}
+				]
+			}`),
+			[]byte(`{
+				"max-replicas": 1
+			}`),
+			"(.*)Cluster resources are rich for this import task(.*)",
+			true,
+			0,
+		},
+		{
+			[]byte(`{
+				"count": 1,
+				"stores": [
+					{
+						"store": {
+							"id": 2
+						},
+						"status": {
+							"available": "23"
+						}
+					}
+				]
+			}`),
+			[]byte(`{
+				"max-replicas": 1
+			}`),
+			"(.*)Cluster doesn't have enough space(.*)",
+			false,
+			1,
+		},
+	}
+
+	ctx := context.Background()
+	dir := c.MkDir()
+	file := filepath.Join(dir, "tmp")
+	f, err := os.Create(file)
+	c.Assert(err, IsNil)
+	buf := make([]byte, 16)
+	// write 16 bytes file into local storage
+	for i := range buf {
+		buf[i] = byte('A' + i)
+	}
+	_, err = f.Write(buf)
+	c.Assert(err, IsNil)
+	mockStore, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+	for _, ca := range cases {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			var err error
+			if strings.HasSuffix(req.URL.Path, "stores") {
+				_, err = w.Write(ca.mockStoreResponse)
+			} else {
+				_, err = w.Write(ca.mockReplicaResponse)
+			}
+			c.Assert(err, IsNil)
+		}))
+
+		tls := common.NewTLSFromMockServer(server)
+		template := NewSimpleTemplate()
+
+		url := strings.TrimPrefix(server.URL, "https://")
+		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
+		rc := &Controller{cfg: cfg, tls: tls, store: mockStore, checkTemplate: template}
+		err := rc.ClusterResource(ctx)
+		c.Assert(err, IsNil)
+
+		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
+		c.Assert(template.Success(), Equals, ca.expectResult)
+		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
+
+		server.Close()
+	}
+}
+
+func (s *tableRestoreSuite) TestCheckHasLargeCSV(c *C) {
+	cases := []struct {
+		strictFormat    bool
+		expectMsg       string
+		expectResult    bool
+		expectWarnCount int
+		dbMetas         []*mydump.MDDatabaseMeta
+	}{
+		{
+			true,
+			"(.*)Skip the csv size check, because config.StrictFormat is true(.*)",
+			true,
+			0,
+			nil,
+		},
+		{
+			false,
+			"(.*)Source csv files size is proper(.*)",
+			true,
+			0,
+			[]*mydump.MDDatabaseMeta{
+				{
+					Tables: []*mydump.MDTableMeta{
+						{
+							DataFiles: []mydump.FileInfo{
+								{
+									FileMeta: mydump.SourceFileMeta{
+										FileSize: 1 * units.KiB,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			false,
+			"(.*)large csv: /testPath file exists(.*)",
+			false,
+			1,
+			[]*mydump.MDDatabaseMeta{
+				{
+					Tables: []*mydump.MDTableMeta{
+						{
+							DataFiles: []mydump.FileInfo{
+								{
+									FileMeta: mydump.SourceFileMeta{
+										FileSize: 1 * units.TiB,
+										Path:     "/testPath",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	dir := c.MkDir()
+	mockStore, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+
+	for _, ca := range cases {
+		template := NewSimpleTemplate()
+		cfg := &config.Config{Mydumper: config.MydumperRuntime{StrictFormat: ca.strictFormat}}
+		rc := &Controller{cfg: cfg, checkTemplate: template, store: mockStore}
+		err := rc.HasLargeCSV(ca.dbMetas)
+		c.Assert(err, IsNil)
+		c.Assert(template.FailedCount(Warn), Equals, ca.expectWarnCount)
+		c.Assert(template.Success(), Equals, ca.expectResult)
+		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
+	}
+}
+
+func (s *tableRestoreSuite) TestSchemaIsValid(c *C) {
+	dir := c.MkDir()
+	ctx := context.Background()
+
+	case1File := "db1.table1.csv"
+	mockStore, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+	err = mockStore.WriteFile(ctx, case1File, []byte(`"a"`))
+	c.Assert(err, IsNil)
+
+	case2File := "db1.table2.csv"
+	err = mockStore.WriteFile(ctx, case2File, []byte("\"colA\",\"colB\"\n\"a\",\"b\""))
+	c.Assert(err, IsNil)
+
+	cases := []struct {
+		ignoreColumns []*config.IgnoreColumns
+		expectMsg     string
+		// MsgNum == 0 means the check passed.
+		MsgNum    int
+		hasHeader bool
+		dbInfos   map[string]*checkpoints.TidbDBInfo
+		tableMeta *mydump.MDTableMeta
+	}{
+		// Case 1:
+		// csv has one column without header.
+		// tidb has the two columns but the second column doesn't have the default value.
+		// we expect the check failed.
+		{
+			nil,
+			"TiDB schema `db1`.`table1` has 2 columns,and data file has 1 columns, but column colb are missing(.*)",
+			1,
+			false,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table1": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table1",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colA has the default value
+										Name:          model.NewCIStr("colA"),
+										DefaultIsExpr: true,
+									},
+									{
+										// colB doesn't have the default value
+										Name: model.NewCIStr("colB"),
+										FieldType: types.FieldType{
+											// not null flag
+											Flag: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table1",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case1File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 2.1:
+		// csv has two columns(colA, colB) with the header.
+		// tidb only has one column(colB).
+		// we expect the check failed.
+		{
+			nil,
+			"TiDB schema `db1`.`table2` doesn't have column cola,(.*)use tables.ignoreColumns to ignore(.*)",
+			1,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table2": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table2",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colB has the default value
+										Name:          model.NewCIStr("colB"),
+										DefaultIsExpr: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 2.2:
+		// csv has two columns(colA, colB) with the header.
+		// tidb only has one column(colB).
+		// we ignore colA by set config tables.IgnoreColumns
+		// we expect the check success.
+		{
+			[]*config.IgnoreColumns{
+				{
+					DB:      "db1",
+					Table:   "table2",
+					Columns: []string{"cola"},
+				},
+			},
+			"",
+			0,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table2": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table2",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colB has the default value
+										Name:          model.NewCIStr("colB"),
+										DefaultIsExpr: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 2.3:
+		// csv has two columns(colA, colB) with the header.
+		// tidb has two columns(colB, colC).
+		// we ignore colA by set config tables.IgnoreColumns
+		// colC doesn't have the default value.
+		// we expect the check failed.
+		{
+			[]*config.IgnoreColumns{
+				{
+					DB:      "db1",
+					Table:   "table2",
+					Columns: []string{"cola"},
+				},
+			},
+			"TiDB schema `db1`.`table2` doesn't have the default value for colc(.*)",
+			1,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table2": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table2",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colB has the default value
+										Name:          model.NewCIStr("colB"),
+										DefaultIsExpr: true,
+									},
+									{
+										// colC doesn't have the default value
+										Name: model.NewCIStr("colC"),
+										FieldType: types.FieldType{
+											Flag: 1,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 2.4:
+		// csv has two columns(colA, colB) with the header.
+		// tidb has two columns(colB, colC).
+		// we ignore colB by set config tables.IgnoreColumns
+		// colB doesn't have the default value.
+		// we expect the check failed.
+		{
+			[]*config.IgnoreColumns{
+				{
+					TableFilter: []string{"`db1`.`table2`"},
+					Columns:     []string{"colb"},
+				},
+			},
+			"TiDB schema `db1`.`table2`'s column colb cannot be ignored(.*)",
+			2,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"table2": {
+							ID:   1,
+							DB:   "db1",
+							Name: "table2",
+							Core: &model.TableInfo{
+								Columns: []*model.ColumnInfo{
+									{
+										// colB doesn't have the default value
+										Name: model.NewCIStr("colB"),
+										FieldType: types.FieldType{
+											Flag: 1,
+										},
+									},
+									{
+										// colC has the default value
+										Name:          model.NewCIStr("colC"),
+										DefaultIsExpr: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table2",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+		// Case 3:
+		// table3's schema file not found.
+		// tidb has no table3.
+		// we expect the check failed.
+		{
+			[]*config.IgnoreColumns{
+				{
+					TableFilter: []string{"`db1`.`table2`"},
+					Columns:     []string{"colb"},
+				},
+			},
+			"TiDB schema `db1`.`table3` doesn't exists(.*)",
+			1,
+			true,
+			map[string]*checkpoints.TidbDBInfo{
+				"db1": {
+					Name: "db1",
+					Tables: map[string]*checkpoints.TidbTableInfo{
+						"": {},
+					},
+				},
+			},
+			&mydump.MDTableMeta{
+				DB:   "db1",
+				Name: "table3",
+				DataFiles: []mydump.FileInfo{
+					{
+						FileMeta: mydump.SourceFileMeta{
+							FileSize: 1 * units.TiB,
+							Path:     case2File,
+							Type:     mydump.SourceTypeCSV,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, ca := range cases {
+		template := NewSimpleTemplate()
+		cfg := &config.Config{
+			Mydumper: config.MydumperRuntime{
+				ReadBlockSize: config.ReadBlockSize,
+				CSV: config.CSVConfig{
+					Separator:       ",",
+					Delimiter:       `"`,
+					Header:          ca.hasHeader,
+					NotNull:         false,
+					Null:            `\N`,
+					BackslashEscape: true,
+					TrimLastSep:     false,
+				},
+				IgnoreColumns: ca.ignoreColumns,
+			},
+		}
+		rc := &Controller{
+			cfg:           cfg,
+			checkTemplate: template,
+			store:         mockStore,
+			dbInfos:       ca.dbInfos,
+			ioWorkers:     worker.NewPool(context.Background(), 1, "io"),
+		}
+		msgs, err := rc.SchemaIsValid(ctx, ca.tableMeta)
+		c.Assert(err, IsNil)
+		c.Assert(msgs, HasLen, ca.MsgNum)
+		if len(msgs) > 0 {
+			c.Assert(msgs[0], Matches, ca.expectMsg)
+		}
+	}
+}
+
+type testChecksumMgr struct {
+	checksum RemoteChecksum
+	callCnt  int
+}
+
+func (t *testChecksumMgr) Checksum(ctx context.Context, tableInfo *checkpoints.TidbTableInfo) (*RemoteChecksum, error) {
+	t.callCnt++
+	return &t.checksum, nil
 }

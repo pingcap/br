@@ -94,6 +94,28 @@ type EngineFileSize struct {
 	IsImporting bool
 }
 
+// LocalWriterConfig defines the configuration to open a LocalWriter
+type LocalWriterConfig struct {
+	// is the chunk KV written to this LocalWriter sent in order
+	IsKVSorted bool
+}
+
+// EngineConfig defines configuration used for open engine
+type EngineConfig struct {
+	// local backend specified configuration
+	Local *LocalEngineConfig
+}
+
+// LocalEngineConfig is the configuration used for local backend in OpenEngine.
+type LocalEngineConfig struct {
+	// compact small SSTs before ingest into pebble
+	Compact bool
+	// raw kvs size threshold to trigger compact
+	CompactThreshold int64
+	// compact routine concurrency
+	CompactConcurrency int
+}
+
 // CheckCtx contains all parameters used in CheckRequirements
 type CheckCtx struct {
 	DBMetas []*mydump.MDDatabaseMeta
@@ -119,7 +141,7 @@ type AbstractBackend interface {
 	// NewEncoder creates an encoder of a TiDB table.
 	NewEncoder(tbl table.Table, options *kv.SessionOptions) (kv.Encoder, error)
 
-	OpenEngine(ctx context.Context, engineUUID uuid.UUID) error
+	OpenEngine(ctx context.Context, config *EngineConfig, engineUUID uuid.UUID) error
 
 	CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 
@@ -167,7 +189,7 @@ type AbstractBackend interface {
 	ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
-	LocalWriter(ctx context.Context, engineUUID uuid.UUID) (EngineWriter, error)
+	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
 }
 
 // Backend is the delivery target for Lightning
@@ -187,7 +209,6 @@ type engine struct {
 type OpenedEngine struct {
 	engine
 	tableName string
-	ts        uint64
 }
 
 // // import_ the data written to the engine into the target.
@@ -206,7 +227,6 @@ type ClosedEngine struct {
 type LocalEngineWriter struct {
 	writer    EngineWriter
 	tableName string
-	ts        uint64
 }
 
 func MakeBackend(ab AbstractBackend) Backend {
@@ -293,11 +313,11 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 }
 
 // OpenEngine opens an engine with the given table name and engine ID.
-func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int32, ts uint64) (*OpenedEngine, error) {
+func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableName string, engineID int32) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)
 	logger := makeLogger(tag, engineUUID)
 
-	if err := be.abstract.OpenEngine(ctx, engineUUID); err != nil {
+	if err := be.abstract.OpenEngine(ctx, config, engineUUID); err != nil {
 		return nil, err
 	}
 
@@ -322,7 +342,6 @@ func (be Backend) OpenEngine(ctx context.Context, tableName string, engineID int
 			uuid:    engineUUID,
 		},
 		tableName: tableName,
-		ts:        ts,
 	}, nil
 }
 
@@ -340,21 +359,25 @@ func (engine *OpenedEngine) Flush(ctx context.Context) error {
 	return engine.backend.FlushEngine(ctx, engine.uuid)
 }
 
-func (engine *OpenedEngine) LocalWriter(ctx context.Context) (*LocalEngineWriter, error) {
-	w, err := engine.backend.LocalWriter(ctx, engine.uuid)
+func (engine *OpenedEngine) LocalWriter(ctx context.Context, cfg *LocalWriterConfig) (*LocalEngineWriter, error) {
+	w, err := engine.backend.LocalWriter(ctx, cfg, engine.uuid)
 	if err != nil {
 		return nil, err
 	}
-	return &LocalEngineWriter{writer: w, ts: engine.ts, tableName: engine.tableName}, nil
+	return &LocalEngineWriter{writer: w, tableName: engine.tableName}, nil
 }
 
 // WriteRows writes a collection of encoded rows into the engine.
 func (w *LocalEngineWriter) WriteRows(ctx context.Context, columnNames []string, rows kv.Rows) error {
-	return w.writer.AppendRows(ctx, w.tableName, columnNames, w.ts, rows)
+	return w.writer.AppendRows(ctx, w.tableName, columnNames, rows)
 }
 
-func (w *LocalEngineWriter) Close() error {
-	return w.writer.Close()
+func (w *LocalEngineWriter) Close(ctx context.Context) (ChunkFlushStatus, error) {
+	return w.writer.Close(ctx)
+}
+
+func (w *LocalEngineWriter) IsSynced() bool {
+	return w.writer.IsSynced()
 }
 
 // UnsafeCloseEngine closes the engine without first opening it.
@@ -420,13 +443,17 @@ func (engine *ClosedEngine) Logger() log.Logger {
 	return engine.logger
 }
 
+type ChunkFlushStatus interface {
+	Flushed() bool
+}
+
 type EngineWriter interface {
 	AppendRows(
 		ctx context.Context,
 		tableName string,
 		columnNames []string,
-		commitTS uint64,
 		rows kv.Rows,
 	) error
-	Close() error
+	IsSynced() bool
+	Close(ctx context.Context) (ChunkFlushStatus, error)
 }

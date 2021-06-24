@@ -99,9 +99,21 @@ func IsEmptyDir(name string) bool {
 	return len(entries) == 0
 }
 
+type QueryExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+}
+
+type DBExecutor interface {
+	QueryExecutor
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
 // SQLWithRetry constructs a retryable transaction.
 type SQLWithRetry struct {
-	DB           *sql.DB
+	// either *sql.DB or *sql.Conn
+	DB           DBExecutor
 	Logger       log.Logger
 	HideQueryLog bool
 }
@@ -126,10 +138,14 @@ outside:
 		switch {
 		case err == nil:
 			return nil
+		// do not retry NotFound error
+		case errors.IsNotFound(err):
+			break outside
 		case IsRetryableError(err):
 			logger.Warn(purpose+" failed but going to try again", log.ShortError(err))
 			continue
 		default:
+			logger.Warn(purpose+" failed with no retry", log.ShortError(err))
 			break outside
 		}
 	}
@@ -213,7 +229,7 @@ func isSingleRetryableError(err error) bool {
 	err = errors.Cause(err)
 
 	switch err {
-	case nil, context.Canceled, context.DeadlineExceeded, io.EOF:
+	case nil, context.Canceled, context.DeadlineExceeded, io.EOF, sql.ErrNoRows:
 		return false
 	}
 
@@ -258,6 +274,13 @@ func UniqueTable(schema string, table string) string {
 	WriteMySQLIdentifier(&builder, schema)
 	builder.WriteByte('.')
 	WriteMySQLIdentifier(&builder, table)
+	return builder.String()
+}
+
+// EscapeIdentifier quote and escape an sql identifier
+func EscapeIdentifier(identifier string) string {
+	var builder strings.Builder
+	WriteMySQLIdentifier(&builder, identifier)
 	return builder.String()
 }
 

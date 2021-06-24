@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -19,7 +21,6 @@ import (
 	"github.com/pingcap/parser/model"
 
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBatcherSuite struct{}
@@ -153,7 +154,7 @@ func (sender *drySender) BatchCount() int {
 var _ = Suite(&testBatcherSuite{})
 
 func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
-	tbl := &utils.Table{
+	tbl := &metautil.Table{
 		DB: &model.DBInfo{},
 		Info: &model.TableInfo{
 			ID: id,

@@ -111,7 +111,9 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			s.gcs.Bucket, object)
 	}
 	defer rc.Close()
 
@@ -225,6 +227,7 @@ func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorage
 		// so we need find sst in slash directory
 		gcs.Prefix += "//"
 	}
+	// TODO remove it after BR remove cfg skip-check-path
 	if !opts.SkipCheckPath {
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)
