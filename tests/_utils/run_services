@@ -140,7 +140,7 @@ start_tikv() {
         --log-file "$TEST_DIR/tikv${i}.log" \
         --log-level info \
         -C "$TIKV_CONFIG" \
-        -s "$TEST_DIR/tikv${i}" 2> /tmp/backup_restore_test/stderr.log &
+        -s "$TEST_DIR/tikv${i}" &
     pid=$!
     echo -e "$pid\t$TIKV_CONFIG" > "${TIKV_PIDS}_${i}"
 }
@@ -223,6 +223,7 @@ start_services_impl() {
     rm -f "${TIKV_PIDS}*"
 
     start_pd
+    # When using TDE, we add the master key to a file, and this master key is used to encrypt data key
     echo -e "3b5896b5be691006e0f71c3040a29495ddcad20b14aff61806940ebd780d3c62" > "/tmp/file"
     for i in $(seq $TIKV_COUNT); do
         start_tikv "$i"
