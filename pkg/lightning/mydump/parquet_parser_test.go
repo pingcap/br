@@ -97,12 +97,10 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 		TimestampMillis int64 `parquet:"name=timestampmillis, type=TIMESTAMP_MILLIS"`
 		TimestampMicros int64 `parquet:"name=timestampmicros, type=TIMESTAMP_MICROS"`
 
-		Decimal1 int32  `parquet:"name=decimal1, type=DECIMAL, scale=2, precision=9, basetype=INT32"`
-		Decimal2 int32  `parquet:"name=decimal2, type=DECIMAL, scale=4, precision=4, basetype=INT32"`
-		Decimal3 int64  `parquet:"name=decimal3, type=DECIMAL, scale=2, precision=18, basetype=INT64"`
-		Decimal4 string `parquet:"name=decimal4, type=DECIMAL, scale=2, precision=10, basetype=FIXED_LEN_BYTE_ARRAY, length=12"`
-		Decimal5 string `parquet:"name=decimal5, type=DECIMAL, scale=2, precision=20, basetype=BYTE_ARRAY"`
-		Decimal6 int32  `parquet:"name=decimal6, type=DECIMAL, scale=4, precision=4, basetype=INT32"`
+		Decimal1 int32 `parquet:"name=decimal1, type=DECIMAL, scale=2, precision=9, basetype=INT32"`
+		Decimal2 int32 `parquet:"name=decimal2, type=DECIMAL, scale=4, precision=4, basetype=INT32"`
+		Decimal3 int64 `parquet:"name=decimal3, type=DECIMAL, scale=2, precision=18, basetype=INT64"`
+		Decimal6 int32 `parquet:"name=decimal6, type=DECIMAL, scale=4, precision=4, basetype=INT32"`
 	}
 
 	dir := c.MkDir()
@@ -118,15 +116,13 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 	v := &Test{
 		Date:            18564,              // 2020-10-29
 		TimeMillis:      62775123,           // 17:26:15.123 (note all time are in UTC+8!)
-		TimeMicros:      62775123000,        // 17:26:15.123
-		TimestampMillis: 1603963672356,      // 2020-10-29T17:27:52.356
-		TimestampMicros: 1603963672356956,   // 2020-10-29T17:27:52.356956
+		TimeMicros:      62775123456,        // 17:26:15.123
+		TimestampMillis: 1603963672356,      // 2020-10-29T09:27:52.356Z
+		TimestampMicros: 1603963672356956,   // 2020-10-29T09:27:52.356956Z
 		Decimal1:        -12345678,          // -123456.78
 		Decimal2:        456,                // 0.0456
 		Decimal3:        123456789012345678, // 1234567890123456.78
-		Decimal4:        "-12345678.09",
-		Decimal5:        "-1234567890123456.78",
-		Decimal6:        -1, // -0.0001
+		Decimal6:        -1,                 // -0.0001
 	}
 	c.Assert(writer.Write(v), IsNil)
 	c.Assert(writer.WriteStop(), IsNil)
@@ -140,22 +136,19 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 	c.Assert(err, IsNil)
 	defer reader.Close()
 
-	c.Assert(len(reader.columns), Equals, 11)
+	c.Assert(len(reader.columns), Equals, 9)
 
 	c.Assert(reader.ReadRow(), IsNil)
-	c.Assert(reader.lastRow.Row, DeepEquals, []types.Datum{
-		types.NewCollationStringDatum("2020-10-29", "", 0),
-		types.NewCollationStringDatum("17:26:15.123", "", 0),
-		types.NewCollationStringDatum("17:26:15.123", "", 0),
-		types.NewCollationStringDatum("2020-10-29 17:27:52.356", "", 0),
-		types.NewCollationStringDatum("2020-10-29 17:27:52.356", "", 0),
-		types.NewCollationStringDatum("-123456.78", "", 0),
-		types.NewCollationStringDatum("0.0456", "", 0),
-		types.NewCollationStringDatum("1234567890123456.78", "", 0),
-		types.NewCollationStringDatum("-12345678.09", "", 0),
-		types.NewCollationStringDatum("-1234567890123456.78", "", 0),
-		types.NewCollationStringDatum("-0.0001", "", 0),
-	})
+	rowValue := []string{
+		"2020-10-29", "17:26:15.123Z", "17:26:15.123456Z", "2020-10-29 09:27:52.356Z", "2020-10-29 09:27:52.356956Z",
+		"-123456.78", "0.0456", "1234567890123456.78", "-0.0001",
+	}
+	row := reader.lastRow.Row
+	c.Assert(len(rowValue), Equals, len(row))
+	for i := 0; i < len(row); i++ {
+		c.Assert(row[i].Kind(), Equals, types.KindString)
+		c.Assert(rowValue[i], Equals, row[i].GetString())
+	}
 
 	type TestDecimal struct {
 		Decimal1   int32  `parquet:"name=decimal1, type=DECIMAL, scale=3, precision=5, basetype=INT32"`
@@ -214,4 +207,61 @@ func (s testParquetParserSuite) TestParquetVariousTypes(c *C) {
 			c.Assert(reader.lastRow.Row[i].GetValue(), Equals, val.GetValue())
 		}
 	}
+}
+
+func (s testParquetParserSuite) TestParquetAurora(c *C) {
+	store, err := storage.NewLocalStorage("examples")
+	c.Assert(err, IsNil)
+
+	fileName := "test.parquet"
+	r, err := store.Open(context.TODO(), fileName)
+	c.Assert(err, IsNil)
+	parser, err := NewParquetParser(context.TODO(), store, r, fileName)
+	c.Assert(err, IsNil)
+
+	c.Assert(parser.Columns(), DeepEquals, []string{"id", "val1", "val2", "d1", "d2", "d3", "d4", "d5", "d6"})
+
+	expectedRes := [][]interface{}{
+		{int64(1), int64(1), "0", int64(123), "1.23", "0.00000001", "1234567890", "123", "1.23000000"},
+		{
+			int64(2), int64(123456), "0", int64(123456), "9999.99", "0.12345678", "99999999999999999999",
+			"999999999999999999999999999999999999", "99999999999999999999.99999999",
+		},
+		{
+			int64(3), int64(123456), "0", int64(-123456), "-9999.99", "-0.12340000", "-99999999999999999999",
+			"-999999999999999999999999999999999999", "-99999999999999999999.99999999",
+		},
+		{
+			int64(4), int64(1), "0", int64(123), "1.23", "0.00000001", "1234567890", "123", "1.23000000",
+		},
+		{
+			int64(5), int64(123456), "0", int64(123456), "9999.99", "0.12345678", "12345678901234567890",
+			"123456789012345678901234567890123456", "99999999999999999999.99999999",
+		},
+		{
+			int64(6), int64(123456), "0", int64(-123456), "-9999.99", "-0.12340000",
+			"-12345678901234567890", "-123456789012345678901234567890123456",
+			"-99999999999999999999.99999999",
+		},
+	}
+
+	for i := 0; i < len(expectedRes); i++ {
+		err = parser.ReadRow()
+		c.Assert(err, IsNil)
+		expectedValues := expectedRes[i]
+		row := parser.LastRow().Row
+		c.Assert(len(expectedValues), Equals, len(row))
+		for j := 0; j < len(row); j++ {
+			switch v := expectedValues[j].(type) {
+			case int64:
+				c.Assert(v, Equals, row[j].GetInt64())
+			case string:
+				c.Assert(v, Equals, row[j].GetString())
+			default:
+				c.Error("unexpected value: ", expectedValues[j])
+			}
+		}
+	}
+
+	c.Assert(parser.ReadRow(), Equals, io.EOF)
 }
