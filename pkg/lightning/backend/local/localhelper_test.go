@@ -147,7 +147,7 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.splitCount++
+	c.splitCount.Inc()
 
 	if c.hook != nil {
 		regionInfo, keys = c.hook.BeforeSplitRegion(ctx, regionInfo, keys)
@@ -162,12 +162,6 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	default:
 	}
 
-<<<<<<< HEAD
-	c.splitCount.Inc()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-=======
->>>>>>> 0f4dbf4b (lightning: avoid ignore error when import data fails (#1115))
 	newRegions := make([]*restore.RegionInfo, 0)
 	target, ok := c.regions[regionInfo.Region.Id]
 	if !ok {
