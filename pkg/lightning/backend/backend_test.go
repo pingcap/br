@@ -55,7 +55,7 @@ func (s *backendSuite) TestOpenCloseImportCleanUpEngine(c *C) {
 		OpenEngine(ctx, &backend.EngineConfig{}, engineUUID).
 		Return(nil)
 	closeCall := s.mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil).
 		After(openCall)
 	importCall := s.mockBackend.EXPECT().
@@ -69,7 +69,7 @@ func (s *backendSuite) TestOpenCloseImportCleanUpEngine(c *C) {
 
 	engine, err := s.backend.OpenEngine(ctx, &backend.EngineConfig{}, "`db`.`table`", 1)
 	c.Assert(err, IsNil)
-	closedEngine, err := engine.Close(ctx)
+	closedEngine, err := engine.Close(ctx, nil)
 	c.Assert(err, IsNil)
 	err = closedEngine.Import(ctx)
 	c.Assert(err, IsNil)
@@ -85,14 +85,14 @@ func (s *backendSuite) TestUnsafeCloseEngine(c *C) {
 	engineUUID := uuid.MustParse("7e3f3a3c-67ce-506d-af34-417ec138fbcb")
 
 	closeCall := s.mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	s.mockBackend.EXPECT().
 		CleanupEngine(ctx, engineUUID).
 		Return(nil).
 		After(closeCall)
 
-	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, "`db`.`table`", -1)
+	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, nil, "`db`.`table`", -1)
 	c.Assert(err, IsNil)
 	err = closedEngine.Cleanup(ctx)
 	c.Assert(err, IsNil)
@@ -106,14 +106,14 @@ func (s *backendSuite) TestUnsafeCloseEngineWithUUID(c *C) {
 	engineUUID := uuid.MustParse("f1240229-79e0-4d8d-bda0-a211bf493796")
 
 	closeCall := s.mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	s.mockBackend.EXPECT().
 		CleanupEngine(ctx, engineUUID).
 		Return(nil).
 		After(closeCall)
 
-	closedEngine, err := s.backend.UnsafeCloseEngineWithUUID(ctx, "some_tag", engineUUID)
+	closedEngine, err := s.backend.UnsafeCloseEngineWithUUID(ctx, nil, "some_tag", engineUUID)
 	c.Assert(err, IsNil)
 	err = closedEngine.Cleanup(ctx)
 	c.Assert(err, IsNil)
@@ -251,12 +251,12 @@ func (s *backendSuite) TestImportFailedNoRetry(c *C) {
 
 	ctx := context.Background()
 
-	s.mockBackend.EXPECT().CloseEngine(ctx, gomock.Any()).Return(nil)
+	s.mockBackend.EXPECT().CloseEngine(ctx, nil, gomock.Any()).Return(nil)
 	s.mockBackend.EXPECT().
 		ImportEngine(ctx, gomock.Any()).
 		Return(errors.Annotate(context.Canceled, "fake unrecoverable import error"))
 
-	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, "`db`.`table`", 1)
+	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, nil, "`db`.`table`", 1)
 	c.Assert(err, IsNil)
 	err = closedEngine.Import(ctx)
 	c.Assert(err, ErrorMatches, "fake unrecoverable import error.*")
@@ -268,14 +268,14 @@ func (s *backendSuite) TestImportFailedWithRetry(c *C) {
 
 	ctx := context.Background()
 
-	s.mockBackend.EXPECT().CloseEngine(ctx, gomock.Any()).Return(nil)
+	s.mockBackend.EXPECT().CloseEngine(ctx, nil, gomock.Any()).Return(nil)
 	s.mockBackend.EXPECT().
 		ImportEngine(ctx, gomock.Any()).
 		Return(errors.New("fake recoverable import error")).
 		MinTimes(2)
 	s.mockBackend.EXPECT().RetryImportDelay().Return(time.Duration(0)).AnyTimes()
 
-	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, "`db`.`table`", 1)
+	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, nil, "`db`.`table`", 1)
 	c.Assert(err, IsNil)
 	err = closedEngine.Import(ctx)
 	c.Assert(err, ErrorMatches, ".*fake recoverable import error")
@@ -287,7 +287,7 @@ func (s *backendSuite) TestImportFailedRecovered(c *C) {
 
 	ctx := context.Background()
 
-	s.mockBackend.EXPECT().CloseEngine(ctx, gomock.Any()).Return(nil)
+	s.mockBackend.EXPECT().CloseEngine(ctx, nil, gomock.Any()).Return(nil)
 	s.mockBackend.EXPECT().
 		ImportEngine(ctx, gomock.Any()).
 		Return(errors.New("fake recoverable import error"))
@@ -296,7 +296,7 @@ func (s *backendSuite) TestImportFailedRecovered(c *C) {
 		Return(nil)
 	s.mockBackend.EXPECT().RetryImportDelay().Return(time.Duration(0)).AnyTimes()
 
-	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, "`db`.`table`", 1)
+	closedEngine, err := s.backend.UnsafeCloseEngine(ctx, nil, "`db`.`table`", 1)
 	c.Assert(err, IsNil)
 	err = closedEngine.Import(ctx)
 	c.Assert(err, IsNil)

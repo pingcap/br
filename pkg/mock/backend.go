@@ -83,17 +83,17 @@ func (mr *MockBackendMockRecorder) Close() *gomock.Call {
 }
 
 // CloseEngine mocks base method.
-func (m *MockBackend) CloseEngine(arg0 context.Context, arg1 uuid.UUID) error {
+func (m *MockBackend) CloseEngine(arg0 context.Context, arg1 *backend.EngineConfig, arg2 uuid.UUID) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CloseEngine", arg0, arg1)
+	ret := m.ctrl.Call(m, "CloseEngine", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // CloseEngine indicates an expected call of CloseEngine.
-func (mr *MockBackendMockRecorder) CloseEngine(arg0, arg1 interface{}) *gomock.Call {
+func (mr *MockBackendMockRecorder) CloseEngine(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseEngine", reflect.TypeOf((*MockBackend)(nil).CloseEngine), arg0, arg1)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseEngine", reflect.TypeOf((*MockBackend)(nil).CloseEngine), arg0, arg1, arg2)
 }
 
 // EngineFileSizes mocks base method.

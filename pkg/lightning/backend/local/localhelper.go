@@ -16,6 +16,7 @@ package local
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"regexp"
 	"runtime"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/logutil"
@@ -60,18 +62,28 @@ var (
 // This File include region split & scatter operation just like br.
 // we can simply call br function, but we need to change some function signature of br
 // When the ranges total size is small, we can skip the split to avoid generate empty regions.
-func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []Range, needSplit bool) error {
+func (local *local) SplitAndScatterRegionByRanges(
+	ctx context.Context,
+	ranges []Range,
+	tableInfo *checkpoints.TidbTableInfo,
+	needSplit bool,
+) error {
 	if len(ranges) == 0 {
 		return nil
+	}
+
+	db, err := local.g.GetDB()
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	minKey := codec.EncodeBytes([]byte{}, ranges[0].start)
 	maxKey := codec.EncodeBytes([]byte{}, ranges[len(ranges)-1].end)
 
-	var err error
 	scatterRegions := make([]*split.RegionInfo, 0)
 	var retryKeys [][]byte
 	waitTime := splitRegionBaseBackOffTime
+	skippedKeys := 0
 	for i := 0; i < SplitRetryTimes; i++ {
 		log.L().Info("split and scatter region",
 			logutil.Key("minKey", minKey),
@@ -135,6 +147,16 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		if len(ranges) == 0 {
 			log.L().Info("no ranges need to be split, skipped.")
 			return nil
+		}
+
+		var tableRegionStats map[uint64]int64
+		if tableInfo != nil {
+			tableRegionStats, err = fetchTableRegionSizeStats(ctx, db, tableInfo.ID)
+			if err != nil {
+				log.L().Warn("fetch table region size statistics failed",
+					zap.String("table", tableInfo.Name), zap.Error(err))
+				tableRegionStats = make(map[uint64]int64)
+			}
 		}
 
 		regionMap := make(map[uint64]*split.RegionInfo)
@@ -246,6 +268,15 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 	sendLoop:
 		for regionID, keys := range splitKeyMap {
+			// if region not in tableRegionStats, that means this region is newly split, so
+			// we can skip split it again.
+			regionSize, ok := tableRegionStats[regionID]
+			if !ok {
+				log.L().Warn("region stats not found", zap.Uint64("region", regionID))
+			}
+			if len(keys) == 1 && regionSize < local.regionSplitSize {
+				skippedKeys++
+			}
 			select {
 			case ch <- &splitInfo{region: regionMap[regionID], keys: keys}:
 			case <-ctx.Done():
@@ -289,14 +320,45 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	}
 	if scatterCount == len(scatterRegions) {
 		log.L().Info("waiting for scattering regions done",
+			zap.Int("skipped_keys", skippedKeys),
 			zap.Int("regions", len(scatterRegions)), zap.Duration("take", time.Since(startTime)))
 	} else {
 		log.L().Info("waiting for scattering regions timeout",
+			zap.Int("skipped_keys", skippedKeys),
 			zap.Int("scatterCount", scatterCount),
 			zap.Int("regions", len(scatterRegions)),
 			zap.Duration("take", time.Since(startTime)))
 	}
 	return nil
+}
+
+func fetchTableRegionSizeStats(ctx context.Context, db *sql.DB, tableID int64) (map[uint64]int64, error) {
+	exec := &common.SQLWithRetry{
+		DB:     db,
+		Logger: log.L(),
+	}
+
+	stats := make(map[uint64]int64)
+	err := exec.Transact(ctx, "fetch region approximate sizes", func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT REGION_ID, APPROXIMATE_SIZE FROM information_schema.TIKV_REGION_STATUS WHERE TABLE_ID = ?", tableID)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		defer rows.Close()
+		var (
+			regionID uint64
+			size     int64
+		)
+		for rows.Next() {
+			if err = rows.Scan(&regionID, &size); err != nil {
+				return errors.Trace(err)
+			}
+			stats[regionID] = size * units.MiB
+		}
+		return rows.Err()
+	})
+	return stats, errors.Trace(err)
 }
 
 func paginateScanRegion(

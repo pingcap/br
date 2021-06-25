@@ -63,6 +63,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
@@ -187,7 +188,8 @@ type File struct {
 	// max seq of sst metas ingested into pebble
 	finishedMetaSeq atomic.Int32
 
-	config backend.LocalEngineConfig
+	config    backend.LocalEngineConfig
+	tableInfo *checkpoints.TidbTableInfo
 
 	// total size of SST files waiting to be ingested
 	pendingFileSize atomic.Int64
@@ -1257,6 +1259,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		ctx:                engineCtx,
 		cancel:             cancel,
 		config:             engineCfg,
+		tableInfo:          cfg.TableInfo,
 		duplicateDetection: local.duplicateDetection,
 		duplicateDB:        local.duplicateDB,
 	})
@@ -1290,7 +1293,7 @@ func (local *local) allocateTSIfNotExists(ctx context.Context, engine *File) err
 // CloseEngine closes backend engine by uuid
 // NOTE: we will return nil if engine is not exist. This will happen if engine import&cleanup successfully
 // but exit before update checkpoint. Thus after restart, we will try to import this engine again.
-func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (local *local) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	// flush mem table to storage, to free memory,
 	// ask others' advise, looks like unnecessary, but with this we can control memory precisely.
 	engine, ok := local.engines.Load(engineUUID)
@@ -1308,6 +1311,7 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			UUID:               engineUUID,
 			db:                 db,
 			sstMetasChan:       make(chan metaOrFlush),
+			tableInfo:          cfg.TableInfo,
 			duplicateDetection: local.duplicateDetection,
 			duplicateDB:        local.duplicateDB,
 		}
@@ -1768,8 +1772,7 @@ func (local *local) writeAndIngestByRange(
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
 			logutil.Key("start", start),
-			logutil.Key("end", end),
-			logutil.Key("next end", nextKey(end)))
+			logutil.Key("end", end))
 		engineFile.finishedRanges.add(Range{start: start, end: end})
 		return nil
 	}
@@ -2069,7 +2072,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > local.regionSplitKeys
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
-			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)
+			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, lf.tableInfo, needSplit)
 			if err == nil || common.IsContextCanceledError(err) {
 				break
 			}

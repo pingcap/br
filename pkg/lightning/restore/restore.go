@@ -747,8 +747,8 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		// print check template only if check requirements is true.
 		fmt.Println(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
-			return errors.Errorf("lightning pre check failed." +
-				"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
+			return errors.Errorf("tidb-lightning pre-check failed." +
+				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
 		}
 	}
 	return nil
@@ -1614,11 +1614,13 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 	// data-engines that need to be restore or import. Otherwise, all data-engines should
 	// be finished already.
 
+	idxEngineCfg := &backend.EngineConfig{
+		TableInfo: tr.tableInfo,
+	}
 	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		engineCfg := &backend.EngineConfig{}
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
@@ -1626,7 +1628,7 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				idxCnt--
 			}
 			threshold := estimateCompactionThreshold(cp, int64(idxCnt))
-			engineCfg.Local = &backend.LocalEngineConfig{
+			idxEngineCfg.Local = &backend.LocalEngineConfig{
 				Compact:            threshold > 0,
 				CompactConcurrency: 4,
 				CompactThreshold:   threshold,
@@ -1641,7 +1643,7 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				continue
 			}
 			if engine.Status < checkpoints.CheckpointStatusAllWritten {
-				indexEngine, err = rc.backend.OpenEngine(ctx, engineCfg, tr.tableName, indexEngineID)
+				indexEngine, err = rc.backend.OpenEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -1726,16 +1728,16 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 		}
 
 		if indexEngine != nil {
-			closedIndexEngine, restoreErr = indexEngine.Close(ctx)
+			closedIndexEngine, restoreErr = indexEngine.Close(ctx, idxEngineCfg)
 		} else {
-			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
+			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 		}
 
 		rc.saveStatusCheckpoint(tr.tableName, indexEngineID, restoreErr, checkpoints.CheckpointStatusClosed)
 	} else if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
-		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
+		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 	}
 	if restoreErr != nil {
 		return errors.Trace(restoreErr)
@@ -1770,7 +1772,10 @@ func (tr *TableRestore) restoreEngine(
 	defer cancel()
 	// all data has finished written, we can close the engine directly.
 	if cp.Status >= checkpoints.CheckpointStatusAllWritten {
-		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, tr.tableName, engineID)
+		engineCfg := &backend.EngineConfig{
+			TableInfo: tr.tableInfo,
+		}
+		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, engineCfg, tr.tableName, engineID)
 		// If any error occurred, recycle worker immediately
 		if err != nil {
 			return closedEngine, errors.Trace(err)
@@ -1793,7 +1798,11 @@ func (tr *TableRestore) restoreEngine(
 	}
 
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
-	dataEngine, err := rc.backend.OpenEngine(ctx, &backend.EngineConfig{}, tr.tableName, engineID)
+	dataEngineCfg := &backend.EngineConfig{
+		TableInfo: tr.tableInfo,
+		Local:     &backend.LocalEngineConfig{},
+	}
+	dataEngine, err := rc.backend.OpenEngine(ctx, dataEngineCfg, tr.tableName, engineID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1967,7 +1976,7 @@ func (tr *TableRestore) restoreEngine(
 		// if process is canceled, we should flush all chunk checkpoints for local backend
 		if rc.isLocalBackend() && common.IsContextCanceledError(err) {
 			// ctx is canceled, so to avoid Close engine failed, we use `context.Background()` here
-			if _, err2 := dataEngine.Close(context.Background()); err2 != nil {
+			if _, err2 := dataEngine.Close(context.Background(), dataEngineCfg); err2 != nil {
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 				return nil, errors.Trace(err)
 			}
@@ -1978,7 +1987,7 @@ func (tr *TableRestore) restoreEngine(
 		return nil, errors.Trace(err)
 	}
 
-	closedDataEngine, err := dataEngine.Close(ctx)
+	closedDataEngine, err := dataEngine.Close(ctx, dataEngineCfg)
 	// For local backend, if checkpoint is enabled, we must flush index engine to avoid data loss.
 	// this flush action impact up to 10% of the performance, so we only do it if necessary.
 	if err == nil && rc.cfg.Checkpoint.Enable && rc.isLocalBackend() {

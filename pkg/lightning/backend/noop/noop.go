@@ -74,7 +74,7 @@ func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUI
 	return nil
 }
 
-func (b noopBackend) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (b noopBackend) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	return nil
 }
 

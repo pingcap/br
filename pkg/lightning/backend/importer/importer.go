@@ -185,7 +185,7 @@ func (importer *importer) allocateTSIfNotExists(ctx context.Context, engineUUID 
 	return nil
 }
 
-func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (importer *importer) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: engineUUID[:],
 	}

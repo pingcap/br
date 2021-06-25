@@ -97,7 +97,7 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 
 func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	rules := &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{{
+		Data: []*import_sstpb.RewriteRule{{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
 		}},
@@ -137,7 +137,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// Add a rule for end key.
-	rules.Table = append(rules.Table, &import_sstpb.RewriteRule{
+	rules.Data = append(rules.Data, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
@@ -152,7 +152,7 @@ func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	c.Assert(err, ErrorMatches, ".*restore table ID mismatch")
 
 	// Add a bad rule for end key, after rewrite start key > end key.
-	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
+	rules.Data = append(rules.Data[:1], &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
