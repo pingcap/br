@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 type testBackup struct {
@@ -241,4 +242,46 @@ func (r *testBackup) TestBuildBackupMeta(c *C) {
 	c.Assert(backupMeta.ClusterId, Equals, req.ClusterId)
 	c.Assert(backupMeta.ClusterVersion, Equals, clusterVersion)
 	c.Assert(backupMeta.BrVersion, Equals, brVersion)
+}
+
+func (r *testBackup) TestSendCreds(c *C) {
+	accessKey := "ab"
+	secretAccessKey := "cd"
+	backendOpt := storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
+	}
+	backend, err := storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
+	c.Assert(err, IsNil)
+	opts := &storage.ExternalStorageOptions{
+		SendCredentials: true,
+		SkipCheckPath:   true,
+	}
+	_, err = storage.New(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	access_key := backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "ab")
+	secret_access_key := backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "cd")
+
+	backendOpt = storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
+	}
+	backend, err = storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
+	c.Assert(err, IsNil)
+	opts = &storage.ExternalStorageOptions{
+		SendCredentials: false,
+		SkipCheckPath:   true,
+	}
+	_, err = storage.New(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	access_key = backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "")
+	secret_access_key = backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "")
 }
