@@ -90,7 +90,7 @@ func (rs *RegionSplitter) Split(
 	}
 	minKey := codec.EncodeBytes(sortedRanges[0].StartKey)
 	maxKey := codec.EncodeBytes(sortedRanges[len(sortedRanges)-1].EndKey)
-	for _, rule := range rewriteRules.Table {
+	for _, rule := range rewriteRules.Data {
 		if bytes.Compare(minKey, rule.GetNewKeyPrefix()) > 0 {
 			minKey = rule.GetNewKeyPrefix()
 		}
@@ -319,9 +319,6 @@ func PaginateScanRegion(
 func getSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {
 	splitKeyMap := make(map[uint64][][]byte)
 	checkKeys := make([][]byte, 0)
-	for _, rule := range rewriteRules.Table {
-		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
-	}
 	for _, rule := range rewriteRules.Data {
 		checkKeys = append(checkKeys, rule.GetNewKeyPrefix())
 	}
@@ -367,11 +364,6 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 func replacePrefix(s []byte, rewriteRules *RewriteRules) ([]byte, *sst.RewriteRule) {
 	// We should search the dataRules firstly.
 	for _, rule := range rewriteRules.Data {
-		if bytes.HasPrefix(s, rule.GetOldKeyPrefix()) {
-			return append(append([]byte{}, rule.GetNewKeyPrefix()...), s[len(rule.GetOldKeyPrefix()):]...), rule
-		}
-	}
-	for _, rule := range rewriteRules.Table {
 		if bytes.HasPrefix(s, rule.GetOldKeyPrefix()) {
 			return append(append([]byte{}, rule.GetNewKeyPrefix()...), s[len(rule.GetOldKeyPrefix()):]...), rule
 		}
