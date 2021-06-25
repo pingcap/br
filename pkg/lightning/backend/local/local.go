@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
+	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
@@ -61,6 +62,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
@@ -179,7 +181,8 @@ type File struct {
 	// max seq of sst metas ingested into pebble
 	finishedMetaSeq atomic.Int32
 
-	config backend.LocalEngineConfig
+	config    backend.LocalEngineConfig
+	tableInfo *checkpoints.TidbTableInfo
 
 	// total size of SST files waiting to be ingested
 	pendingFileSize atomic.Int64
@@ -736,20 +739,24 @@ func (e *File) saveEngineMeta() error {
 	return errors.Trace(e.db.Set(engineMetaKey, jsonBytes, &pebble.WriteOptions{Sync: false}))
 }
 
-func (e *File) loadEngineMeta() {
+func (e *File) loadEngineMeta() error {
 	jsonBytes, closer, err := e.db.Get(engineMetaKey)
 	if err != nil {
-		log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
-		return
+		if err == pebble.ErrNotFound {
+			log.L().Debug("local db missing engine meta", zap.Stringer("uuid", e.UUID), zap.Error(err))
+			return nil
+		}
+		return err
 	}
 	defer closer.Close()
 
-	err = json.Unmarshal(jsonBytes, &e.localFileMeta)
-	if err != nil {
+	if err = json.Unmarshal(jsonBytes, &e.localFileMeta); err != nil {
 		log.L().Warn("local db failed to deserialize meta", zap.Stringer("uuid", e.UUID), zap.ByteString("content", jsonBytes), zap.Error(err))
+		return err
 	}
 	log.L().Debug("load engine meta", zap.Stringer("uuid", e.UUID), zap.Int64("count", e.Length.Load()),
 		zap.Int64("size", e.TotalSize.Load()))
+	return nil
 }
 
 type gRPCConns struct {
@@ -770,6 +777,7 @@ type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
 	conns    gRPCConns
+	pdCli    pd.Client
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -895,6 +903,7 @@ func NewLocalBackend(
 
 	local := &local{
 		engines:  sync.Map{},
+		pdCli:    pdCli,
 		splitCli: splitCli,
 		tls:      tls,
 		pdAddr:   pdAddr,
@@ -1171,20 +1180,39 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		ctx:          engineCtx,
 		cancel:       cancel,
 		config:       engineCfg,
+		tableInfo:    cfg.TableInfo,
 	})
 	engine := e.(*File)
 	engine.db = db
 	engine.sstIngester = dbSSTIngester{e: engine}
-	engine.loadEngineMeta()
+	if err = engine.loadEngineMeta(); err != nil {
+		return errors.Trace(err)
+	}
+	if err = local.allocateTSIfNotExists(ctx, engine); err != nil {
+		return errors.Trace(err)
+	}
 	engine.wg.Add(1)
 	go engine.ingestSSTLoop()
 	return nil
 }
 
-// Close backend engine by uuid
+func (local *local) allocateTSIfNotExists(ctx context.Context, engine *File) error {
+	if engine.TS > 0 {
+		return nil
+	}
+	physical, logical, err := local.pdCli.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physical, logical)
+	engine.TS = ts
+	return engine.saveEngineMeta()
+}
+
+// CloseEngine closes backend engine by uuid
 // NOTE: we will return nil if engine is not exist. This will happen if engine import&cleanup successfully
 // but exit before update checkpoint. Thus after restart, we will try to import this engine again.
-func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (local *local) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	// flush mem table to storage, to free memory,
 	// ask others' advise, looks like unnecessary, but with this we can control memory precisely.
 	engine, ok := local.engines.Load(engineUUID)
@@ -1202,9 +1230,12 @@ func (local *local) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error
 			UUID:         engineUUID,
 			db:           db,
 			sstMetasChan: make(chan metaOrFlush),
+			tableInfo:    cfg.TableInfo,
 		}
 		engineFile.sstIngester = dbSSTIngester{e: engineFile}
-		engineFile.loadEngineMeta()
+		if err = engineFile.loadEngineMeta(); err != nil {
+			return err
+		}
 		local.engines.Store(engineUUID, engineFile)
 		return nil
 	}
@@ -1656,8 +1687,7 @@ func (local *local) writeAndIngestByRange(
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
 			logutil.Key("start", start),
-			logutil.Key("end", end),
-			logutil.Key("next end", nextKey(end)))
+			logutil.Key("end", end))
 		engineFile.finishedRanges.add(Range{start: start, end: end})
 		return nil
 	}
@@ -1957,7 +1987,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		needSplit := len(unfinishedRanges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > local.regionSplitKeys
 		// split region by given ranges
 		for i := 0; i < maxRetryTimes; i++ {
-			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, needSplit)
+			err = local.SplitAndScatterRegionByRanges(ctx, unfinishedRanges, lf.tableInfo, needSplit)
 			if err == nil || common.IsContextCanceledError(err) {
 				break
 			}
@@ -2084,6 +2114,9 @@ func (local *local) ResetEngine(ctx context.Context, engineUUID uuid.UUID) error
 			if err := os.Mkdir(localEngine.sstDir, 0o755); err != nil {
 				return errors.Trace(err)
 			}
+		}
+		if err = local.allocateTSIfNotExists(ctx, localEngine); err != nil {
+			return errors.Trace(err)
 		}
 	}
 	localEngine.pendingFileSize.Store(0)
@@ -2621,7 +2654,7 @@ func (local *local) EngineFileSizes() (res []backend.EngineFileSize) {
 	return
 }
 
-func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
 	kvs := kv.KvPairsFromRows(rows)
 	if len(kvs) == 0 {
 		return nil
@@ -2643,7 +2676,6 @@ func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames [
 		}
 	}
 
-	w.local.TS = ts
 	if w.isKVSorted {
 		return w.appendRowsSorted(kvs)
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
@@ -35,6 +36,7 @@ import (
 	"github.com/tikv/pd/server/schedule/placement"
 	"go.uber.org/atomic"
 
+	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -402,6 +404,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 	client := initTestClient(keys, hook)
 	local := &local{
 		splitCli: client,
+		g:        glue.NewExternalTiDBGlue(nil, mysql.ModeNone),
 	}
 
 	// current region ranges: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )
@@ -421,7 +424,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 		start = end
 	}
 
-	err = local.SplitAndScatterRegionByRanges(ctx, ranges, true)
+	err = local.SplitAndScatterRegionByRanges(ctx, ranges, nil, true)
 	if len(errPat) == 0 {
 		c.Assert(err, IsNil)
 	} else {
@@ -616,6 +619,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 	client := initTestClient(keys, hook)
 	local := &local{
 		splitCli: client,
+		g:        glue.NewExternalTiDBGlue(nil, mysql.ModeNone),
 	}
 	ctx := context.Background()
 
@@ -639,7 +643,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 		start = e
 	}
 
-	err := local.SplitAndScatterRegionByRanges(ctx, ranges, true)
+	err := local.SplitAndScatterRegionByRanges(ctx, ranges, nil, true)
 	c.Assert(err, IsNil)
 
 	startKey := codec.EncodeBytes([]byte{}, rangeKeys[0])

@@ -20,11 +20,11 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/spf13/cobra"
-	"github.com/tikv/pd/pkg/mock/mockid"
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/mock/mockid"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/task"

@@ -144,7 +144,7 @@ func (s *testMydumpLoaderSuite) TestTableNoHostDB(c *C) {
 	c.Assert(err, IsNil)
 
 	_, err = md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, `invalid table schema file, cannot find db 'db' - .*db\.tbl-schema\.sql`)
+	c.Assert(err, IsNil)
 }
 
 func (s *testMydumpLoaderSuite) TestDuplicatedTable(c *C) {
@@ -247,7 +247,7 @@ func (s *testMydumpLoaderSuite) TestViewNoHostDB(c *C) {
 	s.touch(c, "db.tbl-schema-view.sql")
 
 	_, err := md.NewMyDumpLoader(context.Background(), s.cfg)
-	c.Assert(err, ErrorMatches, `invalid table schema file, cannot find db 'db' - .*[/\\]?db\.tbl-schema-view\.sql`)
+	c.Assert(err, ErrorMatches, `invalid view schema file, miss host table schema for view 'tbl'`)
 }
 
 func (s *testMydumpLoaderSuite) TestViewNoHostTable(c *C) {

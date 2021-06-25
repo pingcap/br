@@ -22,7 +22,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/docker/go-units"
@@ -34,7 +33,7 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/table/tables"
 	"github.com/pingcap/tidb/util/collate"
-	"github.com/tikv/client-go/v2/oracle"
+	"go.uber.org/atomic"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
@@ -172,7 +171,57 @@ const (
 	diskQuotaStateIdle int32 = iota
 	diskQuotaStateChecking
 	diskQuotaStateImporting
+
+	diskQuotaMaxReaders = 1 << 30
 )
+
+// diskQuotaLock is essentially a read/write lock. The implement here is inspired by sync.RWMutex.
+// diskQuotaLock removed the unnecessary blocking `RLock` method and add a non-blocking `TryRLock` method.
+type diskQuotaLock struct {
+	w           sync.Mutex    // held if there are pending writers
+	writerSem   chan struct{} // semaphore for writers to wait for completing readers
+	readerCount atomic.Int32  // number of pending readers
+	readerWait  atomic.Int32  // number of departing readers
+}
+
+func newDiskQuotaLock() *diskQuotaLock {
+	return &diskQuotaLock{writerSem: make(chan struct{})}
+}
+
+func (d *diskQuotaLock) Lock() {
+	d.w.Lock()
+	// Announce to readers there is a pending writer.
+	r := d.readerCount.Sub(diskQuotaMaxReaders) + diskQuotaMaxReaders
+	if r != 0 && d.readerWait.Add(r) != 0 {
+		// Wait for active readers.
+		<-d.writerSem
+	}
+}
+
+func (d *diskQuotaLock) Unlock() {
+	d.readerCount.Add(diskQuotaMaxReaders)
+	d.w.Unlock()
+}
+
+func (d *diskQuotaLock) TryRLock() (locked bool) {
+	r := d.readerCount.Load()
+	for r >= 0 {
+		if d.readerCount.CAS(r, r+1) {
+			return true
+		}
+		r = d.readerCount.Load()
+	}
+	return false
+}
+
+func (d *diskQuotaLock) RUnlock() {
+	if d.readerCount.Dec() < 0 {
+		if d.readerWait.Dec() == 0 {
+			// The last reader unblocks the writer.
+			d.writerSem <- struct{}{}
+		}
+	}
+}
 
 type Controller struct {
 	cfg           *config.Config
@@ -202,12 +251,9 @@ type Controller struct {
 	store             storage.ExternalStorage
 	metaMgrBuilder    metaMgrBuilder
 
-	diskQuotaLock  sync.RWMutex
-	diskQuotaState int32
-	compactState   int32
-
-	// commit ts for local and importer backend
-	ts uint64
+	diskQuotaLock  *diskQuotaLock
+	diskQuotaState atomic.Int32
+	compactState   atomic.Int32
 }
 
 func NewRestoreController(
@@ -289,21 +335,6 @@ func NewRestoreControllerWithPauser(
 		return nil, errors.New("unknown backend: " + cfg.TikvImporter.Backend)
 	}
 
-	var ts uint64
-	if cfg.TikvImporter.Backend == config.BackendLocal || cfg.TikvImporter.Backend == config.BackendImporter {
-		pdController, err := pdutil.NewPdController(ctx, cfg.TiDB.PdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		defer pdController.Close()
-
-		physical, logical, err := pdController.GetPDClient().GetTS(ctx)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-		ts = oracle.ComposeTS(physical, logical)
-	}
-
 	var metaBuilder metaMgrBuilder
 	switch cfg.TikvImporter.Backend {
 	case config.BackendLocal, config.BackendImporter:
@@ -343,8 +374,8 @@ func NewRestoreControllerWithPauser(
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
 		store:          s,
-		ts:             ts,
 		metaMgrBuilder: metaBuilder,
+		diskQuotaLock:  newDiskQuotaLock(),
 	}
 
 	return rc, nil
@@ -711,15 +742,13 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 
-	if rc.tidbGlue.OwnsSQLExecutor() {
+	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
+		// print check template only if check requirements is true.
 		fmt.Println(rc.checkTemplate.Output())
-	} else {
-		// TODO use a new template to log
-		log.L().Info(rc.checkTemplate.Output())
-	}
-	if !rc.checkTemplate.Success() {
-		return errors.Errorf("lightning pre check failed." +
-			"please fix the check item and make check passed or set --check-requirement=false to avoid this check")
+		if !rc.checkTemplate.Success() {
+			return errors.Errorf("tidb-lightning pre-check failed." +
+				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
+		}
 	}
 	return nil
 }
@@ -1584,11 +1613,13 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 	// data-engines that need to be restore or import. Otherwise, all data-engines should
 	// be finished already.
 
+	idxEngineCfg := &backend.EngineConfig{
+		TableInfo: tr.tableInfo,
+	}
 	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
 		indexWorker := rc.indexWorkers.Apply()
 		defer rc.indexWorkers.Recycle(indexWorker)
 
-		engineCfg := &backend.EngineConfig{}
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
@@ -1596,7 +1627,7 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				idxCnt--
 			}
 			threshold := estimateCompactionThreshold(cp, int64(idxCnt))
-			engineCfg.Local = &backend.LocalEngineConfig{
+			idxEngineCfg.Local = &backend.LocalEngineConfig{
 				Compact:            threshold > 0,
 				CompactConcurrency: 4,
 				CompactThreshold:   threshold,
@@ -1611,7 +1642,7 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				continue
 			}
 			if engine.Status < checkpoints.CheckpointStatusAllWritten {
-				indexEngine, err = rc.backend.OpenEngine(ctx, engineCfg, tr.tableName, indexEngineID, rc.ts)
+				indexEngine, err = rc.backend.OpenEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -1696,16 +1727,16 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 		}
 
 		if indexEngine != nil {
-			closedIndexEngine, restoreErr = indexEngine.Close(ctx)
+			closedIndexEngine, restoreErr = indexEngine.Close(ctx, idxEngineCfg)
 		} else {
-			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
+			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 		}
 
 		rc.saveStatusCheckpoint(tr.tableName, indexEngineID, restoreErr, checkpoints.CheckpointStatusClosed)
 	} else if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
-		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, tr.tableName, indexEngineID)
+		closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 	}
 	if restoreErr != nil {
 		return errors.Trace(restoreErr)
@@ -1740,7 +1771,10 @@ func (tr *TableRestore) restoreEngine(
 	defer cancel()
 	// all data has finished written, we can close the engine directly.
 	if cp.Status >= checkpoints.CheckpointStatusAllWritten {
-		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, tr.tableName, engineID)
+		engineCfg := &backend.EngineConfig{
+			TableInfo: tr.tableInfo,
+		}
+		closedEngine, err := rc.backend.UnsafeCloseEngine(ctx, engineCfg, tr.tableName, engineID)
 		// If any error occurred, recycle worker immediately
 		if err != nil {
 			return closedEngine, errors.Trace(err)
@@ -1763,7 +1797,11 @@ func (tr *TableRestore) restoreEngine(
 	}
 
 	logTask := tr.logger.With(zap.Int32("engineNumber", engineID)).Begin(zap.InfoLevel, "encode kv data and write")
-	dataEngine, err := rc.backend.OpenEngine(ctx, &backend.EngineConfig{}, tr.tableName, engineID, rc.ts)
+	dataEngineCfg := &backend.EngineConfig{
+		TableInfo: tr.tableInfo,
+		Local:     &backend.LocalEngineConfig{},
+	}
+	dataEngine, err := rc.backend.OpenEngine(ctx, dataEngineCfg, tr.tableName, engineID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1937,7 +1975,7 @@ func (tr *TableRestore) restoreEngine(
 		// if process is canceled, we should flush all chunk checkpoints for local backend
 		if rc.isLocalBackend() && common.IsContextCanceledError(err) {
 			// ctx is canceled, so to avoid Close engine failed, we use `context.Background()` here
-			if _, err2 := dataEngine.Close(context.Background()); err2 != nil {
+			if _, err2 := dataEngine.Close(context.Background(), dataEngineCfg); err2 != nil {
 				log.L().Warn("flush all chunk checkpoints failed before manually exits", zap.Error(err2))
 				return nil, errors.Trace(err)
 			}
@@ -1948,7 +1986,7 @@ func (tr *TableRestore) restoreEngine(
 		return nil, errors.Trace(err)
 	}
 
-	closedDataEngine, err := dataEngine.Close(ctx)
+	closedDataEngine, err := dataEngine.Close(ctx, dataEngineCfg)
 	// For local backend, if checkpoint is enabled, we must flush index engine to avoid data loss.
 	// this flush action impact up to 10% of the performance, so we only do it if necessary.
 	if err == nil && rc.cfg.Checkpoint.Enable && rc.isLocalBackend() {
@@ -1984,13 +2022,12 @@ func (tr *TableRestore) importEngine(
 	}
 
 	// 2. perform a level-1 compact if idling.
-	if rc.cfg.PostRestore.Level1Compact &&
-		atomic.CompareAndSwapInt32(&rc.compactState, compactStateIdle, compactStateDoing) {
+	if rc.cfg.PostRestore.Level1Compact && rc.compactState.CAS(compactStateIdle, compactStateDoing) {
 		go func() {
 			// we ignore level-1 compact failure since it is not fatal.
 			// no need log the error, it is done in (*Importer).Compact already.
 			_ = rc.doCompact(ctx, Level1Compact)
-			atomic.StoreInt32(&rc.compactState, compactStateIdle)
+			rc.compactState.Store(compactStateIdle)
 		}()
 	}
 
@@ -2139,7 +2176,7 @@ func (rc *Controller) fullCompact(ctx context.Context) error {
 
 	// wait until any existing level-1 compact to complete first.
 	task := log.L().Begin(zap.InfoLevel, "wait for completion of existing level 1 compaction")
-	for !atomic.CompareAndSwapInt32(&rc.compactState, compactStateIdle, compactStateDoing) {
+	for !rc.compactState.CAS(compactStateIdle, compactStateDoing) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	task.End(zap.ErrorLevel, nil)
@@ -2193,7 +2230,7 @@ func (rc *Controller) switchTiKVMode(ctx context.Context, mode sstpb.SwitchMode)
 }
 
 func (rc *Controller) enforceDiskQuota(ctx context.Context) {
-	if !atomic.CompareAndSwapInt32(&rc.diskQuotaState, diskQuotaStateIdle, diskQuotaStateChecking) {
+	if !rc.diskQuotaState.CAS(diskQuotaStateIdle, diskQuotaStateChecking) {
 		// do not run multiple the disk quota check / import simultaneously.
 		// (we execute the lock check in background to avoid blocking the cron thread)
 		return
@@ -2205,7 +2242,7 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 		// unlocked to avoid periodically interrupting the writer threads.
 		var locker sync.Locker
 		defer func() {
-			atomic.StoreInt32(&rc.diskQuotaState, diskQuotaStateIdle)
+			rc.diskQuotaState.Store(diskQuotaStateIdle)
 			if locker != nil {
 				locker.Unlock()
 			}
@@ -2245,7 +2282,7 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 			if locker == nil {
 				// blocks all writers when we detected disk quota being exceeded.
 				rc.diskQuotaLock.Lock()
-				locker = &rc.diskQuotaLock
+				locker = rc.diskQuotaLock
 			}
 
 			logger.Warn("disk quota exceeded")
@@ -2263,7 +2300,7 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 			// at this point, all engines are synchronized on disk.
 			// we then import every large engines one by one and complete.
 			// if any engine failed to import, we just try again next time, since the data are still intact.
-			atomic.StoreInt32(&rc.diskQuotaState, diskQuotaStateImporting)
+			rc.diskQuotaState.Store(diskQuotaStateImporting)
 			task := logger.Begin(zap.WarnLevel, "importing large engines for disk quota")
 			var importErr error
 			for _, engine := range largeEngines {
@@ -2317,7 +2354,7 @@ func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
 }
 
 func (rc *Controller) isLocalBackend() bool {
-	return rc.cfg.TikvImporter.Backend == "local"
+	return rc.cfg.TikvImporter.Backend == config.BackendLocal
 }
 
 // preCheckRequirements checks
@@ -2823,13 +2860,18 @@ func (cr *chunkRestore) deliverLoop(
 		}
 
 		err = func() error {
-			rc.diskQuotaLock.RLock()
-			defer rc.diskQuotaLock.RUnlock()
-
-			// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
-			if !dataSynced {
-				dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
+			// We use `TryRLock` with sleep here to avoid blocking current goroutine during importing when disk-quota is
+			// triggered, so that we can save chunkCheckpoint as soon as possible after `FlushEngine` is called.
+			// This implementation may not be very elegant or even completely correct, but it is currently a relatively
+			// simple and effective solution.
+			for !rc.diskQuotaLock.TryRLock() {
+				// try to update chunk checkpoint, this can help save checkpoint after importing when disk-quota is triggered
+				if !dataSynced {
+					dataSynced = cr.maybeSaveCheckpoint(rc, t, engineID, cr.chunk, dataEngine, indexEngine)
+				}
+				time.Sleep(time.Millisecond)
 			}
+			defer rc.diskQuotaLock.RUnlock()
 
 			// Write KVs into the engine
 			start := time.Now()

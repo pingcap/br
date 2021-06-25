@@ -161,9 +161,13 @@ func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
 	schemasMap := make(map[string]struct{})
 	tablesMap := make(map[string]struct{})
 	for _, db := range schemas {
-		schemasMap[utils.EncloseName(db.Info.Name.O)] = struct{}{}
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
+		schemasMap[utils.EncloseName(dbName)] = struct{}{}
 		for _, table := range db.Tables {
-			tablesMap[utils.EncloseDBAndTable(db.Info.Name.O, table.Info.Name.O)] = struct{}{}
+			tablesMap[utils.EncloseDBAndTable(dbName, table.Info.Name.O)] = struct{}{}
 		}
 	}
 	restoreSchemas := cfg.Schemas
@@ -469,8 +473,12 @@ func filterRestoreFiles(
 ) (files []*backuppb.File, tables []*metautil.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
 		for _, table := range db.Tables {
-			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
+			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
 				continue
 			}
 			if !createdDatabase {

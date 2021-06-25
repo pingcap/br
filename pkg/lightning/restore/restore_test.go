@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/docker/go-units"
@@ -210,6 +212,85 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		fn(cfg)
 		err := cpdb.Initialize(context.Background(), cfg, map[string]*checkpoints.TidbDBInfo{})
 		c.Assert(err, IsNil)
+	}
+}
+
+func (s *restoreSuite) TestDiskQuotaLock(c *C) {
+	lock := newDiskQuotaLock()
+
+	lock.Lock()
+	c.Assert(lock.TryRLock(), IsFalse)
+	lock.Unlock()
+	c.Assert(lock.TryRLock(), IsTrue)
+	c.Assert(lock.TryRLock(), IsTrue)
+
+	rLocked := 2
+	lockHeld := make(chan struct{})
+	go func() {
+		lock.Lock()
+		lockHeld <- struct{}{}
+	}()
+	for lock.TryRLock() {
+		rLocked++
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case <-lockHeld:
+		c.Fatal("write lock is held before all read locks are released")
+	case <-time.NewTimer(10 * time.Millisecond).C:
+	}
+	for ; rLocked > 0; rLocked-- {
+		lock.RUnlock()
+	}
+	<-lockHeld
+	lock.Unlock()
+
+	done := make(chan struct{})
+	count := int32(0)
+	reader := func() {
+		for i := 0; i < 1000; i++ {
+			if lock.TryRLock() {
+				n := atomic.AddInt32(&count, 1)
+				if n < 1 || n >= 10000 {
+					lock.RUnlock()
+					panic(fmt.Sprintf("unexpected count(%d)", n))
+				}
+				for i := 0; i < 100; i++ {
+				}
+				atomic.AddInt32(&count, -1)
+				lock.RUnlock()
+			}
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	writer := func() {
+		for i := 0; i < 1000; i++ {
+			lock.Lock()
+			n := atomic.AddInt32(&count, 10000)
+			if n != 10000 {
+				lock.RUnlock()
+				panic(fmt.Sprintf("unexpected count(%d)", n))
+			}
+			for i := 0; i < 100; i++ {
+			}
+			atomic.AddInt32(&count, -10000)
+			lock.Unlock()
+			time.Sleep(time.Microsecond)
+		}
+		done <- struct{}{}
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 2; i++ {
+		go writer()
+	}
+	for i := 0; i < 5; i++ {
+		go reader()
+	}
+	for i := 0; i < 12; i++ {
+		<-done
 	}
 }
 
@@ -774,7 +855,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	engineUUID := uuid.New()
 
 	mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	mockBackend.EXPECT().
 		ImportEngine(ctx, engineUUID).
@@ -783,7 +864,7 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 		CleanupEngine(ctx, engineUUID).
 		Return(nil)
 
-	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, "tag", engineUUID)
+	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, nil, "tag", engineUUID)
 	c.Assert(err, IsNil)
 	err = s.tr.importKV(ctx, closedEngine, rc, 1)
 	c.Assert(err, IsNil)
@@ -806,13 +887,13 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	engineUUID := uuid.New()
 
 	mockBackend.EXPECT().
-		CloseEngine(ctx, engineUUID).
+		CloseEngine(ctx, nil, engineUUID).
 		Return(nil)
 	mockBackend.EXPECT().
 		ImportEngine(ctx, engineUUID).
 		Return(errors.Annotate(context.Canceled, "fake import error"))
 
-	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, "tag", engineUUID)
+	closedEngine, err := importer.UnsafeCloseEngineWithUUID(ctx, nil, "tag", engineUUID)
 	c.Assert(err, IsNil)
 	err = s.tr.importKV(ctx, closedEngine, rc, 1)
 	c.Assert(err, ErrorMatches, "fake import error.*")
@@ -876,6 +957,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		closedEngineLimit: worker.NewPool(ctx, 1, "closed_engine"),
 		store:             s.store,
 		metaMgrBuilder:    noopMetaMgrBuilder{},
+		diskQuotaLock:     newDiskQuotaLock(),
 	}
 	go func() {
 		for range chptCh {
@@ -961,14 +1043,14 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	mockWriter := mock.NewMockEngineWriter(controller)
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().
-		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		AppendRows(ctx, gomock.Any(), gomock.Any(), gomock.Any()).
 		Return(nil).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 	indexWriter, err := indexEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
@@ -976,7 +1058,7 @@ func (s *chunkRestoreSuite) TestDeliverLoopEmptyData(c *C) {
 	// Deliver nothing.
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, backend: importer}
+	rc := &Controller{cfg: cfg, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	kvsCh := make(chan []deliveredKVs, 1)
 	kvsCh <- []deliveredKVs{}
@@ -1004,9 +1086,9 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	mockBackend.EXPECT().LocalWriter(ctx, gomock.Any(), gomock.Any()).Return(mockWriter, nil).AnyTimes()
 	mockWriter.EXPECT().IsSynced().Return(true).AnyTimes()
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
@@ -1017,7 +1099,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	// Set up the expected API calls to the data engine...
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_ryyyyyyyy"),
 				Val: []byte("value1"),
@@ -1034,7 +1116,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	// Note: This test assumes data engine is written before the index engine.
 
 	mockWriter.EXPECT().
-		AppendRows(ctx, s.tr.tableName, mockCols, gomock.Any(), kv.MakeRowsFromKvPairs([]common.KvPair{
+		AppendRows(ctx, s.tr.tableName, mockCols, kv.MakeRowsFromKvPairs([]common.KvPair{
 			{
 				Key: []byte("txxxxxxxx_izzzzzzzz"),
 				Val: []byte("index1"),
@@ -1072,7 +1154,7 @@ func (s *chunkRestoreSuite) TestDeliverLoop(c *C) {
 	}()
 
 	cfg := &config.Config{}
-	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer}
+	rc := &Controller{cfg: cfg, saveCpCh: saveCpCh, backend: importer, diskQuotaLock: newDiskQuotaLock()}
 
 	_, err = s.cr.deliverLoop(ctx, kvsCh, s.tr, 0, dataWriter, indexWriter, rc)
 	c.Assert(err, IsNil)
@@ -1269,9 +1351,9 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 	mockClient.EXPECT().OpenEngine(ctx, gomock.Any()).Return(nil, nil)
 
-	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0, 0)
+	dataEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, 0)
 	c.Assert(err, IsNil)
-	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1, 0)
+	indexEngine, err := importer.OpenEngine(ctx, &backend.EngineConfig{}, s.tr.tableName, -1)
 	c.Assert(err, IsNil)
 	dataWriter, err := dataEngine.LocalWriter(ctx, &backend.LocalWriterConfig{})
 	c.Assert(err, IsNil)
@@ -1301,10 +1383,11 @@ func (s *chunkRestoreSuite) TestRestore(c *C) {
 
 	saveCpCh := make(chan saveCp, 2)
 	err = s.cr.restore(ctx, s.tr, 0, dataWriter, indexWriter, &Controller{
-		cfg:      s.cfg,
-		saveCpCh: saveCpCh,
-		backend:  importer,
-		pauser:   DeliverPauser,
+		cfg:           s.cfg,
+		saveCpCh:      saveCpCh,
+		backend:       importer,
+		pauser:        DeliverPauser,
+		diskQuotaLock: newDiskQuotaLock(),
 	})
 	c.Assert(err, IsNil)
 	c.Assert(saveCpCh, HasLen, 2)
@@ -1495,26 +1578,11 @@ func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
 				"regions": [
 					{
 						"id": 1,
-						"written_bytes": 1100000
+						"written_bytes": 11000000
 					}
 				]
 			}`),
-			"(.*)Cluster has write flow(.*)",
-			false,
-			1,
-			0,
-		},
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1,
-						"read_keys": 1001
-					}
-				]
-			}`),
-			"(.*)Cluster has read flow(.*)",
+			"(.*)write flow(.*)",
 			false,
 			1,
 			0,

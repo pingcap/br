@@ -25,6 +25,8 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_kvpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/table"
+	"github.com/tikv/client-go/v2/oracle"
+	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
@@ -62,6 +64,10 @@ type importer struct {
 	mutationPool sync.Pool
 	// lock ensures ImportEngine are runs serially
 	lock sync.Mutex
+
+	tsMap sync.Map // engineUUID -> commitTS
+	// For testing convenience.
+	getTSFunc func(ctx context.Context) (uint64, error)
 }
 
 // NewImporter creates a new connection to tikv-importer. A single connection
@@ -72,12 +78,27 @@ func NewImporter(ctx context.Context, tls *common.TLS, importServerAddr string, 
 		return backend.MakeBackend(nil), errors.Trace(err)
 	}
 
+	getTSFunc := func(ctx context.Context) (uint64, error) {
+		pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
+		if err != nil {
+			return 0, err
+		}
+		defer pdCli.Close()
+
+		physical, logical, err := pdCli.GetTS(ctx)
+		if err != nil {
+			return 0, err
+		}
+		return oracle.ComposeTS(physical, logical), nil
+	}
+
 	return backend.MakeBackend(&importer{
 		conn:         conn,
 		cli:          import_kvpb.NewImportKVClient(conn),
 		pdAddr:       pdAddr,
 		tls:          tls,
 		mutationPool: sync.Pool{New: func() interface{} { return &import_kvpb.Mutation{} }},
+		getTSFunc:    getTSFunc,
 	}), nil
 }
 
@@ -90,6 +111,9 @@ func NewMockImporter(cli import_kvpb.ImportKVClient, pdAddr string) backend.Back
 		cli:          cli,
 		pdAddr:       pdAddr,
 		mutationPool: sync.Pool{New: func() interface{} { return &import_kvpb.Mutation{} }},
+		getTSFunc: func(ctx context.Context) (uint64, error) {
+			return uint64(time.Now().UnixNano()), nil
+		},
 	})
 }
 
@@ -133,10 +157,35 @@ func (importer *importer) OpenEngine(ctx context.Context, cfg *backend.EngineCon
 	}
 
 	_, err := importer.cli.OpenEngine(ctx, req)
-	return errors.Trace(err)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	if err = importer.allocateTSIfNotExists(ctx, engineUUID); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
-func (importer *importer) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (importer *importer) getEngineTS(engineUUID uuid.UUID) uint64 {
+	if v, ok := importer.tsMap.Load(engineUUID); ok {
+		return v.(uint64)
+	}
+	return 0
+}
+
+func (importer *importer) allocateTSIfNotExists(ctx context.Context, engineUUID uuid.UUID) error {
+	if importer.getEngineTS(engineUUID) > 0 {
+		return nil
+	}
+	ts, err := importer.getTSFunc(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	importer.tsMap.LoadOrStore(engineUUID, ts)
+	return nil
+}
+
+func (importer *importer) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	req := &import_kvpb.CloseEngineRequest{
 		Uuid: engineUUID[:],
 	}
@@ -170,6 +219,9 @@ func (importer *importer) CleanupEngine(ctx context.Context, engineUUID uuid.UUI
 	}
 
 	_, err := importer.cli.CleanupEngine(ctx, req)
+	if err == nil {
+		importer.tsMap.Delete(engineUUID)
+	}
 	return errors.Trace(err)
 }
 
@@ -177,11 +229,11 @@ func (importer *importer) WriteRows(
 	ctx context.Context,
 	engineUUID uuid.UUID,
 	tableName string,
-	columnNames []string,
-	ts uint64,
+	_ []string,
 	rows kv.Rows,
 ) (finalErr error) {
 	var err error
+	ts := importer.getEngineTS(engineUUID)
 outside:
 	for _, r := range rows.SplitIntoChunks(importer.MaxChunkSize()) {
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
@@ -339,8 +391,8 @@ func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
 	return nil, nil
 }
 
-func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, ts uint64, rows kv.Rows) error {
-	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, ts, rows)
+func (w *Writer) AppendRows(ctx context.Context, tableName string, columnNames []string, rows kv.Rows) error {
+	return w.importer.WriteRows(ctx, w.engineUUID, tableName, columnNames, rows)
 }
 
 func (w *Writer) IsSynced() bool {

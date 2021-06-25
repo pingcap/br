@@ -16,9 +16,6 @@
 # This test is used to test compatible for BR restore.
 set -eux
 
-# Skip test temporarily. Reopen after TiDB update.
-exit 0
-
 BUCKET="test"
 MINIO_ACCESS_KEY='brs3accesskey'
 MINIO_SECRET_KEY='brs3secretkey'
