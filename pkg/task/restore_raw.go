@@ -94,7 +94,6 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
 		return errors.Trace(err)
 	}
@@ -107,6 +106,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta, files))
 
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")
