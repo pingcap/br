@@ -144,10 +144,6 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
-func (l *LogClient) WaitCdcSync() error {
-	return nil
-}
-
 // ResetTSRange used for test.
 func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
 	l.startTS = startTS
@@ -691,18 +687,20 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 				now = time.Now()
 				if l.meta != nil && l.meta.GlobalResolvedTS >= l.endTS {
 					cdcSync <- struct{}{}
-					return
-				} else {
-					data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
-					if err != nil {
-						errCh <- err
-						return
-					}
-					err = json.Unmarshal(data, l.meta)
-					if err != nil {
-						errCh <- err
-						return
-					}
+					close(cdcSync)
+					break
+				}
+				data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
+				if err != nil {
+					errCh <- err
+					close(errCh)
+					break
+				}
+				err = json.Unmarshal(data, l.meta)
+				if err != nil {
+					errCh <- err
+					close(errCh)
+					break
 				}
 			}
 		}
