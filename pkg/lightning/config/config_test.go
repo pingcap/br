@@ -65,6 +65,8 @@ func assignMinimalLegalValue(cfg *config.Config) {
 	cfg.TiDB.StatusPort = 8901
 	cfg.TiDB.PdAddr = "234.56.78.90:12345"
 	cfg.Mydumper.SourceDir = "file://."
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 	cfg.TikvImporter.DiskQuota = 1
 }
 
@@ -78,6 +80,8 @@ func (s *configTestSuite) TestAdjustPdAddrAndPort(c *C) {
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
 	cfg.Mydumper.SourceDir = "."
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
@@ -95,6 +99,8 @@ func (s *configTestSuite) TestAdjustPdAddrAndPortViaAdvertiseAddr(c *C) {
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
 	cfg.Mydumper.SourceDir = "."
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
@@ -109,6 +115,8 @@ func (s *configTestSuite) TestAdjustPageNotFound(c *C) {
 	cfg := config.NewConfig()
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, ErrorMatches, "cannot fetch settings from TiDB.*")
@@ -120,11 +128,19 @@ func (s *configTestSuite) TestAdjustConnectRefused(c *C) {
 	cfg := config.NewConfig()
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	ts.Close() // immediately close to ensure connection refused.
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, ErrorMatches, "cannot fetch settings from TiDB.*")
+}
+
+func (s *configTestSuite) TestAdjustBackendNotSet(c *C) {
+	cfg := config.NewConfig()
+	err := cfg.Adjust(context.Background())
+	c.Assert(err, ErrorMatches, "tikv-importer.backend must not be empty!")
 }
 
 func (s *configTestSuite) TestAdjustInvalidBackend(c *C) {
@@ -161,6 +177,8 @@ func (s *configTestSuite) TestDecodeError(c *C) {
 	cfg := config.NewConfig()
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, ErrorMatches, "cannot fetch settings from TiDB.*")
@@ -173,6 +191,8 @@ func (s *configTestSuite) TestInvalidSetting(c *C) {
 	cfg := config.NewConfig()
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, ErrorMatches, "invalid `tidb.port` setting")
@@ -185,6 +205,8 @@ func (s *configTestSuite) TestInvalidPDAddr(c *C) {
 	cfg := config.NewConfig()
 	cfg.TiDB.Host = host
 	cfg.TiDB.StatusPort = port
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = "."
 
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, ErrorMatches, "invalid `tidb.pd-addr` setting")
@@ -419,6 +441,8 @@ func (s *configTestSuite) TestInvalidCSV(c *C) {
 		cfg.Mydumper.SourceDir = "file://."
 		cfg.TiDB.Port = 4000
 		cfg.TiDB.PdAddr = "test.invalid:2379"
+		cfg.TikvImporter.Backend = config.BackendLocal
+		cfg.TikvImporter.SortedKVDir = "."
 		err := cfg.LoadFromTOML([]byte(tc.input))
 		c.Assert(err, IsNil)
 
@@ -496,7 +520,8 @@ func (s *configTestSuite) TestLoadConfig(c *C) {
 		"-tidb-password", "12345",
 		"-pd-urls", "172.16.30.11:2379,172.16.30.12:2379",
 		"-d", path,
-		"-importer", "172.16.30.11:23008",
+		"-backend", config.BackendLocal,
+		"-sorted-kv-dir", ".",
 		"-checksum=false",
 	}, nil)
 	c.Assert(err, IsNil)
@@ -508,7 +533,8 @@ func (s *configTestSuite) TestLoadConfig(c *C) {
 	c.Assert(cfg.TiDB.Psw, Equals, "12345")
 	c.Assert(cfg.TiDB.PdAddr, Equals, "172.16.30.11:2379,172.16.30.12:2379")
 	c.Assert(cfg.Mydumper.SourceDir, Equals, path)
-	c.Assert(cfg.TikvImporter.Addr, Equals, "172.16.30.11:23008")
+	c.Assert(cfg.TikvImporter.Backend, Equals, config.BackendLocal)
+	c.Assert(cfg.TikvImporter.SortedKVDir, Equals, ".")
 	c.Assert(cfg.PostRestore.Checksum, Equals, config.OpLevelOff)
 	c.Assert(cfg.PostRestore.Analyze, Equals, config.OpLevelOptional)
 

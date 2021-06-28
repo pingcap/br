@@ -1,3 +1,6 @@
+[tikv-importer]
+backend = "local"
+
 [checkpoint]
 enable = true
 driver = "mysql"
