@@ -4,7 +4,7 @@ package storage
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/fsouza/fake-gcs-server/fakestorage"
@@ -42,7 +42,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 
 	rc, err := server.Client().Bucket(bucketName).Object("a/b/key").NewReader(ctx)
 	c.Assert(err, IsNil)
-	d, err := ioutil.ReadAll(rc)
+	d, err := io.ReadAll(rc)
 	rc.Close()
 	c.Assert(err, IsNil)
 	c.Assert(d, DeepEquals, []byte("data"))
@@ -108,7 +108,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+		fakeCredentialsFile, err := os.CreateTemp("", "fakeCredentialsFile")
 		c.Assert(err, IsNil)
 		defer func() {
 			fakeCredentialsFile.Close()
@@ -137,7 +137,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		fakeCredentialsFile, err := ioutil.TempFile("", "fakeCredentialsFile")
+		fakeCredentialsFile, err := os.CreateTemp("", "fakeCredentialsFile")
 		c.Assert(err, IsNil)
 		defer func() {
 			fakeCredentialsFile.Close()

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"net/http"
 	"net/url"
@@ -165,11 +164,11 @@ func pdRequest(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		res, _ := ioutil.ReadAll(resp.Body)
+		res, _ := io.ReadAll(resp.Body)
 		return nil, errors.Annotatef(berrors.ErrPDInvalidResponse, "[%d] %s %s", resp.StatusCode, res, reqURL)
 	}
 
-	r, err := ioutil.ReadAll(resp.Body)
+	r, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

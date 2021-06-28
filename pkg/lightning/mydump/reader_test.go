@@ -16,7 +16,6 @@ package mydump_test
 import (
 	"context"
 	"errors"
-	"io/ioutil"
 	"os"
 
 	mockstorage "github.com/pingcap/br/pkg/mock/storage"
@@ -37,7 +36,7 @@ func (s *testMydumpReaderSuite) TearDownSuite(c *C) {}
 
 func (s *testMydumpReaderSuite) TestExportStatementNoTrailingNewLine(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.CreateTemp(dir, "tidb_lightning_test_reader")
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -84,7 +83,7 @@ func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(
 
 func (s *testMydumpReaderSuite) exportStatmentShouldBe(c *C, stmt string, expected string) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.CreateTemp(dir, "tidb_lightning_test_reader")
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -105,7 +104,7 @@ func (s *testMydumpReaderSuite) exportStatmentShouldBe(c *C, stmt string, expect
 
 func (s *testMydumpReaderSuite) TestExportStatementGBK(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.CreateTemp(dir, "tidb_lightning_test_reader")
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -131,7 +130,7 @@ func (s *testMydumpReaderSuite) TestExportStatementGBK(c *C) {
 
 func (s *testMydumpReaderSuite) TestExportStatementGibberishError(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.CreateTemp(dir, "tidb_lightning_test_reader")
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 

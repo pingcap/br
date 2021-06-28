@@ -5,7 +5,7 @@ package mock
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/pprof"
 	"net/url"
@@ -180,7 +180,7 @@ func waitUntilServerOnline(addr string, statusPort uint) string {
 		resp, err := http.Get(statusURL) // nolint:noctx
 		if err == nil {
 			// Ignore errors.
-			_, _ = ioutil.ReadAll(resp.Body)
+			_, _ = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
 			break
 		}

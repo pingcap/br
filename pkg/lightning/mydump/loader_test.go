@@ -15,7 +15,6 @@ package mydump_test
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +63,7 @@ func (s *testMydumpLoaderSuite) touch(c *C, filename ...string) {
 	components = append(components, s.sourceDir)
 	components = append(components, filename...)
 	path := filepath.Join(components...)
-	err := ioutil.WriteFile(path, nil, 0o644)
+	err := os.WriteFile(path, nil, 0o644)
 	c.Assert(err, IsNil)
 }
 
@@ -138,9 +137,9 @@ func (s *testMydumpLoaderSuite) TestTableNoHostDB(c *C) {
 	*/
 
 	dir := s.sourceDir
-	err := ioutil.WriteFile(filepath.Join(dir, "notdb-schema-create.sql"), nil, 0o644)
+	err := os.WriteFile(filepath.Join(dir, "notdb-schema-create.sql"), nil, 0o644)
 	c.Assert(err, IsNil)
-	err = ioutil.WriteFile(filepath.Join(dir, "db.tbl-schema.sql"), nil, 0o644)
+	err = os.WriteFile(filepath.Join(dir, "db.tbl-schema.sql"), nil, 0o644)
 	c.Assert(err, IsNil)
 
 	_, err = md.NewMyDumpLoader(context.Background(), s.cfg)
@@ -267,7 +266,7 @@ func (s *testMydumpLoaderSuite) TestViewNoHostTable(c *C) {
 func (s *testMydumpLoaderSuite) TestDataWithoutSchema(c *C) {
 	dir := s.sourceDir
 	p := filepath.Join(dir, "db.tbl.sql")
-	err := ioutil.WriteFile(p, nil, 0o644)
+	err := os.WriteFile(p, nil, 0o644)
 	c.Assert(err, IsNil)
 
 	mdl, err := md.NewMyDumpLoader(context.Background(), s.cfg)
