@@ -165,7 +165,7 @@ func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.Fil
 	}
 	add := func(file *backuppb.File) {
 		if _, ok := exist[file.GetName()]; ok {
-			total += uint64(file.Size())
+			total += uint64(file.Size_)
 		}
 	}
 	reader.readDataFiles(ctx, add)
