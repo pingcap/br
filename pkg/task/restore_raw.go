@@ -106,7 +106,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, reader.ArchiveSize(ctx, files))
+	archiveSize, err := reader.ArchiveSize(ctx, files)
+	if err != nil {
+		return err
+	}
+	g.Record(summary.RestoreDataSize, archiveSize)
 
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")

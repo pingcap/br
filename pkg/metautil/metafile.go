@@ -157,7 +157,7 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 }
 
 // ArchiveSize return the size of Archive data
-func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
+func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) (uint64, error) {
 	total := uint64(reader.backupMeta.Size())
 	exist := make(map[string]struct{})
 	for i := 0; i < len(files); i++ {
@@ -168,8 +168,11 @@ func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.Fil
 			total += uint64(file.Size_)
 		}
 	}
-	reader.readDataFiles(ctx, add)
-	return total
+	var err error
+	if err = reader.readDataFiles(ctx, add); err != nil {
+		return total, errors.Trace(err)
+	}
+	return total, nil
 }
 
 // ReadDDLs reads the ddls from the backupmeta.
