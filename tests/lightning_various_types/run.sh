@@ -110,4 +110,8 @@ for BACKEND in importer tidb local; do
   check_contains 'c: 99999999999999999999.0'
   check_contains 'd: 1.8446744073709552e19'
 
+  run_sql 'SELECT count(*), sum(id) FROM vt.bigint'
+  check_contains 'count(*): 6'
+  check_contains 'sum(id): -3341565093352173667'
+
 done
