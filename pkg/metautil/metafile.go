@@ -156,6 +156,22 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 	return walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.FileIndex, outputFn)
 }
 
+// ArchiveSize return the size of Archive data
+func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
+	total := uint64(reader.backupMeta.Size())
+	exist := make(map[string]struct{})
+	for i := 0; i < len(files); i++ {
+		exist[files[i].GetName()] = struct{}{}
+	}
+	add := func(file *backuppb.File) {
+		if _, ok := exist[file.GetName()]; ok {
+			total += uint64(file.Size())
+		}
+	}
+	reader.readDataFiles(ctx, add)
+	return total
+}
+
 // ReadDDLs reads the ddls from the backupmeta.
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
