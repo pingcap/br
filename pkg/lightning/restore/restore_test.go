@@ -155,6 +155,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		cfg.TaskID = 123
 		cfg.TiDB.Port = 4000
 		cfg.TiDB.PdAddr = "127.0.0.1:2379"
+		cfg.TikvImporter.Backend = config.BackendImporter
 		cfg.TikvImporter.Addr = "127.0.0.1:8287"
 		cfg.TikvImporter.SortedKVDir = "/tmp/sorted-kv"
 
@@ -166,7 +167,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 
 	adjustFuncs := map[string]func(cfg *config.Config){
 		"tikv-importer.backend": func(cfg *config.Config) {
-			cfg.TikvImporter.Backend = "local"
+			cfg.TikvImporter.Backend = config.BackendLocal
 		},
 		"tikv-importer.addr": func(cfg *config.Config) {
 			cfg.TikvImporter.Addr = "128.0.0.1:8287"
@@ -923,6 +924,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	cfg.Mydumper.SourceDir = "."
 	cfg.Mydumper.CSV.Header = false
+	cfg.TikvImporter.Backend = config.BackendImporter
 	tls, err := cfg.ToTLS()
 	c.Assert(err, IsNil)
 

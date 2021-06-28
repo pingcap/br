@@ -63,6 +63,8 @@ func (s *lightningSuite) TestRun(c *C) {
 	globalConfig.TiDB.Port = 4000
 	globalConfig.TiDB.PdAddr = "test.invalid:2379"
 	globalConfig.Mydumper.SourceDir = "not-exists"
+	globalConfig.TikvImporter.Backend = config.BackendLocal
+	globalConfig.TikvImporter.SortedKVDir = c.MkDir()
 	lightning := New(globalConfig)
 	cfg := config.NewConfig()
 	err := cfg.LoadFromGlobal(globalConfig)
@@ -115,6 +117,8 @@ func (s *lightningServerSuite) SetUpTest(c *C) {
 	cfg.App.ServerMode = true
 	cfg.App.StatusAddr = "127.0.0.1:0"
 	cfg.Mydumper.SourceDir = "file://."
+	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.SortedKVDir = c.MkDir()
 
 	s.lightning = New(cfg)
 	s.taskCfgCh = make(chan *config.Config)

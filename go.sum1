@@ -469,8 +469,8 @@ github.com/pingcap/parser v0.0.0-20210610080504-cb77169bfed9/go.mod h1:xZC8I7bug
 github.com/pingcap/sysutil v0.0.0-20200206130906-2bfa6dc40bcd/go.mod h1:EB/852NMQ+aRKioCpToQ94Wl7fktV+FNnxf3CX/TTXI=
 github.com/pingcap/sysutil v0.0.0-20210315073920-cc0985d983a3 h1:A9KL9R+lWSVPH8IqUuH1QSTRJ5FGoY1bT2IcfPKsWD8=
 github.com/pingcap/sysutil v0.0.0-20210315073920-cc0985d983a3/go.mod h1:tckvA041UWP+NqYzrJ3fMgC/Hw9wnmQ/tUkp/JaHly8=
-github.com/pingcap/tidb v1.1.0-beta.0.20210611165635-07d16065d1bd h1:ei4DgV5BH1hUBen1w2hoSp0vPIQDbbJzFEV5vL16q4s=
-github.com/pingcap/tidb v1.1.0-beta.0.20210611165635-07d16065d1bd/go.mod h1:qC/By1WbjT3arKXJChHxBLgP+bJzGW8lUmPRjIevaKw=
+github.com/pingcap/tidb v1.1.0-beta.0.20210616173237-74055f7f0e14 h1:5E1xBVI6Ms1qP0NDC1nXp211so6kGziINRMqBZWCdkI=
+github.com/pingcap/tidb v1.1.0-beta.0.20210616173237-74055f7f0e14/go.mod h1:/8f5eRkQXdommvjCKYsQ7bpzHwgbFE7G+k2GLONR8ZE=
 github.com/pingcap/tidb-dashboard v0.0.0-20210512074702-4ee3e3909d5e/go.mod h1:7HnQAeqKOuJwCBUeglCUel7SjW6fPNnoXawuv+6Q6Ek=
 github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible h1:ceznmu/lLseGHP/jKyOa/3u/5H3wtLLLqkH2V3ssSjg=
 github.com/pingcap/tidb-tools v4.0.9-0.20201127090955-2707c97b3853+incompatible/go.mod h1:XGdcy9+yqlDSEMTpOXnwf3hiTeqrV6MN/u1se9N8yIM=
@@ -584,8 +584,8 @@ github.com/tiancaiamao/appdash v0.0.0-20181126055449-889f96f722a2/go.mod h1:2PfK
 github.com/tidwall/gjson v1.3.5/go.mod h1:P256ACg0Mn+j1RXIDXoss50DeIABTYK1PULOJHhxOls=
 github.com/tidwall/match v1.0.1/go.mod h1:LujAq0jyVjBy028G1WhWfIzbpQfMO8bBZ6Tyb0+pL9E=
 github.com/tidwall/pretty v1.0.0/go.mod h1:XNkn88O1ChpSDQmQeStsy+sBenx6DDtFZJxhVysOjyk=
-github.com/tikv/client-go/v2 v2.0.0-20210611041035-d9b5c73d4ef8 h1:jSzTAuBsBbYscDYWOO+XonMoYF5er7ffhgkoRwcQsjg=
-github.com/tikv/client-go/v2 v2.0.0-20210611041035-d9b5c73d4ef8/go.mod h1:2ZWVKSfm6BWBY0dgH0h6o+vAzNuXWD/z0ihkMNv3J6E=
+github.com/tikv/client-go/v2 v2.0.0-20210616060203-94f269a0f96a h1:SQwO+ZJSvNGqHtpczt7rHD5tQci/XRWwH0BL4Uefhf0=
+github.com/tikv/client-go/v2 v2.0.0-20210616060203-94f269a0f96a/go.mod h1:2ZWVKSfm6BWBY0dgH0h6o+vAzNuXWD/z0ihkMNv3J6E=
 github.com/tikv/pd v1.1.0-beta.0.20210609101029-3ba158cf41a4 h1:QljEYXHc2krYg6f1zol6f7Ut9QBDtK1UVm9UZOT0YFE=
 github.com/tikv/pd v1.1.0-beta.0.20210609101029-3ba158cf41a4/go.mod h1:4AiyUYyIG4cA7P+xDU/Mep0yo4Hb+2IfFstiOSKFbJ4=
 github.com/tklauser/go-sysconf v0.3.4 h1:HT8SVixZd3IzLdfs/xlpq0jeSfTX57g1v6wB1EuzV7M=

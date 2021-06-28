@@ -422,7 +422,7 @@ func NewConfig() *Config {
 			Filter:        DefaultFilter,
 		},
 		TikvImporter: TikvImporter{
-			Backend:         BackendImporter,
+			Backend:         "",
 			OnDuplicate:     ReplaceOnDup,
 			MaxKVPairs:      4096,
 			SendKVPairs:     32768,
@@ -564,6 +564,9 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.Mydumper.DefaultFileRules = true
 	}
 
+	if cfg.TikvImporter.Backend == "" {
+		return errors.New("tikv-importer.backend must not be empty!")
+	}
 	cfg.TikvImporter.Backend = strings.ToLower(cfg.TikvImporter.Backend)
 	mustHaveInternalConnections := true
 	switch cfg.TikvImporter.Backend {
