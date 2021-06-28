@@ -60,7 +60,7 @@ hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
 # NOTE : cases `outage-at-finegrained shutdown scale-out` should be first to avoid issue
 #       https://github.com/pingcap/br/issues/1050
-cases=${cases:-'shutdown scale-out'}
+cases=${cases:-'outage-at-finegrained outage outage-after-request'}
 
 for failure in $cases; do
     rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"
@@ -73,7 +73,7 @@ github.com/pingcap/br/pkg/conn/hint-get-backup-client=1*return(\"$hint_get_backu
 
     backup_dir=${TEST_DIR:?}/"backup{test:${TEST_NAME}|with:${failure}}"
     rm -rf "${backup_dir:?}"
-    run_br backup full -s local://"$backup_dir" --ratelimit 128 --ratelimit-unit 1024 &
+    run_br backup full -s local://"$backup_dir" &
     backup_pid=$!
     single_point_fault $failure
     wait $backup_pid
