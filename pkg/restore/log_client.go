@@ -144,6 +144,10 @@ func NewLogRestoreClient(
 	return lc, nil
 }
 
+func (l *LogClient) WaitCdcSync() error {
+	return nil
+}
+
 // ResetTSRange used for test.
 func (l *LogClient) ResetTSRange(startTS uint64, endTS uint64) {
 	l.startTS = startTS
@@ -676,16 +680,39 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	// 2. Find proper data by TS range
 	// 3. Encode and ingest data to tikv
 
+	now := time.Now()
+	syncTimeout := 5 * time.Second
+	cdcSync := make(chan struct{})
+	errCh := make(chan error)
+
+	go func() {
+		for {
+			if time.Since(now) >= syncTimeout {
+				now = time.Now()
+				if l.meta != nil && l.meta.GlobalResolvedTS >= l.endTS {
+					cdcSync <- struct{}{}
+					return
+				} else {
+					data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
+					if err != nil {
+						errCh <- err
+						return
+					}
+					err = json.Unmarshal(data, l.meta)
+					if err != nil {
+						errCh <- err
+						return
+					}
+				}
+			}
+		}
+	}()
 	// parse meta file
-	data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
-	if err != nil {
+	select {
+	case err := <-errCh:
 		return errors.Trace(err)
+	case <-cdcSync:
 	}
-	err = json.Unmarshal(data, l.meta)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	log.Info("get meta from storage", zap.Binary("data", data))
 
 	if l.startTS > l.meta.GlobalResolvedTS {
 		return errors.Annotatef(berrors.ErrRestoreRTsConstrain,
