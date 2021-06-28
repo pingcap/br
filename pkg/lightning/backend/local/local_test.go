@@ -89,7 +89,7 @@ func (s *localSuite) TestNextKey(c *C) {
 	// overflowed
 	key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(math.MaxInt64))
 	next = tablecodec.EncodeTablePrefix(2)
-	c.Assert(bytes.Compare(key, next) < 0, IsTrue)
+	c.Assert([]byte(key), Less, next)
 	c.Assert(nextKey(key), DeepEquals, next)
 
 	testDatums := [][]types.Datum{
