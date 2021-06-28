@@ -654,9 +654,6 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 	for _, file := range writer.backupMeta.Files {
 		total += file.Size_
 	}
-	for _, size := range writer.metafileSizes {
-		total += uint64(size)
-	}
 	return total
 }
 
