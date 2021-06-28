@@ -29,6 +29,34 @@ var statsTables = map[string]struct{}{
 	"stats_top_n":      {},
 }
 
+var unRecoverableTable = map[string]struct{}{
+	// some variables in tidb (e.g. gc_safe_point) cannot be recovered.
+	"tidb":             {},
+	"global_variables": {},
+
+	// all user related tables cannot be recovered for now.
+	"columns_priv":  {},
+	"db":            {},
+	"default_roles": {},
+	"global_grants": {},
+	"global_priv":   {},
+	"role_edges":    {},
+	"tables_priv":   {},
+	"user":          {},
+
+	// gc info don't need to recover.
+	"gc_delete_range":      {},
+	"gc_delete_range_done": {},
+
+	// schema_index_usage has table id need to be rewrite.
+	"schema_index_usage": {},
+}
+
+func isUnrecoverableTable(tableName string) bool {
+	_, ok := unRecoverableTable[tableName]
+	return ok
+}
+
 func isStatsTable(tableName string) bool {
 	_, ok := statsTables[tableName]
 	return ok
@@ -42,7 +70,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	temporaryDB := utils.TemporaryDBName(sysDB)
 	defer rc.cleanTemporaryDatabase(ctx, sysDB)
 
-	if !f.MatchSchema(temporaryDB.O) {
+	if !f.MatchSchema(sysDB) {
 		log.Debug("system database filtered out", zap.String("database", sysDB))
 		return
 	}
@@ -68,8 +96,8 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 					zap.Stringer("table", tableName),
 				)
 			}
+			tablesRestored = append(tablesRestored, tableName.L)
 		}
-		tablesRestored = append(tablesRestored, tableName.L)
 	}
 	if err := rc.afterSystemTablesReplaced(ctx, tablesRestored); err != nil {
 		for _, e := range multierr.Errors(err) {
@@ -153,6 +181,10 @@ func (rc *Client) replaceTemporaryTableToSystable(ctx context.Context, tableName
 	if isStatsTable(tableName) {
 		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring stats via `mysql` schema isn't support yet: " +
 			"the table ID is out-of-date and may corrupt existing statistics")
+	}
+
+	if isUnrecoverableTable(tableName) {
+		return berrors.ErrUnsupportedSystemTable.GenWithStack("restoring unsupported `mysql` schema table")
 	}
 
 	if db.ExistingTables[tableName] != nil {

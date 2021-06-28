@@ -5,7 +5,12 @@ set -eux
 . run_services
 
 wait_file_exist() {
+    timeout=0
     until [ -e "$1" ]; do
+        timeout=$(( $timeout + 1 ))
+        if [[ $timeout -gt 100 ]]; then
+            echo "timeout! maybe BR process is exited!"; exit 1;
+        fi
         sleep 1
     done
 }
@@ -53,8 +58,9 @@ hint_finegrained=$TEST_DIR/hint_finegrained
 hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
-
-cases=${cases:-'outage outage-after-request outage-at-finegrained shutdown scale-out'}
+# NOTE : cases `outage-at-finegrained shutdown scale-out` should be first to avoid issue
+#       https://github.com/pingcap/br/issues/1050
+cases=${cases:-'outage-at-finegrained shutdown scale-out outage outage-after-request'}
 
 for failure in $cases; do
     rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"

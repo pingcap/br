@@ -832,16 +832,21 @@ func (local *local) WriteToTiKV(
 
 	var leaderPeerMetas []*sst.SSTMeta
 	for i, wStream := range clients {
-		if resp, closeErr := wStream.CloseAndRecv(); closeErr != nil {
-			return nil, nil, stats, closeErr
-		} else if leaderID == region.Region.Peers[i].GetId() {
+		resp, closeErr := wStream.CloseAndRecv()
+		if closeErr != nil {
+			return nil, nil, stats, errors.Trace(closeErr)
+		}
+		if resp.Error != nil {
+			return nil, nil, stats, errors.New(resp.Error.Message)
+		}
+		if leaderID == region.Region.Peers[i].GetId() {
 			leaderPeerMetas = resp.Metas
 			log.L().Debug("get metas after write kv stream to tikv", zap.Reflect("metas", leaderPeerMetas))
 		}
 	}
 
 	// if there is not leader currently, we should directly return an error
-	if leaderPeerMetas == nil {
+	if len(leaderPeerMetas) == 0 {
 		log.L().Warn("write to tikv no leader", logutil.Region(region.Region), logutil.Leader(region.Leader),
 			zap.Uint64("leader_id", leaderID), logutil.SSTMeta(meta),
 			zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size))
@@ -1085,8 +1090,7 @@ func (local *local) writeAndIngestByRange(
 	if !hasKey {
 		log.L().Info("There is no pairs in iterator",
 			logutil.Key("start", start),
-			logutil.Key("end", end),
-			logutil.Key("next end", nextKey(end)))
+			logutil.Key("end", end))
 		return nil
 	}
 	pairStart := append([]byte{}, iter.Key()...)
