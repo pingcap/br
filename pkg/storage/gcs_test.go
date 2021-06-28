@@ -72,6 +72,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	c.Assert(err1, IsNil)
 	bucketName := "testbucket"
 	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: bucketName})
+	testDir := c.MkDir()
 
 	{
 		gcs := &backuppb.GCS{
@@ -108,7 +109,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		fakeCredentialsFile, err := os.CreateTemp("", "fakeCredentialsFile")
+		fakeCredentialsFile, err := os.CreateTemp(testDir, "fakeCredentialsFile")
 		c.Assert(err, IsNil)
 		defer func() {
 			fakeCredentialsFile.Close()
@@ -137,7 +138,7 @@ func (r *testStorageSuite) TestNewGCSStorage(c *C) {
 	}
 
 	{
-		fakeCredentialsFile, err := os.CreateTemp("", "fakeCredentialsFile")
+		fakeCredentialsFile, err := os.CreateTemp(testDir, "fakeCredentialsFile")
 		c.Assert(err, IsNil)
 		defer func() {
 			fakeCredentialsFile.Close()

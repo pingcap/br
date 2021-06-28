@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 
 	mockstorage "github.com/pingcap/br/pkg/mock/storage"
 
@@ -36,7 +37,7 @@ func (s *testMydumpReaderSuite) TearDownSuite(c *C) {}
 
 func (s *testMydumpReaderSuite) TestExportStatementNoTrailingNewLine(c *C) {
 	dir := c.MkDir()
-	file, err := os.CreateTemp(dir, "tidb_lightning_test_reader")
+	file, err := os.Create(filepath.Join(dir, "tidb_lightning_test_reader"))
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
