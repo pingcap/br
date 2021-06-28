@@ -79,20 +79,10 @@ func LoadBackupTables(ctx context.Context, reader *metautil.MetaReader) (map[str
 }
 
 // ArchiveSize returns the total size of the backup archive.
-func ArchiveSize(meta *backuppb.BackupMeta, files []*backuppb.File) uint64 {
+func ArchiveSize(meta *backuppb.BackupMeta) uint64 {
 	total := uint64(meta.Size())
-	ContainsFile := func(files []*backuppb.File, file *backuppb.File) bool {
-		for i := 0; i < len(files); i++ {
-			if files[i].GetName() == file.GetName() {
-				return true
-			}
-		}
-		return false
-	}
 	for _, file := range meta.Files {
-		if ContainsFile(files, file) {
-			total += file.Size_
-		}
+		total += file.Size_
 	}
 	return total
 }
