@@ -264,11 +264,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err = CheckRestoreDBAndTable(client, cfg); err != nil {
 		return err
 	}
+	reader := metautil.NewMetaReader(backupMeta, s)
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta, files))
+	g.Record(summary.RestoreDataSize, reader.ArchiveSize(ctx, files))
 	restoreTS, err := client.GetTS(ctx)
 	if err != nil {
 		return errors.Trace(err)
