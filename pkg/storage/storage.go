@@ -122,9 +122,6 @@ func New(ctx context.Context, backend *backuppb.StorageBackend, opts *ExternalSt
 		if backend.Local == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "local config not found")
 		}
-		if opts.SkipCheckPath {
-			return &LocalStorage{base: backend.Local.Path}, nil
-		}
 		return NewLocalStorage(backend.Local.Path)
 	case *backuppb.StorageBackend_S3:
 		if backend.S3 == nil {
