@@ -16,7 +16,6 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // RestoreRawConfig is the configuration specific for raw kv restore tasks.
@@ -102,11 +101,12 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do raw restore from transactional data")
 	}
 
+	reader := metautil.NewMetaReader(backupMeta, s)
 	files, err := client.GetFilesInRawRange(cfg.StartKey, cfg.EndKey, cfg.CF)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta, files))
+	g.Record(summary.RestoreDataSize, reader.ArchiveSize(ctx, files))
 
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")
