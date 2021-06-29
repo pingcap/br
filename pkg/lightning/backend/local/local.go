@@ -198,6 +198,7 @@ type File struct {
 	importedKVSize  atomic.Int64
 	importedKVCount atomic.Int64
 
+	keyAdapter         KeyAdapter
 	duplicateDetection bool
 	duplicateDB        *pebble.DB
 }
@@ -260,7 +261,7 @@ func (e *File) getSizeProperties() (*sizeProperties, error) {
 					newRangeProps := make(rangeProperties, 0, len(rangeProps))
 					for _, p := range rangeProps {
 						if !bytes.Equal(p.Key, engineMetaKey) {
-							p.Key, _, _, err = DecodeKeySuffix(nil, p.Key)
+							p.Key, _, _, err = e.keyAdapter.Decode(nil, p.Key)
 							if err != nil {
 								log.L().Warn(
 									"decodeRangeProperties failed because the props key is invalid",
@@ -1252,6 +1253,11 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		}
 	}
 	engineCtx, cancel := context.WithCancel(ctx)
+
+	keyAdapter := KeyAdapter(noopKeyAdapter{})
+	if local.duplicateDetection {
+		keyAdapter = duplicateKeyAdapter{}
+	}
 	e, _ := local.engines.LoadOrStore(engineUUID, &File{
 		UUID:               engineUUID,
 		sstDir:             sstDir,
@@ -1262,6 +1268,7 @@ func (local *local) OpenEngine(ctx context.Context, cfg *backend.EngineConfig, e
 		tableInfo:          cfg.TableInfo,
 		duplicateDetection: local.duplicateDetection,
 		duplicateDB:        local.duplicateDB,
+		keyAdapter:         keyAdapter,
 	})
 	engine := e.(*File)
 	engine.db = db
@@ -2372,7 +2379,6 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 		local:              f,
 		memtableSizeLimit:  cacheSize,
 		kvBuffer:           newBytesBuffer(),
-		duplicateDetection: f.duplicateDetection,
 		isKVSorted:         cfg.IsKVSorted,
 		isWriteBatchSorted: true,
 	}
@@ -2696,8 +2702,6 @@ type Writer struct {
 	totalCount int64
 
 	lastMetaSeq int32
-
-	duplicateDetection bool
 }
 
 func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
@@ -2709,26 +2713,23 @@ func (w *Writer) appendRowsSorted(kvs []common.KvPair) error {
 		w.writer = writer
 		w.writer.minKey = append([]byte{}, kvs[0].Key...)
 	}
-	if w.duplicateDetection {
-		totalKeyLen := 0
-		for i := 0; i < len(kvs); i++ {
-			totalKeyLen += EncodedKeyBytesLength(kvs[i].Key)
-		}
-		buf := make([]byte, totalKeyLen)
-		newKvs := make([]common.KvPair, len(kvs))
-		for i := 0; i < len(kvs); i++ {
-			encodedKey := EncodeKeySuffix(buf, kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
-			buf = buf[len(encodedKey):]
-			newKvs[i] = common.KvPair{Key: encodedKey, Val: kvs[i].Val}
-		}
-		kvs = newKvs
-	}
+
+	totalKeyLen := 0
 	for i := 0; i < len(kvs); i++ {
-		w.batchSize += int64(len(kvs[i].Key) + len(kvs[i].Val))
+		totalKeyLen += w.local.keyAdapter.EncodedLen(kvs[i].Key)
 	}
-	w.batchCount += len(kvs)
-	w.totalCount += int64(len(kvs))
-	return w.writer.writeKVs(kvs)
+	buf := make([]byte, totalKeyLen)
+	encodedKvs := make([]common.KvPair, len(kvs))
+	for i := 0; i < len(kvs); i++ {
+		encodedKey := w.local.keyAdapter.Encode(buf, kvs[i].Key, kvs[i].RowID, kvs[i].Offset)
+		buf = buf[len(encodedKey):]
+		encodedKvs[i] = common.KvPair{Key: encodedKey, Val: kvs[i].Val}
+		w.batchSize += int64(len(encodedKvs[i].Key) + len(encodedKvs[i].Val))
+	}
+
+	w.batchCount += len(encodedKvs)
+	w.totalCount += int64(len(encodedKvs))
+	return w.writer.writeKVs(encodedKvs)
 }
 
 func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) error {
@@ -2744,13 +2745,8 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		}
 		lastKey = pair.Key
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
-		var key []byte
-		if w.duplicateDetection {
-			encodedLen := EncodedKeyBytesLength(pair.Key)
-			key = EncodeKeySuffix(w.kvBuffer.requireBytes(encodedLen), pair.Key, pair.RowID, pair.Offset)
-		} else {
-			key = w.kvBuffer.addBytes(pair.Key)
-		}
+		buf := w.kvBuffer.requireBytes(w.local.keyAdapter.EncodedLen(pair.Key))
+		key := w.local.keyAdapter.Encode(buf, pair.Key, pair.RowID, pair.Offset)
 		val := w.kvBuffer.addBytes(pair.Val)
 		if cnt < l {
 			w.writeBatch[cnt].Key = key

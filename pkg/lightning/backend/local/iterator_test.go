@@ -31,7 +31,7 @@ type iteratorSuite struct{}
 
 var _ = Suite(&iteratorSuite{})
 
-func (s *iteratorSuite) TestIterator(c *C) {
+func (s *iteratorSuite) TestDuplicateIterator(c *C) {
 	var pairs []common.KvPair
 	// Unique pairs.
 	for i := 0; i < 20; i++ {
@@ -97,6 +97,8 @@ func (s *iteratorSuite) TestIterator(c *C) {
 		i = j
 	}
 
+	keyAdapter := duplicateKeyAdapter{}
+
 	// Write pairs to db after shuffling the pairs.
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 	rnd.Shuffle(len(pairs), func(i, j int) {
@@ -107,7 +109,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	c.Assert(err, IsNil)
 	wb := db.NewBatch()
 	for _, p := range pairs {
-		key := EncodeKeySuffix(nil, p.Key, 1, p.Offset)
+		key := keyAdapter.Encode(nil, p.Key, 1, p.Offset)
 		c.Assert(wb.Set(key, p.Val, nil), IsNil)
 	}
 	c.Assert(wb.Commit(pebble.Sync), IsNil)
@@ -117,12 +119,13 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	engineFile := &File{
 		ctx:         context.Background(),
 		db:          db,
+		keyAdapter:  keyAdapter,
 		duplicateDB: duplicateDB,
 	}
 	iter := newDuplicateIter(context.Background(), engineFile, &pebble.IterOptions{})
 	sort.Slice(pairs, func(i, j int) bool {
-		key1 := EncodeKeySuffix(nil, pairs[i].Key, 1, pairs[i].Offset)
-		key2 := EncodeKeySuffix(nil, pairs[j].Key, 1, pairs[j].Offset)
+		key1 := keyAdapter.Encode(nil, pairs[i].Key, 1, pairs[i].Offset)
+		key2 := keyAdapter.Encode(nil, pairs[j].Key, 1, pairs[j].Offset)
 		return bytes.Compare(key1, key2) < 0
 	})
 
@@ -152,7 +155,7 @@ func (s *iteratorSuite) TestIterator(c *C) {
 	iter = pebbleIter{Iterator: duplicateDB.NewIter(&pebble.IterOptions{})}
 	var detectedPairs []common.KvPair
 	for iter.First(); iter.Valid(); iter.Next() {
-		key, _, _, err := DecodeKeySuffix(nil, iter.Key())
+		key, _, _, err := keyAdapter.Decode(nil, iter.Key())
 		c.Assert(err, IsNil)
 		detectedPairs = append(detectedPairs, common.KvPair{
 			Key: key,

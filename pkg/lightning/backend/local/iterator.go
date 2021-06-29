@@ -27,6 +27,20 @@ import (
 	"github.com/pingcap/br/pkg/logutil"
 )
 
+type pebbleIter struct {
+	*pebble.Iterator
+}
+
+func (p pebbleIter) Seek(key []byte) bool {
+	return p.SeekGE(key)
+}
+
+func (p pebbleIter) OpType() sst.Pair_OP {
+	return sst.Pair_Put
+}
+
+var _ kv.Iter = pebbleIter{}
+
 const maxDuplicateBatchSize = 4 << 20
 
 type duplicateIter struct {
@@ -39,12 +53,18 @@ type duplicateIter struct {
 	err       error
 
 	engineFile     *File
+	keyAdapter     KeyAdapter
 	writeBatch     *pebble.Batch
 	writeBatchSize int64
 }
 
-func (d *duplicateIter) Seek(_ []byte) bool {
-	panic("unsupported operation")
+func (d *duplicateIter) Seek(key []byte) bool {
+	encodedKey := d.keyAdapter.Encode(nil, key, 0, 0)
+	if d.err != nil || !d.iter.SeekGE(codec.EncodeBytes(nil, encodedKey)) {
+		return false
+	}
+	d.fill()
+	return d.err == nil
 }
 
 func (d *duplicateIter) First() bool {
@@ -64,7 +84,7 @@ func (d *duplicateIter) Last() bool {
 }
 
 func (d *duplicateIter) fill() {
-	d.curKey, _, _, d.err = DecodeKeySuffix(d.curKey[:0], d.iter.Key())
+	d.curKey, _, _, d.err = d.keyAdapter.Decode(d.curKey[:0], d.iter.Key())
 	d.curRawKey = append(d.curRawKey[:0], d.iter.Key()...)
 	d.curVal = append(d.curVal[:0], d.iter.Value()...)
 }
@@ -90,7 +110,7 @@ func (d *duplicateIter) record(key []byte, val []byte) {
 func (d *duplicateIter) Next() bool {
 	recordFirst := false
 	for d.err == nil && d.ctx.Err() == nil && d.iter.Next() {
-		d.nextKey, _, _, d.err = DecodeKeySuffix(d.nextKey[:0], d.iter.Key())
+		d.nextKey, _, _, d.err = d.keyAdapter.Decode(d.nextKey[:0], d.iter.Key())
 		if d.err != nil {
 			return false
 		}
@@ -155,23 +175,10 @@ func newDuplicateIter(ctx context.Context, engineFile *File, opts *pebble.IterOp
 		ctx:        ctx,
 		iter:       engineFile.db.NewIter(newOpts),
 		engineFile: engineFile,
+		keyAdapter: engineFile.keyAdapter,
 		writeBatch: engineFile.duplicateDB.NewBatch(),
 	}
 }
-
-type pebbleIter struct {
-	*pebble.Iterator
-}
-
-func (p pebbleIter) Seek(_ []byte) bool {
-	panic("unsupported operation")
-}
-
-func (p pebbleIter) OpType() sst.Pair_OP {
-	return sst.Pair_Put
-}
-
-var _ kv.Iter = pebbleIter{}
 
 func newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) kv.Iter {
 	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {

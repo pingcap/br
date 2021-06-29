@@ -22,17 +22,44 @@ import (
 	. "github.com/pingcap/check"
 )
 
-type keySuffixSuite struct{}
-
-var _ = Suite(&keySuffixSuite{})
-
 func randBytes(n int) []byte {
 	b := make([]byte, n)
 	rand.Read(b)
 	return b
 }
 
-func (s *keySuffixSuite) TestKeySuffix(c *C) {
+type noopKeyAdapterSuite struct {
+	keyAdapter KeyAdapter
+}
+
+var _ = Suite(&noopKeyAdapterSuite{})
+
+func (s *noopKeyAdapterSuite) SetUpSuite(c *C) {
+	s.keyAdapter = noopKeyAdapter{}
+}
+
+func (s *noopKeyAdapterSuite) TestBasic(c *C) {
+	key := randBytes(32)
+	c.Assert(s.keyAdapter.EncodedLen(key), Equals, len(key))
+	encodedKey := s.keyAdapter.Encode(nil, key, 0, 0)
+	c.Assert(encodedKey, BytesEquals, key)
+
+	decodedKey, _, _, err := s.keyAdapter.Decode(nil, encodedKey)
+	c.Assert(err, IsNil)
+	c.Assert(decodedKey, BytesEquals, key)
+}
+
+type duplicateKeyAdapterSuite struct {
+	keyAdapter KeyAdapter
+}
+
+var _ = Suite(&duplicateKeyAdapterSuite{})
+
+func (s *duplicateKeyAdapterSuite) SetUpSuite(c *C) {
+	s.keyAdapter = duplicateKeyAdapter{}
+}
+
+func (s *duplicateKeyAdapterSuite) TestBasic(c *C) {
 	inputs := []struct {
 		key    []byte
 		rowID  int64
@@ -66,10 +93,10 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	}
 
 	for _, input := range inputs {
-		result := EncodeKeySuffix(nil, input.key, input.rowID, input.offset)
+		result := s.keyAdapter.Encode(nil, input.key, input.rowID, input.offset)
 
 		// Decode the result.
-		key, rowID, offset, err := DecodeKeySuffix(nil, result)
+		key, rowID, offset, err := s.keyAdapter.Decode(nil, result)
 		c.Assert(err, IsNil)
 		c.Assert(key, BytesEquals, input.key)
 		c.Assert(rowID, Equals, input.rowID)
@@ -77,7 +104,7 @@ func (s *keySuffixSuite) TestKeySuffix(c *C) {
 	}
 }
 
-func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
+func (s *duplicateKeyAdapterSuite) TestKeyOrder(c *C) {
 	keys := [][]byte{
 		{0x0, 0x1, 0x2},
 		{0x0, 0x1, 0x3},
@@ -85,9 +112,10 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 		{0x0, 0x1, 0x3, 0x4, 0x0},
 		{0x0, 0x1, 0x3, 0x4, 0x0, 0x0, 0x0},
 	}
+	keyAdapter := duplicateKeyAdapter{}
 	var encodedKeys [][]byte
 	for i, key := range keys {
-		encodedKeys = append(encodedKeys, EncodeKeySuffix(nil, key, 1, int64(i*1234)))
+		encodedKeys = append(encodedKeys, keyAdapter.Encode(nil, key, 1, int64(i*1234)))
 	}
 	sorted := sort.SliceIsSorted(encodedKeys, func(i, j int) bool {
 		return bytes.Compare(encodedKeys[i], encodedKeys[j]) < 0
@@ -95,12 +123,12 @@ func (s *keySuffixSuite) TestKeySuffixOrder(c *C) {
 	c.Assert(sorted, IsTrue)
 }
 
-func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
+func (s *duplicateKeyAdapterSuite) TestEncodeKeyWithBuf(c *C) {
 	key := randBytes(32)
 	buf := make([]byte, 256)
-	buf2 := EncodeKeySuffix(buf, key, 1, 1234)
+	buf2 := s.keyAdapter.Encode(buf, key, 1, 1234)
 	// Verify the encode result first.
-	key2, _, _, err := DecodeKeySuffix(nil, buf2)
+	key2, _, _, err := s.keyAdapter.Decode(nil, buf2)
 	c.Assert(err, IsNil)
 	c.Assert(key2, BytesEquals, key)
 	// There should be no new slice allocated.
@@ -110,13 +138,13 @@ func (s *keySuffixSuite) TestEncodeKeySuffixWithBuf(c *C) {
 	c.Assert(buf[0], Equals, buf2[0])
 }
 
-func (s *keySuffixSuite) TestDecodeKeySuffixWithBuf(c *C) {
+func (s *duplicateKeyAdapterSuite) TestDecodeKeyWithBuf(c *C) {
 	data := []byte{
 		0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0xff, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xf7,
 		0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0xe, 0xf,
 	}
 	buf := make([]byte, len(data))
-	key, _, _, err := DecodeKeySuffix(buf, data)
+	key, _, _, err := s.keyAdapter.Decode(buf, data)
 	c.Assert(err, IsNil)
 	// There should be no new slice allocated.
 	// If we change a byte in `buf`, `buf2` can read the new byte.
