@@ -236,6 +236,7 @@ type PostRestore struct {
 type CSVConfig struct {
 	Separator       string `toml:"separator" json:"separator"`
 	Delimiter       string `toml:"delimiter" json:"delimiter"`
+	Terminator      string `toml:"terminator" json:"terminator"`
 	Null            string `toml:"null" json:"null"`
 	Header          bool   `toml:"header" json:"header"`
 	TrimLastSep     bool   `toml:"trim-last-separator" json:"trim-last-separator"`
@@ -534,12 +535,19 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		return errors.New("invalid config: `mydumper.csv.separator` and `mydumper.csv.delimiter` must not be prefix of each other")
 	}
 
+	if len(csv.Terminator) > 0 && cfg.Mydumper.StrictFormat {
+		return errors.New("invalid config: `mydumper.strict-format` is not compatible with custom `mydumper.csv.terminator`")
+	}
+
 	if csv.BackslashEscape {
 		if csv.Separator == `\` {
 			return errors.New("invalid config: cannot use '\\' as CSV separator when `mydumper.csv.backslash-escape` is true")
 		}
 		if csv.Delimiter == `\` {
 			return errors.New("invalid config: cannot use '\\' as CSV delimiter when `mydumper.csv.backslash-escape` is true")
+		}
+		if csv.Terminator == `\` {
+			return errors.New("invalid config: cannot use '\\' as CSV terminator when `mydumper.csv.backslash-escape` is true")
 		}
 	}
 
