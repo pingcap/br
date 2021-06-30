@@ -1381,7 +1381,7 @@ func (local *local) WriteToTiKV(
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
-	iter := newNormalKeyIter(ctx, engineFile, opt)
+	iter := newKeyIter(ctx, engineFile, opt)
 	defer iter.Close()
 
 	stats := rangeStats{}
@@ -1615,7 +1615,7 @@ func splitRangeBySizeProps(fullRange Range, sizeProps *sizeProperties, sizeLimit
 }
 
 func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File) ([]Range, error) {
-	iter := newNormalKeyIter(ctx, engineFile, &pebble.IterOptions{})
+	iter := newKeyIter(ctx, engineFile, &pebble.IterOptions{})
 	defer iter.Close()
 
 	iterError := func(e string) error {
@@ -1769,7 +1769,7 @@ func (local *local) writeAndIngestByRange(
 		UpperBound: end,
 	}
 
-	iter := newNormalKeyIter(ctxt, engineFile, ito)
+	iter := newKeyIter(ctxt, engineFile, ito)
 	defer iter.Close()
 	// Needs seek to first because NewIter returns an iterator that is unpositioned
 	hasKey := iter.First()

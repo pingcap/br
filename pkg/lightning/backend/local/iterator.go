@@ -180,7 +180,7 @@ func newDuplicateIter(ctx context.Context, engineFile *File, opts *pebble.IterOp
 	}
 }
 
-func newNormalKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) kv.Iter {
+func newKeyIter(ctx context.Context, engineFile *File, opts *pebble.IterOptions) kv.Iter {
 	if bytes.Compare(opts.LowerBound, normalIterStartKey) < 0 {
 		newOpts := *opts
 		newOpts.LowerBound = normalIterStartKey
