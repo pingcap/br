@@ -38,6 +38,7 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -2746,8 +2747,9 @@ func (tr *TableRestore) importKV(
 
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
-	if err == nil {
-		err = closedEngine.Cleanup(ctx)
+	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
+	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
+		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 
 	dur := task.End(zap.ErrorLevel, err)
@@ -3025,6 +3027,7 @@ func (cr *chunkRestore) encodeLoop(
 		var readDur, encodeDur time.Duration
 		canDeliver := false
 		kvPacket := make([]deliveredKVs, 0, maxKvPairsCnt)
+		curOffset := offset
 		var newOffset, rowID int64
 		var kvSize uint64
 	outLoop:
@@ -3055,7 +3058,7 @@ func (cr *chunkRestore) encodeLoop(
 			encodeDurStart := time.Now()
 			lastRow := cr.parser.LastRow()
 			// sql -> kv
-			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation)
+			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation, curOffset)
 			encodeDur += time.Since(encodeDurStart)
 			cr.parser.RecycleRow(lastRow)
 			if encodeErr != nil {
@@ -3074,6 +3077,7 @@ func (cr *chunkRestore) encodeLoop(
 				canDeliver = true
 				kvSize = 0
 			}
+			curOffset = newOffset
 		}
 		encodeTotalDur += encodeDur
 		metric.RowEncodeSecondsHistogram.Observe(encodeDur.Seconds())
