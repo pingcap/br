@@ -22,7 +22,7 @@ import (
 
 // KeyAdapter is used to encode and decode keys.
 type KeyAdapter interface {
-	// Encode encodes key with rowID and offset. It guarantees the encoded key is in ascending order for comparison
+	// Encode encodes key with rowID and offset. It guarantees the encoded key is in ascending order for comparison.
 	// `buf` is used to buffer data to avoid the cost of make slice.
 	// Implementations of Encode must not reuse the key for encoding.
 	Encode(buf []byte, key []byte, rowID int64, offset int64) []byte
@@ -48,14 +48,12 @@ func reallocBytes(b []byte, n int) []byte {
 type noopKeyAdapter struct{}
 
 func (noopKeyAdapter) Encode(buf []byte, key []byte, _ int64, _ int64) []byte {
-	buf = reallocBytes(buf[:0], len(key))
 	return append(buf[:0], key...)
 }
 
 func (noopKeyAdapter) Decode(buf []byte, data []byte) (key []byte, rowID int64, offset int64, err error) {
-	buf = reallocBytes(buf[:0], len(data))
-	buf = append(buf[:0], data...)
-	return buf, 0, 0, nil
+	key = append(buf[:0], data...)
+	return
 }
 
 func (noopKeyAdapter) EncodedLen(key []byte) int {
