@@ -1,5 +1,5 @@
 # For loading data to TiDB
-FROM golang:1.13.8-buster as go-ycsb-builder
+FROM golang:1.16.4-buster as go-ycsb-builder
 WORKDIR /go/src/github.com/pingcap/
 RUN git clone https://github.com/pingcap/go-ycsb.git && \
     cd go-ycsb && \
@@ -8,7 +8,7 @@ RUN git clone https://github.com/pingcap/go-ycsb.git && \
 # For operating minio S3 compatible storage
 FROM minio/mc as mc-builder
 
-FROM golang:1.13.8-buster
+FROM golang:1.16.4-buster
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
