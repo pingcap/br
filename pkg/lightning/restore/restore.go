@@ -952,6 +952,9 @@ func (rc *Controller) listenCheckpointUpdates() {
 			waiters = nil
 			lock.Unlock()
 
+			//nolint:scopelint // This would be either INLINED or ERASED, at compile time.
+			failpoint.Inject("SlowDownCheckpointUpdate", func() {})
+
 			if len(cpd) > 0 {
 				err := rc.checkpointsDB.Update(cpd)
 				for _, w := range ws {

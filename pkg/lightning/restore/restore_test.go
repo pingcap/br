@@ -996,6 +996,36 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	c.Assert(tableFinished-tableFinishedBase, Equals, float64(1))
 }
 
+func (s *tableRestoreSuite) TestSaveStatusCheckpoint(c *C) {
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/restore/SlowDownCheckpointUpdate", "sleep(100)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/restore/SlowDownCheckpointUpdate")
+	}()
+
+	web.BroadcastInitProgress([]*mydump.MDDatabaseMeta{{
+		Name:   "test",
+		Tables: []*mydump.MDTableMeta{{DB: "test", Name: "tbl"}},
+	}})
+	web.BroadcastTableCheckpoint(common.UniqueTable("test", "tbl"), &checkpoints.TableCheckpoint{})
+
+	saveCpCh := make(chan saveCp)
+
+	rc := &Controller{
+		saveCpCh:      saveCpCh,
+		checkpointsDB: checkpoints.NewNullCheckpointsDB(),
+	}
+	go rc.listenCheckpointUpdates()
+
+	start := time.Now()
+	err := rc.saveStatusCheckpoint(common.UniqueTable("test", "tbl"), indexEngineID, nil, checkpoints.CheckpointStatusImported)
+	c.Assert(err, IsNil)
+	elapsed := time.Since(start)
+	c.Assert(elapsed, GreaterEqual, time.Millisecond*100)
+
+	close(saveCpCh)
+	rc.checkpointsWg.Wait()
+}
+
 var _ = Suite(&chunkRestoreSuite{})
 
 type chunkRestoreSuite struct {
