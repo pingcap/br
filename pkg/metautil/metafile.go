@@ -100,8 +100,9 @@ func (tbl *Table) NoChecksum() bool {
 
 // MetaReader wraps a reader to read both old and new version of backupmeta.
 type MetaReader struct {
-	storage    storage.ExternalStorage
-	backupMeta *backuppb.BackupMeta
+	storage     storage.ExternalStorage
+	backupMeta  *backuppb.BackupMeta
+	FileSizeMap map[string]uint64
 }
 
 // NewMetaReader creates MetaReader.
@@ -157,22 +158,18 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 }
 
 // ArchiveSize return the size of Archive data
-func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) (uint64, error) {
+func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
 	total := uint64(0)
 	exist := make(map[string]struct{})
 	for i := 0; i < len(files); i++ {
 		exist[files[i].GetName()] = struct{}{}
 	}
-	add := func(file *backuppb.File) {
-		if _, ok := exist[file.GetName()]; ok {
-			total += uint64(file.Size_)
+	for name, size := range reader.FileSizeMap {
+		if _, ok := exist[name]; ok {
+			total += size
 		}
 	}
-	var err error
-	if err = reader.readDataFiles(ctx, add); err != nil {
-		return total, errors.Trace(err)
-	}
-	return total, nil
+	return total
 }
 
 // ReadDDLs reads the ddls from the backupmeta.
@@ -231,14 +228,17 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 	// It's not easy to balance memory and time costs for current structure.
 	// put all files in memory due to https://github.com/pingcap/br/issues/705
 	fileMap := make(map[int64][]*backuppb.File)
+	fileSizeMap := make(map[string]uint64)
 	outputFn := func(file *backuppb.File) {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		if tableID == 0 {
 			log.Panic("tableID must not equal to 0", logutil.File(file))
 		}
 		fileMap[tableID] = append(fileMap[tableID], file)
+		fileSizeMap[file.Name] = file.Size_
 	}
 	err := reader.readDataFiles(ctx, outputFn)
+	reader.FileSizeMap = fileSizeMap
 	if err != nil {
 		return errors.Trace(err)
 	}

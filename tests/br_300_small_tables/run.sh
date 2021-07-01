@@ -37,7 +37,7 @@ echo "backup start..."
 unset BR_LOG_TO_TERM
 rm -f $BACKUP_LOG
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\"$PROGRESS_FILE\")"
-run_br backup db --db "$DB" --log-file $BACKUP_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR 
+run_br backup db --db "$DB" --log-file $BACKUP_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --use-backupmeta-v2 
 backup_size=`tail -n 2 ${BACKUP_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo ${backup_size}
 export GO_FAILPOINTS=""
@@ -63,7 +63,7 @@ done
 
 rm -rf $RESTORE_LOG
 echo "restore 1/300 of the table start..."
-run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --no-schema 
+run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --no-schema
 restore_size=`tail -n 2 ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]]+' | grep "restore data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo ${restore_size}
 
