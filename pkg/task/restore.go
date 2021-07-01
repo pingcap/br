@@ -253,8 +253,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 			return errors.Trace(versionErr)
 		}
 	}
-
-	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
+	reader := metautil.NewMetaReader(backupMeta, s)
+	if err = client.InitBackupMeta(c, backupMeta, u, s, reader); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -264,15 +264,11 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err = CheckRestoreDBAndTable(client, cfg); err != nil {
 		return err
 	}
-	reader := metautil.NewMetaReader(backupMeta, s)
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
-	archiveSize, err := reader.ArchiveSize(ctx, files)
-	if err != nil {
-		return err
-	}
+	archiveSize := reader.ArchiveSize(ctx, files)
 	g.Record(summary.RestoreDataSize, archiveSize)
 	restoreTS, err := client.GetTS(ctx)
 	if err != nil {

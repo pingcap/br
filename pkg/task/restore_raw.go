@@ -93,7 +93,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
+	reader := metautil.NewMetaReader(backupMeta, s)
+	if err = client.InitBackupMeta(c, backupMeta, u, s, reader); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -101,15 +102,11 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do raw restore from transactional data")
 	}
 
-	reader := metautil.NewMetaReader(backupMeta, s)
 	files, err := client.GetFilesInRawRange(cfg.StartKey, cfg.EndKey, cfg.CF)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	archiveSize, err := reader.ArchiveSize(ctx, files)
-	if err != nil {
-		return err
-	}
+	archiveSize := reader.ArchiveSize(ctx, files)
 	g.Record(summary.RestoreDataSize, archiveSize)
 
 	if len(files) == 0 {
