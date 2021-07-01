@@ -4,17 +4,6 @@ set -eux
 
 . run_services
 
-wait_file_exist() {
-    timeout=0
-    until [ -e "$1" ]; do
-        timeout=$(( $timeout + 1 ))
-        if [[ $timeout -gt 100 ]]; then
-            echo "timeout! maybe BR process is exited!"; exit 1;
-        fi
-        sleep 1
-    done
-}
-
 single_point_fault() {
     type=$1
     victim=$(shuf -i 1-3 -n 1)
@@ -29,13 +18,6 @@ single_point_fault() {
         outage-at-finegrained)
             wait_file_exist "$hint_finegrained"
             kv_outage --kill -i $victim;;
-        shutdown)
-            wait_file_exist "$hint_backup_start"
-            kv_outage --kill -i $victim;;
-        scale-out)
-            wait_file_exist "$hint_backup_start"
-            kv_outage --kill -i $victim
-            kv_outage --scale-out -i 4;;
     esac
 }
 
