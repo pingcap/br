@@ -4,33 +4,7 @@ set -eux
 
 . run_services
 
-single_point_fault() {
-    type=$1
-    victim=$(shuf -i 1-3 -n 1)
-    echo "Will make failure($type) to store#$victim."
-    case $type in
-        shutdown)
-            wait_file_exist "$hint_backup_start"
-            kv_outage --kill -i $victim;;
-        scale-out)
-            wait_file_exist "$hint_backup_start"
-            kv_outage --kill -i $victim
-            kv_outage --scale-out -i 4;;
-    esac
-}
-
-load() {
-    run_sql "create database if not exists $TEST_NAME"
-    go-ycsb load mysql -P tests/"$TEST_NAME"/workload -p mysql.host="$TIDB_IP" -p mysql.port="$TIDB_PORT" -p mysql.user=root -p mysql.db="$TEST_NAME"
-    run_sql 'use '$TEST_NAME'; show tables'
-}
-
-check() {
-    run_sql 'drop database if exists '$TEST_NAME';'
-    run_br restore full -s local://"$backup_dir" 
-    count=$(run_sql 'select count(*) from '$TEST_NAME'.usertable;' | tail -n 1 | awk '{print $2}')
-    [ "$count" -eq 20000 ]
-}
+. br_tikv_outage_util
 
 load
 

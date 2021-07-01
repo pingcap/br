@@ -129,18 +129,6 @@ kv_outage() {
     }
 }
 
-# for `br_tikv_outage` failpoint file
-wait_file_exist() {
-    timeout=0
-    until [ -e "$1" ]; do
-        timeout=$(( $timeout + 1 ))
-        if [[ $timeout -gt 100 ]]; then
-            echo "timeout! maybe BR process is exited!"; exit 1;
-        fi
-        sleep 1
-    done
-}
-
 start_tikv() {
     i=$1
     echo "Starting TiKV($i)..."
