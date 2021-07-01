@@ -1627,6 +1627,17 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 	if indexEngineCp == nil {
 		return errors.Errorf("table %v index engine checkpoint not found", tr.tableName)
 	}
+	// If there is an index engine only, it indicates no data needs to restore.
+	// So we can change status to imported directly and avoid opening engine.
+	if len(cp.Engines) == 1 {
+		if err := rc.saveStatusCheckpoint(tr.tableName, indexEngineID, nil, checkpoints.CheckpointStatusImported); err != nil {
+			return errors.Trace(err)
+		}
+		if err := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusIndexImported); err != nil {
+			return errors.Trace(err)
+		}
+		return nil
+	}
 
 	ctx, cancel := context.WithCancel(pCtx)
 	defer cancel()
@@ -2631,7 +2642,7 @@ func (tr *TableRestore) populateChunks(ctx context.Context, rc *Controller, cp *
 	return err
 }
 
-func (t *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowIDBase int64) {
+func (tr *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowIDBase int64) {
 	if rowIDBase == 0 {
 		return
 	}
