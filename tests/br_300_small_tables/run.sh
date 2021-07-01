@@ -18,6 +18,8 @@ DB="$TEST_NAME"
 TABLES_COUNT=300
 
 PROGRESS_FILE="$TEST_DIR/progress_file"
+BACKUP_LOG="$TEST_DIR/backup.log"
+RESTORE_LOG="$TEST_DIR/restore.log"
 rm -rf $PROGRESS_FILE
 
 run_sql "create schema $DB;"
@@ -32,9 +34,12 @@ done
 
 # backup db
 echo "backup start..."
-
+unset BR_LOG_TO_TERM
+rm -f $BACKUP_LOG
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\"$PROGRESS_FILE\")"
-run_br backup db --db "$DB" -s "local://$TEST_DIR/$DB" --pd $PD_ADDR
+run_br backup db --db "$DB" --log-file $BACKUP_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR 
+backup_size=`tail -n 2 ${BACKUP_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
+echo ${backup_size}
 export GO_FAILPOINTS=""
 
 if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ $(grep -c "range" $PROGRESS_FILE) == "1" ]];
@@ -55,6 +60,24 @@ while [ $i -le $TABLES_COUNT ]; do
     run_sql "truncate $DB.sbtest$i;"
     i=$(($i+1))
 done
+
+rm -rf $RESTORE_LOG
+echo "restore 1/300 of the table start..."
+run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --no-schema 
+restore_size=`tail -n 2 ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]]+' | grep "restore data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
+echo ${restore_size}
+
+diff=`echo "${backup_size}-${restore_size}*${TABLES_COUNT}" | bc`
+echo ${diff}
+
+threshold="3"
+
+if [ `echo "${diff}<${threshold}" | bc` -eq 1 ]; then 
+    echo "statistics match" 
+else 
+    echo "statistics unmatch"
+    exit 1 
+fi
 
 # restore db
 # (FIXME: shouldn't need --no-schema to be fast, currently the alter-auto-id DDL slows things down)

@@ -158,7 +158,7 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 
 // ArchiveSize return the size of Archive data
 func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) (uint64, error) {
-	total := uint64(reader.backupMeta.Size())
+	total := uint64(0)
 	exist := make(map[string]struct{})
 	for i := 0; i < len(files); i++ {
 		exist[files[i].GetName()] = struct{}{}
@@ -653,12 +653,12 @@ func (writer *MetaWriter) flushMetasV2(ctx context.Context, op AppendOp) error {
 
 // ArchiveSize represents the size of ArchiveSize.
 func (writer *MetaWriter) ArchiveSize() uint64 {
-	total := uint64(writer.backupMeta.Size())
+	total := uint64(0)
 	for _, file := range writer.backupMeta.Files {
 		total += file.Size_
 	}
 	for name, size := range writer.metafileSizes {
-		if name != "metafile" {
+		if name == "datafile" {
 			total += uint64(size)
 		}
 	}
