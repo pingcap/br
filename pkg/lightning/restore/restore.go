@@ -124,6 +124,7 @@ func init() {
 type saveCp struct {
 	tableName string
 	merger    checkpoints.TableCheckpointMerger
+	waitCh    chan error
 }
 
 type errorSummary struct {
@@ -889,11 +890,21 @@ func (rc *Controller) estimateChunkCountIntoMetrics(ctx context.Context) error {
 	return nil
 }
 
-func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err error, statusIfSucceed checkpoints.CheckpointStatus) {
+func firstErr(errors ...error) error {
+	for _, err := range errors {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err error, statusIfSucceed checkpoints.CheckpointStatus) error {
 	merger := &checkpoints.StatusCheckpointMerger{Status: statusIfSucceed, EngineID: engineID}
 
-	log.L().Debug("update checkpoint", zap.String("table", tableName), zap.Int32("engine_id", engineID),
-		zap.Uint8("new_status", uint8(statusIfSucceed)), zap.Error(err))
+	logger := log.L().With(zap.String("table", tableName), zap.Int32("engine_id", engineID),
+		zap.String("new_status", statusIfSucceed.MetricName()), zap.Error(err))
+	logger.Debug("update checkpoint")
 
 	switch {
 	case err == nil:
@@ -902,7 +913,7 @@ func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err
 		merger.SetInvalid()
 		rc.errorSummaries.record(tableName, err, statusIfSucceed)
 	default:
-		return
+		return nil
 	}
 
 	if engineID == checkpoints.WholeTableEngineID {
@@ -911,7 +922,14 @@ func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err
 		metric.RecordEngineCount(statusIfSucceed.MetricName(), err)
 	}
 
-	rc.saveCpCh <- saveCp{tableName: tableName, merger: merger}
+	waitCh := make(chan error, 1)
+	rc.saveCpCh <- saveCp{tableName: tableName, merger: merger, waitCh: waitCh}
+
+	if err = <-waitCh; err != nil {
+		logger.Error("failed to save status checkpoint")
+		return err
+	}
+	return nil
 }
 
 // listenCheckpointUpdates will combine several checkpoints together to reduce database load.
@@ -920,6 +938,7 @@ func (rc *Controller) listenCheckpointUpdates() {
 
 	var lock sync.Mutex
 	coalesed := make(map[string]*checkpoints.TableCheckpointDiff)
+	var waiters []chan error
 
 	hasCheckpoint := make(chan struct{}, 1)
 	defer close(hasCheckpoint)
@@ -929,10 +948,18 @@ func (rc *Controller) listenCheckpointUpdates() {
 			lock.Lock()
 			cpd := coalesed
 			coalesed = make(map[string]*checkpoints.TableCheckpointDiff)
+			ws := waiters
+			waiters = nil
 			lock.Unlock()
 
 			if len(cpd) > 0 {
-				rc.checkpointsDB.Update(cpd)
+				err := rc.checkpointsDB.Update(cpd)
+				for _, w := range ws {
+					w <- err
+				}
+				if err != nil {
+					log.L().Error("save checkpoint failed", zap.Error(err))
+				}
 				web.BroadcastCheckpointDiff(cpd)
 			}
 			rc.checkpointsWg.Done()
@@ -947,6 +974,9 @@ func (rc *Controller) listenCheckpointUpdates() {
 			coalesed[scp.tableName] = cpd
 		}
 		scp.merger.MergeInto(cpd)
+		if scp.waitCh != nil {
+			waiters = append(waiters, scp.waitCh)
+		}
 
 		if len(hasCheckpoint) == 0 {
 			rc.checkpointsWg.Add(1)
@@ -1733,7 +1763,9 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 			closedIndexEngine, restoreErr = rc.backend.UnsafeCloseEngine(ctx, idxEngineCfg, tr.tableName, indexEngineID)
 		}
 
-		rc.saveStatusCheckpoint(tr.tableName, indexEngineID, restoreErr, checkpoints.CheckpointStatusClosed)
+		if err = rc.saveStatusCheckpoint(tr.tableName, indexEngineID, restoreErr, checkpoints.CheckpointStatusClosed); err != nil {
+			return errors.Trace(err)
+		}
 	} else if indexEngineCp.Status == checkpoints.CheckpointStatusClosed {
 		// If index engine file has been closed but not imported only if context cancel occurred
 		// when `importKV()` execution, so `UnsafeCloseEngine` and continue import it.
@@ -1753,8 +1785,8 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 			panic("forcing failure due to FailBeforeIndexEngineImported")
 		})
 
-		rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusIndexImported)
-		if err != nil {
+		saveCpErr := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusIndexImported)
+		if err = firstErr(err, saveCpErr); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -1970,7 +2002,9 @@ func (tr *TableRestore) restoreEngine(
 	// so there may be data lose if exit at here. So we don't write this checkpoint
 	// here like other mode.
 	if !rc.isLocalBackend() {
-		rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusAllWritten)
+		if saveCpErr := rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusAllWritten); saveCpErr != nil {
+			return nil, errors.Trace(firstErr(err, saveCpErr))
+		}
 	}
 	if err != nil {
 		// if process is canceled, we should flush all chunk checkpoints for local backend
@@ -1998,8 +2032,8 @@ func (tr *TableRestore) restoreEngine(
 			return nil, errors.Trace(err)
 		}
 	}
-	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusClosed)
-	if err != nil {
+	saveCpErr := rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusClosed)
+	if err = firstErr(err, saveCpErr); err != nil {
 		// If any error occurred, recycle worker immediately
 		return nil, errors.Trace(err)
 	}
@@ -2065,8 +2099,8 @@ func (tr *TableRestore) postProcess(
 			err = AlterAutoIncrement(ctx, rc.tidbGlue.GetSQLExecutor(), tr.tableName, tr.alloc.Get(autoid.RowIDAllocType).Base()+1)
 		}
 		rc.alterTableLock.Unlock()
-		rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusAlteredAutoInc)
-		if err != nil {
+		saveCpErr := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusAlteredAutoInc)
+		if err = firstErr(err, saveCpErr); err != nil {
 			return false, err
 		}
 		cp.Status = checkpoints.CheckpointStatusAlteredAutoInc
@@ -2075,8 +2109,8 @@ func (tr *TableRestore) postProcess(
 	// tidb backend don't need checksum & analyze
 	if !rc.backend.ShouldPostProcess() {
 		tr.logger.Debug("skip checksum & analyze, not supported by this backend")
-		rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusAnalyzeSkipped)
-		return false, nil
+		err := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusAnalyzeSkipped)
+		return false, errors.Trace(err)
 	}
 
 	w := rc.checksumWorks.Apply()
@@ -2094,7 +2128,9 @@ func (tr *TableRestore) postProcess(
 
 		if rc.cfg.PostRestore.Checksum == config.OpLevelOff {
 			tr.logger.Info("skip checksum")
-			rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusChecksumSkipped)
+			if err := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusChecksumSkipped); err != nil {
+				return false, errors.Trace(err)
+			}
 		} else {
 			if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
 				tr.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
@@ -2124,8 +2160,8 @@ func (tr *TableRestore) postProcess(
 					err = metaMgr.FinishTable(ctx)
 				}
 
-				rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusChecksummed)
-				if err != nil {
+				saveCpErr := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusChecksummed)
+				if err = firstErr(err, saveCpErr); err != nil {
 					return false, errors.Trace(err)
 				}
 
@@ -2144,7 +2180,9 @@ func (tr *TableRestore) postProcess(
 		switch {
 		case rc.cfg.PostRestore.Analyze == config.OpLevelOff:
 			tr.logger.Info("skip analyze")
-			rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusAnalyzeSkipped)
+			if err := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, nil, checkpoints.CheckpointStatusAnalyzeSkipped); err != nil {
+				return false, errors.Trace(err)
+			}
 			cp.Status = checkpoints.CheckpointStatusAnalyzed
 		case forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast:
 			err := tr.analyzeTable(ctx, rc.tidbGlue.GetSQLExecutor())
@@ -2155,8 +2193,8 @@ func (tr *TableRestore) postProcess(
 					err = nil
 				}
 			}
-			rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusAnalyzed)
-			if err != nil {
+			saveCpErr := rc.saveStatusCheckpoint(tr.tableName, checkpoints.WholeTableEngineID, err, checkpoints.CheckpointStatusAnalyzed)
+			if err = firstErr(err, saveCpErr); err != nil {
 				return false, errors.Trace(err)
 			}
 			cp.Status = checkpoints.CheckpointStatusAnalyzed
@@ -2746,11 +2784,15 @@ func (tr *TableRestore) importKV(
 	task := closedEngine.Logger().Begin(zap.InfoLevel, "import and cleanup engine")
 
 	err := closedEngine.Import(ctx)
-	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
+	saveCpErr := rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
+
 	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
-	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
+	// Don't cleanup when save checkpoint failed, because we will verifyLocalFile and import engine again after restart.
+	if saveCpErr == nil && (err == nil || berrors.Is(err, berrors.ErrDuplicateDetected)) {
 		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
+
+	err = firstErr(err, saveCpErr)
 
 	dur := task.End(zap.ErrorLevel, err)
 

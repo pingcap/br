@@ -848,7 +848,10 @@ func (s *tableRestoreSuite) TestImportKVSuccess(c *C) {
 	defer close(chptCh)
 	rc := &Controller{saveCpCh: chptCh}
 	go func() {
-		for range chptCh {
+		for scp := range chptCh {
+			if scp.waitCh != nil {
+				scp.waitCh <- nil
+			}
 		}
 	}()
 
@@ -880,7 +883,10 @@ func (s *tableRestoreSuite) TestImportKVFailure(c *C) {
 	defer close(chptCh)
 	rc := &Controller{saveCpCh: chptCh}
 	go func() {
-		for range chptCh {
+		for scp := range chptCh {
+			if scp.waitCh != nil {
+				scp.waitCh <- nil
+			}
 		}
 	}()
 
@@ -962,7 +968,10 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 		diskQuotaLock:     newDiskQuotaLock(),
 	}
 	go func() {
-		for range chptCh {
+		for scp := range chptCh {
+			if scp.waitCh != nil {
+				scp.waitCh <- nil
+			}
 		}
 	}()
 	exec := mock.NewMockSQLExecutor(controller)
