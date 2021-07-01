@@ -336,6 +336,7 @@ func testLocalWriter(c *C, needSort bool, partitialSort bool) {
 		ctx:          engineCtx,
 		cancel:       cancel,
 		sstMetasChan: make(chan metaOrFlush, 64),
+		keyAdapter:   noopKeyAdapter{},
 	}
 	f.sstIngester = dbSSTIngester{e: f}
 	f.wg.Add(1)

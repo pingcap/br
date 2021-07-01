@@ -80,4 +80,8 @@ var (
 	ErrKVDownloadFailed = errors.Normalize("download sst failed", errors.RFCCodeText("BR:KV:ErrKVDownloadFailed"))
 	// ErrKVIngestFailed indicates a generic, retryable ingest error.
 	ErrKVIngestFailed = errors.Normalize("ingest sst failed", errors.RFCCodeText("BR:KV:ErrKVIngestFailed"))
+
+	// ErrDuplicateDetected means duplicate is detected during lightning engine import. This error must be returned after
+	// all data in the engine is imported. So it's safe to reset or cleanup the engine data.
+	ErrDuplicateDetected = errors.Normalize("duplicate detected", errors.RFCCodeText("BR:Lightning:ErrDuplicateDetected"))
 )

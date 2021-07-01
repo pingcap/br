@@ -21,6 +21,7 @@ type Encoder interface {
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
+		offset int64,
 	) (Row, error)
 }
 
