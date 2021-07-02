@@ -108,8 +108,9 @@ type MetaReader struct {
 // NewMetaReader creates MetaReader.
 func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStorage) *MetaReader {
 	return &MetaReader{
-		storage:    storage,
-		backupMeta: backpMeta,
+		storage:     storage,
+		backupMeta:  backpMeta,
+		FileSizeMap: make(map[string]uint64),
 	}
 }
 
@@ -653,11 +654,7 @@ func (writer *MetaWriter) ArchiveSize() uint64 {
 	for _, file := range writer.backupMeta.Files {
 		total += file.Size_
 	}
-	for name, size := range writer.metafileSizes {
-		if name == "datafile" {
-			total += uint64(size)
-		}
-	}
+	total += uint64(writer.metafileSizes["datafile"])
 	return total
 }
 
