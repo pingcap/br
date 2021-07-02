@@ -84,14 +84,14 @@ rm -rf $RESTORE_LOG
 echo "restore 1/300 of the table start..."
 run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --no-schema
 restore_size=`tail -n 2 ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]]+' | grep "restore data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
-echo ${restore_size}
+echo "restore data size is ${restore_size}"
 
 diff=$(calc "$backup_size-$restore_size*$TABLES_COUNT")
 echo ${diff}
 
-threshold="3"
+threshold="1"
 
-if [ $(calc "${diff}<${threshold}") -eq 1 ]; then 
+if [ $(calc "$diff<$threshold") -eq 1 ]; then 
     echo "statistics match" 
 else 
     echo "statistics unmatch"
