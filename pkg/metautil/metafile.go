@@ -160,12 +160,8 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 // ArchiveSize return the size of Archive data
 func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
 	total := uint64(0)
-	exist := make(map[string]struct{})
-	for i := 0; i < len(files); i++ {
-		exist[files[i].GetName()] = struct{}{}
-	}
-	for name, size := range reader.FileSizeMap {
-		if _, ok := exist[name]; ok {
+	for _, file := range files {
+		if size, ok := reader.FileSizeMap[file.Name]; ok {
 			total += size
 		}
 	}
