@@ -1418,6 +1418,11 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	}
 	remains := &syncdRanges{}
 
+<<<<<<< HEAD
+=======
+	log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
+		zap.Int("ranges", len(ranges)), zap.Int64("count", lfLength), zap.Int64("size", lfTotalSize))
+>>>>>>> 150bc639 (lightning: fix int handle overflow and add retry for create schema (#1294))
 	for {
 		log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int("ranges", len(ranges)))
@@ -1734,7 +1739,12 @@ func nextKey(key []byte) []byte {
 	// See: https://github.com/tikv/tikv/blob/f7f22f70e1585d7ca38a59ea30e774949160c3e8/components/raftstore/src/coprocessor/split_observer.rs#L36-L41
 	if tablecodec.IsRecordKey(key) {
 		tableID, handle, _ := tablecodec.DecodeRecordKey(key)
-		return tablecodec.EncodeRowKeyWithHandle(tableID, handle.Next())
+		nextHandle := handle.Next()
+		// int handle overflow, use the next table prefix as nextKey
+		if nextHandle.Compare(handle) <= 0 {
+			return tablecodec.EncodeTablePrefix(tableID + 1)
+		}
+		return tablecodec.EncodeRowKeyWithHandle(tableID, nextHandle)
 	}
 
 	// if key is an index, directly append a 0x00 to the key.

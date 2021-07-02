@@ -1395,29 +1395,14 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		Return(s.tableInfos, nil)
 	mockBackend.EXPECT().Close()
 	s.rc.backend = backend.MakeBackend(mockBackend)
-	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
-	mockSQLExecutor.EXPECT().
-		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil)
-	mockSession := mock.NewMockSession(s.controller)
-	mockSession.EXPECT().
-		Close().
-		AnyTimes().
-		Return()
-	mockSession.EXPECT().
-		Execute(gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil, nil)
+
+	mockDB, sqlMock, err := sqlmock.New()
+	c.Assert(err, IsNil)
+	for i := 0; i < 17; i++ {
+		sqlMock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(int64(i), 1))
+	}
 	mockTiDBGlue := mock.NewMockGlue(s.controller)
-	mockTiDBGlue.EXPECT().
-		GetSQLExecutor().
-		AnyTimes().
-		Return(mockSQLExecutor)
-	mockTiDBGlue.EXPECT().
-		GetSession(gomock.Any()).
-		AnyTimes().
-		Return(mockSession, nil)
+	mockTiDBGlue.EXPECT().GetDB().AnyTimes().Return(mockDB, nil)
 	mockTiDBGlue.EXPECT().
 		OwnsSQLExecutor().
 		AnyTimes().
@@ -1427,7 +1412,6 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		GetParser().
 		AnyTimes().
 		Return(parser)
-	mockSQLExecutor.EXPECT().Close()
 	s.rc.tidbGlue = mockTiDBGlue
 }
 
