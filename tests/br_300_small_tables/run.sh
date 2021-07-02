@@ -19,7 +19,9 @@ TABLES_COUNT=300
 
 PROGRESS_FILE="$TEST_DIR/progress_file"
 BACKUP_LOG="$TEST_DIR/backup.log"
+BACKUPMETAV2_LOG="$TEST_DIR/backupv2.log"
 RESTORE_LOG="$TEST_DIR/restore.log"
+RESTOREMETAV2_LOG="$TEST_DIR/restorev2.log"
 rm -rf $PROGRESS_FILE
 
 run_sql "create schema $DB;"
@@ -33,13 +35,13 @@ while [ $i -le $TABLES_COUNT ]; do
 done
 
 # backup db
-echo "backup start..."
+echo "backup meta v2 start..."
 unset BR_LOG_TO_TERM
 rm -f $BACKUP_LOG
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\"$PROGRESS_FILE\")"
-run_br backup db --db "$DB" --log-file $BACKUP_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR --use-backupmeta-v2 
+run_br backup db --db "$DB" --log-file $BACKUP_LOG -s "local://$TEST_DIR/${DB}v2" --pd $PD_ADDR --use-backupmeta-v2 
 backup_size=`tail -n 2 ${BACKUP_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
-echo ${backup_size}
+echo "backup meta v2 backup size is ${backup_size}"
 export GO_FAILPOINTS=""
 
 if [[ "$(wc -l <$PROGRESS_FILE)" == "1" ]] && [[ $(grep -c "range" $PROGRESS_FILE) == "1" ]];
@@ -52,6 +54,12 @@ else
 fi
 
 rm -rf $PROGRESS_FILE
+
+echo "backup meta v1 start..."
+rm -f $BACKUPMETAV2_LOG
+run_br backup db --db "$DB" --log-file $BACKUPMETAV2_LOG -s "local://$TEST_DIR/$DB" --pd $PD_ADDR 
+backupv2_size=`tail -n 2 ${BACKUPMETAV2_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
+echo "backup meta v1 backup size is ${backupv2_size}"
 
 # truncate every table
 # (FIXME: drop instead of truncate. if we drop then create-table will still be executed and wastes time executing DDLs)
