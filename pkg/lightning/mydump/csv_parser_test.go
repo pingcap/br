@@ -636,9 +636,15 @@ func (s *testMydumpCSVParserSuite) TestConsecutiveFields(c *C) {
 		`"x"?`,
 		"\"\"\x01",
 		"\"\"\v",
+		`abc""`,
 	}
 
 	s.runFailingTestCases(c, &cfg, int64(config.ReadBlockSize), testCases)
+
+	cfg.Delimiter = "|+|"
+	s.runFailingTestCases(c, &cfg, int64(config.ReadBlockSize), []string{
+		"abc|1|+||+|\r\n",
+	})
 }
 
 func (s *testMydumpCSVParserSuite) TestSpecialChars(c *C) {
