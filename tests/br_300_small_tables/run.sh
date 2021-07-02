@@ -82,7 +82,7 @@ run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "l
 restore_size=`tail -n 2 ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]]+' | grep "restore data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo ${restore_size}
 
-diff=`echo "${backup_size}-${restore_size}*${TABLES_COUNT}" | bc`
+diff=$((backup_size-restore_size*TABLES_COUNT))
 echo ${diff}
 
 threshold="3"
