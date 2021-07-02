@@ -24,6 +24,9 @@ RESTORE_LOG="$TEST_DIR/restore.log"
 RESTOREMETAV2_LOG="$TEST_DIR/restorev2.log"
 rm -rf $PROGRESS_FILE
 
+# functions to do float point arithmetric
+calc() { awk "BEGIN{print $*}"; }
+
 run_sql "create schema $DB;"
 
 # generate 300 tables with 1 row content.
@@ -61,7 +64,8 @@ run_br backup db --db "$DB" --log-file $BACKUPMETAV2_LOG -s "local://$TEST_DIR/$
 backupv2_size=`tail -n 2 ${BACKUPMETAV2_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo "backup meta v1 backup size is ${backupv2_size}"
 
-if [ `echo "${backup_size}-${backupv2_size}==0" | bc` -eq 1 ]; then 
+
+if [ $(calc "${backup_size}-${backupv2_size}==0") -eq 1 ]; then 
     echo "backup meta v1 data size match backup meta v2 data size"
 else 
     echo "statistics unmatch"
@@ -82,12 +86,12 @@ run_br restore table --db $DB  --table "sbtest100" --log-file $RESTORE_LOG -s "l
 restore_size=`tail -n 2 ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]]+' | grep "restore data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo ${restore_size}
 
-diff=$((backup_size-restore_size*TABLES_COUNT))
+diff=$(calc "$backup_size-$restore_size*$TABLES_COUNT")
 echo ${diff}
 
 threshold="3"
 
-if [ `echo "${diff}<${threshold}" | bc` -eq 1 ]; then 
+if [ $(calc "${diff}<${threshold}") -eq 1 ]; then 
     echo "statistics match" 
 else 
     echo "statistics unmatch"
