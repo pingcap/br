@@ -225,17 +225,15 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 	// It's not easy to balance memory and time costs for current structure.
 	// put all files in memory due to https://github.com/pingcap/br/issues/705
 	fileMap := make(map[int64][]*backuppb.File)
-	fileSizeMap := make(map[string]uint64)
 	outputFn := func(file *backuppb.File) {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		if tableID == 0 {
 			log.Panic("tableID must not equal to 0", logutil.File(file))
 		}
 		fileMap[tableID] = append(fileMap[tableID], file)
-		fileSizeMap[file.Name] = file.Size_
+		reader.FileSizeMap[file.Name] = file.Size_
 	}
 	err := reader.readDataFiles(ctx, outputFn)
-	reader.FileSizeMap = fileSizeMap
 	if err != nil {
 		return errors.Trace(err)
 	}
