@@ -72,9 +72,9 @@ type Writer interface {
 
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
-	// WriteFile writes a complete file to storage, similar to ioutil.WriteFile
+	// WriteFile writes a complete file to storage, similar to os.WriteFile
 	WriteFile(ctx context.Context, name string, data []byte) error
-	// ReadFile reads a complete file from storage, similar to ioutil.ReadFile
+	// ReadFile reads a complete file from storage, similar to os.ReadFile
 	ReadFile(ctx context.Context, name string) ([]byte, error)
 	// FileExists return true if file exists
 	FileExists(ctx context.Context, name string) (bool, error)

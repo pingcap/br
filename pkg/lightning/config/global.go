@@ -16,7 +16,6 @@ package config
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -185,7 +184,7 @@ func LoadGlobalConfig(args []string, extraFlags func(*flag.FlagSet)) (*GlobalCon
 	}
 
 	if len(configFilePath) > 0 {
-		data, err := ioutil.ReadFile(configFilePath)
+		data, err := os.ReadFile(configFilePath)
 		if err != nil {
 			return nil, errors.Annotatef(err, "Cannot read config file `%s`", configFilePath)
 		}

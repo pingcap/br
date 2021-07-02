@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -122,7 +121,7 @@ func (l *Lightning) GoServe() error {
 	if len(statusAddr) == 0 {
 		return nil
 	}
-	return l.goServe(statusAddr, ioutil.Discard)
+	return l.goServe(statusAddr, io.Discard)
 }
 
 func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
@@ -449,7 +448,7 @@ func (l *Lightning) handlePostTask(w http.ResponseWriter, req *http.Request) {
 		ID int64 `json:"id"`
 	}
 
-	data, err := ioutil.ReadAll(req.Body)
+	data, err := io.ReadAll(req.Body)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "cannot read request", err)
 		return

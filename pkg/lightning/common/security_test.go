@@ -16,10 +16,10 @@ package common_test
 import (
 	"context"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 
 	. "github.com/pingcap/check"
@@ -80,7 +80,7 @@ func (s *securitySuite) TestInvalidTLS(c *C) {
 	_, err := common.NewTLS(caPath, "", "", "localhost")
 	c.Assert(err, ErrorMatches, "could not read ca certificate:.*")
 
-	err = ioutil.WriteFile(caPath, []byte("invalid ca content"), 0o644)
+	err = os.WriteFile(caPath, []byte("invalid ca content"), 0o644)
 	c.Assert(err, IsNil)
 	_, err = common.NewTLS(caPath, "", "", "localhost")
 	c.Assert(err, ErrorMatches, "failed to append ca certs")
@@ -90,9 +90,9 @@ func (s *securitySuite) TestInvalidTLS(c *C) {
 	_, err = common.NewTLS(caPath, certPath, keyPath, "localhost")
 	c.Assert(err, ErrorMatches, "could not load client key pair: open.*")
 
-	err = ioutil.WriteFile(certPath, []byte("invalid cert content"), 0o644)
+	err = os.WriteFile(certPath, []byte("invalid cert content"), 0o644)
 	c.Assert(err, IsNil)
-	err = ioutil.WriteFile(keyPath, []byte("invalid key content"), 0o600)
+	err = os.WriteFile(keyPath, []byte("invalid key content"), 0o600)
 	c.Assert(err, IsNil)
 	_, err = common.NewTLS(caPath, certPath, keyPath, "localhost")
 	c.Assert(err, ErrorMatches, "could not load client key pair: tls.*")

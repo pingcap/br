@@ -8,7 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"path"
 	"strconv"
@@ -410,7 +410,7 @@ func (c *pdClient) GetPlacementRule(ctx context.Context, groupID, ruleID string)
 	if err != nil {
 		return rule, errors.Trace(err)
 	}
-	b, err := ioutil.ReadAll(res.Body)
+	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		return rule, errors.Trace(err)
 	}

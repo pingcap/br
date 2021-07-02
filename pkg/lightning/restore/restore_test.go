@@ -16,7 +16,6 @@ package restore
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -352,7 +351,7 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 	for i := 1; i <= fakeDataFilesCount; i++ {
 		fakeFileName := fmt.Sprintf("db.table.%d.sql", i)
 		fakeDataPath := filepath.Join(fakeDataDir, fakeFileName)
-		err = ioutil.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
+		err = os.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 			TableName: filter.Table{Schema: "db", Name: "table"},
@@ -367,7 +366,7 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 
 	fakeCsvContent := []byte("1,2,3\r\n4,5,6\r\n")
 	csvName := "db.table.99.csv"
-	err = ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
+	err = os.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
 	c.Assert(err, IsNil)
 	fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 		TableName: filter.Table{Schema: "db", Name: "table"},
@@ -551,7 +550,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 	total := 0
 	for i, s := range fakeCsvContents {
 		csvName := fmt.Sprintf("db.table.%02d.csv", i)
-		err := ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
+		err := os.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 			TableName: filter.Table{Schema: "db", Name: "table"},
@@ -1240,7 +1239,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 
 	dir := c.MkDir()
 	fileName := "db.limit.000.csv"
-	err = ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
+	err = os.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
 	c.Assert(err, IsNil)
 
 	store, err := storage.NewLocalStorage(dir)
@@ -1304,7 +1303,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 	dir := c.MkDir()
 	fileName := "db.table.000.csv"
-	err := ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0o644)
+	err := os.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0o644)
 	c.Assert(err, IsNil)
 
 	store, err := storage.NewLocalStorage(dir)

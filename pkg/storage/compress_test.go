@@ -4,7 +4,7 @@ package storage
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +31,7 @@ func (r *testStorageSuite) TestWithCompressReadWriteFile(c *C) {
 	c.Assert(err, IsNil)
 	uncompressedFile, err := newCompressReader(Gzip, file)
 	c.Assert(err, IsNil)
-	newContent, err := ioutil.ReadAll(uncompressedFile)
+	newContent, err := io.ReadAll(uncompressedFile)
 	c.Assert(err, IsNil)
 	c.Assert(string(newContent), Equals, content)
 

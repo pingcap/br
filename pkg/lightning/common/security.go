@@ -17,10 +17,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 
 	"github.com/pingcap/errors"
 	pd "github.com/tikv/pd/client"
@@ -61,7 +61,7 @@ func ToTLSConfig(caPath, certPath, keyPath string) (*tls.Config, error) {
 
 	// Create a certificate pool from CA
 	certPool := x509.NewCertPool()
-	ca, err := ioutil.ReadFile(caPath)
+	ca, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, errors.Annotate(err, "could not read ca certificate")
 	}

@@ -5,7 +5,7 @@ package storage
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +38,7 @@ func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 		}
 		err = writer.Close(ctx)
 		c.Assert(err, IsNil)
-		content, err := ioutil.ReadFile(filepath.Join(dir, fileName))
+		content, err := os.ReadFile(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
 	}
@@ -128,7 +128,7 @@ func (r *testStorageSuite) TestCompressReaderWriter(c *C) {
 		// test withCompression Open
 		r, err = storage.Open(ctx, fileName)
 		c.Assert(err, IsNil)
-		content, err := ioutil.ReadAll(r)
+		content, err := io.ReadAll(r)
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
 
