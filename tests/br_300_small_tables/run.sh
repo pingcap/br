@@ -61,6 +61,13 @@ run_br backup db --db "$DB" --log-file $BACKUPMETAV2_LOG -s "local://$TEST_DIR/$
 backupv2_size=`tail -n 2 ${BACKUPMETAV2_LOG} | grep "backup data size" | grep -oP '\[\K[^\]]+' | grep "backup data size" | awk -F '=' '{print $2}' | grep -oP '\d*\.\d+'`
 echo "backup meta v1 backup size is ${backupv2_size}"
 
+if [ `echo "${backup_size}-${backupv2_size}==0" | bc` -eq 1 ]; then 
+    echo "backup meta v1 data size match backup meta v2 data size"
+else 
+    echo "statistics unmatch"
+    exit 1
+fi
+
 # truncate every table
 # (FIXME: drop instead of truncate. if we drop then create-table will still be executed and wastes time executing DDLs)
 i=1
