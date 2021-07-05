@@ -12,8 +12,6 @@ hint_finegrained=$TEST_DIR/hint_finegrained
 hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
-# NOTE : cases `outage-at-finegrained shutdown scale-out` should be first to avoid issue
-#       https://github.com/pingcap/br/issues/1050
 cases=${cases:-'outage-at-finegrained outage outage-after-request'}
 
 for failure in $cases; do
