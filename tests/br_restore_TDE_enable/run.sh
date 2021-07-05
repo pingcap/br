@@ -16,7 +16,7 @@
 set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
-DB_COUNT=3
+DB_COUNT=1
 
 # start Minio KMS service
 
@@ -81,8 +81,8 @@ for p in $(seq 2); do
       --log-file $BACKUP_LOG \
       --s3.sse AES256
     
-# ensure the tikv data file are encrypted
-bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/tmp/backup_restore_test/tikv1/db/CURRENT | grep "Aes256Ctr"
+  # ensure the tikv data file are encrypted
+  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/tmp/backup_restore_test/tikv1/db/CURRENT | grep "Aes256Ctr"
 
 
   for i in $(seq $DB_COUNT); do
@@ -93,7 +93,6 @@ bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/t
   echo "restore start..."
   RESTORE_LOG="restore.log"
   rm -f $RESTORE_LOG
-  unset BR_LOG_TO_TERM
   run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
       --log-file $RESTORE_LOG 
 
