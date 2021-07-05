@@ -76,13 +76,13 @@ for p in $(seq 2); do
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
 
-  # using --s3.sse AES256 to ensure backup file are encrypted
   run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
       --log-file $BACKUP_LOG \
       --s3.sse AES256
     
+  ls /tmp/backup_restore_test/tikv1/db/CURRENT 
   # ensure the tikv data file are encrypted
-  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/tmp/backup_restore_test/tikv1/db/CURRENT | grep "Aes256Ctr"
+  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/tmp/backup_restore_test/tikv1/db/CURRENT
 
 
   for i in $(seq $DB_COUNT); do
