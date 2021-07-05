@@ -12,12 +12,7 @@ hint_finegrained=$TEST_DIR/hint_finegrained
 hint_backup_start=$TEST_DIR/hint_backup_start
 hint_get_backup_client=$TEST_DIR/hint_get_backup_client
 
-<<<<<<< HEAD
-
-cases=${cases:-'outage outage-after-request outage-at-finegrained shutdown scale-out'}
-=======
 cases=${cases:-'shutdown scale-out'}
->>>>>>> 9c891884 (Optimize integration test. (#1274))
 
 for failure in $cases; do
     rm -f "$hint_finegrained" "$hint_backup_start" "$hint_get_backup_client"
