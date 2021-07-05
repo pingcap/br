@@ -82,7 +82,7 @@ for p in $(seq 2); do
     
   ls /tmp/backup_restore_test/tikv1/db/CURRENT 
   # ensure the tikv data file are encrypted
-  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file --path=/tmp/backup_restore_test/tikv1/db/CURRENT
+  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file 
 
 
   for i in $(seq $DB_COUNT); do
