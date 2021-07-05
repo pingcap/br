@@ -16,7 +16,7 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
-DDL_COUNT=10
+DDL_COUNT=5
 LOG=/$TEST_DIR/backup.log
 BACKUP_STAT=/$TEST_DIR/backup_stat
 RESOTRE_STAT=/$TEST_DIR/restore_stat
