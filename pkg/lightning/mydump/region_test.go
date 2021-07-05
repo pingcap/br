@@ -17,6 +17,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/pingcap/br/pkg/storage"
 
@@ -229,5 +230,64 @@ func (s *testMydumpRegionSuite) TestSplitLargeFile(c *C) {
 			c.Assert(len(regions[i].Chunk.Columns), Equals, len(columns))
 			c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
 		}
+	}
+}
+
+func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
+	meta := &MDTableMeta{
+		DB:   "csv",
+		Name: "large_csv_file",
+	}
+	cfg := &config.Config{
+		Mydumper: config.MydumperRuntime{
+			ReadBlockSize: config.ReadBlockSize,
+			CSV: config.CSVConfig{
+				Separator:       ",",
+				Delimiter:       "",
+				Header:          true,
+				TrimLastSep:     false,
+				NotNull:         false,
+				Null:            "NULL",
+				BackslashEscape: true,
+			},
+			StrictFormat:  true,
+			Filter:        []string{"*.*"},
+			MaxRegionSize: 1,
+		},
+	}
+
+	dir := c.MkDir()
+
+	fileName := "test.csv"
+	filePath := filepath.Join(dir, fileName)
+
+	content := []byte("a,b\r\n123,456\r\n789,101")
+	err := os.WriteFile(filePath, content, 0o644)
+	c.Assert(err, IsNil)
+
+	dataFileInfo, err := os.Stat(filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fileSize := dataFileInfo.Size()
+	fileInfo := FileInfo{FileMeta: SourceFileMeta{Path: fileName, Type: SourceTypeCSV, FileSize: fileSize}}
+	colCnt := int64(2)
+	columns := []string{"a", "b"}
+	prevRowIdxMax := int64(0)
+	ioWorker := worker.NewPool(context.Background(), 4, "io")
+
+	store, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+
+	offsets := [][]int64{{4, 13}, {13, 21}}
+
+	_, regions, _, err := SplitLargeFile(context.Background(), meta, cfg, fileInfo, colCnt, prevRowIdxMax, ioWorker, store)
+	c.Assert(err, IsNil)
+	c.Assert(len(regions), Equals, 2)
+	for i := range offsets {
+		c.Assert(regions[i].Chunk.Offset, Equals, offsets[i][0])
+		c.Assert(regions[i].Chunk.EndOffset, Equals, offsets[i][1])
+		c.Assert(len(regions[i].Chunk.Columns), Equals, len(columns))
+		c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
@@ -19,7 +21,6 @@ import (
 	"github.com/pingcap/parser/model"
 
 	"github.com/pingcap/br/pkg/rtree"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 type testBatcherSuite struct{}
@@ -134,7 +135,7 @@ func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) 
 }
 
 func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
-	for _, rule := range sender.rewriteRules.Table {
+	for _, rule := range sender.rewriteRules.Data {
 		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
 			return true
 		}
@@ -153,7 +154,7 @@ func (sender *drySender) BatchCount() int {
 var _ = Suite(&testBatcherSuite{})
 
 func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
-	tbl := &utils.Table{
+	tbl := &metautil.Table{
 		DB: &model.DBInfo{},
 		Info: &model.TableInfo{
 			ID: id,
@@ -172,7 +173,7 @@ func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 
 func fakeRewriteRules(oldPrefix string, newPrefix string) *restore.RewriteRules {
 	return &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{
+		Data: []*import_sstpb.RewriteRule{
 			{
 				OldKeyPrefix: []byte(oldPrefix),
 				NewKeyPrefix: []byte(newPrefix),

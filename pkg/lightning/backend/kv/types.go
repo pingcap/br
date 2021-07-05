@@ -21,6 +21,7 @@ type Encoder interface {
 		row []types.Datum,
 		rowID int64,
 		columnPermutation []int,
+		offset int64,
 	) (Row, error)
 }
 
@@ -35,6 +36,9 @@ type Row interface {
 		indices *Rows,
 		indexChecksum *verification.KVChecksum,
 	)
+
+	// Size represents the total kv size of this Row.
+	Size() uint64
 }
 
 // Rows represents a collection of encoded rows.

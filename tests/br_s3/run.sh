@@ -76,7 +76,7 @@ for p in $(seq 2); do
   BACKUP_LOG="backup.log"
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
-  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/backup/s3-outage-during-writing-file=1*return(\"$sig_file\")" \
+  ( GO_FAILPOINTS="github.com/pingcap/br/pkg/task/s3-outage-during-writing-file=1*return(\"$sig_file\")" \
       run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
       --ratelimit 1 \
       --log-file $BACKUP_LOG || \

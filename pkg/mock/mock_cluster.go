@@ -5,7 +5,7 @@ package mock
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/pprof"
 	"net/url"
@@ -23,8 +23,8 @@ import (
 	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/mockstore"
-	"github.com/pingcap/tidb/store/tikv"
-	"github.com/pingcap/tidb/store/tikv/mockstore/cluster"
+	"github.com/tikv/client-go/v2/mockstore/cluster"
+	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/pkg/tempurl"
 	"go.uber.org/zap"
@@ -180,7 +180,7 @@ func waitUntilServerOnline(addr string, statusPort uint) string {
 		resp, err := http.Get(statusURL) // nolint:noctx
 		if err == nil {
 			// Ignore errors.
-			_, _ = ioutil.ReadAll(resp.Body)
+			_, _ = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
 			break
 		}

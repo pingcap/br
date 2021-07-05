@@ -5,7 +5,7 @@ package storage
 import (
 	"context"
 	"io"
-	"io/ioutil"
+	"os"
 	"path"
 	"strings"
 
@@ -43,7 +43,7 @@ func (options *GCSBackendOptions) apply(gcs *backuppb.GCS) error {
 	gcs.PredefinedAcl = options.PredefinedACL
 
 	if options.CredentialsFile != "" {
-		b, err := ioutil.ReadFile(options.CredentialsFile)
+		b, err := os.ReadFile(options.CredentialsFile)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -111,7 +111,9 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	object := s.objectName(name)
 	rc, err := s.bucket.Object(object).NewReader(ctx)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			s.gcs.Bucket, object)
 	}
 	defer rc.Close()
 
@@ -119,7 +121,7 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	var b []byte
 	if size < 0 {
 		// happened when using fake-gcs-server in integration test
-		b, err = ioutil.ReadAll(rc)
+		b, err = io.ReadAll(rc)
 	} else {
 		b = make([]byte, size)
 		_, err = io.ReadFull(rc, b)
@@ -225,6 +227,7 @@ func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorage
 		// so we need find sst in slash directory
 		gcs.Prefix += "//"
 	}
+	// TODO remove it after BR remove cfg skip-check-path
 	if !opts.SkipCheckPath {
 		// check bucket exists
 		_, err = bucket.Attrs(ctx)

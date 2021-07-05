@@ -30,6 +30,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -130,6 +131,7 @@ type Config struct {
 	// EnableOpenTracing is whether to enable opentracing
 	EnableOpenTracing bool `json:"enable-opentracing" toml:"enable-opentracing"`
 	// SkipCheckPath skips verifying the path
+	// deprecated
 	SkipCheckPath bool `json:"skip-check-path" toml:"skip-check-path"`
 	// Filter should not be used, use TableFilter instead.
 	//
@@ -139,6 +141,10 @@ type Config struct {
 
 	TableFilter        filter.Filter `json:"-" toml:"-"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
+	// Schemas is a database name set, to check whether the restore database has been backup
+	Schemas map[string]struct{}
+	// Tables is a table name set, to check whether the restore table has been backup
+	Tables map[string]struct{}
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
 	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
@@ -280,6 +286,8 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
+	cfg.Schemas = make(map[string]struct{})
+	cfg.Tables = make(map[string]struct{})
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
 		var f filter.Filter
@@ -297,11 +305,13 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		if len(db) == 0 {
 			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
+		cfg.Schemas[utils.EncloseName(db)] = struct{}{}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
 				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
+			cfg.Tables[utils.EncloseDBAndTable(db, tbl)] = struct{}{}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
 				Name:   tbl,

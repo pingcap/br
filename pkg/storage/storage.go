@@ -13,6 +13,22 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 )
 
+// Permission represents the permission we need to check in create storage.
+type Permission string
+
+const (
+	// AccessBuckets represents bucket access permission
+	// it replace the origin skip-check-path.
+	AccessBuckets Permission = "AccessBucket"
+
+	// ListObjects represents listObjects permission
+	ListObjects Permission = "ListObjects"
+	// GetObject represents GetObject permission
+	GetObject Permission = "GetObject"
+	// PutObject represents PutObject permission
+	PutObject Permission = "PutObject"
+)
+
 // WalkOption is the option of storage.WalkDir.
 type WalkOption struct {
 	// walk on SubDir of specify directory
@@ -56,9 +72,9 @@ type Writer interface {
 
 // ExternalStorage represents a kind of file system storage.
 type ExternalStorage interface {
-	// WriteFile writes a complete file to storage, similar to ioutil.WriteFile
+	// WriteFile writes a complete file to storage, similar to os.WriteFile
 	WriteFile(ctx context.Context, name string, data []byte) error
-	// ReadFile reads a complete file from storage, similar to ioutil.ReadFile
+	// ReadFile reads a complete file from storage, similar to os.ReadFile
 	ReadFile(ctx context.Context, name string) ([]byte, error)
 	// FileExists return true if file exists
 	FileExists(ctx context.Context, name string) (bool, error)
@@ -112,11 +128,17 @@ type ExternalStorageOptions struct {
 	// function will ensure the path referred by the backend exists by
 	// recursively creating the folders. This will also throw an error if such
 	// operation is impossible (e.g. when the bucket storing the path is missing).
+
+	// deprecated: use checkPermissions and specify the checkPermission instead.
 	SkipCheckPath bool
 
 	// HTTPClient to use. The created storage may ignore this field if it is not
 	// directly using HTTP (e.g. the local storage).
 	HTTPClient *http.Client
+
+	// CheckPermissions check the given permission in New() function.
+	// make sure we can access the storage correctly before execute tasks.
+	CheckPermissions []Permission
 }
 
 // Create creates ExternalStorage.
@@ -136,9 +158,6 @@ func New(ctx context.Context, backend *backuppb.StorageBackend, opts *ExternalSt
 	case *backuppb.StorageBackend_Local:
 		if backend.Local == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "local config not found")
-		}
-		if opts.SkipCheckPath {
-			return &LocalStorage{base: backend.Local.Path}, nil
 		}
 		return NewLocalStorage(backend.Local.Path)
 	case *backuppb.StorageBackend_S3:

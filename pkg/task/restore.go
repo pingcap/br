@@ -6,6 +6,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
+	"github.com/pingcap/br/pkg/version"
+
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -148,6 +152,41 @@ func (cfg *RestoreConfig) adjustRestoreConfig() {
 	}
 }
 
+// CheckRestoreDBAndTable is used to check whether the restore dbs or tables have been backup
+func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
+	if len(cfg.Schemas) == 0 && len(cfg.Tables) == 0 {
+		return nil
+	}
+	schemas := client.GetDatabases()
+	schemasMap := make(map[string]struct{})
+	tablesMap := make(map[string]struct{})
+	for _, db := range schemas {
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
+		schemasMap[utils.EncloseName(dbName)] = struct{}{}
+		for _, table := range db.Tables {
+			tablesMap[utils.EncloseDBAndTable(dbName, table.Info.Name.O)] = struct{}{}
+		}
+	}
+	restoreSchemas := cfg.Schemas
+	restoreTables := cfg.Tables
+	for schema := range restoreSchemas {
+		if _, ok := schemasMap[schema]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[database: %v] has not been backup, please ensure you has input a correct database name", schema)
+		}
+	}
+	for table := range restoreTables {
+		if _, ok := tablesMap[table]; !ok {
+			return errors.Annotatef(berrors.ErrUndefinedRestoreDbOrTable,
+				"[table: %v] has not been backup, please ensure you has input a correct table name", table)
+		}
+	}
+	return nil
+}
+
 // RunRestore starts a restore task inside the current goroutine.
 func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConfig) error {
 	cfg.adjustRestoreConfig()
@@ -204,20 +243,28 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 
-	u, _, backupMeta, err := ReadBackupMeta(ctx, utils.MetaFile, &cfg.Config)
+	u, s, backupMeta, err := ReadBackupMeta(ctx, metautil.MetaFile, &cfg.Config)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record("Size", utils.ArchiveSize(backupMeta))
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
+	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
+	if cfg.CheckRequirements && backupVersion != nil {
+		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
+			return errors.Trace(versionErr)
+		}
+	}
 
-	if err = client.InitBackupMeta(backupMeta, u); err != nil {
+	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
 		return errors.Trace(err)
 	}
 
 	if client.IsRawKvMode() {
 		return errors.Annotate(berrors.ErrRestoreModeMismatch, "cannot do transactional restore from raw kv data")
 	}
-
+	if err = CheckRestoreDBAndTable(client, cfg); err != nil {
+		return err
+	}
 	files, tables, dbs := filterRestoreFiles(client, cfg)
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
@@ -424,14 +471,17 @@ func dropToBlackhole(
 func filterRestoreFiles(
 	client *restore.Client,
 	cfg *RestoreConfig,
-) (files []*backuppb.File, tables []*utils.Table, dbs []*utils.Database) {
+) (files []*backuppb.File, tables []*metautil.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
 		for _, table := range db.Tables {
-			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
+			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
 				continue
 			}
-
 			if !createdDatabase {
 				dbs = append(dbs, db)
 				createdDatabase = true
@@ -499,7 +549,7 @@ func restoreTableStream(
 	errCh chan<- error,
 ) {
 	// We cache old tables so that we can 'batch' recover TiFlash and tables.
-	oldTables := []*utils.Table{}
+	oldTables := []*metautil.Table{}
 	defer func() {
 		// when things done, we must clean pending requests.
 		batcher.Close()

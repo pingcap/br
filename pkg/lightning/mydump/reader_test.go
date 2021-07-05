@@ -16,14 +16,15 @@ package mydump_test
 import (
 	"context"
 	"errors"
-	"io/ioutil"
 	"os"
+	"path/filepath"
+
+	mockstorage "github.com/pingcap/br/pkg/mock/storage"
 
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
 
 	. "github.com/pingcap/br/pkg/lightning/mydump"
-	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/storage"
 )
 
@@ -36,7 +37,7 @@ func (s *testMydumpReaderSuite) TearDownSuite(c *C) {}
 
 func (s *testMydumpReaderSuite) TestExportStatementNoTrailingNewLine(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.Create(filepath.Join(dir, "tidb_lightning_test_reader"))
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -83,7 +84,7 @@ func (s *testMydumpReaderSuite) TestExportStatementWithCommentNoTrailingNewLine(
 
 func (s *testMydumpReaderSuite) exportStatmentShouldBe(c *C, stmt string, expected string) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.Create(filepath.Join(dir, "tidb_lightning_test_reader"))
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -104,7 +105,7 @@ func (s *testMydumpReaderSuite) exportStatmentShouldBe(c *C, stmt string, expect
 
 func (s *testMydumpReaderSuite) TestExportStatementGBK(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.Create(filepath.Join(dir, "tidb_lightning_test_reader"))
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -130,7 +131,7 @@ func (s *testMydumpReaderSuite) TestExportStatementGBK(c *C) {
 
 func (s *testMydumpReaderSuite) TestExportStatementGibberishError(c *C) {
 	dir := c.MkDir()
-	file, err := ioutil.TempFile(dir, "tidb_lightning_test_reader")
+	file, err := os.Create(filepath.Join(dir, "tidb_lightning_test_reader"))
 	c.Assert(err, IsNil)
 	defer os.Remove(file.Name())
 
@@ -170,7 +171,7 @@ func (s *testMydumpReaderSuite) TestExportStatementHandleNonEOFError(c *C) {
 
 	ctx := context.TODO()
 
-	mockStorage := mock.NewMockExternalStorage(controller)
+	mockStorage := mockstorage.NewMockExternalStorage(controller)
 	mockStorage.EXPECT().
 		Open(ctx, "no-perm-file").
 		Return(AlwaysErrorReadSeekCloser{}, nil)

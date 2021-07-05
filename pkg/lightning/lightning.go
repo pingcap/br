@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -122,7 +121,7 @@ func (l *Lightning) GoServe() error {
 	if len(statusAddr) == 0 {
 		return nil
 	}
-	return l.goServe(statusAddr, ioutil.Discard)
+	return l.goServe(statusAddr, io.Discard)
 }
 
 func (l *Lightning) goServe(statusAddr string, realAddrWriter io.Writer) error {
@@ -274,11 +273,7 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 	if err != nil {
 		return errors.Annotate(err, "parse backend failed")
 	}
-	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{
-		// we skip check path in favor of delaying the error to when we actually access the file.
-		// on S3, performing "check path" requires the additional "s3:ListBucket" permission.
-		SkipCheckPath: true,
-	})
+	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{})
 	if err != nil {
 		return errors.Annotate(err, "create storage failed")
 	}
@@ -453,7 +448,7 @@ func (l *Lightning) handlePostTask(w http.ResponseWriter, req *http.Request) {
 		ID int64 `json:"id"`
 	}
 
-	data, err := ioutil.ReadAll(req.Body)
+	data, err := io.ReadAll(req.Body)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, "cannot read request", err)
 		return
@@ -672,7 +667,7 @@ func checkSystemRequirement(cfg *config.Config, dbsMeta []*mydump.MDDatabaseMeta
 
 		// region-concurrency: number of LocalWriters writing SST files.
 		// 2*totalSize/memCacheSize: number of Pebble MemCache files.
-		estimateMaxFiles := uint64(cfg.App.RegionConcurrency) + uint64(topNTotalSize)/uint64(cfg.TikvImporter.EngineMemCacheSize)*2
+		estimateMaxFiles := local.Rlim_t(cfg.App.RegionConcurrency) + local.Rlim_t(topNTotalSize)/local.Rlim_t(cfg.TikvImporter.EngineMemCacheSize)*2
 		if err := local.VerifyRLimit(estimateMaxFiles); err != nil {
 			return err
 		}

@@ -75,7 +75,7 @@ func (s *importerSuite) setUpTest(c *C) {
 		Return(nil, nil)
 
 	var err error
-	s.engine, err = importer.OpenEngine(s.ctx, &backend.EngineConfig{}, "`db`.`table`", -1, 0)
+	s.engine, err = importer.OpenEngine(s.ctx, &backend.EngineConfig{}, "`db`.`table`", -1)
 	c.Assert(err, IsNil)
 }
 
@@ -115,8 +115,9 @@ func (s *importerSuite) TestWriteRows(c *C) {
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(s.ctx, nil, s.kvPairs)
 	c.Assert(err, IsNil)
-	err = writer.Close(s.ctx)
+	st, err := writer.Close(s.ctx)
 	c.Assert(err, IsNil)
+	c.Assert(st, IsNil)
 }
 
 func (s *importerSuite) TestWriteHeadSendFailed(c *C) {
@@ -216,7 +217,7 @@ func (s *importerSuite) TestCloseImportCleanupEngine(c *C) {
 		CleanupEngine(s.ctx, &kvpb.CleanupEngineRequest{Uuid: s.engineUUID}).
 		Return(nil, nil)
 
-	engine, err := s.engine.Close(s.ctx)
+	engine, err := s.engine.Close(s.ctx, nil)
 	c.Assert(err, IsNil)
 	err = engine.Import(s.ctx)
 	c.Assert(err, IsNil)

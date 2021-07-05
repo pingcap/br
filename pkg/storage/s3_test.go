@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"os"
 
@@ -275,7 +274,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 		name           string
 		s3             *backuppb.S3
 		errReturn      bool
-		hackCheck      bool
+		hackPermission []Permission
 		sendCredential bool
 	}
 	testFn := func(test *testcase, c *C) {
@@ -287,8 +286,9 @@ func (s *s3Suite) TestS3Storage(c *C) {
 			},
 		}
 		_, err := New(ctx, s3, &ExternalStorageOptions{
-			SendCredentials: test.sendCredential,
-			SkipCheckPath:   test.hackCheck,
+			SendCredentials:  test.sendCredential,
+			CheckPermissions: test.hackPermission,
+			SkipCheckPath:    true,
 		})
 		if test.errReturn {
 			c.Assert(err, NotNil)
@@ -311,6 +311,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -322,6 +323,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -333,6 +335,7 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      true,
+			hackPermission: []Permission{AccessBuckets},
 			sendCredential: true,
 		},
 		{
@@ -344,7 +347,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -356,7 +358,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:   "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -369,7 +370,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:          "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -381,7 +381,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:          "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -393,7 +392,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:    "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: true,
 		},
 		{
@@ -405,7 +403,6 @@ func (s *s3Suite) TestS3Storage(c *C) {
 				Prefix:    "prefix",
 			},
 			errReturn:      false,
-			hackCheck:      true,
 			sendCredential: false,
 		},
 	}
@@ -451,7 +448,7 @@ func (s *s3Suite) TestWriteNoError(c *C) {
 			c.Assert(aws.StringValue(input.ACL), Equals, "acl")
 			c.Assert(aws.StringValue(input.ServerSideEncryption), Equals, "sse")
 			c.Assert(aws.StringValue(input.StorageClass), Equals, "sc")
-			body, err := ioutil.ReadAll(input.Body)
+			body, err := io.ReadAll(input.Body)
 			c.Assert(err, IsNil)
 			c.Assert(body, DeepEquals, []byte("test"))
 			return &s3.PutObjectOutput{}, nil
@@ -482,7 +479,7 @@ func (s *s3Suite) TestReadNoError(c *C) {
 			c.Assert(aws.StringValue(input.Bucket), Equals, "bucket")
 			c.Assert(aws.StringValue(input.Key), Equals, "prefix/file")
 			return &s3.GetObjectOutput{
-				Body: ioutil.NopCloser(bytes.NewReader([]byte("test"))),
+				Body: io.NopCloser(bytes.NewReader([]byte("test"))),
 			}, nil
 		})
 
@@ -588,7 +585,7 @@ func (s *s3Suite) TestOpenAsBufio(c *C) {
 		DoAndReturn(func(_ context.Context, input *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
 			c.Assert(aws.StringValue(input.Range), Equals, "bytes=0-")
 			return &s3.GetObjectOutput{
-				Body:         ioutil.NopCloser(bytes.NewReader([]byte("plain text\ncontent"))),
+				Body:         io.NopCloser(bytes.NewReader([]byte("plain text\ncontent"))),
 				ContentRange: aws.String("bytes 0-17/18"),
 			}, nil
 		})
@@ -641,7 +638,7 @@ func (s *s3Suite) TestOpenReadSlowly(c *C) {
 
 	reader, err := s.storage.Open(ctx, "alphabets")
 	c.Assert(err, IsNil)
-	res, err := ioutil.ReadAll(reader)
+	res, err := io.ReadAll(reader)
 	c.Assert(err, IsNil)
 	c.Assert(res, DeepEquals, []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ"))
 }
@@ -657,7 +654,7 @@ func (s *s3Suite) TestOpenSeek(c *C) {
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
 	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 998000, 990100}, func(data []byte, offset int) io.ReadCloser {
-		return ioutil.NopCloser(bytes.NewReader(data[offset:]))
+		return io.NopCloser(bytes.NewReader(data[offset:]))
 	})
 
 	reader, err := s.storage.Open(ctx, "random")
@@ -748,7 +745,7 @@ func (s *s3Suite) TestS3ReaderWithRetryEOF(c *C) {
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
 	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 50, 75}, func(data []byte, offset int) io.ReadCloser {
-		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
+		return io.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
 	})
 
 	reader, err := s.storage.Open(ctx, "random")
@@ -793,7 +790,7 @@ func (s *s3Suite) TestS3ReaderWithRetryFailed(c *C) {
 	// ^ we just want some random bytes for testing, we don't care about its security.
 
 	s.expectedCalls(ctx, c, someRandomBytes, []int{0, 20, 40, 60}, func(data []byte, offset int) io.ReadCloser {
-		return ioutil.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
+		return io.NopCloser(&limitedBytesReader{Reader: bytes.NewReader(data[offset:]), limit: 30})
 	})
 
 	reader, err := s.storage.Open(ctx, "random")

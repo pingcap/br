@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
@@ -21,7 +23,6 @@ import (
 	"github.com/pingcap/br/pkg/gluetidb"
 	"github.com/pingcap/br/pkg/mock"
 	"github.com/pingcap/br/pkg/restore"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 var _ = Suite(&testRestoreClientSuite{})
@@ -56,11 +57,11 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
@@ -87,7 +88,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	}
 	oldTableIDExist := make(map[int64]bool)
 	newTableIDExist := make(map[int64]bool)
-	for _, tr := range rules.Table {
+	for _, tr := range rules.Data {
 		oldTableID := tablecodec.DecodeTableID(tr.GetOldKeyPrefix())
 		c.Assert(oldTableIDExist[oldTableID], IsFalse, Commentf("table rule duplicate old table id"))
 		oldTableIDExist[oldTableID] = true
@@ -126,11 +127,11 @@ func (s *testRestoreClientSuite) TestPreCheckTableClusterIndex(c *C) {
 	dbSchema, isExist := info.SchemaByName(model.NewCIStr("test"))
 	c.Assert(isExist, IsTrue)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	intField := types.NewFieldType(mysql.TypeLong)
 	intField.Charset = "binary"
 	for i := len(tables) - 1; i >= 0; i-- {
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: dbSchema,
 			Info: &model.TableInfo{
 				ID:   int64(i),
@@ -215,7 +216,7 @@ func (s *testRestoreClientSuite) TestPreCheckTableTiFlashReplicas(c *C) {
 	}, s.mock.Storage, nil, defaultKeepaliveCfg)
 	c.Assert(err, IsNil)
 
-	tables := make([]*utils.Table, 4)
+	tables := make([]*metautil.Table, 4)
 	for i := 0; i < len(tables); i++ {
 		tiflashReplica := &model.TiFlashReplicaInfo{
 			Count: uint64(i),
@@ -224,7 +225,7 @@ func (s *testRestoreClientSuite) TestPreCheckTableTiFlashReplicas(c *C) {
 			tiflashReplica = nil
 		}
 
-		tables[i] = &utils.Table{
+		tables[i] = &metautil.Table{
 			DB: nil,
 			Info: &model.TableInfo{
 				ID:             int64(i),

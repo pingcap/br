@@ -20,13 +20,13 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/pdpb"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
@@ -34,7 +34,9 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+	"go.uber.org/atomic"
 
+	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/restore"
 )
 
@@ -44,7 +46,7 @@ type testClient struct {
 	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
-	splitCount   int
+	splitCount   atomic.Int32
 	hook         clientHook
 }
 
@@ -56,7 +58,7 @@ func newTestClient(
 ) *testClient {
 	regionsInfo := core.NewRegionsInfo()
 	for _, regionInfo := range regions {
-		regionsInfo.AddRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
+		regionsInfo.SetRegion(core.NewRegionInfo(regionInfo.Region, regionInfo.Leader))
 	}
 	return &testClient{
 		stores:       stores,
@@ -148,6 +150,10 @@ func (c *testClient) SplitRegion(
 func (c *testClient) BatchSplitRegionsWithOrigin(
 	ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte,
 ) (*restore.RegionInfo, []*restore.RegionInfo, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.splitCount.Inc()
+
 	if c.hook != nil {
 		regionInfo, keys = c.hook.BeforeSplitRegion(ctx, regionInfo, keys)
 	}
@@ -161,9 +167,6 @@ func (c *testClient) BatchSplitRegionsWithOrigin(
 	default:
 	}
 
-	c.splitCount++
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	newRegions := make([]*restore.RegionInfo, 0)
 	target, ok := c.regions[regionInfo.Region.Id]
 	if !ok {
@@ -387,7 +390,7 @@ func (d defaultHook) check(c *C, cli *testClient) {
 	// 7. region: [bv, cca), keys: [bw, bx, by, bz]
 
 	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(cli.splitCount >= 7, IsTrue)
+	c.Assert(cli.splitCount.Load() >= 7, IsTrue)
 }
 
 func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, hook clientHook, errPat string, splitHook batchSplitHook) {
@@ -401,6 +404,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 	client := initTestClient(keys, hook)
 	local := &local{
 		splitCli: client,
+		g:        glue.NewExternalTiDBGlue(nil, mysql.ModeNone),
 	}
 
 	// current region ranges: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )
@@ -420,7 +424,7 @@ func (s *localSuite) doTestBatchSplitRegionByRanges(ctx context.Context, c *C, h
 		start = end
 	}
 
-	err = local.SplitAndScatterRegionByRanges(ctx, ranges, true)
+	err = local.SplitAndScatterRegionByRanges(ctx, ranges, nil, true)
 	if len(errPat) == 0 {
 		c.Assert(err, IsNil)
 	} else {
@@ -473,7 +477,7 @@ func (h batchSizeHook) check(c *C, cli *testClient) {
 	// 10. region: [bv, cca), keys: [bx, by, bz]
 
 	// since it may encounter error retries, here only check the lower threshold.
-	c.Assert(cli.splitCount, Equals, 9)
+	c.Assert(cli.splitCount.Load(), Equals, int32(9))
 }
 
 func (s *localSuite) TestBatchSplitRegionByRangesKeySizeLimit(c *C) {
@@ -517,13 +521,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatch(c *C) {
 // return epoch not match error in every other call
 type splitRegionEpochNotMatchHookRandom struct {
 	noopHook
-	cnt int32
+	cnt atomic.Int32
 }
 
 func (h *splitRegionEpochNotMatchHookRandom) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	cnt := atomic.AddInt32(&h.cnt, 1)
-	if cnt%2 != 0 {
+	if h.cnt.Inc() != 0 {
 		return regionInfo, keys
 	}
 	regionInfo = cloneRegion(regionInfo)
@@ -539,12 +542,12 @@ func (s *localSuite) TestBatchSplitByRangesEpochNotMatchOnce(c *C) {
 type splitRegionNoValidKeyHook struct {
 	noopHook
 	returnErrTimes int32
-	errorCnt       int32
+	errorCnt       atomic.Int32
 }
 
-func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
+func (h *splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, regionInfo *restore.RegionInfo, keys [][]byte) (*restore.RegionInfo, [][]byte) {
 	regionInfo, keys = h.noopHook.BeforeSplitRegion(ctx, regionInfo, keys)
-	if atomic.AddInt32(&h.errorCnt, 1) <= h.returnErrTimes {
+	if h.errorCnt.Inc() <= h.returnErrTimes {
 		// clean keys to trigger "no valid keys" error
 		keys = keys[:0]
 	}
@@ -552,7 +555,7 @@ func (h splitRegionNoValidKeyHook) BeforeSplitRegion(ctx context.Context, region
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeysOnce(c *C) {
-	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, ".*no valid key.*", defaultHook{})
+	s.doTestBatchSplitRegionByRanges(context.Background(), c, &splitRegionNoValidKeyHook{returnErrTimes: 1}, "", defaultHook{})
 }
 
 func (s *localSuite) TestBatchSplitByRangesNoValidKeys(c *C) {
@@ -616,6 +619,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 	client := initTestClient(keys, hook)
 	local := &local{
 		splitCli: client,
+		g:        glue.NewExternalTiDBGlue(nil, mysql.ModeNone),
 	}
 	ctx := context.Background()
 
@@ -639,7 +643,7 @@ func (s *localSuite) doTestBatchSplitByRangesWithClusteredIndex(c *C, hook clien
 		start = e
 	}
 
-	err := local.SplitAndScatterRegionByRanges(ctx, ranges, true)
+	err := local.SplitAndScatterRegionByRanges(ctx, ranges, nil, true)
 	c.Assert(err, IsNil)
 
 	startKey := codec.EncodeBytes([]byte{}, rangeKeys[0])

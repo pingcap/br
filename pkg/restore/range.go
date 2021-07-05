@@ -120,20 +120,17 @@ func (region *RegionInfo) ContainsInterior(key []byte) bool {
 
 // RewriteRules contains rules for rewriting keys of tables.
 type RewriteRules struct {
-	Table []*import_sstpb.RewriteRule
-	Data  []*import_sstpb.RewriteRule
+	Data []*import_sstpb.RewriteRule
 }
 
 // Append append its argument to this rewrite rules.
 func (r *RewriteRules) Append(other RewriteRules) {
 	r.Data = append(r.Data, other.Data...)
-	r.Table = append(r.Table, other.Table...)
 }
 
 // EmptyRewriteRule make a new, empty rewrite rule.
 func EmptyRewriteRule() *RewriteRules {
 	return &RewriteRules{
-		Table: []*import_sstpb.RewriteRule{},
-		Data:  []*import_sstpb.RewriteRule{},
+		Data: []*import_sstpb.RewriteRule{},
 	}
 }

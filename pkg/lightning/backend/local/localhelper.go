@@ -16,6 +16,7 @@ package local
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"regexp"
 	"runtime"
 	"sort"
@@ -33,6 +34,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/logutil"
@@ -60,18 +62,28 @@ var (
 // This File include region split & scatter operation just like br.
 // we can simply call br function, but we need to change some function signature of br
 // When the ranges total size is small, we can skip the split to avoid generate empty regions.
-func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []Range, needSplit bool) error {
+func (local *local) SplitAndScatterRegionByRanges(
+	ctx context.Context,
+	ranges []Range,
+	tableInfo *checkpoints.TidbTableInfo,
+	needSplit bool,
+) error {
 	if len(ranges) == 0 {
 		return nil
+	}
+
+	db, err := local.g.GetDB()
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	minKey := codec.EncodeBytes([]byte{}, ranges[0].start)
 	maxKey := codec.EncodeBytes([]byte{}, ranges[len(ranges)-1].end)
 
-	var err error
 	scatterRegions := make([]*split.RegionInfo, 0)
 	var retryKeys [][]byte
 	waitTime := splitRegionBaseBackOffTime
+	skippedKeys := 0
 	for i := 0; i < SplitRetryTimes; i++ {
 		log.L().Info("split and scatter region",
 			logutil.Key("minKey", minKey),
@@ -110,6 +122,41 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		if !needSplit {
 			scatterRegions = append(scatterRegions, regions...)
 			break
+		}
+
+		needSplitRanges := make([]Range, 0, len(ranges))
+		startKey := make([]byte, 0)
+		endKey := make([]byte, 0)
+		for _, r := range ranges {
+			startKey = codec.EncodeBytes(startKey, r.start)
+			endKey = codec.EncodeBytes(endKey, r.end)
+			idx := sort.Search(len(regions), func(i int) bool {
+				return beforeEnd(startKey, regions[i].Region.EndKey)
+			})
+			if idx < 0 || idx >= len(regions) {
+				log.L().Error("target region not found", logutil.Key("start_key", startKey),
+					logutil.RegionBy("first_region", regions[0].Region),
+					logutil.RegionBy("last_region", regions[len(regions)-1].Region))
+				return errors.New("target region not found")
+			}
+			if bytes.Compare(startKey, regions[idx].Region.StartKey) > 0 || bytes.Compare(endKey, regions[idx].Region.EndKey) < 0 {
+				needSplitRanges = append(needSplitRanges, r)
+			}
+		}
+		ranges = needSplitRanges
+		if len(ranges) == 0 {
+			log.L().Info("no ranges need to be split, skipped.")
+			return nil
+		}
+
+		var tableRegionStats map[uint64]int64
+		if tableInfo != nil {
+			tableRegionStats, err = fetchTableRegionSizeStats(ctx, db, tableInfo.ID)
+			if err != nil {
+				log.L().Warn("fetch table region size statistics failed",
+					zap.String("table", tableInfo.Name), zap.Error(err))
+				tableRegionStats = make(map[uint64]int64)
+			}
 		}
 
 		regionMap := make(map[uint64]*split.RegionInfo)
@@ -180,7 +227,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 									}
 									return err1
 								} else if common.IsContextCanceledError(err1) {
-									// do not retry on conext.Canceled error
+									// do not retry on context.Canceled error
 									return err1
 								}
 								log.L().Warn("split regions", log.ShortError(err1), zap.Int("retry time", i),
@@ -189,9 +236,7 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 								syncLock.Lock()
 								retryKeys = append(retryKeys, keys[startIdx:]...)
 								// set global error so if we exceed retry limit, the function will return this error
-								if !common.IsContextCanceledError(err1) {
-									err = multierr.Append(err, err1)
-								}
+								err = multierr.Append(err, err1)
 								syncLock.Unlock()
 								break
 							} else {
@@ -223,6 +268,15 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 	sendLoop:
 		for regionID, keys := range splitKeyMap {
+			// if region not in tableRegionStats, that means this region is newly split, so
+			// we can skip split it again.
+			regionSize, ok := tableRegionStats[regionID]
+			if !ok {
+				log.L().Warn("region stats not found", zap.Uint64("region", regionID))
+			}
+			if len(keys) == 1 && regionSize < local.regionSplitSize {
+				skippedKeys++
+			}
 			select {
 			case ch <- &splitInfo{region: regionMap[regionID], keys: keys}:
 			case <-ctx.Done():
@@ -236,7 +290,9 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 		close(ch)
 		if splitError := eg.Wait(); splitError != nil {
-			return splitError
+			retryKeys = retryKeys[:0]
+			err = splitError
+			continue
 		}
 
 		if len(retryKeys) == 0 {
@@ -264,9 +320,11 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	}
 	if scatterCount == len(scatterRegions) {
 		log.L().Info("waiting for scattering regions done",
+			zap.Int("skipped_keys", skippedKeys),
 			zap.Int("regions", len(scatterRegions)), zap.Duration("take", time.Since(startTime)))
 	} else {
 		log.L().Info("waiting for scattering regions timeout",
+			zap.Int("skipped_keys", skippedKeys),
 			zap.Int("scatterCount", scatterCount),
 			zap.Int("regions", len(scatterRegions)),
 			zap.Duration("take", time.Since(startTime)))
@@ -274,14 +332,43 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	return nil
 }
 
+func fetchTableRegionSizeStats(ctx context.Context, db *sql.DB, tableID int64) (map[uint64]int64, error) {
+	exec := &common.SQLWithRetry{
+		DB:     db,
+		Logger: log.L(),
+	}
+
+	stats := make(map[uint64]int64)
+	err := exec.Transact(ctx, "fetch region approximate sizes", func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT REGION_ID, APPROXIMATE_SIZE FROM information_schema.TIKV_REGION_STATUS WHERE TABLE_ID = ?", tableID)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		defer rows.Close()
+		var (
+			regionID uint64
+			size     int64
+		)
+		for rows.Next() {
+			if err = rows.Scan(&regionID, &size); err != nil {
+				return errors.Trace(err)
+			}
+			stats[regionID] = size * units.MiB
+		}
+		return rows.Err()
+	})
+	return stats, errors.Trace(err)
+}
+
 func paginateScanRegion(
 	ctx context.Context, client split.SplitClient, startKey, endKey []byte, limit int,
 ) ([]*split.RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		log.L().Error("startKey > endKey when paginating scan region",
+		log.L().Error("startKey >= endKey when paginating scan region",
 			logutil.Key("startKey", startKey),
 			logutil.Key("endKey", endKey))
-		return nil, errors.Errorf("startKey > endKey when paginating scan region")
+		return nil, errors.Errorf("startKey >= endKey when paginating scan region")
 	}
 
 	var regions []*split.RegionInfo
@@ -305,6 +392,8 @@ func paginateScanRegion(
 	sort.Slice(regions, func(i, j int) bool {
 		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
 	})
+	log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
+		logutil.Key("start", startKey), logutil.Key("end", endKey))
 	return regions, nil
 }
 
@@ -477,9 +566,13 @@ func beforeEnd(key []byte, end []byte) bool {
 	return bytes.Compare(key, end) < 0 || len(end) == 0
 }
 
-func insideRegion(region *metapb.Region, meta *sst.SSTMeta) bool {
-	rg := meta.GetRange()
-	return keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd())
+func insideRegion(region *metapb.Region, metas []*sst.SSTMeta) bool {
+	inside := true
+	for _, meta := range metas {
+		rg := meta.GetRange()
+		inside = inside && (keyInsideRegion(region, rg.GetStart()) && keyInsideRegion(region, rg.GetEnd()))
+	}
+	return inside
 }
 
 func keyInsideRegion(region *metapb.Region, key []byte) bool {

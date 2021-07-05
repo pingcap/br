@@ -11,7 +11,10 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/pingcap/br/pkg/metautil"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -23,9 +26,9 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/statistics/handle"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/server/schedule/placement"
 	"go.uber.org/zap"
@@ -168,18 +171,23 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
+func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend, externalStorage storage.ExternalStorage) error {
 	if !backupMeta.IsRawKv {
-		databases, err := utils.LoadBackupTables(backupMeta)
+		reader := metautil.NewMetaReader(backupMeta, externalStorage)
+		databases, err := utils.LoadBackupTables(c, reader)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		rc.databases = databases
 
 		var ddlJobs []*model.Job
-		err = json.Unmarshal(backupMeta.GetDdls(), &ddlJobs)
-		if err != nil {
-			return errors.Trace(err)
+		// ddls is the bytes of json.Marshal
+		ddls, err := reader.ReadDDLs(c)
+		if len(ddls) != 0 {
+			err = json.Unmarshal(ddls, &ddlJobs)
+			if err != nil {
+				return errors.Trace(err)
+			}
 		}
 		rc.ddlJobs = ddlJobs
 	}
@@ -189,8 +197,7 @@ func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backu
 	metaClient := NewSplitClient(rc.pdClient, rc.tlsConf)
 	importCli := NewImportClient(metaClient, rc.tlsConf, rc.keepaliveConf)
 	rc.fileImporter = NewFileImporter(metaClient, importCli, backend, rc.backupMeta.IsRawKv, rc.rateLimit)
-
-	return nil
+	return rc.fileImporter.CheckMultiIngestSupport(c, rc.pdClient)
 }
 
 // IsRawKvMode checks whether the backup data is in raw kv format, in which case transactional recover is forbidden.
@@ -350,12 +357,11 @@ func (rc *Client) CreateDatabase(ctx context.Context, db *model.DBInfo) error {
 // CreateTables creates multiple tables, and returns their rewrite rules.
 func (rc *Client) CreateTables(
 	dom *domain.Domain,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	newTS uint64,
 ) (*RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &RewriteRules{
-		Table: make([]*import_sstpb.RewriteRule, 0),
-		Data:  make([]*import_sstpb.RewriteRule, 0),
+		Data: make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	errCh := make(chan error, 1)
@@ -366,7 +372,6 @@ func (rc *Client) CreateTables(
 	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, nil, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
-		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
@@ -389,7 +394,7 @@ func (rc *Client) createTable(
 	ctx context.Context,
 	db *DB,
 	dom *domain.Domain,
-	table *utils.Table,
+	table *metautil.Table,
 	newTS uint64,
 ) (CreatedTable, error) {
 	if rc.IsSkipCreateSQL() {
@@ -426,7 +431,7 @@ func (rc *Client) createTable(
 func (rc *Client) GoCreateTables(
 	ctx context.Context,
 	dom *domain.Domain,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	newTS uint64,
 	dbPool []*DB,
 	errCh chan<- error,
@@ -441,7 +446,7 @@ func (rc *Client) GoCreateTables(
 	}
 
 	outCh := make(chan CreatedTable, len(tables))
-	createOneTable := func(c context.Context, db *DB, t *utils.Table) error {
+	createOneTable := func(c context.Context, db *DB, t *metautil.Table) error {
 		select {
 		case <-c.Done():
 			return c.Err()
@@ -479,8 +484,8 @@ func (rc *Client) GoCreateTables(
 }
 
 func (rc *Client) createTablesWithSoleDB(ctx context.Context,
-	createOneTable func(ctx context.Context, db *DB, t *utils.Table) error,
-	tables []*utils.Table) error {
+	createOneTable func(ctx context.Context, db *DB, t *metautil.Table) error,
+	tables []*metautil.Table) error {
 	for _, t := range tables {
 		if err := createOneTable(ctx, rc.db, t); err != nil {
 			return errors.Trace(err)
@@ -490,8 +495,8 @@ func (rc *Client) createTablesWithSoleDB(ctx context.Context,
 }
 
 func (rc *Client) createTablesWithDBPool(ctx context.Context,
-	createOneTable func(ctx context.Context, db *DB, t *utils.Table) error,
-	tables []*utils.Table, dbPool []*DB) error {
+	createOneTable func(ctx context.Context, db *DB, t *metautil.Table) error,
+	tables []*metautil.Table, dbPool []*DB) error {
 	eg, ectx := errgroup.WithContext(ctx)
 	workers := utils.NewWorkerPool(uint(len(dbPool)), "DDL workers")
 	for _, t := range tables {
@@ -541,6 +546,38 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 	return nil
 }
 
+// isFilesBelongToSameRange check whether two files are belong to the same range with different cf.
+func isFilesBelongToSameRange(f1, f2 string) bool {
+	// the backup date file pattern is `{store_id}_{region_id}_{epoch_version}_{key}_{ts}_{cf}.sst`
+	// so we need to compare with out the `_{cf}.sst` suffix
+	idx1 := strings.LastIndex(f1, "_")
+	idx2 := strings.LastIndex(f2, "_")
+
+	if idx1 < 0 || idx2 < 0 {
+		panic(fmt.Sprintf("invalid backup data file name: '%s', '%s'", f1, f2))
+	}
+
+	return f1[:idx1] == f2[:idx2]
+}
+
+func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.File, []*backuppb.File) {
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if !supportMulti {
+		return files[:1], files[1:]
+	}
+	idx := 1
+	for idx < len(files) {
+		if !isFilesBelongToSameRange(files[idx-1].Name, files[idx].Name) {
+			break
+		}
+		idx++
+	}
+
+	return files[:idx], files[idx:]
+}
+
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
 	ctx context.Context,
@@ -571,19 +608,22 @@ func (rc *Client) RestoreFiles(
 		return errors.Trace(err)
 	}
 
-	for _, file := range files {
-		fileReplica := file
+	var rangeFiles []*backuppb.File
+	var leftFiles []*backuppb.File
+	for rangeFiles, leftFiles = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, leftFiles = drainFilesByRange(leftFiles, rc.fileImporter.supportMultiIngest) {
+		filesReplica := rangeFiles
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				fileStart := time.Now()
 				defer func() {
-					log.Info("import file done", logutil.File(fileReplica),
+					log.Info("import files done", logutil.Files(filesReplica),
 						zap.Duration("take", time.Since(fileStart)))
 					updateCh.Inc()
 				}()
-				return rc.fileImporter.Import(ectx, fileReplica, rewriteRules)
+				return rc.fileImporter.Import(ectx, filesReplica, rewriteRules)
 			})
 	}
+
 	if err := eg.Wait(); err != nil {
 		summary.CollectFailureUnit("file", err)
 		log.Error(
@@ -621,7 +661,7 @@ func (rc *Client) RestoreRaw(
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {
 				defer updateCh.Inc()
-				return rc.fileImporter.Import(ectx, fileReplica, EmptyRewriteRule())
+				return rc.fileImporter.Import(ectx, []*backuppb.File{fileReplica}, EmptyRewriteRule())
 			})
 	}
 	if err := eg.Wait(); err != nil {
@@ -1011,7 +1051,7 @@ func (rc *Client) IsSkipCreateSQL() bool {
 // PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
 func (rc *Client) PreCheckTableTiFlashReplica(
 	ctx context.Context,
-	tables []*utils.Table,
+	tables []*metautil.Table,
 ) error {
 	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
 	if err != nil {
@@ -1031,7 +1071,7 @@ func (rc *Client) PreCheckTableTiFlashReplica(
 
 // PreCheckTableClusterIndex checks whether backup tables and existed tables have different cluster index options。
 func (rc *Client) PreCheckTableClusterIndex(
-	tables []*utils.Table,
+	tables []*metautil.Table,
 	ddlJobs []*model.Job,
 	dom *domain.Domain,
 ) error {

@@ -11,7 +11,6 @@ import (
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	pd "github.com/tikv/pd/client"
-	"github.com/tikv/pd/server/core"
 )
 
 func TestT(t *testing.T) {
@@ -24,14 +23,12 @@ type testClientSuite struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mgr     *Mgr
-	regions *core.RegionsInfo
+	mgr *Mgr
 }
 
 func (s *testClientSuite) SetUpSuite(c *C) {
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	s.mgr = &Mgr{PdController: &pdutil.PdController{}}
-	s.regions = core.NewRegionsInfo()
 }
 
 func (s *testClientSuite) TearDownSuite(c *C) {

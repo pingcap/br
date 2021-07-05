@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
@@ -97,7 +99,7 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 }
 
 // CreateTable executes a CREATE TABLE SQL.
-func (db *DB) CreateTable(ctx context.Context, table *utils.Table) error {
+func (db *DB) CreateTable(ctx context.Context, table *metautil.Table) error {
 	err := db.se.CreateTable(ctx, table.DB.Name, table.Info)
 	if err != nil {
 		log.Error("create table failed",
@@ -207,7 +209,7 @@ func (db *DB) Close() {
 }
 
 // FilterDDLJobs filters ddl jobs.
-func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*model.Job) {
+func FilterDDLJobs(allDDLJobs []*model.Job, tables []*metautil.Table) (ddlJobs []*model.Job) {
 	// Sort the ddl jobs by schema version in descending order.
 	sort.Slice(allDDLJobs, func(i, j int) bool {
 		return allDDLJobs[i].BinlogInfo.SchemaVersion > allDDLJobs[j].BinlogInfo.SchemaVersion
@@ -263,7 +265,7 @@ func FilterDDLJobs(allDDLJobs []*model.Job, tables []*utils.Table) (ddlJobs []*m
 	return ddlJobs
 }
 
-func getDatabases(tables []*utils.Table) (dbs []*model.DBInfo) {
+func getDatabases(tables []*metautil.Table) (dbs []*model.DBInfo) {
 	dbIDs := make(map[int64]bool)
 	for _, table := range tables {
 		if !dbIDs[table.DB.ID] {

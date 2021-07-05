@@ -41,8 +41,6 @@ fi
 
 echo "selected test cases: $SELECTED_TEST_NAME"
 
-# disable cluster index by default
-run_sql 'set @@global.tidb_enable_clustered_index = 0' || echo "tidb does not support cluster index yet, skipped!"
 # wait for global variable cache invalid
 sleep 2
 
@@ -62,5 +60,5 @@ for casename in $SELECTED_TEST_NAME; do
     TIDB_STATUS_ADDR="$TIDB_STATUS_ADDR" \
     TIKV_ADDR="$TIKV_ADDR" \
     BR_LOG_TO_TERM=1 \
-    bash "$script" && echo "TEST: [$TEST_NAME] success!"
+    bash "$script" && echo "TEST: [$casename] success!"
 done

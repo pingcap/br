@@ -42,3 +42,9 @@ func GetStorageSize(dir string) (size StorageSize, err error) {
 	}
 	return
 }
+
+// SameDisk is used to check dir1 and dir2 in the same disk.
+func SameDisk(dir1 string, dir2 string) (bool, error) {
+	// FIXME
+	return false, nil
+}
