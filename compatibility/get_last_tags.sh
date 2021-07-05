@@ -5,7 +5,11 @@ getLatestTags() {
   release_5_branch_regex="^release-5\.[0-9].*$"
   release_4_branch_regex="^release-4\.[0-9].*$"
   TOTAL_TAGS=$(git for-each-ref --sort=creatordate  refs/tags | awk -F '/' '{print $3}')
-  filter='alpha'
+  # we should filter such tags
+  # v5.0.2-20210628
+  # v5.0.2-alpha
+  # because these tags don't have corresponding docker images.
+  filter='-'
   # latest tags
   TAGS=$(echo $TOTAL_TAGS | tr ' ' '\n' | grep -v $filter | tail -n3)
   if git rev-parse --abbrev-ref HEAD | egrep -q $release_5_branch_regex
