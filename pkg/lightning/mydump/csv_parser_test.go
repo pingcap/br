@@ -636,9 +636,15 @@ func (s *testMydumpCSVParserSuite) TestConsecutiveFields(c *C) {
 		`"x"?`,
 		"\"\"\x01",
 		"\"\"\v",
+		`abc""`,
 	}
 
 	s.runFailingTestCases(c, &cfg, int64(config.ReadBlockSize), testCases)
+
+	cfg.Delimiter = "|+|"
+	s.runFailingTestCases(c, &cfg, int64(config.ReadBlockSize), []string{
+		"abc|1|+||+|\r\n",
+	})
 }
 
 func (s *testMydumpCSVParserSuite) TestSpecialChars(c *C) {
@@ -796,7 +802,7 @@ func (s *testMydumpCSVParserSuite) TestSyntaxErrorLog(c *C) {
 
 	c.Assert(
 		buffer.Stripped(), Equals,
-		`{"$lvl":"ERROR","$msg":"syntax error","pos":1,"content":"'`+strings.Repeat("y", 255)+`"}`,
+		`{"$lvl":"ERROR","$msg":"syntax error","pos":2,"content":"`+strings.Repeat("y", 256)+`"}`,
 	)
 }
 
@@ -818,6 +824,39 @@ func (s *testMydumpCSVParserSuite) TestTrimLastSep(c *C) {
 		c.Assert(parser.ReadRow(), IsNil)
 		c.Assert(len(parser.LastRow().Row), Equals, 3)
 	}
+}
+
+// TestTerminator checks for customized terminators.
+func (s *testMydumpCSVParserSuite) TestTerminator(c *C) {
+	cfg := config.CSVConfig{
+		Separator:  "|+|",
+		Terminator: "|+|\n",
+	}
+
+	testCases := []testCase{
+		{
+			input: "5|+|abc\ndef\nghi|+|6|+|\n7|+|xy|+z|+|8|+|\n",
+			expected: [][]types.Datum{
+				{types.NewStringDatum("5"), types.NewStringDatum("abc\ndef\nghi"), types.NewStringDatum("6")},
+				{types.NewStringDatum("7"), types.NewStringDatum("xy|+z"), types.NewStringDatum("8")},
+			},
+		},
+	}
+
+	s.runTestCases(c, &cfg, 1, testCases)
+
+	cfg.Delimiter = "|+>"
+
+	testCases = []testCase{
+		{
+			input: "xyz|+|+>|+|\n|+>|+|\n|+>|+|\r|+|\n",
+			expected: [][]types.Datum{
+				{types.NewStringDatum("xyz"), types.NewStringDatum("+>")},
+				{types.NewStringDatum("|+|\n"), types.NewStringDatum("\r")},
+			},
+		},
+	}
+	s.runTestCases(c, &cfg, 1, testCases)
 }
 
 // Run `go test github.com/pingcap/br/pkg/lightning/mydump -check.b -check.bmem -test.v` to get benchmark result.

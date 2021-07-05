@@ -177,6 +177,11 @@ separator = ','
 # string delimiter, can either be one or more characters or empty string. If not empty,
 # the value should not be prefix of `separator`
 delimiter = '"'
+# row terminator, can be an empty string or not.
+# An empty string means both \r and \n are considered a terminator. This is the normal CSV behavior.
+# A non-empty string means the row ends only when such terminator is matched exactly (or reaching the end of file).
+# If the file content matches both the terminator and separator, the terminator takes precedence.
+terminator = ''
 # whether the CSV files contain a header. If true, the first line will be skipped
 header = true
 # whether the CSV contains any NULL value. If true, all columns from CSV cannot be NULL.
@@ -186,7 +191,8 @@ null = '\N'
 # whether to interpret backslash-escape inside strings.
 backslash-escape = true
 # if a line ends with a separator, remove it.
-trim-last-separator = false
+# deprecated - consider using the terminator option instead.
+#trim-last-separator = false
 
 # file level routing rule that map file path to schema,table,type,sort-key
 # The schema, table , type and key can be either a constant string or template strings
