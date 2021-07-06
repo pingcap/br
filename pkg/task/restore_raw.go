@@ -64,7 +64,9 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Restore raw does not need domain.
+	needDomain := false
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -90,7 +92,7 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record("Size", utils.ArchiveSize(backupMeta))
+	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	if err = client.InitBackupMeta(backupMeta, u); err != nil {
 		return errors.Trace(err)
 	}

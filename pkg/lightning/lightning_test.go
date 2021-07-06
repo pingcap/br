@@ -11,6 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Contexts for HTTP requests communicating with a real HTTP server are essential,
+// however, when the subject is a mocked server, it would probably be redundant.
+//nolint:noctx
 package lightning
 
 import (
@@ -24,6 +27,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/go-units"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/failpoint"
 
@@ -63,7 +67,7 @@ func (s *lightningSuite) TestRun(c *C) {
 	cfg := config.NewConfig()
 	err := cfg.LoadFromGlobal(globalConfig)
 	c.Assert(err, IsNil)
-	err = lightning.RunOnce(context.Background(), cfg, nil, nil)
+	err = lightning.RunOnce(context.Background(), cfg, nil)
 	c.Assert(err, ErrorMatches, ".*mydumper dir does not exist")
 
 	path, _ := filepath.Abs(".")
@@ -115,13 +119,13 @@ func (s *lightningServerSuite) SetUpTest(c *C) {
 	s.lightning = New(cfg)
 	s.taskCfgCh = make(chan *config.Config)
 	s.lightning.ctx = context.WithValue(s.lightning.ctx, &taskCfgRecorderKey, s.taskCfgCh)
-	s.lightning.GoServe()
+	_ = s.lightning.GoServe()
 
-	failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
+	_ = failpoint.Enable("github.com/pingcap/br/pkg/lightning/SkipRunTask", "return")
 }
 
 func (s *lightningServerSuite) TearDownTest(c *C) {
-	failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
+	_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/SkipRunTask")
 	s.lightning.Stop()
 }
 
@@ -138,7 +142,9 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 	c.Assert(data["error"], Equals, "server-mode not enabled")
 	resp.Body.Close()
 
-	go s.lightning.RunServer()
+	go func() {
+		_ = s.lightning.RunServer()
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	req, err := http.NewRequest(http.MethodPut, url, nil)
@@ -187,8 +193,8 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 			c.Assert(taskCfg.TiDB.Host, Equals, "test.invalid")
 			c.Assert(taskCfg.Mydumper.SourceDir, Equals, fmt.Sprintf("file://demo-path-%d", i))
 			c.Assert(taskCfg.Mydumper.CSV.Separator, Equals, "/")
-		case <-time.After(500 * time.Millisecond):
-			c.Fatalf("task is not queued after 500ms (i = %d)", i)
+		case <-time.After(5 * time.Second):
+			c.Fatalf("task is not queued after 5 seconds (i = %d)", i)
 		}
 	}
 }
@@ -225,7 +231,9 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 		return result.ID
 	}
 
-	go s.lightning.RunServer()
+	go func() {
+		_ = s.lightning.RunServer()
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	// Check `GET /tasks` without any active tasks
@@ -356,7 +364,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	err := cfg.LoadFromGlobal(s.lightning.globalCfg)
 	c.Assert(err, IsNil)
 	go func() {
-		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil, nil)
+		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil)
 	}()
 	time.Sleep(100 * time.Millisecond)
 
@@ -414,7 +422,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	resp, err = http.DefaultClient.Do(req)
 	c.Assert(err, IsNil)
 	c.Assert(resp.StatusCode, Equals, http.StatusOK)
-
+	c.Assert(resp.Body.Close(), IsNil)
 	// ... and the task should be canceled now.
 	c.Assert(<-errCh, Equals, context.Canceled)
 }
@@ -429,6 +437,7 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	cfg.App.CheckRequirements = true
 	cfg.App.TableConcurrency = 4
 	cfg.TikvImporter.Backend = config.BackendLocal
+	cfg.TikvImporter.EngineMemCacheSize = 512 * units.MiB
 
 	dbMetas := []*mydump.MDDatabaseMeta{
 		{
@@ -467,27 +476,25 @@ func (s *lightningServerSuite) TestCheckSystemRequirement(c *C) {
 	}
 
 	// with max open files 1024, the max table size will be: 65536MB
-	err := failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue", "return(2049)")
+	err := failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue", "return(2049)")
 	c.Assert(err, IsNil)
-	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError", "return(true)")
+	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/local/SetRlimitError", "return(true)")
 	c.Assert(err, IsNil)
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/SetRlimitError")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/SetRlimitError")
+	}()
 	// with this dbMetas, the estimated fds will be 2050, so should return error
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, NotNil)
 
-	// disable check-requirement, should return nil
-	cfg.App.CheckRequirements = false
-	err = checkSystemRequirement(cfg, dbMetas)
-	c.Assert(err, IsNil)
-	cfg.App.CheckRequirements = true
-
-	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
+	err = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
 	c.Assert(err, IsNil)
 
 	// the min rlimit should be bigger than the default min value (16384)
-	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue", "return(8200)")
-	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/GetRlimitValue")
+	err = failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue", "return(8200)")
+	defer func() {
+		_ = failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/local/GetRlimitValue")
+	}()
 	c.Assert(err, IsNil)
 	err = checkSystemRequirement(cfg, dbMetas)
 	c.Assert(err, IsNil)

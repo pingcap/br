@@ -99,7 +99,9 @@ func RunLogRestore(c context.Context, g glue.Glue, cfg *LogRestoreConfig) error 
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements)
+	// Restore needs domain to do DDL.
+	needDomain := true
+	mgr, err := NewMgr(ctx, g, cfg.PD, cfg.TLS, GetKeepalive(&cfg.Config), cfg.CheckRequirements, needDomain)
 	if err != nil {
 		return errors.Trace(err)
 	}

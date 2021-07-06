@@ -41,9 +41,9 @@ set +e
 run_lightning -d "$DBPATH" --backend tidb --enable-checkpoint=1 2> /dev/null
 set -e
 run_sql 'SELECT count(*), sum(iVal) FROM `cppq_tsr`.tbl'
-check_contains "count(*): 32"
-# sum(0..31)
-check_contains "sum(iVal): 496"
+check_contains "count(*): 1"
+# sum(0)
+check_contains "sum(iVal): 0"
 
 # check chunk offset and update checkpoint current row id to a higher value so that
 # if parse read from start, the generated rows will be different

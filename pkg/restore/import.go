@@ -11,7 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/failpoint"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
@@ -159,7 +160,7 @@ func (ic *importClient) GetImportClient(
 type FileImporter struct {
 	metaClient   SplitClient
 	importClient ImporterClient
-	backend      *backup.StorageBackend
+	backend      *backuppb.StorageBackend
 	rateLimit    uint64
 
 	isRawKvMode bool
@@ -171,7 +172,7 @@ type FileImporter struct {
 func NewFileImporter(
 	metaClient SplitClient,
 	importClient ImporterClient,
-	backend *backup.StorageBackend,
+	backend *backuppb.StorageBackend,
 	isRawKvMode bool,
 	rateLimit uint64,
 ) FileImporter {
@@ -198,7 +199,7 @@ func (importer *FileImporter) SetRawRange(startKey, endKey []byte) error {
 // All rules must contain encoded keys.
 func (importer *FileImporter) Import(
 	ctx context.Context,
-	file *backup.File,
+	file *backuppb.File,
 	rewriteRules *RewriteRules,
 ) error {
 	log.Debug("import file", logutil.File(file))
@@ -243,7 +244,12 @@ func (importer *FileImporter) Import(
 				} else {
 					downloadMeta, e = importer.downloadSST(ctx, info, file, rewriteRules)
 				}
-				return e
+				failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
+					msg := val.(string)
+					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
+					e = errors.Annotate(e, msg)
+				})
+				return errors.Trace(e)
 			}, newDownloadSSTBackoffer())
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
@@ -351,7 +357,7 @@ func (importer *FileImporter) setDownloadSpeedLimit(ctx context.Context, storeID
 func (importer *FileImporter) downloadSST(
 	ctx context.Context,
 	regionInfo *RegionInfo,
-	file *backup.File,
+	file *backuppb.File,
 	rewriteRules *RewriteRules,
 ) (*import_sstpb.SSTMeta, error) {
 	uid := uuid.New()
@@ -403,7 +409,7 @@ func (importer *FileImporter) downloadSST(
 func (importer *FileImporter) downloadRawKVSST(
 	ctx context.Context,
 	regionInfo *RegionInfo,
-	file *backup.File,
+	file *backuppb.File,
 ) (*import_sstpb.SSTMeta, error) {
 	uid := uuid.New()
 	id := uid[:]

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
@@ -40,6 +40,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
@@ -60,7 +61,7 @@ type Client struct {
 
 	databases  map[string]*utils.Database
 	ddlJobs    []*model.Job
-	backupMeta *backup.BackupMeta
+	backupMeta *backuppb.BackupMeta
 	// TODO Remove this field or replace it with a []*DB,
 	// since https://github.com/pingcap/br/pull/377 needs more DBs to speed up DDL execution.
 	// And for now, we must inject a pool of DBs to `Client.GoCreateTables`, otherwise there would be a race condition.
@@ -79,7 +80,7 @@ type Client struct {
 	restoreStores []uint64
 
 	storage            storage.ExternalStorage
-	backend            *backup.StorageBackend
+	backend            *backuppb.StorageBackend
 	switchModeInterval time.Duration
 	switchCh           chan struct{}
 
@@ -131,7 +132,7 @@ func (rc *Client) SetRateLimit(rateLimit uint64) {
 }
 
 // SetStorage set ExternalStorage for client.
-func (rc *Client) SetStorage(ctx context.Context, backend *backup.StorageBackend, sendCreds bool) error {
+func (rc *Client) SetStorage(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) error {
 	var err error
 	rc.storage, err = storage.Create(ctx, backend, sendCreds)
 	if err != nil {
@@ -166,7 +167,7 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(backupMeta *backup.BackupMeta, backend *backup.StorageBackend) error {
+func (rc *Client) InitBackupMeta(backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend) error {
 	if !backupMeta.IsRawKv {
 		databases, err := utils.LoadBackupTables(backupMeta)
 		if err != nil {
@@ -197,7 +198,7 @@ func (rc *Client) IsRawKvMode() bool {
 }
 
 // GetFilesInRawRange gets all files that are in the given range or intersects with the given range.
-func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backup.File, error) {
+func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) ([]*backuppb.File, error) {
 	if !rc.IsRawKvMode() {
 		return nil, errors.Annotate(berrors.ErrRestoreModeMismatch, "the backup data is not in raw kv mode")
 	}
@@ -218,11 +219,14 @@ func (rc *Client) GetFilesInRawRange(startKey []byte, endKey []byte, cf string) 
 			utils.CompareEndKey(endKey, rawRange.EndKey) > 0 {
 			// Only partial of the restoring range is in the current backup-ed range. So the given range can't be fully
 			// restored.
-			return nil, errors.Annotate(berrors.ErrRestoreRangeMismatch, "the given range to restore is not fully covered by the range that was backed up")
+			return nil, errors.Annotatef(berrors.ErrRestoreRangeMismatch,
+				"the given range to restore [%s, %s) is not fully covered by the range that was backed up [%s, %s)",
+				redact.Key(startKey), redact.Key(endKey), redact.Key(rawRange.StartKey), redact.Key(rawRange.EndKey),
+			)
 		}
 
 		// We have found the range that contains the given range. Find all necessary files.
-		files := make([]*backup.File, 0)
+		files := make([]*backuppb.File, 0)
 
 		for _, file := range rc.backupMeta.Files {
 			if file.Cf != cf {
@@ -525,7 +529,7 @@ func (rc *Client) setSpeedLimit(ctx context.Context) error {
 // RestoreFiles tries to restore the files.
 func (rc *Client) RestoreFiles(
 	ctx context.Context,
-	files []*backup.File,
+	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
 ) (err error) {
@@ -572,7 +576,7 @@ func (rc *Client) RestoreFiles(
 
 // RestoreRaw tries to restore raw keys in the specified range.
 func (rc *Client) RestoreRaw(
-	ctx context.Context, startKey []byte, endKey []byte, files []*backup.File, updateCh glue.Progress,
+	ctx context.Context, startKey []byte, endKey []byte, files []*backuppb.File, updateCh glue.Progress,
 ) error {
 	start := time.Now()
 	defer func() {
@@ -668,7 +672,7 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 			opt = grpc.WithTransportCredentials(credentials.NewTLS(rc.tlsConf))
 		}
 		gctx, cancel := context.WithTimeout(ctx, time.Second*5)
-		conn, err := grpc.DialContext(
+		connection, err := grpc.DialContext(
 			gctx,
 			store.GetAddress(),
 			opt,
@@ -680,14 +684,14 @@ func (rc *Client) switchTiKVMode(ctx context.Context, mode import_sstpb.SwitchMo
 		if err != nil {
 			return errors.Trace(err)
 		}
-		client := import_sstpb.NewImportSSTClient(conn)
+		client := import_sstpb.NewImportSSTClient(connection)
 		_, err = client.SwitchMode(ctx, &import_sstpb.SwitchModeRequest{
 			Mode: mode,
 		})
 		if err != nil {
 			return errors.Trace(err)
 		}
-		err = conn.Close()
+		err = connection.Close()
 		if err != nil {
 			log.Error("close grpc connection failed in switch mode", zap.Error(err))
 			continue
@@ -710,16 +714,12 @@ func (rc *Client) GoValidateChecksum(
 	outCh := make(chan struct{}, 1)
 	workers := utils.NewWorkerPool(defaultChecksumConcurrency, "RestoreChecksum")
 	go func() {
-		start := time.Now()
 		wg, ectx := errgroup.WithContext(ctx)
 		defer func() {
 			log.Info("all checksum ended")
 			if err := wg.Wait(); err != nil {
 				errCh <- err
 			}
-			elapsed := time.Since(start)
-			summary.CollectDuration("restore checksum", elapsed)
-			summary.CollectSuccessUnit("table checksum", 1, elapsed)
 			outCh <- struct{}{}
 			close(outCh)
 		}()
@@ -733,6 +733,12 @@ func (rc *Client) GoValidateChecksum(
 					return
 				}
 				workers.ApplyOnErrorGroup(wg, func() error {
+					start := time.Now()
+					defer func() {
+						elapsed := time.Since(start)
+						summary.CollectDuration("restore checksum", elapsed)
+						summary.CollectSuccessUnit("table checksum", 1, elapsed)
+					}()
 					err := rc.execChecksum(ectx, tbl, kvClient, concurrency)
 					if err != nil {
 						return errors.Trace(err)
@@ -968,4 +974,25 @@ func (rc *Client) EnableSkipCreateSQL() {
 // IsSkipCreateSQL returns whether we need skip create schema and tables in restore.
 func (rc *Client) IsSkipCreateSQL() bool {
 	return rc.noSchema
+}
+
+// PreCheckTableTiFlashReplica checks whether TiFlash replica is less than TiFlash node.
+func (rc *Client) PreCheckTableTiFlashReplica(
+	ctx context.Context,
+	tables []*utils.Table,
+) error {
+	tiFlashStores, err := conn.GetAllTiKVStores(ctx, rc.pdClient, conn.TiFlashOnly)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	tiFlashStoreCount := len(tiFlashStores)
+	for _, table := range tables {
+		if table.Info.TiFlashReplica != nil && table.Info.TiFlashReplica.Count > uint64(tiFlashStoreCount) {
+			// we cannot satisfy TiFlash replica in restore cluster. so we should
+			// set TiFlashReplica to unavailable in tableInfo, to avoid TiDB cannot sense TiFlash and make plan to TiFlash
+			// see details at https://github.com/pingcap/br/issues/931
+			table.Info.TiFlashReplica = nil
+		}
+	}
+	return nil
 }

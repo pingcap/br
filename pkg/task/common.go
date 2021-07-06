@@ -12,9 +12,10 @@ import (
 	"time"
 
 	gcs "cloud.google.com/go/storage"
+	"github.com/docker/go-units"
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
@@ -26,11 +27,12 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/pingcap/br/pkg/utils"
+
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
@@ -68,6 +70,8 @@ const (
 	defaultSwitchInterval       = 5 * time.Minute
 	defaultGRPCKeepaliveTime    = 10 * time.Second
 	defaultGRPCKeepaliveTimeout = 3 * time.Second
+
+	unlimited = 0
 )
 
 // TLSConfig is the common configuration for TLS connection.
@@ -125,6 +129,10 @@ type Config struct {
 	TableFilter        filter.Filter `json:"-" toml:"-"`
 	CheckRequirements  bool          `json:"check-requirements" toml:"check-requirements"`
 	SwitchModeInterval time.Duration `json:"switch-mode-interval" toml:"switch-mode-interval"`
+	// Schemas is a database name set, to check whether the restore database has been backup
+	Schemas map[string]struct{}
+	// Tables is a table name set, to check whether the restore table has been backup
+	Tables map[string]struct{}
 
 	// GrpcKeepaliveTime is the interval of pinging the server.
 	GRPCKeepaliveTime time.Duration `json:"grpc-keepalive-time" toml:"grpc-keepalive-time"`
@@ -143,7 +151,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	flags.Uint(flagChecksumConcurrency, variable.DefChecksumTableConcurrency, "The concurrency of table checksumming")
 	_ = flags.MarkHidden(flagChecksumConcurrency)
 
-	flags.Uint64(flagRateLimit, 0, "The rate limit of the task, MB/s per node")
+	flags.Uint64(flagRateLimit, unlimited, "The rate limit of the task, MB/s per node")
 	flags.Bool(flagChecksum, true, "Run checksum at end of task")
 	flags.Bool(flagRemoveTiFlash, true,
 		"Remove TiFlash replicas before backup or restore, for unsupported versions of TiFlash")
@@ -154,7 +162,7 @@ func DefineCommonFlags(flags *pflag.FlagSet) {
 	// It may confuse users , so just hide it.
 	_ = flags.MarkHidden(flagConcurrency)
 
-	flags.Uint64(flagRateLimitUnit, utils.MB, "The unit of rate limit")
+	flags.Uint64(flagRateLimitUnit, units.MiB, "The unit of rate limit")
 	_ = flags.MarkHidden(flagRateLimitUnit)
 	_ = flags.MarkDeprecated(flagRemoveTiFlash,
 		"TiFlash is fully supported by BR now, removing TiFlash isn't needed any more. This flag would be ignored.")
@@ -186,28 +194,34 @@ func DefineTableFlags(command *cobra.Command) {
 }
 
 // DefineFilterFlags defines the --filter and --case-sensitive flags for `full` subcommand.
-func DefineFilterFlags(command *cobra.Command) {
+func DefineFilterFlags(command *cobra.Command, defaultFilter []string) {
 	flags := command.Flags()
-	flags.StringArrayP(flagFilter, "f", []string{"*.*"}, "select tables to process")
+	flags.StringArrayP(flagFilter, "f", defaultFilter, "select tables to process")
 	flags.Bool(flagCaseSensitive, false, "whether the table names used in --filter should be case-sensitive")
 }
 
 // ParseFromFlags parses the TLS config from the flag set.
 func (tls *TLSConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	var err error
-	tls.CA, err = flags.GetString(flagCA)
+	tls.CA, tls.Cert, tls.Key, err = ParseTLSTripleFromFlags(flags)
+	return err
+}
+
+// ParseTLSTripleFromFlags parses the (ca, cert, key) triple from flags.
+func ParseTLSTripleFromFlags(flags *pflag.FlagSet) (ca, cert, key string, err error) {
+	ca, err = flags.GetString(flagCA)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Cert, err = flags.GetString(flagCert)
+	cert, err = flags.GetString(flagCert)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	tls.Key, err = flags.GetString(flagKey)
+	key, err = flags.GetString(flagKey)
 	if err != nil {
-		return errors.Trace(err)
+		return
 	}
-	return nil
+	return
 }
 
 func (cfg *Config) normalizePDURLs() error {
@@ -256,6 +270,8 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.RateLimit = rateLimit * rateLimitUnit
 
+	cfg.Schemas = make(map[string]struct{})
+	cfg.Tables = make(map[string]struct{})
 	var caseSensitive bool
 	if filterFlag := flags.Lookup(flagFilter); filterFlag != nil {
 		f, err := filter.Parse(filterFlag.Value.(pflag.SliceValue).GetSlice())
@@ -272,11 +288,13 @@ func (cfg *Config) ParseFromFlags(flags *pflag.FlagSet) error {
 		if len(db) == 0 {
 			return errors.Annotate(berrors.ErrInvalidArgument, "empty database name is not allowed")
 		}
+		cfg.Schemas[utils.EncloseName(db)] = struct{}{}
 		if tblFlag := flags.Lookup(flagTable); tblFlag != nil {
 			tbl := tblFlag.Value.String()
 			if len(tbl) == 0 {
 				return errors.Annotate(berrors.ErrInvalidArgument, "empty table name is not allowed")
 			}
+			cfg.Tables[utils.EncloseDBAndTable(db, tbl)] = struct{}{}
 			cfg.TableFilter = filter.NewTablesFilter(filter.Table{
 				Schema: db,
 				Name:   tbl,
@@ -334,7 +352,9 @@ func NewMgr(ctx context.Context,
 	g glue.Glue, pds []string,
 	tlsConfig TLSConfig,
 	keepalive keepalive.ClientParameters,
-	checkRequirements bool) (*conn.Mgr, error) {
+	checkRequirements bool,
+	needDomain bool,
+) (*conn.Mgr, error) {
 	var (
 		tlsConf *tls.Config
 		err     error
@@ -362,17 +382,17 @@ func NewMgr(ctx context.Context,
 	}
 
 	// Is it necessary to remove `StoreBehavior`?
-	return conn.NewMgr(ctx, g,
-		pdAddress, store.(tikv.Storage),
-		tlsConf, securityOption, keepalive,
-		conn.SkipTiFlash, checkRequirements)
+	return conn.NewMgr(
+		ctx, g, pdAddress, store.(tikv.Storage), tlsConf, securityOption, keepalive, conn.SkipTiFlash,
+		checkRequirements, needDomain,
+	)
 }
 
 // GetStorage gets the storage backend from the config.
 func GetStorage(
 	ctx context.Context,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, error) {
 	u, err := storage.ParseBackend(cfg.Storage, &cfg.BackendOptions)
 	if err != nil {
 		return nil, nil, errors.Trace(err)
@@ -389,7 +409,7 @@ func ReadBackupMeta(
 	ctx context.Context,
 	fileName string,
 	cfg *Config,
-) (*backup.StorageBackend, storage.ExternalStorage, *backup.BackupMeta, error) {
+) (*backuppb.StorageBackend, storage.ExternalStorage, *backuppb.BackupMeta, error) {
 	u, s, err := GetStorage(ctx, cfg)
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
@@ -417,7 +437,7 @@ func ReadBackupMeta(
 			return nil, nil, nil, errors.Annotate(err, "load backupmeta failed")
 		}
 	}
-	backupMeta := &backup.BackupMeta{}
+	backupMeta := &backuppb.BackupMeta{}
 	if err = proto.Unmarshal(metaData, backupMeta); err != nil {
 		return nil, nil, nil, errors.Annotate(err, "parse backupmeta failed")
 	}

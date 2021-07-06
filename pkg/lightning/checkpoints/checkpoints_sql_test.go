@@ -8,11 +8,12 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	. "github.com/pingcap/check"
+	"github.com/pingcap/errors"
 
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
-	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var _ = Suite(&cpSQLSuite{})
@@ -68,7 +69,7 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 	initializeStmt := s.mock.ExpectPrepare(
 		"REPLACE INTO `mock-schema`\\.task_v\\d+")
 	initializeStmt.ExpectExec().
-		WithArgs(123, "/data", "importer", "127.0.0.1:8287", "127.0.0.1", 4000, "127.0.0.1:2379", "/tmp/sorted-kv", common.ReleaseVersion).
+		WithArgs(123, "/data", "importer", "127.0.0.1:8287", "127.0.0.1", 4000, "127.0.0.1:2379", "/tmp/sorted-kv", build.ReleaseVersion).
 		WillReturnResult(sqlmock.NewResult(6, 1))
 	initializeStmt = s.mock.
 		ExpectPrepare("INSERT INTO `mock-schema`\\.table_v\\d+")
@@ -288,8 +289,37 @@ func (s *cpSQLSuite) TestNormalOperations(c *C) {
 func (s *cpSQLSuite) TestRemoveAllCheckpoints(c *C) {
 	s.mock.ExpectExec("DROP SCHEMA `mock-schema`").WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := s.cpdb.RemoveCheckpoint(context.Background(), "all")
+	ctx := context.Background()
+
+	err := s.cpdb.RemoveCheckpoint(ctx, "all")
 	c.Assert(err, IsNil)
+
+	// to respect the internal retry 3 time of cp.db.Get
+	for i := 0; i < 3; i++ {
+		s.mock.ExpectBegin()
+		s.mock.
+			ExpectQuery("SELECT .+ FROM `mock-schema`\\.engine_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(sqlmock.NewRows([]string{"engine_id", "status"}))
+		s.mock.
+			ExpectQuery("SELECT (?s:.+) FROM `mock-schema`\\.chunk_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(
+				sqlmock.NewRows([]string{
+					"engine_id", "path", "offset", "type", "compression", "sort_key", "file_size", "columns",
+					"pos", "end_offset", "prev_rowid_max", "rowid_max",
+					"kvc_bytes", "kvc_kvs", "kvc_checksum", "unix_timestamp(create_time)",
+				}))
+		s.mock.
+			ExpectQuery("SELECT .+ FROM `mock-schema`\\.table_v\\d+").
+			WithArgs("`db1`.`t2`").
+			WillReturnRows(sqlmock.NewRows([]string{"status", "alloc_base", "table_id"}))
+		s.mock.ExpectRollback()
+	}
+
+	cp, err := s.cpdb.Get(ctx, "`db1`.`t2`")
+	c.Assert(cp, IsNil)
+	c.Assert(errors.IsNotFound(err), IsTrue)
 }
 
 func (s *cpSQLSuite) TestRemoveOneCheckpoint(c *C) {

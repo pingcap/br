@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
+set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
 LOG="not-leader.log"
@@ -51,7 +51,7 @@ BR_LOG_TO_TERM=1
 
 grep "a error occurs on split region" $LOG && \
 grep "split region meet not leader error" $LOG && \
-grep "Full restore Success" $LOG && \
+grep "Full restore success" $LOG && \
 grep "find new leader" $LOG
 
 if [ $? -ne 0 ]; then

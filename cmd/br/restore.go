@@ -13,6 +13,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 func runRestoreCommand(command *cobra.Command, cmdName string) error {
@@ -66,7 +67,7 @@ func NewRestoreCommand() *cobra.Command {
 			if err := Init(c); err != nil {
 				return errors.Trace(err)
 			}
-			utils.LogBRInfo()
+			build.LogInfo(build.BR)
 			utils.LogEnvVariables()
 			task.LogArguments(c)
 			session.DisableStats4Test()
@@ -96,14 +97,14 @@ func newFullRestoreCommand() *cobra.Command {
 			return runRestoreCommand(cmd, "Full restore")
 		},
 	}
-	task.DefineFilterFlags(command)
+	task.DefineFilterFlags(command, filterOutSysAndMemTables)
 	return command
 }
 
 func newDBRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "db",
-		Short: "restore tables in a database",
+		Short: "restore tables in a database from the backup data",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Database restore")
@@ -116,7 +117,7 @@ func newDBRestoreCommand() *cobra.Command {
 func newTableRestoreCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "table",
-		Short: "restore a table",
+		Short: "restore a table from the backup data",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runRestoreCommand(cmd, "Table restore")
@@ -135,7 +136,7 @@ func newLogRestoreCommand() *cobra.Command {
 			return runLogRestoreCommand(cmd)
 		},
 	}
-	task.DefineFilterFlags(command)
+	task.DefineFilterFlags(command, filterOutSysAndMemTables)
 	task.DefineLogRestoreFlags(command)
 	return command
 }

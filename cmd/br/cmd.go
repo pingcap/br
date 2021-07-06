@@ -13,6 +13,7 @@ import (
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
+	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -22,6 +23,7 @@ import (
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/task"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 var (
@@ -30,6 +32,20 @@ var (
 	hasLogFile      uint64
 	tidbGlue        = gluetidb.New()
 	envLogToTermKey = "BR_LOG_TO_TERM"
+
+	filterOutSysAndMemTables = []string{
+		"*.*",
+		fmt.Sprintf("!%s.*", utils.TemporaryDBName("*")),
+		"!mysql.*",
+		"!sys.*",
+		"!INFORMATION_SCHEMA.*",
+		"!PERFORMANCE_SCHEMA.*",
+		"!METRICS_SCHEMA.*",
+		"!INSPECTION_SCHEMA.*",
+	}
+	acceptAllTables = []string{
+		"*.*",
+	}
 )
 
 const (
@@ -58,7 +74,7 @@ func timestampLogFileName() string {
 
 // AddFlags adds flags to the given cmd.
 func AddFlags(cmd *cobra.Command) {
-	cmd.Version = utils.BRInfo()
+	cmd.Version = build.Info()
 	cmd.Flags().BoolP(flagVersion, flagVersionShort, false, "Display version information about BR")
 	cmd.SetVersionTemplate("{{printf \"%s\" .Version}}\n")
 
@@ -150,20 +166,32 @@ func Init(cmd *cobra.Command) (err error) {
 			return
 		}
 
-		// Initialize the pprof server.
-		// TODO: Support TLS.
-		statusAddr, e := cmd.Flags().GetString(FlagStatusAddr)
-		if e != nil {
-			err = e
-			return
-		}
-		if statusAddr != "" {
-			utils.StartPProfListener(statusAddr)
-		} else {
-			utils.StartDynamicPProfListener()
-		}
+		err = startPProf(cmd)
 	})
 	return errors.Trace(err)
+}
+
+func startPProf(cmd *cobra.Command) error {
+	// Initialize the pprof server.
+	statusAddr, err := cmd.Flags().GetString(FlagStatusAddr)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	ca, cert, key, err := task.ParseTLSTripleFromFlags(cmd.Flags())
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// Host isn't used here.
+	tls, err := tidbutils.NewTLS(ca, cert, key, "localhost", nil)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if statusAddr != "" {
+		return utils.StartPProfListener(statusAddr, tls)
+	}
+	utils.StartDynamicPProfListener(tls)
+	return nil
 }
 
 // HasLogFile returns whether we set a log file.

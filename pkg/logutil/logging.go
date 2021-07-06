@@ -8,9 +8,10 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -42,7 +43,7 @@ func AbbreviatedArray(
 	return zap.Array(key, AbbreviatedArrayMarshaler(marshalFunc(elements)))
 }
 
-type zapFileMarshaler struct{ *backup.File }
+type zapFileMarshaler struct{ *backuppb.File }
 
 func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	enc.AddString("name", file.GetName())
@@ -58,7 +59,7 @@ func (file zapFileMarshaler) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return nil
 }
 
-type zapFilesMarshaler []*backup.File
+type zapFilesMarshaler []*backuppb.File
 
 func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
 	total := len(fs)
@@ -84,12 +85,12 @@ func (fs zapFilesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) erro
 }
 
 // File make the zap fields for a file.
-func File(file *backup.File) zap.Field {
+func File(file *backuppb.File) zap.Field {
 	return zap.Object("file", zapFileMarshaler{file})
 }
 
 // Files make the zap field for a set of file.
-func Files(fs []*backup.File) zap.Field {
+func Files(fs []*backuppb.File) zap.Field {
 	return zap.Object("files", zapFilesMarshaler(fs))
 }
 
@@ -185,4 +186,22 @@ func Keys(keys [][]byte) zap.Field {
 // ShortError make the zap field to display error without verbose representation (e.g. the stack trace).
 func ShortError(err error) zap.Field {
 	return zap.String("error", err.Error())
+}
+
+var loggerToTerm, _, _ = log.InitLogger(new(log.Config), zap.AddCallerSkip(1))
+
+// WarnTerm put a log both to terminal and to the log file.
+func WarnTerm(message string, fields ...zap.Field) {
+	log.Warn(message, fields...)
+	if loggerToTerm != nil {
+		loggerToTerm.Warn(message, fields...)
+	}
+}
+
+// RedactAny constructs a redacted field that carries an interface{}.
+func RedactAny(fieldKey string, key interface{}) zap.Field {
+	if redact.NeedRedact() {
+		return zap.String(fieldKey, "?")
+	}
+	return zap.Any(fieldKey, key)
 }

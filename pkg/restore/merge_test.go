@@ -12,7 +12,7 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
@@ -30,7 +30,7 @@ type fileBulder struct {
 	tableID, startKeyOffset int64
 }
 
-func (fb *fileBulder) build(tableID, indexID, num, bytes, kv int) (files []*kvproto.File) {
+func (fb *fileBulder) build(tableID, indexID, num, bytes, kv int) (files []*backuppb.File) {
 	if num != 1 && num != 2 {
 		panic("num must be 1 or 2")
 	}
@@ -63,7 +63,7 @@ func (fb *fileBulder) build(tableID, indexID, num, bytes, kv int) (files []*kvpr
 		endKey = tablecodec.EncodeIndexSeekKey(int64(tableID), int64(indexID), highValue)
 	}
 
-	files = append(files, &kvproto.File{
+	files = append(files, &backuppb.File{
 		Name:       fmt.Sprint(rand.Int63n(math.MaxInt64), "_write.sst"),
 		StartKey:   startKey,
 		EndKey:     endKey,
@@ -78,7 +78,7 @@ func (fb *fileBulder) build(tableID, indexID, num, bytes, kv int) (files []*kvpr
 	// To match TiKV's behavior.
 	files[0].TotalKvs = 0
 	files[0].TotalBytes = 0
-	files = append(files, &kvproto.File{
+	files = append(files, &backuppb.File{
 		Name:       fmt.Sprint(rand.Int63n(math.MaxInt64), "_default.sst"),
 		StartKey:   tablecodec.EncodeRowKey(fb.tableID, low),
 		EndKey:     tablecodec.EncodeRowKey(fb.tableID, high),
@@ -205,7 +205,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 	}
 
 	for i, cs := range cases {
-		files := make([]*kvproto.File, 0)
+		files := make([]*backuppb.File, 0)
 		fb := fileBulder{}
 		for _, f := range cs.files {
 			files = append(files, fb.build(f[0], f[1], f[2], f[3], f[4])...)
@@ -229,7 +229,7 @@ func (s *testMergeRangesSuite) TestMergeRanges(c *C) {
 }
 
 func (s *testMergeRangesSuite) TestMergeRawKVRanges(c *C) {
-	files := make([]*kvproto.File, 0)
+	files := make([]*backuppb.File, 0)
 	fb := fileBulder{}
 	files = append(files, fb.build(1, 0, 2, 1, 1)...)
 	// RawKV does not have write cf
@@ -242,7 +242,7 @@ func (s *testMergeRangesSuite) TestMergeRawKVRanges(c *C) {
 }
 
 func (s *testMergeRangesSuite) TestInvalidRanges(c *C) {
-	files := make([]*kvproto.File, 0)
+	files := make([]*backuppb.File, 0)
 	fb := fileBulder{}
 	files = append(files, fb.build(1, 0, 1, 1, 1)...)
 	files[0].Name = "invalid.sst"
@@ -262,7 +262,7 @@ func (s *testMergeRangesSuite) TestInvalidRanges(c *C) {
 // BenchmarkMergeRanges100k-40            1        73403873161 ns/op
 
 func benchmarkMergeRanges(b *testing.B, filesCount int) {
-	files := make([]*kvproto.File, 0)
+	files := make([]*backuppb.File, 0)
 	fb := fileBulder{}
 	for i := 0; i < filesCount; i++ {
 		files = append(files, fb.build(1, 0, 1, 1, 1)...)

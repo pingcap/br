@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/version/build"
 )
 
 type Session interface {
@@ -54,7 +55,15 @@ type GlueCheckpointsDB struct {
 	schema         string
 }
 
-var _ CheckpointsDB = (*GlueCheckpointsDB)(nil)
+var _ DB = (*GlueCheckpointsDB)(nil)
+
+// dropPreparedStmt drops the statement and when meet an error,
+// print an error message.
+func dropPreparedStmt(session Session, stmtID uint32) {
+	if err := session.DropPreparedStmt(stmtID); err != nil {
+		log.L().Error("failed to drop prepared statement", log.ShortError(err))
+	}
+}
 
 func NewGlueCheckpointsDB(ctx context.Context, se Session, f func() (Session, error), schemaName string) (*GlueCheckpointsDB, error) {
 	var escapedSchemaName strings.Builder
@@ -126,7 +135,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(stmtID)
+		defer dropPreparedStmt(s, stmtID)
 		_, err = s.ExecutePreparedStmt(c, stmtID, []types.Datum{
 			types.NewIntDatum(cfg.TaskID),
 			types.NewStringDatum(cfg.Mydumper.SourceDir),
@@ -136,7 +145,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 			types.NewIntDatum(int64(cfg.TiDB.Port)),
 			types.NewStringDatum(cfg.TiDB.PdAddr),
 			types.NewStringDatum(cfg.TikvImporter.SortedKVDir),
-			types.NewStringDatum(common.ReleaseVersion),
+			types.NewStringDatum(build.ReleaseVersion),
 		})
 		if err != nil {
 			return errors.Trace(err)
@@ -146,7 +155,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(stmtID2)
+		defer dropPreparedStmt(s, stmtID2)
 
 		for _, db := range dbInfo {
 			for _, table := range db.Tables {
@@ -195,7 +204,7 @@ func (g GlueCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckpoint,
 
 		row := req.GetRow(0)
 		taskCp = &TaskCheckpoint{}
-		taskCp.TaskId = row.GetInt64(0)
+		taskCp.TaskID = row.GetInt64(0)
 		taskCp.SourceDir = row.GetString(1)
 		taskCp.Backend = row.GetString(2)
 		taskCp.ImporterAddr = row.GetString(3)
@@ -354,13 +363,13 @@ func (g GlueCheckpointsDB) InsertEngineCheckpoints(ctx context.Context, tableNam
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(engineStmt)
+		defer dropPreparedStmt(s, engineStmt)
 
 		chunkStmt, _, _, err := s.PrepareStmt(fmt.Sprintf(ReplaceChunkTemplate, g.schema, CheckpointTableNameChunk))
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(chunkStmt)
+		defer dropPreparedStmt(s, chunkStmt)
 
 		for engineID, engine := range checkpointMap {
 			_, err := s.ExecutePreparedStmt(c, engineStmt, []types.Datum{
@@ -420,22 +429,22 @@ func (g GlueCheckpointsDB) Update(checkpointDiffs map[string]*TableCheckpointDif
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(chunkStmt)
+		defer dropPreparedStmt(s, chunkStmt)
 		rebaseStmt, _, _, err := s.PrepareStmt(rebaseQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(rebaseStmt)
+		defer dropPreparedStmt(s, rebaseStmt)
 		tableStatusStmt, _, _, err := s.PrepareStmt(tableStatusQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(tableStatusStmt)
+		defer dropPreparedStmt(s, tableStatusStmt)
 		engineStatusStmt, _, _, err := s.PrepareStmt(engineStatusQuery)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		defer s.DropPreparedStmt(engineStatusStmt)
+		defer dropPreparedStmt(s, engineStatusStmt)
 
 		for tableName, cpd := range checkpointDiffs {
 			if cpd.hasStatus {
@@ -505,7 +514,7 @@ func (g GlueCheckpointsDB) RemoveCheckpoint(ctx context.Context, tableName strin
 	}
 	defer se.Close()
 
-	if tableName == "all" {
+	if tableName == allTables {
 		return common.Retry("remove all checkpoints", logger, func() error {
 			_, err := se.Execute(ctx, "DROP SCHEMA "+g.schema)
 			return err
@@ -580,10 +589,10 @@ func (g GlueCheckpointsDB) GetLocalStoringTables(ctx context.Context) (map[strin
 	// 2. engine status is earlier than CheckpointStatusImported, and
 	// 3. chunk has been read
 	query := fmt.Sprintf(`
-		SELECT DISTINCT t.table_name, c.engine_id 
-		FROM %s.%s t, %s.%s c, %s.%s e 
-		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id 
-			AND %d < t.status AND t.status < %d 
+		SELECT DISTINCT t.table_name, c.engine_id
+		FROM %s.%s t, %s.%s c, %s.%s e
+		WHERE t.table_name = c.table_name AND t.table_name = e.table_name AND c.engine_id = e.engine_id
+			AND %d < t.status AND t.status < %d
 			AND %d < e.status AND e.status < %d
 			AND c.pos > c.offset;`,
 		g.schema, CheckpointTableNameTable, g.schema, CheckpointTableNameChunk, g.schema, CheckpointTableNameEngine,
@@ -624,12 +633,12 @@ func (g GlueCheckpointsDB) IgnoreErrorCheckpoint(ctx context.Context, tableName 
 	defer se.Close()
 
 	var colName string
-	if tableName == "all" {
+	if tableName == allTables {
 		// This will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
+		colName = stringLitAll
 	} else {
-		colName = "table_name"
+		colName = columnTableName
 	}
 
 	tableName = common.InterpolateMySQLString(tableName)
@@ -661,13 +670,13 @@ func (g GlueCheckpointsDB) DestroyErrorCheckpoint(ctx context.Context, tableName
 
 	var colName, aliasedColName string
 
-	if tableName == "all" {
+	if tableName == allTables {
 		// These will expand to `WHERE 'all' = 'all'` and effectively allowing
 		// all tables to be included.
-		colName = "'all'"
-		aliasedColName = "'all'"
+		colName = stringLitAll
+		aliasedColName = stringLitAll
 	} else {
-		colName = "table_name"
+		colName = columnTableName
 		aliasedColName = "t.table_name"
 	}
 

@@ -4,12 +4,14 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/pingcap/errors"
-	kvproto "github.com/pingcap/kvproto/pkg/backup"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/statistics/handle"
 	"github.com/pingcap/tidb/tablecodec"
 
@@ -34,7 +36,7 @@ type Table struct {
 	Crc64Xor        uint64
 	TotalKvs        uint64
 	TotalBytes      uint64
-	Files           []*kvproto.File
+	Files           []*backuppb.File
 	TiFlashReplicas int
 	Stats           *handle.JSONTable
 }
@@ -43,6 +45,9 @@ type Table struct {
 func (tbl *Table) NoChecksum() bool {
 	return tbl.Crc64Xor == 0 && tbl.TotalKvs == 0 && tbl.TotalBytes == 0
 }
+
+// temporaryDBNamePrefix is the prefix name of system db, e.g. mysql system db will be rename to __TiDB_BR_Temporary_mysql
+const temporaryDBNamePrefix = "__TiDB_BR_Temporary_"
 
 // NeedAutoID checks whether the table needs backing up with an autoid.
 func NeedAutoID(tblInfo *model.TableInfo) bool {
@@ -68,8 +73,8 @@ func (db *Database) GetTable(name string) *Table {
 }
 
 // LoadBackupTables loads schemas from BackupMeta.
-func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
-	filesMap := make(map[int64][]*kvproto.File, len(meta.Schemas))
+func LoadBackupTables(meta *backuppb.BackupMeta) (map[string]*Database, error) {
+	filesMap := make(map[int64][]*backuppb.File, len(meta.Schemas))
 	for _, file := range meta.Files {
 		tableID := tablecodec.DecodeTableID(file.GetStartKey())
 		if tableID == 0 {
@@ -101,8 +106,9 @@ func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
 			return nil, errors.Trace(err)
 		}
 		// stats maybe nil from old backup file.
-		stats := &handle.JSONTable{}
+		var stats *handle.JSONTable
 		if schema.Stats != nil {
+			stats = &handle.JSONTable{}
 			// Parse the stats table.
 			err = json.Unmarshal(schema.Stats, stats)
 			if err != nil {
@@ -116,7 +122,7 @@ func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
 			}
 		}
 		// Find the files belong to the table
-		tableFiles := make([]*kvproto.File, 0)
+		tableFiles := make([]*backuppb.File, 0)
 		if files, exists := filesMap[tableInfo.ID]; exists {
 			tableFiles = append(tableFiles, files...)
 		}
@@ -142,7 +148,7 @@ func LoadBackupTables(meta *kvproto.BackupMeta) (map[string]*Database, error) {
 }
 
 // ArchiveSize returns the total size of the backup archive.
-func ArchiveSize(meta *kvproto.BackupMeta) uint64 {
+func ArchiveSize(meta *backuppb.BackupMeta) uint64 {
 	total := uint64(meta.Size())
 	for _, file := range meta.Files {
 		total += file.Size_
@@ -153,4 +159,28 @@ func ArchiveSize(meta *kvproto.BackupMeta) uint64 {
 // EncloseName formats name in sql.
 func EncloseName(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// EncloseDBAndTable formats the database and table name in sql.
+func EncloseDBAndTable(database, table string) string {
+	return fmt.Sprintf("%s.%s", EncloseName(database), EncloseName(table))
+}
+
+// IsSysDB tests whether the database is system DB.
+// Currently, the only system DB is mysql.
+func IsSysDB(dbLowerName string) bool {
+	return dbLowerName == mysql.SystemDB
+}
+
+// TemporaryDBName makes a 'private' database name.
+func TemporaryDBName(db string) model.CIStr {
+	return model.NewCIStr(temporaryDBNamePrefix + db)
+}
+
+// GetSysDBName get the original name of system DB
+func GetSysDBName(tempDB model.CIStr) (string, bool) {
+	if ok := strings.HasPrefix(tempDB.O, temporaryDBNamePrefix); !ok {
+		return tempDB.O, false
+	}
+	return tempDB.O[len(temporaryDBNamePrefix):], true
 }

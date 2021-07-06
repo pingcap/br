@@ -15,6 +15,7 @@ package mydump
 
 import (
 	"context"
+	"io"
 	"math"
 	"sync"
 	"time"
@@ -57,8 +58,6 @@ func (reg *TableRegion) Offset() int64 {
 func (reg *TableRegion) Size() int64 {
 	return reg.Chunk.EndOffset - reg.Chunk.Offset
 }
-
-////////////////////////////////////////////////////////////////
 
 func AllocateEngineIDs(
 	filesRegions []*TableRegion,
@@ -262,7 +261,6 @@ func makeSourceFileRegion(
 	// If a csv file is overlarge, we need to split it into multiple regions.
 	// Note: We can only split a csv file whose format is strict.
 	if isCsvFile && dataFileSize > int64(cfg.Mydumper.MaxRegionSize) && cfg.Mydumper.StrictFormat {
-
 		_, regions, subFileSizes, err := SplitLargeFile(ctx, meta, cfg, fi, divisor, 0, ioWorkers, store)
 		return regions, subFileSizes, err
 	}
@@ -302,6 +300,9 @@ func makeParquetFileRegion(
 		return prevRowIdxMax, nil, errors.Trace(err)
 	}
 	numberRows, err := ReadParquetFileRowCount(ctx, store, r, dataFile.FileMeta.Path)
+	if err != nil {
+		return 0, nil, errors.Trace(err)
+	}
 	rowIDMax := prevRowIdxMax + numberRows
 	region := &TableRegion{
 		DB:       meta.DB,
@@ -333,7 +334,7 @@ func SplitLargeFile(
 	prevRowIdxMax int64,
 	ioWorker *worker.Pool,
 	store storage.ExternalStorage,
-) (prevRowIdMax int64, regions []*TableRegion, dataFileSizes []float64, err error) {
+) (prevRowIDMax int64, regions []*TableRegion, dataFileSizes []float64, err error) {
 	maxRegionSize := int64(cfg.Mydumper.MaxRegionSize)
 	dataFileSizes = make([]float64, 0, dataFile.FileMeta.FileSize/maxRegionSize+1)
 	startOffset, endOffset := int64(0), maxRegionSize
@@ -360,12 +361,16 @@ func SplitLargeFile(
 				return 0, nil, nil, err
 			}
 			parser := NewCSVParser(&cfg.Mydumper.CSV, r, int64(cfg.Mydumper.ReadBlockSize), ioWorker, false)
-			if err = parser.SetPos(endOffset, prevRowIdMax); err != nil {
+			if err = parser.SetPos(endOffset, prevRowIDMax); err != nil {
 				return 0, nil, nil, err
 			}
 			pos, err := parser.ReadUntilTokNewLine()
 			if err != nil {
-				return 0, nil, nil, err
+				if !errors.ErrorEqual(err, io.EOF) {
+					return 0, nil, nil, err
+				}
+				log.L().Warn("file contains no '\r\n' at end", zap.String("path", dataFile.FileMeta.Path))
+				pos = dataFile.FileMeta.FileSize
 			}
 			endOffset = pos
 			parser.Close()

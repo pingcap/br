@@ -5,12 +5,14 @@ package conn
 import (
 	"context"
 	"crypto/tls"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/kvproto/pkg/backup"
+	"github.com/pingcap/failpoint"
+	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/domain"
@@ -26,7 +28,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
-	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (
@@ -82,7 +84,7 @@ func GetAllTiKVStores(
 	j := 0
 	for _, store := range stores {
 		isTiFlash := false
-		if utils.IsTiFlash(store) {
+		if version.IsTiFlash(store) {
 			if storeBehavior == SkipTiFlash {
 				continue
 			} else if storeBehavior == ErrorOnTiFlash {
@@ -101,6 +103,9 @@ func GetAllTiKVStores(
 }
 
 // NewMgr creates a new Mgr.
+//
+// Domain is optional for Backup, set `needDomain` to false to disable
+// initializing Domain.
 func NewMgr(
 	ctx context.Context,
 	g glue.Glue,
@@ -111,6 +116,7 @@ func NewMgr(
 	keepalive keepalive.ClientParameters,
 	storeBehavior StoreBehavior,
 	checkRequirements bool,
+	needDomain bool,
 ) (*Mgr, error) {
 	controller, err := pdutil.NewPdController(ctx, pdAddrs, tlsConf, securityOption)
 	if err != nil {
@@ -118,7 +124,7 @@ func NewMgr(
 		return nil, errors.Trace(err)
 	}
 	if checkRequirements {
-		err = utils.CheckClusterVersion(ctx, controller.GetPDClient())
+		err = version.CheckClusterVersion(ctx, controller.GetPDClient(), version.CheckVersionForBR)
 		if err != nil {
 			return nil, errors.Annotate(err, "running BR in incompatible version of cluster, "+
 				"if you believe it's OK, use --check-requirements=false to skip.")
@@ -139,16 +145,13 @@ func NewMgr(
 		}
 		liveStoreCount++
 	}
-	if liveStoreCount == 0 &&
-		// Assume 3 replicas
-		len(stores) >= 3 && len(stores) > liveStoreCount+1 {
-		log.Error("tikv cluster not health", zap.Reflect("stores", stores))
-		return nil, errors.Annotatef(berrors.ErrKVNotHealth, "%+v", stores)
-	}
 
-	dom, err := g.GetDomain(storage)
-	if err != nil {
-		return nil, errors.Trace(err)
+	var dom *domain.Domain
+	if needDomain {
+		dom, err = g.GetDomain(storage)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
 	}
 
 	mgr := &Mgr{
@@ -164,6 +167,20 @@ func NewMgr(
 }
 
 func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
+	failpoint.Inject("hint-get-backup-client", func(v failpoint.Value) {
+		log.Info("failpoint hint-get-backup-client injected, "+
+			"process will notify the shell.", zap.Uint64("store", storeID))
+		if sigFile, ok := v.(string); ok {
+			file, err := os.Create(sigFile)
+			if err != nil {
+				log.Warn("failed to create file for notifying, skipping notify", zap.Error(err))
+			}
+			if file != nil {
+				file.Close()
+			}
+		}
+		time.Sleep(3 * time.Second)
+	})
 	store, err := mgr.GetPDClient().GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -189,19 +206,23 @@ func (mgr *Mgr) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.Cl
 	)
 	cancel()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to make connection to store %d", storeID)
 	}
 	return conn, nil
 }
 
 // GetBackupClient get or create a backup client.
-func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error) {
+	if ctx.Err() != nil {
+		return nil, errors.Trace(ctx.Err())
+	}
+
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
 
 	if conn, ok := mgr.grpcClis.clis[storeID]; ok {
 		// Find a cached backup client.
-		return backup.NewBackupClient(conn), nil
+		return backuppb.NewBackupClient(conn), nil
 	}
 
 	conn, err := mgr.getGrpcConnLocked(ctx, storeID)
@@ -210,11 +231,15 @@ func (mgr *Mgr) GetBackupClient(ctx context.Context, storeID uint64) (backup.Bac
 	}
 	// Cache the conn.
 	mgr.grpcClis.clis[storeID] = conn
-	return backup.NewBackupClient(conn), nil
+	return backuppb.NewBackupClient(conn), nil
 }
 
 // ResetBackupClient reset the connection for backup client.
-func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.BackupClient, error) {
+func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error) {
+	if ctx.Err() != nil {
+		return nil, errors.Trace(ctx.Err())
+	}
+
 	mgr.grpcClis.mu.Lock()
 	defer mgr.grpcClis.mu.Unlock()
 
@@ -245,7 +270,7 @@ func (mgr *Mgr) ResetBackupClient(ctx context.Context, storeID uint64) (backup.B
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	return backup.NewBackupClient(conn), nil
+	return backuppb.NewBackupClient(conn), nil
 }
 
 // GetTiKV returns a tikv storage.
