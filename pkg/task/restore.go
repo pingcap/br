@@ -247,15 +247,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
 		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
 			return errors.Trace(versionErr)
 		}
 	}
-
-	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
+	reader := metautil.NewMetaReader(backupMeta, s)
+	if err = client.InitBackupMeta(c, backupMeta, u, s, reader); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -269,7 +268,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
-
+	archiveSize := reader.ArchiveSize(ctx, files)
+	g.Record(summary.RestoreDataSize, archiveSize)
 	restoreTS, err := client.GetTS(ctx)
 	if err != nil {
 		return errors.Trace(err)
