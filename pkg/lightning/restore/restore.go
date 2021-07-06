@@ -926,7 +926,7 @@ func (rc *Controller) saveStatusCheckpoint(tableName string, engineID int32, err
 	rc.saveCpCh <- saveCp{tableName: tableName, merger: merger, waitCh: waitCh}
 
 	if err = <-waitCh; err != nil {
-		logger.Error("failed to save status checkpoint")
+		logger.Error("failed to save status checkpoint", zap.Error(err))
 		return err
 	}
 	return nil
