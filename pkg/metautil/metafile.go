@@ -100,17 +100,15 @@ func (tbl *Table) NoChecksum() bool {
 
 // MetaReader wraps a reader to read both old and new version of backupmeta.
 type MetaReader struct {
-	storage     storage.ExternalStorage
-	backupMeta  *backuppb.BackupMeta
-	FileSizeMap map[string]uint64
+	storage    storage.ExternalStorage
+	backupMeta *backuppb.BackupMeta
 }
 
 // NewMetaReader creates MetaReader.
 func NewMetaReader(backpMeta *backuppb.BackupMeta, storage storage.ExternalStorage) *MetaReader {
 	return &MetaReader{
-		storage:     storage,
-		backupMeta:  backpMeta,
-		FileSizeMap: make(map[string]uint64),
+		storage:    storage,
+		backupMeta: backpMeta,
 	}
 }
 
@@ -162,9 +160,7 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
 	total := uint64(0)
 	for _, file := range files {
-		if size, ok := reader.FileSizeMap[file.Name]; ok {
-			total += size
-		}
+		total += file.Size_
 	}
 	return total
 }
@@ -231,7 +227,6 @@ func (reader *MetaReader) ReadSchemasFiles(ctx context.Context, output chan<- *T
 			log.Panic("tableID must not equal to 0", logutil.File(file))
 		}
 		fileMap[tableID] = append(fileMap[tableID], file)
-		reader.FileSizeMap[file.Name] = file.Size_
 	}
 	err := reader.readDataFiles(ctx, outputFn)
 	if err != nil {
