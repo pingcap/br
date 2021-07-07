@@ -674,7 +674,6 @@ func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWrite
 	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
 	return uploaderWriter, nil
 }
-<<<<<<< HEAD
 
 // retryerWithLog wrappes the client.DefaultRetryer, and logging when retry triggered.
 type retryerWithLog struct {
@@ -698,5 +697,3 @@ func defaultS3Retryer() request.Retryer {
 		},
 	}
 }
-=======
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))

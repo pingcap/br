@@ -14,11 +14,7 @@ import (
 
 func (r *testStorageSuite) TestWithCompressReadWriteFile(c *C) {
 	dir := c.MkDir()
-<<<<<<< HEAD
 	backend, err := ParseBackend("local://"+filepath.ToSlash(dir), nil)
-=======
-	backend, err := ParseBackend("local:///"+dir, nil)
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 	c.Assert(err, IsNil)
 	ctx := context.Background()
 	storage, err := Create(ctx, backend, true)

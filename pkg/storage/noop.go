@@ -39,11 +39,7 @@ func (s *noopStorage) URI() string {
 
 // Create implements ExternalStorage interface.
 func (*noopStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-<<<<<<< HEAD
 	return &noopWriter{}, nil
-=======
-	panic("noop storage not support multi-upload")
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 }
 
 func newNoopStorage() *noopStorage {
