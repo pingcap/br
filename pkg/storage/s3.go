@@ -629,7 +629,16 @@ func (rs *S3Storage) CreateUploader(ctx context.Context, name string) (ExternalF
 	}, nil
 }
 
-<<<<<<< HEAD
+// Create creates multi upload request.
+func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
+	uploader, err := rs.CreateUploader(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
+	return uploaderWriter, nil
+}
+
 // retryerWithLog wrappes the client.DefaultRetryer, and logging when retry triggered.
 type retryerWithLog struct {
 	client.DefaultRetryer
@@ -651,14 +660,4 @@ func defaultS3Retryer() request.Retryer {
 			MinThrottleDelay: 2 * time.Second,
 		},
 	}
-=======
-// Create creates multi upload request.
-func (rs *S3Storage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
-	uploader, err := rs.CreateUploader(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	uploaderWriter := newBufferedWriter(uploader, hardcodedS3ChunkSize, NoCompression)
-	return uploaderWriter, nil
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 }

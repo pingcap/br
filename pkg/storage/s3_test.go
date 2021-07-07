@@ -554,15 +554,9 @@ func (s *s3Suite) TestReadError(c *C) {
 		GetObjectWithContext(ctx, gomock.Any()).
 		Return(nil, expectedErr)
 
-<<<<<<< HEAD
-	_, err := s.storage.Read(ctx, "file-missing")
-
+	_, err := s.storage.ReadFile(ctx, "file-missing")
 	c.Assert(err, ErrorMatches, "failed to read s3 file, file info: "+
 		"input.bucket='bucket', input.key='prefix/file-missing': "+expectedErr.Error())
-=======
-	_, err := s.storage.ReadFile(ctx, "file-missing")
-	c.Assert(err, ErrorMatches, `\Q`+expectedErr.Error()+`\E`)
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 }
 
 // TestFileExistsError checks that a HeadObject error is propagated.

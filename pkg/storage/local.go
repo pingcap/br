@@ -31,16 +31,10 @@ func (l *LocalStorage) WriteFile(ctx context.Context, name string, data []byte) 
 	// the backup meta file _is_ intended to be world-readable.
 }
 
-<<<<<<< HEAD
-func (l *LocalStorage) Read(ctx context.Context, name string) ([]byte, error) {
-	filepath := filepath.Join(l.base, name)
-	return ioutil.ReadFile(filepath)
-=======
 // ReadFile reads the file from the storage and returns the contents.
 func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
-	path := filepath.Join(l.base, name)
-	return ioutil.ReadFile(path)
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
+	filepath := filepath.Join(l.base, name)
+	return ioutil.ReadFile(filepath)
 }
 
 // FileExists implement ExternalStorage.FileExists.

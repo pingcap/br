@@ -783,7 +783,7 @@ func (l *LogClient) restoreTableFromPuller(
 		if item == nil {
 			log.Info("[restoreFromPuller] nothing in this puller, we should stop and flush",
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -804,7 +804,7 @@ func (l *LogClient) restoreTableFromPuller(
 				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -815,7 +815,7 @@ func (l *LogClient) restoreTableFromPuller(
 			log.Debug("[restoreFromPuller] filter item because later drop schema will affect on this item",
 				zap.Any("item", item),
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}

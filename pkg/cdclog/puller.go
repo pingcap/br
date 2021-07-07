@@ -105,17 +105,16 @@ func NewEventPuller(
 // PullOneEvent pulls one event in ts order.
 // The Next event which can be DDL item or Row changed Item depends on next commit ts.
 func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
-	var err error
+	var (
+		data []byte
+		err  error
+	)
 	// ddl exists
 	if e.ddlDecoder != nil {
 		// current file end, read next file if next file exists
 		if !e.ddlDecoder.HasNext() && e.ddlFileIndex < len(e.ddlFiles) {
 			path := e.ddlFiles[e.ddlFileIndex]
-<<<<<<< HEAD
-			data, err := e.storage.Read(ctx, path)
-=======
 			data, err = e.storage.ReadFile(ctx, path)
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
@@ -140,11 +139,7 @@ func (e *EventPuller) PullOneEvent(ctx context.Context) (*SortItem, error) {
 		// current file end, read next file if next file exists
 		if !e.rowChangedDecoder.HasNext() && e.rowChangedFileIndex < len(e.rowChangedFiles) {
 			path := e.rowChangedFiles[e.rowChangedFileIndex]
-<<<<<<< HEAD
-			data, err := e.storage.Read(ctx, path)
-=======
 			data, err = e.storage.ReadFile(ctx, path)
->>>>>>> bd3f4577 (storage/: refactor storage.ExternalStorage interface (#676))
 			if err != nil {
 				return nil, errors.Trace(err)
 			}
