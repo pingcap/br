@@ -224,7 +224,7 @@ start_services_impl() {
 
     start_pd
     # When using TDE, we add the master key to a file, and this master key is used to encrypt data key
-    echo -e "3b5896b5be691006e0f71c3040a29495ddcad20b14aff61806940ebd780d3c62" > "/tmp/file"
+    echo -e "3b5896b5be691006e0f71c3040a29495ddcad20b14aff61806940ebd780d3c62" > "$TEST_DIR/master-key-file"
     for i in $(seq $TIKV_COUNT); do
         start_tikv "$i"
     done
