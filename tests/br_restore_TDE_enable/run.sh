@@ -16,14 +16,37 @@
 set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
-DB_COUNT=1
+DB_COUNT=3
 
 # start Minio KMS service
+# curl -sSL --tlsv1.2 \
+#     -O 'https://raw.githubusercontent.com/minio/kes/master/root.key' \
+#     -O 'https://raw.githubusercontent.com/minio/kes/master/root.cert'
 
-export MINIO_KMS_KES_ENDPOINT=https://play.min.io:7373
-export MINIO_KMS_KES_KEY_FILE=tests/config/root.key
-export MINIO_KMS_KES_CERT_FILE=tests/config/root.cert
+rm -rf ./keys
+rm -f server.key server.cert
+bin/kes tool identity new --server --key server.key --cert server.cert --ip "127.0.0.1" --dns localhost
+
+
+# create private key and cert for restoration
+rm -f root.key root.cert
+bin/kes tool identity new --key=root.key --cert=root.cert root
+
+bin/kes server --key=server.key --cert=server.cert --root=$(kes tool identity of root.cert) --auth=off &
+KES_pid=$!
+
+sleep 5
+
+export KES_CLIENT_CERT=root.cert
+export KES_CLIENT_KEY=root.key 
+bin/kes key create -k my-minio-key
+
+export MINIO_KMS_KES_ENDPOINT=https://127.0.0.1:7373
+export MINIO_KMS_KES_CERT_FILE=root.cert
+export MINIO_KMS_KES_KEY_FILE=root.key
+export MINIO_KMS_KES_CA_PATH=server.cert
 export MINIO_KMS_KES_KEY_NAME=my-minio-key
+
 
 # start the s3 server
 export MINIO_ACCESS_KEY='KEXI7MANNASOPDLAOIEF'
@@ -53,7 +76,7 @@ start_s3() {
 start_s3
 echo "started s3 with pid = $s3_pid"
 
-bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
+bin/mc config --config-dir "$TEST_DIR/$TEST_NAME"  \
     host add minio http://$S3_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY
 
 # Fill in the database
@@ -76,12 +99,13 @@ for p in $(seq 2); do
   rm -f $BACKUP_LOG
   unset BR_LOG_TO_TERM
 
+  # using --s3.sse AES256 to ensure backup file are encrypted
   run_br --pd $PD_ADDR backup full -s "s3://mybucket/$DB?endpoint=http://$S3_ENDPOINT$S3_KEY" \
       --log-file $BACKUP_LOG \
       --s3.sse AES256
     
-  # ensure the tikv data file are encrypted
-  bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file | grep Aes256Ctr
+# ensure the tikv data file are encrypted
+bin/tikv-ctl --config=tests/config/tikv.toml encryption-meta dump-file | grep "Aes256Ctr"
 
 
   for i in $(seq $DB_COUNT); do
@@ -92,6 +116,7 @@ for p in $(seq 2); do
   echo "restore start..."
   RESTORE_LOG="restore.log"
   rm -f $RESTORE_LOG
+  unset BR_LOG_TO_TERM
   run_br restore full -s "s3://mybucket/$DB?$S3_KEY" --pd $PD_ADDR --s3.endpoint="http://$S3_ENDPOINT" \
       --log-file $RESTORE_LOG 
 
@@ -123,3 +148,4 @@ done
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
+kill -9 $KES_pid
