@@ -27,8 +27,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
