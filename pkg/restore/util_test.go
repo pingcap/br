@@ -95,73 +95,71 @@ func (s *testRestoreUtilSuite) TestMapTableToFiles(c *C) {
 	c.Assert(result[2], DeepEquals, filesOfTable2)
 }
 
-func (s *testRestoreUtilSuite) TestValidateFileRanges(c *C) {
+func (s *testRestoreUtilSuite) TestValidateFileRewriteRule(c *C) {
 	rules := &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{{
+		Table: []*import_sstpb.RewriteRule{&import_sstpb.RewriteRule{
 			OldKeyPrefix: []byte(tablecodec.EncodeTablePrefix(1)),
 			NewKeyPrefix: []byte(tablecodec.EncodeTablePrefix(2)),
 		}},
 	}
 
 	// Empty start/end key is not allowed.
-	_, err := restore.ValidateFileRanges(
-		[]*backuppb.File{&backuppb.File{
+	err := restore.ValidateFileRewriteRule(
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: []byte(""),
 			EndKey:   []byte(""),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// Range is not overlap, no rule found.
-	_, err = restore.ValidateFileRanges(
-		[]*backuppb.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(0),
 			EndKey:   tablecodec.EncodeTablePrefix(1),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
 
 	// No rule for end key.
-	_, err = restore.ValidateFileRanges(
-		[]*backuppb.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*cannot find rewrite rule.*")
-
 	// Add a rule for end key.
 	rules.Table = append(rules.Table, &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(3),
 	})
-	_, err = restore.ValidateFileRanges(
-		[]*backuppb.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*restore table ID mismatch")
-
 	// Add a bad rule for end key, after rewrite start key > end key.
 	rules.Table = append(rules.Table[:1], &import_sstpb.RewriteRule{
 		OldKeyPrefix: tablecodec.EncodeTablePrefix(2),
 		NewKeyPrefix: tablecodec.EncodeTablePrefix(1),
 	})
-	_, err = restore.ValidateFileRanges(
-		[]*backuppb.File{{
+	err = restore.ValidateFileRewriteRule(
+		&backuppb.File{
 			Name:     "file_write.sst",
 			StartKey: tablecodec.EncodeTablePrefix(1),
 			EndKey:   tablecodec.EncodeTablePrefix(2),
-		}},
+		},
 		rules,
 	)
 	c.Assert(err, ErrorMatches, ".*unexpected rewrite rules.*")

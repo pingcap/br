@@ -44,8 +44,8 @@ run_br -s "local://$TEST_DIR/$DB" debug decode --field "Schemas" --redact-log=tr
 run_br -s "local://$TEST_DIR/$DB" debug decode --field "Schemas" --redact-info-log=true
 
 # Test validate backupmeta
-run_br validate backupmeta -s "local://$TEST_DIR/$DB"
-run_br validate backupmeta -s "local://$TEST_DIR/$DB" --offset 100
+run_br debug backupmeta validate -s "local://$TEST_DIR/$DB"
+run_br debug backupmeta validate -s "local://$TEST_DIR/$DB" --offset 100
 
 # Test validate checksum
 run_br validate checksum -s "local://$TEST_DIR/$DB"

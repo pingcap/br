@@ -19,7 +19,16 @@ type Range struct {
 	Files    []*backuppb.File
 }
 
-// Intersect returns?
+// BytesAndKeys returns total bytes and keys in a range.
+func (rg *Range) BytesAndKeys() (bytes, keys uint64) {
+	for _, f := range rg.Files {
+		bytes += f.TotalBytes
+		keys += f.TotalKvs
+	}
+	return
+}
+
+// Intersect returns intersect range in the tree.
 func (rg *Range) Intersect(
 	start, end []byte,
 ) (subStart, subEnd []byte, isIntersect bool) {
