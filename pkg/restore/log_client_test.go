@@ -84,7 +84,7 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 	}
 
 	// format cdclog will collect, because file sink will generate cdclog for streaming write.
-	ddlFile := "ddl.1"
+	ddlFile := "ddl.18446744073709551615"
 	collected, err = s.client.NeedRestoreDDL(ddlFile)
 	c.Assert(err, IsNil)
 	c.Assert(collected, IsTrue)
@@ -95,4 +95,33 @@ func (s *testLogRestoreSuite) TestTsInRange(c *C) {
 		c.Assert(err, IsNil)
 		c.Assert(collected, IsFalse)
 	}
+
+	s.client.ResetTSRange(424839867765096449, 424839886560821249)
+	// ddl suffix records the first event's commit ts
+
+	// the file name include the end ts, collect it.(maxUint64 - 424839886560821249)
+	ddlFile = "ddl.18021904187148730366"
+	collected, err = s.client.NeedRestoreDDL(ddlFile)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsTrue)
+
+	// the file name include the start ts, collect it.(maxUint64 - 424839867765096449)
+	ddlFile = "ddl.18021904205944455166"
+	collected, err = s.client.NeedRestoreDDL(ddlFile)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsTrue)
+
+	// the file first event's ts is smaller than the start ts, collect it.
+	// because we only know this file's first event not in TSRange.
+	// FIXME find a unified logic for collection.
+	ddlFile = "ddl.18021904205944455167"
+	collected, err = s.client.NeedRestoreDDL(ddlFile)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsTrue)
+
+	// the file first event's ts is large than end ts, skip it.
+	ddlFile = "ddl.18021904187148730365"
+	collected, err = s.client.NeedRestoreDDL(ddlFile)
+	c.Assert(err, IsNil)
+	c.Assert(collected, IsFalse)
 }
