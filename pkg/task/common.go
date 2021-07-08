@@ -33,6 +33,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 const (
