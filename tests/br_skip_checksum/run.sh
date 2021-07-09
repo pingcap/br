@@ -29,7 +29,7 @@ done
 
 # backup full, skipping generate checksum.
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --checksum=false
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --checksum=false
 
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
