@@ -536,10 +536,6 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		return errors.New("invalid config: `mydumper.csv.separator` and `mydumper.csv.delimiter` must not be prefix of each other")
 	}
 
-	if len(csv.Terminator) > 0 && cfg.Mydumper.StrictFormat {
-		return errors.New("invalid config: `mydumper.strict-format` is not compatible with custom `mydumper.csv.terminator`")
-	}
-
 	if csv.BackslashEscape {
 		if csv.Separator == `\` {
 			return errors.New("invalid config: cannot use '\\' as CSV separator when `mydumper.csv.backslash-escape` is true")
