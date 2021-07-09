@@ -54,9 +54,6 @@ type CSVParser struct {
 	unquoteByteSet byteSet
 	newLineByteSet byteSet
 
-	quoteIndexFunc   func([]byte) int
-	unquoteIndexFunc func([]byte) int
-
 	// recordBuffer holds the unescaped fields, one after another.
 	// The fields can be accessed by using the indexes in fieldIndexes.
 	// E.g., For the row `a,"b","c""d",e`, recordBuffer will contain `abc"de`
