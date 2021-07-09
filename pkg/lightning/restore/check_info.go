@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -53,14 +54,6 @@ const (
 	pdReplicate = "/pd/api/v1/config/replicate"
 
 	defaultCSVSize = 10 * units.GiB
-	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
-	// millisecond per write thread the local backend may gain on all engines.
-	// This is used to compute the maximum size overshoot between two disk quota
-	// checks, if the first one has barely passed.
-	//
-	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
-	// contribute 2.3 GiB to the reserved size.
-	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 )
 
 func (rc *Controller) isSourceInLocal() bool {
@@ -372,9 +365,19 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			}
 		default:
 			msgs = append(msgs, fmt.Sprintf("file '%s' with unknown source type '%s'", dataFileMeta.Path, dataFileMeta.Type.String()))
+			return msgs, nil
 		}
-		err = parser.ReadRow()
-		if err != nil {
+		defer parser.Close()
+
+		if err = parser.ReadRow(); err != nil {
+			if errors.Cause(err) == io.EOF {
+				msg := fmt.Sprintf("file '%s' doesn't have a data row", dataFileMeta.Path)
+				if dataFileMeta.Type == md.SourceTypeCSV {
+					msg += fmt.Sprintf(" (first row is parsed as header: %v)", rc.cfg.Mydumper.CSV.Header)
+				}
+				msgs = append(msgs, msg)
+				return msgs, nil
+			}
 			return nil, errors.Trace(err)
 		}
 
