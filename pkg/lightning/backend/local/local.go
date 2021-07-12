@@ -928,12 +928,29 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 		return errors.Trace(err)
 	}
 	for _, s := range stores {
-		client, err := local.getImportClient(ctx, s.Id)
-		if err != nil {
-			return errors.Trace(err)
+		// only check up stores
+		if s.State != metapb.StoreState_Up {
+			continue
 		}
-		_, err = client.MultiIngest(ctx, &sst.MultiIngestRequest{})
-		if err != nil {
+		var err error
+		for i := 0; i < maxRetryTimes; i++ {
+			if i > 0 {
+				select {
+				case <-time.After(100 * time.Millisecond):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			client, err1 := local.getImportClient(ctx, s.Id)
+			if err1 != nil {
+				err = err1
+				log.L().Warn("get import client failed", zap.Error(err), zap.String("store", s.Address))
+				continue
+			}
+			_, err = client.MultiIngest(ctx, &sst.MultiIngestRequest{})
+			if err == nil {
+				break
+			}
 			if st, ok := status.FromError(err); ok {
 				if st.Code() == codes.Unimplemented {
 					log.L().Info("multi ingest not support", zap.Any("unsupported store", s))
@@ -941,7 +958,13 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 					return nil
 				}
 			}
-			return errors.Trace(err)
+			log.L().Warn("check multi ingest support failed", zap.Error(err), zap.String("store", s.Address),
+				zap.Int("retry", i))
+		}
+		if err != nil {
+			log.L().Warn("check multi failed all retry, fallback to false")
+			local.supportMultiIngest = false
+			return nil
 		}
 	}
 
