@@ -462,7 +462,7 @@ func (m *dbTableMetaMgr) FinishTable(ctx context.Context) error {
 type taskMetaMgr interface {
 	InitTask(ctx context.Context) error
 	CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error)
-	CheckAndFinishRestore(ctx context.Context) (bool, error)
+	CheckAndFinishRestore(ctx context.Context, finished bool) (bool, bool, error)
 	Cleanup(ctx context.Context) error
 	CleanupAllMetas(ctx context.Context) error
 }
@@ -483,7 +483,13 @@ const (
 	taskMetaStatusScheduleSet
 	taskMetaStatusSwitchSkipped
 	taskMetaStatusSwitchBack
+	// the task exit before finishing
+	taskMetaStatusExitUnfinished taskMetaStatus = 8
 )
+
+func (m taskMetaStatus) realStatus() taskMetaStatus {
+	return m & (taskMetaStatusExitUnfinished - 1)
+}
 
 func (m taskMetaStatus) String() string {
 	switch m {
@@ -525,9 +531,34 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context) error {
 		DB:     m.session,
 		Logger: log.L(),
 	}
-	// avoid override existing metadata if the meta is already inserted.
-	stmt := fmt.Sprintf(`INSERT IGNORE INTO %s (task_id, status) values (?, ?)`, m.tableName)
-	err := exec.Exec(ctx, "init task meta", stmt, m.taskID, taskMetaStatusInitial.String())
+
+	err := exec.Transact(ctx, "check and init task status", func(ctx context.Context, tx *sql.Tx) error {
+		// avoid override existing metadata if the meta is already inserted.
+		stmt := fmt.Sprintf(`INSERT IGNORE INTO %s (task_id, status) values (?, ?)`, m.tableName)
+		_, err := tx.ExecContext(ctx, stmt, m.taskID, taskMetaStatusInitial.String())
+		if err != nil {
+			return errors.Trace(err)
+		}
+		query := fmt.Sprintf("SELECT status from %s where task_id = ?", m.tableName)
+		row := tx.QueryRowContext(ctx, query, m.taskID)
+		var statusStr string
+		if err = row.Scan(&statusStr); err != nil {
+			return errors.Trace(err)
+		}
+		status, err := parseTaskMetaStatus(statusStr)
+		if err != nil {
+			return errors.Annotatef(err, "invalid task meta status '%s'", statusStr)
+		}
+		if status.realStatus() != status {
+			newStatus := status.realStatus()
+			stmt = fmt.Sprintf("UPDATE %s SET status = ? WHERE task_id = ?", m.tableName)
+			_, err = tx.ExecContext(ctx, stmt, newStatus.String(), m.taskID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		}
+		return nil
+	})
 	return errors.Trace(err)
 }
 
@@ -643,10 +674,10 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	}, nil
 }
 
-func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
+func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool) (bool, bool, error) {
 	conn, err := m.session.Conn(ctx)
 	if err != nil {
-		return false, errors.Trace(err)
+		return false, false, errors.Trace(err)
 	}
 	defer conn.Close()
 	exec := &common.SQLWithRetry{
@@ -655,10 +686,11 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error)
 	}
 	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
 	if err != nil {
-		return false, errors.Annotate(err, "enable pessimistic transaction failed")
+		return false, false, errors.Annotate(err, "enable pessimistic transaction failed")
 	}
 
 	switchBack := true
+	allFinished := finished
 	err = exec.Transact(ctx, "check and finish schedulers", func(ctx context.Context, tx *sql.Tx) error {
 		query := fmt.Sprintf("SELECT task_id, status from %s FOR UPDATE", m.tableName)
 		rows, err := tx.QueryContext(ctx, query)
@@ -676,6 +708,7 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error)
 			statusValue string
 		)
 		newStatus := taskMetaStatusSwitchBack
+		taskStatus := taskMetaStatusInitial
 		for rows.Next() {
 			if err = rows.Scan(&taskID, &statusValue); err != nil {
 				return errors.Trace(err)
@@ -686,27 +719,39 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error)
 			}
 
 			if taskID == m.taskID {
+				taskStatus = status
 				continue
 			}
 
+			realStatus := status.realStatus()
+			if realStatus < taskMetaStatusSwitchSkipped {
+				allFinished = false
+			}
+
 			if status < taskMetaStatusSwitchSkipped {
-				newStatus = taskMetaStatusSwitchSkipped
+				log.L().Info("unfinished task found", zap.Int64("task_id", taskID), zap.Stringer("status", status))
 				switchBack = false
-				break
 			}
 		}
 		if err = rows.Close(); err != nil {
 			return errors.Trace(err)
 		}
 		closed = true
+		if !finished {
+			newStatus = taskStatus | taskMetaStatusExitUnfinished
+		} else if !allFinished {
+			newStatus = taskMetaStatusSwitchSkipped
+		}
 
 		query = fmt.Sprintf("update %s set status = ? where task_id = ?", m.tableName)
 		_, err = tx.ExecContext(ctx, query, newStatus.String(), m.taskID)
 
 		return errors.Trace(err)
 	})
+	log.L().Info("check all task finish status", zap.Bool("task_finished", finished),
+		zap.Bool("all_finished", allFinished), zap.Bool("switch_back", switchBack))
 
-	return switchBack, err
+	return switchBack, allFinished, err
 }
 
 func (m *dbTaskMetaMgr) Cleanup(ctx context.Context) error {
@@ -773,8 +818,8 @@ func (m noopTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.
 	}, nil
 }
 
-func (m noopTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
-	return false, nil
+func (m noopTaskMetaMgr) CheckAndFinishRestore(context.Context, bool) (bool, bool, error) {
+	return false, true, nil
 }
 
 func (m noopTaskMetaMgr) Cleanup(ctx context.Context) error {
