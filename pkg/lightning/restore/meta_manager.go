@@ -462,6 +462,9 @@ func (m *dbTableMetaMgr) FinishTable(ctx context.Context) error {
 type taskMetaMgr interface {
 	InitTask(ctx context.Context) error
 	CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error)
+	// CheckAndFinishRestore check task meta and return whether to switch cluster to normal state and clean up the metadata
+	// Return values: first boolean indicates whether switch back tidb cluster to normal state (restore schedulers, switch tikv to normal)
+	// the second boolean indicates whether to clean up the metadata in tidb
 	CheckAndFinishRestore(ctx context.Context, finished bool) (bool, bool, error)
 	Cleanup(ctx context.Context) error
 	CleanupAllMetas(ctx context.Context) error
@@ -483,54 +486,41 @@ const (
 	taskMetaStatusScheduleSet
 	taskMetaStatusSwitchSkipped
 	taskMetaStatusSwitchBack
-	// the task exit before finishing
-	taskMetaStatusExitUnfinished taskMetaStatus = 8
 )
 
-func (m taskMetaStatus) realStatus() taskMetaStatus {
-	return m & (taskMetaStatusExitUnfinished - 1)
-}
+const (
+	taskStateNormal int = iota
+	taskStateExited
+)
 
 func (m taskMetaStatus) String() string {
-	rawStats := m.realStatus()
-	var res string
-	switch rawStats {
+	switch m {
 	case taskMetaStatusInitial:
-		res = "initialized"
+		return "initialized"
 	case taskMetaStatusScheduleSet:
-		res = "schedule_set"
+		return "schedule_set"
 	case taskMetaStatusSwitchSkipped:
-		res = "skip_switch"
+		return "skip_switch"
 	case taskMetaStatusSwitchBack:
-		res = "switched"
+		return "switched"
 	default:
 		panic(fmt.Sprintf("unexpected metaStatus value '%d'", m))
 	}
-	if m&taskMetaStatusExitUnfinished == taskMetaStatusExitUnfinished {
-		res += "_exit"
-	}
-	return res
 }
 
 func parseTaskMetaStatus(s string) (taskMetaStatus, error) {
-	var status taskMetaStatus
-	if strings.HasSuffix(s, "_exit") {
-		status = taskMetaStatusExitUnfinished
-		s = s[:len(s)-5]
-	}
 	switch s {
 	case "", "initialized":
-		status += taskMetaStatusInitial
+		return taskMetaStatusInitial, nil
 	case "schedule_set":
-		status += taskMetaStatusScheduleSet
+		return taskMetaStatusScheduleSet, nil
 	case "skip_switch":
-		status += taskMetaStatusSwitchSkipped
+		return taskMetaStatusSwitchSkipped, nil
 	case "switched":
-		status += taskMetaStatusSwitchBack
+		return taskMetaStatusSwitchBack, nil
 	default:
 		return taskMetaStatusInitial, errors.Errorf("invalid meta status '%s'", s)
 	}
-	return status, nil
 }
 
 type storedCfgs struct {
@@ -546,30 +536,9 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context) error {
 
 	err := exec.Transact(ctx, "check and init task status", func(ctx context.Context, tx *sql.Tx) error {
 		// avoid override existing metadata if the meta is already inserted.
-		stmt := fmt.Sprintf(`INSERT IGNORE INTO %s (task_id, status) values (?, ?)`, m.tableName)
-		_, err := tx.ExecContext(ctx, stmt, m.taskID, taskMetaStatusInitial.String())
-		if err != nil {
-			return errors.Trace(err)
-		}
-		query := fmt.Sprintf("SELECT status from %s where task_id = ?", m.tableName)
-		row := tx.QueryRowContext(ctx, query, m.taskID)
-		var statusStr string
-		if err = row.Scan(&statusStr); err != nil {
-			return errors.Trace(err)
-		}
-		status, err := parseTaskMetaStatus(statusStr)
-		if err != nil {
-			return errors.Annotatef(err, "invalid task meta status '%s'", statusStr)
-		}
-		if status.realStatus() != status {
-			newStatus := status.realStatus()
-			stmt = fmt.Sprintf("UPDATE %s SET status = ? WHERE task_id = ?", m.tableName)
-			_, err = tx.ExecContext(ctx, stmt, newStatus.String(), m.taskID)
-			if err != nil {
-				return errors.Trace(err)
-			}
-		}
-		return nil
+		stmt := fmt.Sprintf(`INSERT INTO %s (task_id, status) values (?, ?) ON DUPLICATE KEY UPDATE state = ?`, m.tableName)
+		_, err := tx.ExecContext(ctx, stmt, m.taskID, taskMetaStatusInitial.String(), taskStateExited)
+		return errors.Trace(err)
 	})
 	return errors.Trace(err)
 }
@@ -594,7 +563,7 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	paused := false
 	var pausedCfg storedCfgs
 	err = exec.Transact(ctx, "check and pause schedulers", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, pd_cfgs, status from %s FOR UPDATE", m.tableName)
+		query := fmt.Sprintf("SELECT task_id, pd_cfgs, status, state from %s FOR UPDATE", m.tableName)
 		rows, err := tx.QueryContext(ctx, query)
 		if err != nil {
 			return errors.Annotate(err, "fetch task meta failed")
@@ -609,10 +578,11 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 			taskID      int64
 			cfg         string
 			statusValue string
+			state       int
 		)
 		var cfgStr string
 		for rows.Next() {
-			if err = rows.Scan(&taskID, &cfg, &statusValue); err != nil {
+			if err = rows.Scan(&taskID, &cfg, &statusValue, &state); err != nil {
 				return errors.Trace(err)
 			}
 			status, err := parseTaskMetaStatus(statusValue)
@@ -686,6 +656,9 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	}, nil
 }
 
+// CheckAndFinishRestore check task meta and return whether to switch cluster to normal state and clean up the metadata
+// Return values: first boolean indicates whether switch back tidb cluster to normal state (restore schedulers, switch tikv to normal)
+// the second boolean indicates whether to clean up the metadata in tidb
 func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool) (bool, bool, error) {
 	conn, err := m.session.Conn(ctx)
 	if err != nil {
@@ -704,7 +677,7 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool
 	switchBack := true
 	allFinished := finished
 	err = exec.Transact(ctx, "check and finish schedulers", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, status from %s FOR UPDATE", m.tableName)
+		query := fmt.Sprintf("SELECT task_id, status, state from %s FOR UPDATE", m.tableName)
 		rows, err := tx.QueryContext(ctx, query)
 		if err != nil {
 			return errors.Annotate(err, "fetch task meta failed")
@@ -718,11 +691,12 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool
 		var (
 			taskID      int64
 			statusValue string
+			state       int
 		)
-		newStatus := taskMetaStatusSwitchBack
+
 		taskStatus := taskMetaStatusInitial
 		for rows.Next() {
-			if err = rows.Scan(&taskID, &statusValue); err != nil {
+			if err = rows.Scan(&taskID, &statusValue, &state); err != nil {
 				return errors.Trace(err)
 			}
 			status, err := parseTaskMetaStatus(statusValue)
@@ -735,30 +709,38 @@ func (m *dbTaskMetaMgr) CheckAndFinishRestore(ctx context.Context, finished bool
 				continue
 			}
 
-			realStatus := status.realStatus()
-			if realStatus < taskMetaStatusSwitchSkipped {
-				allFinished = false
-			}
-
 			if status < taskMetaStatusSwitchSkipped {
-				log.L().Info("unfinished task found", zap.Int64("task_id", taskID), zap.Stringer("status", status))
-				switchBack = false
+				allFinished = false
+				// check if other task still running
+				if state == taskStateNormal {
+					log.L().Info("unfinished task found", zap.Int64("task_id", taskID),
+						zap.Stringer("status", status))
+					switchBack = false
+				}
 			}
 		}
 		if err = rows.Close(); err != nil {
 			return errors.Trace(err)
 		}
 		closed = true
-		if !finished {
-			newStatus = taskStatus | taskMetaStatusExitUnfinished
-		} else if !allFinished {
-			newStatus = taskMetaStatusSwitchSkipped
+
+		if taskStatus < taskMetaStatusSwitchSkipped {
+			newStatus := taskMetaStatusSwitchBack
+			newState := taskStateNormal
+			if !finished {
+				newStatus = taskStatus
+				newState = taskStateExited
+			} else if !allFinished {
+				newStatus = taskMetaStatusSwitchSkipped
+			}
+
+			query = fmt.Sprintf("update %s set status = ?, state = ? where task_id = ?", m.tableName)
+			if _, err = tx.ExecContext(ctx, query, newStatus.String(), newState, m.taskID); err != nil {
+				return errors.Trace(err)
+			}
 		}
 
-		query = fmt.Sprintf("update %s set status = ? where task_id = ?", m.tableName)
-		_, err = tx.ExecContext(ctx, query, newStatus.String(), m.taskID)
-
-		return errors.Trace(err)
+		return nil
 	})
 	log.L().Info("check all task finish status", zap.Bool("task_finished", finished),
 		zap.Bool("all_finished", allFinished), zap.Bool("switch_back", switchBack))
