@@ -106,17 +106,22 @@ func (b *BytesBuffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
-// AddBytes add the bytes into this BytesBuffer.
-func (b *BytesBuffer) AddBytes(bytes []byte) []byte {
-	if len(bytes) > bigValueSize {
-		return append([]byte{}, bytes...)
+// AllocBytes allocate bytes with the give length.
+func (b *BytesBuffer) AllocBytes(n int) []byte {
+	if n > bigValueSize {
+		return make([]byte, n)
 	}
-
-	if b.curIdx+len(bytes) > b.curBufLen {
+	if b.curIdx+n > b.curBufLen {
 		b.AddBuf()
 	}
 	idx := b.curIdx
-	copy(b.curBuf[idx:], bytes)
-	b.curIdx += len(bytes)
-	return b.curBuf[idx:b.curIdx]
+	b.curIdx += n
+	return b.curBuf[idx:b.curIdx:b.curIdx]
+}
+
+// AddBytes add the bytes into this BytesBuffer.
+func (b *BytesBuffer) AddBytes(bytes []byte) []byte {
+	buf := b.AllocBytes(len(bytes))
+	copy(buf, bytes)
+	return buf
 }
