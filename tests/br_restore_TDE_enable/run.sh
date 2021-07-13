@@ -34,6 +34,7 @@ bin/kes tool identity new --key=root.key --cert=root.cert root
 
 bin/kes server --key=server.key --cert=server.cert --root=$(kes tool identity of root.cert) --auth=off &
 KES_pid=$!
+trap 'kill -9 $KES_pid' EXIT
 
 sleep 5
 
@@ -148,4 +149,3 @@ done
 for i in $(seq $DB_COUNT); do
     run_sql "DROP DATABASE $DB${i};"
 done
-kill -9 $KES_pid
