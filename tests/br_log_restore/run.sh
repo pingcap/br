@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
@@ -48,7 +47,6 @@ bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 # Start cdc servers
 run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
 trap 'cat ticdc.log' ERR
-
 
 # TODO: remove this after TiCDC supports TiDB clustered index
 run_sql "set @@global.tidb_enable_clustered_index=0"
@@ -102,9 +100,9 @@ while (( checkpoint_ts < end_ts )); do
         echo "cdc failed to sync after 300s, please check the CDC log."
         exit 1
     fi
-    checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
     sleep 5
     (( wait_time += 5 ))
+    checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
 done
 
 # remove the change feed, because we don't want to record the drop ddl.
