@@ -90,20 +90,22 @@ run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
 
 end_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}' | xargs)
 
+
+# if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
+run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
+
 wait_time=0
 checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
 while (( checkpoint_ts < end_ts )); do
     echo "waiting for cdclog syncing... (checkpoint_ts = $checkpoint_ts; end_ts = $end_ts)"
     if (( wait_time > 300 )); then
         echo "cdc failed to sync after 300s, please check the CDC log."
+        exit 1
     fi
     checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
     sleep 5
     (( wait_time += 5 ))
 done
-
-# if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
-run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 
 # remove the change feed, because we don't want to record the drop ddl.
 echo "Y" | run_cdc cli unsafe reset --pd=https://$PD_ADDR
