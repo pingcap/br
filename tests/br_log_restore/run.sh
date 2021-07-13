@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
@@ -46,6 +47,8 @@ bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 
 # Start cdc servers
 run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
+trap 'cat ticdc.log' ERR
+
 
 # TODO: remove this after TiCDC supports TiDB clustered index
 run_sql "set @@global.tidb_enable_clustered_index=0"
@@ -87,13 +90,20 @@ run_sql "insert into ${DB}_DDL2.t2 values (4, 'x');"
 
 end_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}' | xargs)
 
+wait_time=0
+checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
+while (( checkpoint_ts < end_ts )); do
+    echo "waiting for cdclog syncing... (checkpoint_ts = $checkpoint_ts; end_ts = $end_ts)"
+    if (( wait_time > 300 )); then
+        echo "cdc failed to sync after 300s, please check the CDC log."
+    fi
+    checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
+    sleep 5
+    (( wait_time += 5 ))
+done
+
 # if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
 run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
-
-# sleep wait cdc log sync to storage
-# TODO find another way to check cdc log has synced
-# need wait more time for cdc log synced, because we add some ddl.
-sleep 80
 
 # remove the change feed, because we don't want to record the drop ddl.
 echo "Y" | run_cdc cli unsafe reset --pd=https://$PD_ADDR
