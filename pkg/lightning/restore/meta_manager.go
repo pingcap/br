@@ -537,7 +537,7 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context) error {
 	err := exec.Transact(ctx, "check and init task status", func(ctx context.Context, tx *sql.Tx) error {
 		// avoid override existing metadata if the meta is already inserted.
 		stmt := fmt.Sprintf(`INSERT INTO %s (task_id, status) values (?, ?) ON DUPLICATE KEY UPDATE state = ?`, m.tableName)
-		_, err := tx.ExecContext(ctx, stmt, m.taskID, taskMetaStatusInitial.String(), taskStateExited)
+		_, err := tx.ExecContext(ctx, stmt, m.taskID, taskMetaStatusInitial.String(), taskStateNormal)
 		return errors.Trace(err)
 	})
 	return errors.Trace(err)
