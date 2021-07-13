@@ -94,14 +94,14 @@ run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 
 wait_time=0
 checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
-while (( checkpoint_ts < end_ts )); do
+while [ "$checkpoint_ts" -lt "$end_ts" ]; do
     echo "waiting for cdclog syncing... (checkpoint_ts = $checkpoint_ts; end_ts = $end_ts)"
-    if (( wait_time > 300 )); then
+    if [ "$wait_time" -gt 300 ]; then
         echo "cdc failed to sync after 300s, please check the CDC log."
         exit 1
     fi
     sleep 5
-    (( wait_time += 5 ))
+    wait_time=$(( wait_time + 5 ))
     checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
 done
 
