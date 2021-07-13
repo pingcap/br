@@ -45,12 +45,8 @@ bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
 bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 
 # Start cdc servers
-<<<<<<< HEAD
 run_cdc server --data-dir "$TEST_DIR/cdc_data" --pd=https://$PD_ADDR --log-file=ticdc.log --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
-=======
-run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
 trap 'cat ticdc.log' ERR
->>>>>>> d56040c8 (tests: refine the br_log_restore test (#1338))
 
 # TODO: remove this after TiCDC supports TiDB clustered index
 run_sql "set @@global.tidb_enable_clustered_index=0"
