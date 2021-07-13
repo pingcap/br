@@ -74,7 +74,7 @@ func (b noopBackend) OpenEngine(context.Context, *backend.EngineConfig, uuid.UUI
 	return nil
 }
 
-func (b noopBackend) CloseEngine(ctx context.Context, engineUUID uuid.UUID) error {
+func (b noopBackend) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, engineUUID uuid.UUID) error {
 	return nil
 }
 
@@ -148,7 +148,7 @@ type noopEncoder struct{}
 func (e noopEncoder) Close() {}
 
 // Encode encodes a row of SQL values into a backend-friendly format.
-func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int) (kv.Row, error) {
+func (e noopEncoder) Encode(log.Logger, []types.Datum, int64, []int, int64) (kv.Row, error) {
 	return noopRow{}, nil
 }
 
@@ -163,7 +163,7 @@ func (r noopRow) ClassifyAndAppend(*kv.Rows, *verification.KVChecksum, *kv.Rows,
 
 type noopWriter struct{}
 
-func (w noopWriter) AppendRows(context.Context, string, []string, uint64, kv.Rows) error {
+func (w noopWriter) AppendRows(context.Context, string, []string, kv.Rows) error {
 	return nil
 }
 

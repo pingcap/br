@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/ioutil"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 
@@ -79,7 +78,7 @@ func (w *withCompression) ReadFile(ctx context.Context, name string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	return ioutil.ReadAll(compressBf)
+	return io.ReadAll(compressBf)
 }
 
 type compressReader struct {

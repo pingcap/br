@@ -88,7 +88,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 	}
 	oldTableIDExist := make(map[int64]bool)
 	newTableIDExist := make(map[int64]bool)
-	for _, tr := range rules.Table {
+	for _, tr := range rules.Data {
 		oldTableID := tablecodec.DecodeTableID(tr.GetOldKeyPrefix())
 		c.Assert(oldTableIDExist[oldTableID], IsFalse, Commentf("table rule duplicate old table id"))
 		oldTableIDExist[oldTableID] = true

@@ -16,14 +16,15 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/tikv/client-go/v2/mockstore/mocktikv"
 	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/testutils"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/conn"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/storage"
 )
 
 type testBackup struct {
@@ -41,13 +42,13 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	mvccStore := mocktikv.MustNewMVCCStore()
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
+	_, _, pdClient, err := testutils.NewMockTiKV("", nil)
+	c.Assert(err, IsNil)
+	r.mockPDClient = pdClient
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
 	mockMgr.SetPDClient(r.mockPDClient)
 	mockMgr.SetHTTP([]string{"test"}, nil)
-	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)
 }
@@ -225,4 +226,46 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 			c.Assert(err, IsNil)
 		}
 	}
+}
+
+func (r *testBackup) TestSendCreds(c *C) {
+	accessKey := "ab"
+	secretAccessKey := "cd"
+	backendOpt := storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
+	}
+	backend, err := storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
+	c.Assert(err, IsNil)
+	opts := &storage.ExternalStorageOptions{
+		SendCredentials: true,
+		SkipCheckPath:   true,
+	}
+	_, err = storage.New(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	access_key := backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "ab")
+	secret_access_key := backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "cd")
+
+	backendOpt = storage.BackendOptions{
+		S3: storage.S3BackendOptions{
+			AccessKey:       accessKey,
+			SecretAccessKey: secretAccessKey,
+		},
+	}
+	backend, err = storage.ParseBackend("s3://bucket/prefix/", &backendOpt)
+	c.Assert(err, IsNil)
+	opts = &storage.ExternalStorageOptions{
+		SendCredentials: false,
+		SkipCheckPath:   true,
+	}
+	_, err = storage.New(r.ctx, backend, opts)
+	c.Assert(err, IsNil)
+	access_key = backend.GetS3().AccessKey
+	c.Assert(access_key, Equals, "")
+	secret_access_key = backend.GetS3().SecretAccessKey
+	c.Assert(secret_access_key, Equals, "")
 }

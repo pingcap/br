@@ -161,9 +161,13 @@ func CheckRestoreDBAndTable(client *restore.Client, cfg *RestoreConfig) error {
 	schemasMap := make(map[string]struct{})
 	tablesMap := make(map[string]struct{})
 	for _, db := range schemas {
-		schemasMap[utils.EncloseName(db.Info.Name.O)] = struct{}{}
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
+		schemasMap[utils.EncloseName(dbName)] = struct{}{}
 		for _, table := range db.Tables {
-			tablesMap[utils.EncloseDBAndTable(db.Info.Name.O, table.Info.Name.O)] = struct{}{}
+			tablesMap[utils.EncloseDBAndTable(dbName, table.Info.Name.O)] = struct{}{}
 		}
 	}
 	restoreSchemas := cfg.Schemas
@@ -243,15 +247,14 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
 	backupVersion := version.NormalizeBackupVersion(backupMeta.ClusterVersion)
 	if cfg.CheckRequirements && backupVersion != nil {
 		if versionErr := version.CheckClusterVersion(ctx, mgr.GetPDClient(), version.CheckVersionForBackup(backupVersion)); versionErr != nil {
 			return errors.Trace(versionErr)
 		}
 	}
-
-	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
+	reader := metautil.NewMetaReader(backupMeta, s)
+	if err = client.InitBackupMeta(c, backupMeta, u, s, reader); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -265,7 +268,8 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 	if len(dbs) == 0 && len(tables) != 0 {
 		return errors.Annotate(berrors.ErrRestoreInvalidBackup, "contain tables but no databases")
 	}
-
+	archiveSize := reader.ArchiveSize(ctx, files)
+	g.Record(summary.RestoreDataSize, archiveSize)
 	restoreTS, err := client.GetTS(ctx)
 	if err != nil {
 		return errors.Trace(err)
@@ -470,8 +474,12 @@ func filterRestoreFiles(
 ) (files []*backuppb.File, tables []*metautil.Table, dbs []*utils.Database) {
 	for _, db := range client.GetDatabases() {
 		createdDatabase := false
+		dbName := db.Info.Name.O
+		if name, ok := utils.GetSysDBName(db.Info.Name); utils.IsSysDB(name) && ok {
+			dbName = name
+		}
 		for _, table := range db.Tables {
-			if !cfg.TableFilter.MatchTable(db.Info.Name.O, table.Info.Name.O) {
+			if !cfg.TableFilter.MatchTable(dbName, table.Info.Name.O) {
 				continue
 			}
 			if !createdDatabase {

@@ -1,0 +1,8 @@
+[tikv-importer]
+backend = "local"
+duplicate-detection = true
+
+[checkpoint]
+enable = true
+schema = "tidb_lightning_checkpoint"
+driver = "mysql"

@@ -18,9 +18,6 @@ set -eux
 
 BUCKET="test"
 
-# Skip test temporarily. Reopen after TiDB update.
-exit 0
-
 # we need start a oauth server or gcs client will failed to handle request.
 KEY=$(cat <<- EOF
 {

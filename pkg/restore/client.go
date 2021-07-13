@@ -171,9 +171,8 @@ func (rc *Client) Close() {
 }
 
 // InitBackupMeta loads schemas from BackupMeta to initialize RestoreClient.
-func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend, externalStorage storage.ExternalStorage) error {
+func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupMeta, backend *backuppb.StorageBackend, externalStorage storage.ExternalStorage, reader *metautil.MetaReader) error {
 	if !backupMeta.IsRawKv {
-		reader := metautil.NewMetaReader(backupMeta, externalStorage)
 		databases, err := utils.LoadBackupTables(c, reader)
 		if err != nil {
 			return errors.Trace(err)
@@ -361,8 +360,7 @@ func (rc *Client) CreateTables(
 	newTS uint64,
 ) (*RewriteRules, []*model.TableInfo, error) {
 	rewriteRules := &RewriteRules{
-		Table: make([]*import_sstpb.RewriteRule, 0),
-		Data:  make([]*import_sstpb.RewriteRule, 0),
+		Data: make([]*import_sstpb.RewriteRule, 0),
 	}
 	newTables := make([]*model.TableInfo, 0, len(tables))
 	errCh := make(chan error, 1)
@@ -373,7 +371,6 @@ func (rc *Client) CreateTables(
 	dataCh := rc.GoCreateTables(context.TODO(), dom, tables, newTS, nil, errCh)
 	for et := range dataCh {
 		rules := et.RewriteRule
-		rewriteRules.Table = append(rewriteRules.Table, rules.Table...)
 		rewriteRules.Data = append(rewriteRules.Data, rules.Data...)
 		newTables = append(newTables, et.Table)
 	}
@@ -611,7 +608,8 @@ func (rc *Client) RestoreFiles(
 	}
 
 	var rangeFiles []*backuppb.File
-	for rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, files = drainFilesByRange(files, rc.fileImporter.supportMultiIngest) {
+	var leftFiles []*backuppb.File
+	for rangeFiles, leftFiles = drainFilesByRange(files, rc.fileImporter.supportMultiIngest); len(rangeFiles) != 0; rangeFiles, leftFiles = drainFilesByRange(leftFiles, rc.fileImporter.supportMultiIngest) {
 		filesReplica := rangeFiles
 		rc.workerPool.ApplyOnErrorGroup(eg,
 			func() error {

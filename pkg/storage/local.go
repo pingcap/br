@@ -5,7 +5,6 @@ package storage
 import (
 	"bufio"
 	"context"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -29,14 +28,14 @@ type LocalStorage struct {
 // WriteFile writes data to a file to storage.
 func (l *LocalStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	path := filepath.Join(l.base, name)
-	return ioutil.WriteFile(path, data, localFilePerm)
+	return os.WriteFile(path, data, localFilePerm)
 	// the backup meta file _is_ intended to be world-readable.
 }
 
 // ReadFile reads the file from the storage and returns the contents.
 func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	path := filepath.Join(l.base, name)
-	return ioutil.ReadFile(path)
+	return os.ReadFile(path)
 }
 
 // FileExists implement ExternalStorage.FileExists.

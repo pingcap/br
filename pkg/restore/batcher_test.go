@@ -135,7 +135,7 @@ func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) 
 }
 
 func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
-	for _, rule := range sender.rewriteRules.Table {
+	for _, rule := range sender.rewriteRules.Data {
 		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
 			return true
 		}
@@ -173,7 +173,7 @@ func fakeTableWithRange(id int64, rngs []rtree.Range) restore.TableWithRange {
 
 func fakeRewriteRules(oldPrefix string, newPrefix string) *restore.RewriteRules {
 	return &restore.RewriteRules{
-		Table: []*import_sstpb.RewriteRule{
+		Data: []*import_sstpb.RewriteRule{
 			{
 				OldKeyPrefix: []byte(oldPrefix),
 				NewKeyPrefix: []byte(newPrefix),

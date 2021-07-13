@@ -243,7 +243,7 @@ func checkpointErrorDestroy(ctx context.Context, cfg *config.Config, tls *common
 		for _, table := range targetTables {
 			for engineID := table.MinEngineID; engineID <= table.MaxEngineID; engineID++ {
 				fmt.Fprintln(os.Stderr, "Closing and cleaning up engine:", table.TableName, engineID)
-				closedEngine, err := importer.UnsafeCloseEngine(ctx, table.TableName, engineID)
+				closedEngine, err := importer.UnsafeCloseEngine(ctx, nil, table.TableName, engineID)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, "* Encountered error while closing engine:", err)
 					lastErr = err
@@ -368,7 +368,7 @@ func unsafeCloseEngine(ctx context.Context, importer backend.Backend, engine str
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
-		ce, err := importer.UnsafeCloseEngine(ctx, tableName, int32(engineID))
+		ce, err := importer.UnsafeCloseEngine(ctx, nil, tableName, int32(engineID))
 		return ce, errors.Trace(err)
 	}
 
@@ -377,7 +377,7 @@ func unsafeCloseEngine(ctx context.Context, importer backend.Backend, engine str
 		return nil, errors.Trace(err)
 	}
 
-	ce, err := importer.UnsafeCloseEngineWithUUID(ctx, "<tidb-lightning-ctl>", engineUUID)
+	ce, err := importer.UnsafeCloseEngineWithUUID(ctx, nil, "<tidb-lightning-ctl>", engineUUID)
 	return ce, errors.Trace(err)
 }
 
