@@ -492,33 +492,45 @@ func (m taskMetaStatus) realStatus() taskMetaStatus {
 }
 
 func (m taskMetaStatus) String() string {
-	switch m {
+	rawStats := m.realStatus()
+	var res string
+	switch rawStats {
 	case taskMetaStatusInitial:
-		return "initialized"
+		res = "initialized"
 	case taskMetaStatusScheduleSet:
-		return "schedule_set"
+		res = "schedule_set"
 	case taskMetaStatusSwitchSkipped:
-		return "skip_switch"
+		res = "skip_switch"
 	case taskMetaStatusSwitchBack:
-		return "switched"
+		res = "switched"
 	default:
 		panic(fmt.Sprintf("unexpected metaStatus value '%d'", m))
 	}
+	if m&taskMetaStatusExitUnfinished == taskMetaStatusExitUnfinished {
+		res += "_exit"
+	}
+	return res
 }
 
 func parseTaskMetaStatus(s string) (taskMetaStatus, error) {
+	var status taskMetaStatus
+	if strings.HasSuffix(s, "_exit") {
+		status = taskMetaStatusExitUnfinished
+		s = s[:len(s)-5]
+	}
 	switch s {
 	case "", "initialized":
-		return taskMetaStatusInitial, nil
+		status += taskMetaStatusInitial
 	case "schedule_set":
-		return taskMetaStatusScheduleSet, nil
+		status += taskMetaStatusScheduleSet
 	case "skip_switch":
-		return taskMetaStatusSwitchSkipped, nil
+		status += taskMetaStatusSwitchSkipped
 	case "switched":
-		return taskMetaStatusSwitchBack, nil
+		status += taskMetaStatusSwitchBack
 	default:
 		return taskMetaStatusInitial, errors.Errorf("invalid meta status '%s'", s)
 	}
+	return status, nil
 }
 
 type storedCfgs struct {
