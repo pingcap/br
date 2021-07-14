@@ -37,7 +37,7 @@ run_sql "INSERT INTO $DB.usertable2 VALUES (\"c\", \"d\");"
 
 # backup db
 echo "backup start..."
-run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB"
 
 run_sql "DROP DATABASE $DB;"
 
