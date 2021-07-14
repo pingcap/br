@@ -202,6 +202,8 @@ type AbstractBackend interface {
 
 	// CollectDuplicateKeys collect duplicate keys from remote TiKV storage.
 	CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
+
+	ReportDuplicateRows(ctx context.Context, tbl table.Table) error
 }
 
 // Backend is the delivery target for Lightning
@@ -355,6 +357,13 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 		},
 		tableName: tableName,
 	}, nil
+}
+
+func (be Backend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	if err := be.abstract.CollectDuplicateKeys(ctx, tbl, sqlMode); err != nil {
+		return err
+	}
+	return be.abstract.ReportDuplicateRows(ctx, tbl)
 }
 
 // Close the opened engine to prepare it for importing.

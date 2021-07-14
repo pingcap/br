@@ -46,6 +46,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
+	tidbkv "github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -2103,6 +2104,10 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 }
 
 func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	if local.duplicateDB == nil {
+		return nil
+	}
+
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2119,6 +2124,8 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
+	handles := make([][]byte, 1)
+	allRanges := make([]tidbkv.KeyRange, 1)
 	for _, indexInfo := range tbl.Meta().Indices {
 		if indexInfo.State != model.StatePublic {
 			continue
@@ -2128,7 +2135,7 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 		if err != nil {
 			return err
 		}
-		handles := make([][]byte, 1)
+		allRanges = append(allRanges, keysRanges...)
 		for _, r := range keysRanges {
 			opts := &pebble.IterOptions{
 				LowerBound: r.StartKey,
@@ -2159,7 +2166,27 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 			}
 		}
 	}
-	return duplicateManager.DuplicateTable(ctx, tbl)
+
+	if len(handles) == 0 {
+		return duplicateManager.DuplicateTable(ctx, tbl)
+	}
+
+	for i := 0; i < maxRetryTimes; i++ {
+		handles = duplicateManager.GetValues(ctx, handles)
+		if len(handles) == 0 {
+			for _, r := range allRanges {
+				local.duplicateDB.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
+			}
+			return duplicateManager.DuplicateTable(ctx, tbl)
+		}
+	}
+	return errors.Errorf("can not get values from tikv for local duplicate db")
+}
+
+func (local *local) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
+	// ranges := ranger.FullIntRange(false)
+	// keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	return nil
 }
 
 func (e *File) unfinishedRanges(ranges []Range) []Range {

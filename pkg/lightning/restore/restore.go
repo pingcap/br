@@ -2097,6 +2097,11 @@ func (tr *TableRestore) postProcess(
 	finished := true
 	if cp.Status < checkpoints.CheckpointStatusChecksummed {
 		// 4. do table checksum
+		if rc.cfg.TikvImporter.DuplicateDetection {
+			if err := rc.backend.CollectDuplicateKeys(ctx, tr.encTable,  rc.cfg.TiDB.SQLMode); err != nil {
+				tr.logger.Error("collect duplicate keys failed", log.ShortError(err))
+			}
+		}
 		var localChecksum verify.KVChecksum
 		for _, engine := range cp.Engines {
 			for _, chunk := range engine.Chunks {

@@ -231,6 +231,10 @@ func (importer *importer) CollectDuplicateKeys(ctx context.Context, tbl table.Ta
 	panic("Unsupported Operation")
 }
 
+func (importer *importer) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
+	panic("Unsupported Operation")
+}
+
 func (importer *importer) WriteRows(
 	ctx context.Context,
 	engineUUID uuid.UUID,

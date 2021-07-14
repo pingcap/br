@@ -148,6 +148,10 @@ func (b noopBackend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, 
 	panic("Unsupported Operation")
 }
 
+func (b noopBackend) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
+	panic("Unsupported Operation")
+}
+
 type noopEncoder struct{}
 
 // Close the encoder.

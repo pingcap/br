@@ -229,7 +229,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 					break
 				}
 
-				handles, err := manager.storeDuplicateData(ctx, region, resp, decoder, req)
+				handles, err := manager.storeDuplicateData(ctx, resp, decoder, req)
 				if err != nil {
 					return err
 				}
@@ -251,7 +251,6 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 
 func (manager *DuplicateManager) storeDuplicateData(
 	ctx context.Context,
-	region *split.RegionInfo,
 	resp *sst.DuplicateDetectResponse, decoder *backendkv.TableKVDecoder, req *DuplicateRequest,
 ) ([][]byte, error) {
 	opts := &pebble.WriteOptions{Sync: false}
@@ -284,7 +283,7 @@ func (manager *DuplicateManager) storeDuplicateData(
 }
 
 func (manager *DuplicateManager) ReportDuplicateData() error {
-	// TODO
+
 	return nil
 }
 
@@ -312,6 +311,9 @@ func (manager *DuplicateManager) GetValues(
 	endIdx := 0
 	batch := make([][]byte, len(handles))
 	for _, region := range regions {
+		if startIdx >= l {
+			break
+		}
 		handleKey := codec.EncodeBytes([]byte{}, handles[startIdx])
 		if bytes.Compare(handleKey, region.Region.EndKey) >= 0 {
 			continue
@@ -321,6 +323,7 @@ func (manager *DuplicateManager) GetValues(
 			handleKey := codec.EncodeBytes([]byte{}, handles[endIdx])
 			if bytes.Compare(handleKey, region.Region.EndKey) < 0 {
 				batch = append(batch, handles[endIdx])
+				endIdx ++
 			} else {
 				break
 			}
