@@ -465,7 +465,7 @@ type taskMetaMgr interface {
 	// CheckAndFinishRestore check task meta and return whether to switch cluster to normal state and clean up the metadata
 	// Return values: first boolean indicates whether switch back tidb cluster to normal state (restore schedulers, switch tikv to normal)
 	// the second boolean indicates whether to clean up the metadata in tidb
-	CheckAndFinishRestore(ctx context.Context, finished bool) (bool, bool, error)
+	CheckAndFinishRestore(ctx context.Context, finished bool) (shouldSwitchBack bool, shouldCleanupMeta bool, err error)
 	Cleanup(ctx context.Context) error
 	CleanupAllMetas(ctx context.Context) error
 }
