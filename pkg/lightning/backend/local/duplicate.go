@@ -278,14 +278,7 @@ func (manager *DuplicateManager) storeDuplicateData(
 		if err != nil {
 			continue
 		}
-		err := manager.getValuesFromRegion(ctx, region, handles)
-		if err == nil {
-			return nil, nil
-		} else {
-			// Retry kv get handles after
-			log.L().Error("failed to collect values from TiKV by handle, we will retry it", zap.Error(err))
-			return handles, nil
-		}
+		return manager.GetValues(ctx, handles), nil
 	}
 	return nil, err
 }

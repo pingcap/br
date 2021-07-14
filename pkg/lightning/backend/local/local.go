@@ -20,6 +20,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/pingcap/tidb/distsql"
+	"github.com/pingcap/tidb/util/ranger"
 	"io"
 	"math"
 	"os"
@@ -2105,10 +2107,57 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 	if err != nil {
 		return err
 	}
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
+		SQLMode: sqlMode,
+	})
+	if err != nil {
+		return nil
+	}
+
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
 	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	for _, indexInfo := range tbl.Meta().Indices {
+		if indexInfo.State != model.StatePublic {
+			continue
+		}
+		ranges := ranger.FullRange()
+		keysRanges, err := distsql.IndexRangesToKVRanges(nil, tbl.Meta().ID, indexInfo.ID, ranges, nil)
+		if err != nil {
+			return err
+		}
+		handles := make([][]byte, 1)
+		for _, r := range keysRanges {
+			opts := &pebble.IterOptions{
+				LowerBound: r.StartKey,
+				UpperBound: r.EndKey,
+			}
+			iter := local.duplicateDB.NewIter(opts)
+			for iter.SeekGE(r.StartKey); iter.Valid(); iter.Next() {
+				value := iter.Value()
+				h, err := decoder.DecodeHandleFromIndex(indexInfo, iter.Key(), value)
+				if err != nil {
+					log.L().Error("decode handle error from index for duplicatedb",
+						zap.Error(err), logutil.Key("key", iter.Key()),
+						logutil.Key("value", value))
+					continue
+				}
+				key := decoder.EncodeHandleKey(h)
+				handles = append(handles, key)
+				if len(handles) > 1024 {
+					handles = duplicateManager.GetValues(ctx, handles)
+				}
+			}
+			if len(handles) > 0 {
+				handles = duplicateManager.GetValues(ctx, handles)
+			}
+			iter.Close()
+			if len(handles) == 0 {
+				local.duplicateDB.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
+			}
+		}
 	}
 	return duplicateManager.DuplicateTable(ctx, tbl)
 }
