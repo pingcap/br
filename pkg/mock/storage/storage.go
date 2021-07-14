@@ -8,10 +8,9 @@ package mockstorage
 
 import (
 	context "context"
-	reflect "reflect"
-
 	gomock "github.com/golang/mock/gomock"
 	storage "github.com/pingcap/br/pkg/storage"
+	reflect "reflect"
 )
 
 // MockExternalStorage is a mock of ExternalStorage interface

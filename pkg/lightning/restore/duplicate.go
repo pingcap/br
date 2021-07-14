@@ -16,7 +16,6 @@ package restore
 import (
 	"bytes"
 	"context"
-	"github.com/pingcap/tidb/store/tikv/oracle"
 	"io"
 	"math"
 	"sort"
@@ -37,6 +36,7 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
+	"github.com/tikv/client-go/v2/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"

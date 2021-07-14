@@ -6,20 +6,17 @@ package checkpointspb
 import (
 	encoding_binary "encoding/binary"
 	fmt "fmt"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
-
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
-var (
-	_ = proto.Marshal
-	_ = fmt.Errorf
-	_ = math.Inf
-)
+var _ = proto.Marshal
+var _ = fmt.Errorf
+var _ = math.Inf
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
@@ -39,11 +36,9 @@ func (*CheckpointsModel) ProtoMessage()    {}
 func (*CheckpointsModel) Descriptor() ([]byte, []int) {
 	return fileDescriptor_c57c7b77a714394c, []int{0}
 }
-
 func (m *CheckpointsModel) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *CheckpointsModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_CheckpointsModel.Marshal(b, m, deterministic)
@@ -56,15 +51,12 @@ func (m *CheckpointsModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, er
 		return b[:n], nil
 	}
 }
-
 func (m *CheckpointsModel) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_CheckpointsModel.Merge(m, src)
 }
-
 func (m *CheckpointsModel) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *CheckpointsModel) XXX_DiscardUnknown() {
 	xxx_messageInfo_CheckpointsModel.DiscardUnknown(m)
 }
@@ -89,11 +81,9 @@ func (*TaskCheckpointModel) ProtoMessage()    {}
 func (*TaskCheckpointModel) Descriptor() ([]byte, []int) {
 	return fileDescriptor_c57c7b77a714394c, []int{1}
 }
-
 func (m *TaskCheckpointModel) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *TaskCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_TaskCheckpointModel.Marshal(b, m, deterministic)
@@ -106,15 +96,12 @@ func (m *TaskCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return b[:n], nil
 	}
 }
-
 func (m *TaskCheckpointModel) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_TaskCheckpointModel.Merge(m, src)
 }
-
 func (m *TaskCheckpointModel) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *TaskCheckpointModel) XXX_DiscardUnknown() {
 	xxx_messageInfo_TaskCheckpointModel.DiscardUnknown(m)
 }
@@ -138,11 +125,9 @@ func (*TableCheckpointModel) ProtoMessage()    {}
 func (*TableCheckpointModel) Descriptor() ([]byte, []int) {
 	return fileDescriptor_c57c7b77a714394c, []int{2}
 }
-
 func (m *TableCheckpointModel) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *TableCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_TableCheckpointModel.Marshal(b, m, deterministic)
@@ -155,15 +140,12 @@ func (m *TableCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte
 		return b[:n], nil
 	}
 }
-
 func (m *TableCheckpointModel) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_TableCheckpointModel.Merge(m, src)
 }
-
 func (m *TableCheckpointModel) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *TableCheckpointModel) XXX_DiscardUnknown() {
 	xxx_messageInfo_TableCheckpointModel.DiscardUnknown(m)
 }
@@ -182,11 +164,9 @@ func (*EngineCheckpointModel) ProtoMessage()    {}
 func (*EngineCheckpointModel) Descriptor() ([]byte, []int) {
 	return fileDescriptor_c57c7b77a714394c, []int{3}
 }
-
 func (m *EngineCheckpointModel) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *EngineCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_EngineCheckpointModel.Marshal(b, m, deterministic)
@@ -199,15 +179,12 @@ func (m *EngineCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byt
 		return b[:n], nil
 	}
 }
-
 func (m *EngineCheckpointModel) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_EngineCheckpointModel.Merge(m, src)
 }
-
 func (m *EngineCheckpointModel) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *EngineCheckpointModel) XXX_DiscardUnknown() {
 	xxx_messageInfo_EngineCheckpointModel.DiscardUnknown(m)
 }
@@ -238,11 +215,9 @@ func (*ChunkCheckpointModel) ProtoMessage()    {}
 func (*ChunkCheckpointModel) Descriptor() ([]byte, []int) {
 	return fileDescriptor_c57c7b77a714394c, []int{4}
 }
-
 func (m *ChunkCheckpointModel) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
-
 func (m *ChunkCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ChunkCheckpointModel.Marshal(b, m, deterministic)
@@ -255,15 +230,12 @@ func (m *ChunkCheckpointModel) XXX_Marshal(b []byte, deterministic bool) ([]byte
 		return b[:n], nil
 	}
 }
-
 func (m *ChunkCheckpointModel) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ChunkCheckpointModel.Merge(m, src)
 }
-
 func (m *ChunkCheckpointModel) XXX_Size() int {
 	return m.Size()
 }
-
 func (m *ChunkCheckpointModel) XXX_DiscardUnknown() {
 	xxx_messageInfo_ChunkCheckpointModel.DiscardUnknown(m)
 }
@@ -759,7 +731,6 @@ func encodeVarintFileCheckpoints(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
-
 func (m *CheckpointsModel) Size() (n int) {
 	if m == nil {
 		return 0
@@ -961,11 +932,9 @@ func (m *ChunkCheckpointModel) Size() (n int) {
 func sovFileCheckpoints(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
-
 func sozFileCheckpoints(x uint64) (n int) {
 	return sovFileCheckpoints(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
-
 func (m *CheckpointsModel) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1184,7 +1153,6 @@ func (m *CheckpointsModel) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *TaskCheckpointModel) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1500,7 +1468,6 @@ func (m *TaskCheckpointModel) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *TableCheckpointModel) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1811,7 +1778,6 @@ func (m *TableCheckpointModel) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *EngineCheckpointModel) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2013,7 +1979,6 @@ func (m *EngineCheckpointModel) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func (m *ChunkCheckpointModel) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2417,7 +2382,6 @@ func (m *ChunkCheckpointModel) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
-
 func skipFileCheckpoints(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
