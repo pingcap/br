@@ -102,7 +102,7 @@ func (b *BytesBuffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
-// AllocBytes allocate bytes with the give length.
+// AllocBytes allocate bytes with the given length.
 func (b *BytesBuffer) AllocBytes(n int) []byte {
 	if n > bigValueSize {
 		return make([]byte, n)
