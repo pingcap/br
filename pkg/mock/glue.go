@@ -7,6 +7,8 @@ package mock
 import (
 	context "context"
 	sql "database/sql"
+	reflect "reflect"
+
 	gomock "github.com/golang/mock/gomock"
 	checkpoints "github.com/pingcap/br/pkg/lightning/checkpoints"
 	config "github.com/pingcap/br/pkg/lightning/config"
@@ -14,7 +16,6 @@ import (
 	log "github.com/pingcap/br/pkg/lightning/log"
 	parser "github.com/pingcap/parser"
 	model "github.com/pingcap/parser/model"
-	reflect "reflect"
 )
 
 // MockGlue is a mock of Glue interface

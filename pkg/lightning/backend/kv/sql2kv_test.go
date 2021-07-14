@@ -144,6 +144,88 @@ func (s *kvSuite) TestEncode(c *C) {
 	}})
 }
 
+func (s *kvSuite) TestDecode(c *C) {
+	c1 := &model.ColumnInfo{ID: 1, Name: model.NewCIStr("c1"), State: model.StatePublic, Offset: 0, FieldType: *types.NewFieldType(mysql.TypeTiny)}
+	cols := []*model.ColumnInfo{c1}
+	tblInfo := &model.TableInfo{ID: 1, Columns: cols, PKIsHandle: false, State: model.StatePublic}
+	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
+	c.Assert(err, IsNil)
+	decoder, err := NewTableKVDecoder(tbl, &SessionOptions{
+		SQLMode:   mysql.ModeStrictAllTables,
+		Timestamp: 1234567890,
+	})
+	c.Assert(decoder, NotNil)
+	p := common.KvPair{
+		Key: []byte{0x74, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0x5f, 0x72, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1},
+		Val: []byte{0x8, 0x2, 0x8, 0x2},
+	}
+	h, err := decoder.DecodeHandleFromTable(p.Key)
+	c.Assert(err, IsNil)
+	c.Assert(p.Val, NotNil)
+	rows, _, err := decoder.DecodeRawRowData(h, p.Val)
+	c.Assert(rows, DeepEquals, []types.Datum{
+		types.NewIntDatum(1),
+	})
+}
+
+func (s *kvSuite) TestDecodeIndex(c *C) {
+	logger := log.Logger{Logger: zap.NewNop()}
+	tblInfo := &model.TableInfo{
+		ID: 1,
+		Indices: []*model.IndexInfo{
+			{
+				ID:   2,
+				Name: model.NewCIStr("test"),
+				Columns: []*model.IndexColumn{
+					{Offset: 0},
+					{Offset: 1},
+				},
+				Primary: true,
+				State:   model.StatePublic,
+			},
+		},
+		Columns: []*model.ColumnInfo{
+			{ID: 1, Name: model.NewCIStr("c1"), State: model.StatePublic, Offset: 0, FieldType: *types.NewFieldType(mysql.TypeInt24)},
+			{ID: 2, Name: model.NewCIStr("c2"), State: model.StatePublic, Offset: 1, FieldType: *types.NewFieldType(mysql.TypeString)},
+		},
+		State:      model.StatePublic,
+		PKIsHandle: false,
+	}
+	tbl, err := tables.TableFromMeta(NewPanickingAllocators(0), tblInfo)
+	if err != nil {
+		fmt.Printf("error: %v", err.Error())
+	}
+	c.Assert(err, IsNil)
+	rows := []types.Datum{
+		types.NewIntDatum(2),
+		types.NewStringDatum("abc"),
+	}
+
+	// Strict mode
+	strictMode, err := NewTableKVEncoder(tbl, &SessionOptions{
+		SQLMode:   mysql.ModeStrictAllTables,
+		Timestamp: 1234567890,
+	})
+	c.Assert(err, IsNil)
+	pairs, err := strictMode.Encode(logger, rows, 1, []int{0, 1, -1})
+	data := pairs.(kvPairs)
+	c.Assert(len(data), DeepEquals, 2)
+
+	decoder, err := NewTableKVDecoder(tbl, &SessionOptions{
+		SQLMode:   mysql.ModeStrictAllTables,
+		Timestamp: 1234567890,
+	})
+	c.Assert(err, IsNil)
+	h1, err := decoder.DecodeHandleFromTable(data[0].Key)
+	c.Assert(err, IsNil)
+	h2, err := decoder.DecodeHandleFromIndex(tbl.Indices()[0].Meta(), data[1].Key, data[1].Val)
+	c.Assert(err, IsNil)
+	c.Assert(h1.Equal(h2), IsTrue)
+	rawData, _, err := decoder.DecodeRawRowData(h1, data[0].Val)
+	c.Assert(err, IsNil)
+	c.Assert(rawData, DeepEquals, rows)
+}
+
 func (s *kvSuite) TestEncodeRowFormatV2(c *C) {
 	// Test encoding in row format v2, as described in <https://github.com/pingcap/tidb/blob/master/docs/design/2018-07-19-row-format.md>.
 

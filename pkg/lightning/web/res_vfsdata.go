@@ -103,7 +103,7 @@ func (f *vfsgen۰CompressedFileInfo) GzipBytes() []byte {
 
 func (f *vfsgen۰CompressedFileInfo) Name() string       { return f.name }
 func (f *vfsgen۰CompressedFileInfo) Size() int64        { return f.uncompressedSize }
-func (f *vfsgen۰CompressedFileInfo) Mode() os.FileMode  { return 0444 }
+func (f *vfsgen۰CompressedFileInfo) Mode() os.FileMode  { return 0o444 }
 func (f *vfsgen۰CompressedFileInfo) ModTime() time.Time { return f.modTime }
 func (f *vfsgen۰CompressedFileInfo) IsDir() bool        { return false }
 func (f *vfsgen۰CompressedFileInfo) Sys() interface{}   { return nil }
@@ -138,6 +138,7 @@ func (f *vfsgen۰CompressedFile) Read(p []byte) (n int, err error) {
 	f.seekPos = f.grPos
 	return n, err
 }
+
 func (f *vfsgen۰CompressedFile) Seek(offset int64, whence int) (int64, error) {
 	switch whence {
 	case io.SeekStart:
@@ -151,6 +152,7 @@ func (f *vfsgen۰CompressedFile) Seek(offset int64, whence int) (int64, error) {
 	}
 	return f.seekPos, nil
 }
+
 func (f *vfsgen۰CompressedFile) Close() error {
 	return f.gr.Close()
 }
@@ -170,7 +172,7 @@ func (d *vfsgen۰DirInfo) Stat() (os.FileInfo, error) { return d, nil }
 
 func (d *vfsgen۰DirInfo) Name() string       { return d.name }
 func (d *vfsgen۰DirInfo) Size() int64        { return 0 }
-func (d *vfsgen۰DirInfo) Mode() os.FileMode  { return 0755 | os.ModeDir }
+func (d *vfsgen۰DirInfo) Mode() os.FileMode  { return 0o755 | os.ModeDir }
 func (d *vfsgen۰DirInfo) ModTime() time.Time { return d.modTime }
 func (d *vfsgen۰DirInfo) IsDir() bool        { return true }
 func (d *vfsgen۰DirInfo) Sys() interface{}   { return nil }

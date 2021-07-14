@@ -792,25 +792,11 @@ func (e *File) loadEngineMeta() error {
 	return nil
 }
 
-type gRPCConns struct {
-	mu    sync.Mutex
-	conns map[uint64]*connPool
-}
-
-func (conns *gRPCConns) Close() {
-	conns.mu.Lock()
-	defer conns.mu.Unlock()
-
-	for _, cp := range conns.conns {
-		cp.Close()
-	}
-}
-
 type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
-	conns    gRPCConns
 	pdCli    pd.Client
+	conns    common.GRPCConns
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -976,7 +962,7 @@ func NewLocalBackend(
 		duplicateDetection:      cfg.DuplicateDetection,
 		duplicateDB:             duplicateDB,
 	}
-	local.conns.conns = make(map[uint64]*connPool)
+	local.conns = common.NewGRPCConnc()
 	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
 		return backend.MakeBackend(nil), err
 	}
@@ -1100,13 +1086,11 @@ func (local *local) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientC
 	return conn, nil
 }
 
-func (local *local) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	if _, ok := local.conns.conns[storeID]; !ok {
-		local.conns.conns[storeID] = newConnPool(local.tcpConcurrency, func(ctx context.Context) (*grpc.ClientConn, error) {
+func (local *local) getGrpcConn(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
+	return local.conns.GetGrpcConn(ctx, storeID, local.tcpConcurrency,
+		func(ctx context.Context) (*grpc.ClientConn, error) {
 			return local.makeConn(ctx, storeID)
 		})
-	}
-	return local.conns.conns[storeID].get(ctx)
 }
 
 // Close the local backend.
@@ -1354,10 +1338,7 @@ func (local *local) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, 
 }
 
 func (local *local) getImportClient(ctx context.Context, storeID uint64) (sst.ImportSSTClient, error) {
-	local.conns.mu.Lock()
-	defer local.conns.mu.Unlock()
-
-	conn, err := local.getGrpcConnLocked(ctx, storeID)
+	conn, err := local.getGrpcConn(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
