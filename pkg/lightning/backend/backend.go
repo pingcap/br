@@ -19,6 +19,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pingcap/parser/mysql"
+
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -197,6 +199,9 @@ type AbstractBackend interface {
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
 	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
+
+	// CollectDuplicateKeys collect duplicate keys from remote TiKV storage.
+	CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
 }
 
 // Backend is the delivery target for Lightning

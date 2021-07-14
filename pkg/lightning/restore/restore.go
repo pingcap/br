@@ -253,9 +253,9 @@ type Controller struct {
 	store             storage.ExternalStorage
 	metaMgrBuilder    metaMgrBuilder
 
-	diskQuotaLock    *diskQuotaLock
-	diskQuotaState   atomic.Int32
-	compactState     atomic.Int32
+	diskQuotaLock  *diskQuotaLock
+	diskQuotaState atomic.Int32
+	compactState   atomic.Int32
 }
 
 func NewRestoreController(
@@ -375,9 +375,9 @@ func NewRestoreControllerWithPauser(
 		saveCpCh:          make(chan saveCp),
 		closedEngineLimit: worker.NewPool(ctx, cfg.App.TableConcurrency*2, "closed-engine"),
 
-		store:            s,
-		metaMgrBuilder:   metaBuilder,
-		diskQuotaLock:    newDiskQuotaLock(),
+		store:          s,
+		metaMgrBuilder: metaBuilder,
+		diskQuotaLock:  newDiskQuotaLock(),
 	}
 
 	return rc, nil

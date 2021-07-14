@@ -16,11 +16,12 @@ package local
 import (
 	"bytes"
 	"context"
-	split "github.com/pingcap/br/pkg/restore"
 	"io"
 	"sort"
 	"sync"
 	"time"
+
+	split "github.com/pingcap/br/pkg/restore"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -51,7 +52,7 @@ import (
 )
 
 const (
-	maxWriteBatchCount      = 128
+	maxWriteBatchCount        = 128
 	defaultEngineMemCacheSize = 512 * units.MiB
 	maxScanRegionSize         = 256
 )
@@ -66,7 +67,7 @@ type DuplicateRequest struct {
 
 type DuplicateManager struct {
 	db                *pebble.DB
-	splitCli 		split.SplitClient
+	splitCli          split.SplitClient
 	regionConcurrency int
 	connPool          common.GRPCConns
 	tls               *common.TLS
@@ -86,7 +87,7 @@ func NewDuplicateManager(
 		tls:               tls,
 		regionConcurrency: regionConcurrency,
 		sqlMode:           sqlMode,
-		splitCli: splitCli,
+		splitCli:          splitCli,
 		ts:                ts,
 	}, nil
 }
@@ -530,4 +531,3 @@ func buildIndexRequest(tableID int64, indexInfo *model.IndexInfo) ([]*DuplicateR
 	}
 	return reqs, nil
 }
-

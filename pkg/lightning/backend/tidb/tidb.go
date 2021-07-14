@@ -359,6 +359,10 @@ func (be *tidbBackend) CleanupEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
+func (importer *tidbBackend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	panic("Unsupported Operation")
+}
+
 func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 	return nil
 }

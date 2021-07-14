@@ -17,6 +17,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/pingcap/parser/mysql"
+
 	"github.com/google/uuid"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/table"
@@ -140,6 +142,10 @@ func (b noopBackend) ResetEngine(ctx context.Context, engineUUID uuid.UUID) erro
 // LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
 func (b noopBackend) LocalWriter(context.Context, *backend.LocalWriterConfig, uuid.UUID) (backend.EngineWriter, error) {
 	return noopWriter{}, nil
+}
+
+func (b noopBackend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	panic("Unsupported Operation")
 }
 
 type noopEncoder struct{}

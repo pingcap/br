@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/parser/mysql"
+
 	"github.com/coreos/go-semver/semver"
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
@@ -223,6 +225,10 @@ func (importer *importer) CleanupEngine(ctx context.Context, engineUUID uuid.UUI
 		importer.tsMap.Delete(engineUUID)
 	}
 	return errors.Trace(err)
+}
+
+func (importer *importer) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	panic("Unsupported Operation")
 }
 
 func (importer *importer) WriteRows(
