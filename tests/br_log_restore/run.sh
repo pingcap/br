@@ -46,7 +46,7 @@ bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 
 # Start cdc servers
 run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --log-level=debug --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
-trap 'cat ticdc.log' ERR
+trap 'cat ticdc.log && echo ----------' ERR
 
 # TiDB global variables cache 2 seconds
 sleep 2
