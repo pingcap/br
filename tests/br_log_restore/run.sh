@@ -45,8 +45,8 @@ bin/mc config --config-dir "$TEST_DIR/$TEST_NAME" \
 bin/mc mb --config-dir "$TEST_DIR/$TEST_NAME" minio/$BUCKET
 
 # Start cdc servers
-run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --data-dir "$TEST_DIR/cdc_data" --log-level=debug --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 > ticdc-stdout.log 2>&1 &
-trap 'cat ticdc.log && echo ---------- && cat ticdc-stdout.log' ERR
+run_cdc server --pd=https://$PD_ADDR --log-file=ticdc.log --data-dir "$TEST_DIR/cdc_data" --log-level=debug --addr=0.0.0.0:18301 --advertise-addr=127.0.0.1:18301 &
+trap 'cat ticdc.log' ERR
 
 # TiDB global variables cache 2 seconds
 sleep 2
@@ -93,9 +93,6 @@ run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 sleep 5
 
 wait_time=0
-run_cdc cli capture list --pd=https://$PD_ADDR
-run_cdc cli changefeed list --pd=https://$PD_ADDR
-run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR
 checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
 while [ "$checkpoint_ts" -lt "$end_ts" ]; do
     echo "waiting for cdclog syncing... (checkpoint_ts = $checkpoint_ts; end_ts = $end_ts)"
