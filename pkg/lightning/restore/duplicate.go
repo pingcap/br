@@ -407,7 +407,7 @@ func (manager *DuplicateManager) getValuesFromRegion(
 		return err
 	}
 	if resp.GetRegionError() != nil {
-		return errors.Errorf("region error because of {}", resp.GetRegionError().GetMessage())
+		return errors.Errorf("region error because of %v", resp.GetRegionError().GetMessage())
 	}
 	if resp.Error != nil {
 		return errors.Errorf("key error")

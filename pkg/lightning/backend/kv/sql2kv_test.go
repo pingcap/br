@@ -207,21 +207,21 @@ func (s *kvSuite) TestDecodeIndex(c *C) {
 		Timestamp: 1234567890,
 	})
 	c.Assert(err, IsNil)
-	pairs, err := strictMode.Encode(logger, rows, 1, []int{0, 1, -1})
-	data := pairs.(kvPairs)
-	c.Assert(len(data), DeepEquals, 2)
+	pairs, err := strictMode.Encode(logger, rows, 1, []int{0, 1, -1}, 123)
+	data := pairs.(*KvPairs)
+	c.Assert(len(data.pairs), DeepEquals, 2)
 
 	decoder, err := NewTableKVDecoder(tbl, &SessionOptions{
 		SQLMode:   mysql.ModeStrictAllTables,
 		Timestamp: 1234567890,
 	})
 	c.Assert(err, IsNil)
-	h1, err := decoder.DecodeHandleFromTable(data[0].Key)
+	h1, err := decoder.DecodeHandleFromTable(data.pairs[0].Key)
 	c.Assert(err, IsNil)
-	h2, err := decoder.DecodeHandleFromIndex(tbl.Indices()[0].Meta(), data[1].Key, data[1].Val)
+	h2, err := decoder.DecodeHandleFromIndex(tbl.Indices()[0].Meta(), data.pairs[1].Key, data.pairs[1].Val)
 	c.Assert(err, IsNil)
 	c.Assert(h1.Equal(h2), IsTrue)
-	rawData, _, err := decoder.DecodeRawRowData(h1, data[0].Val)
+	rawData, _, err := decoder.DecodeRawRowData(h1, data.pairs[0].Val)
 	c.Assert(err, IsNil)
 	c.Assert(rawData, DeepEquals, rows)
 }
