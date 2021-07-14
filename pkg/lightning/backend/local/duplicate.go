@@ -11,13 +11,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package restore
+package local
 
 import (
 	"bytes"
 	"context"
+	split "github.com/pingcap/br/pkg/restore"
 	"io"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -32,7 +32,6 @@ import (
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
-	"github.com/tikv/client-go/v2/oracle"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -49,18 +48,10 @@ import (
 	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
 	kvrpc "github.com/pingcap/kvproto/pkg/kvrpcpb"
 	tikv "github.com/pingcap/kvproto/pkg/tikvpb"
-	pd "github.com/tikv/pd/client"
 )
 
 const (
-	dialTimeout             = 5 * time.Second
-	maxRetryTimes           = 5
 	maxWriteBatchCount      = 128
-	defaultRetryBackoffTime = 10 * time.Second
-
-	gRPCKeepAliveTime         = 10 * time.Second
-	gRPCKeepAliveTimeout      = 3 * time.Second
-	gRPCBackOffMaxDelay       = 3 * time.Second
 	defaultEngineMemCacheSize = 512 * units.MiB
 	maxScanRegionSize         = 256
 )
@@ -75,7 +66,7 @@ type DuplicateRequest struct {
 
 type DuplicateManager struct {
 	db                *pebble.DB
-	pdClient          pd.Client
+	splitCli 		split.SplitClient
 	regionConcurrency int
 	connPool          common.GRPCConns
 	tls               *common.TLS
@@ -84,52 +75,19 @@ type DuplicateManager struct {
 }
 
 func NewDuplicateManager(
-	ctx context.Context,
-	detectPath string,
-	pdAddr string,
+	db *pebble.DB,
+	splitCli split.SplitClient,
+	ts uint64,
 	tls *common.TLS,
 	regionConcurrency int,
 	sqlMode mysql.SQLMode) (*DuplicateManager, error) {
-	pdClient, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
-	if err != nil {
-		return nil, err
-	}
-
-	opt := &pebble.Options{
-		MemTableSize: defaultEngineMemCacheSize,
-		// the default threshold value may cause write stall.
-		MemTableStopWritesThreshold: 1024,
-		MaxConcurrentCompactions:    6,
-		// set threshold to half of the max open files to avoid trigger compaction
-		L0CompactionThreshold: math.MaxInt32,
-		L0StopWritesThreshold: math.MaxInt32,
-		LBaseMaxBytes:         4 * units.GiB,
-		MaxOpenFiles:          10240,
-		DisableWAL:            true,
-		ReadOnly:              false,
-	}
-	// set level target file size to avoid pebble auto triggering compaction that split ingest SST files into small SST.
-	opt.Levels = []pebble.LevelOptions{
-		{
-			TargetFileSize: 16 * units.GiB,
-		},
-	}
-
-	physicalTS, logicalTS, err := pdClient.GetTS(ctx)
-	if err != nil {
-		return nil, err
-	}
-	db, err := pebble.Open(detectPath, opt)
-	if err != nil {
-		return nil, err
-	}
 	return &DuplicateManager{
 		db:                db,
 		tls:               tls,
 		regionConcurrency: regionConcurrency,
 		sqlMode:           sqlMode,
-		pdClient:          pdClient,
-		ts:                oracle.ComposeTS(physicalTS, logicalTS),
+		splitCli: splitCli,
+		ts:                ts,
 	}, nil
 }
 
@@ -169,7 +127,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 	startKey := codec.EncodeBytes([]byte{}, req.start)
 	endKey := codec.EncodeBytes([]byte{}, req.end)
 
-	regions, err := paginateScanRegion(ctx, manager.pdClient, startKey, endKey)
+	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, 1024)
 	if err != nil {
 		return err
 	}
@@ -182,27 +140,27 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 		if tryTimes > maxRetryTimes {
 			return errors.Errorf("retry time exceed limit")
 		}
-		unfinishedRegions := make([]*pd.Region, len(regions))
+		unfinishedRegions := make([]*split.RegionInfo, len(regions))
 		waitingClients := make([]sst.ImportSST_DuplicateDetectClient, len(regions))
-		watingRegions := make([]*pd.Region, len(regions))
+		watingRegions := make([]*split.RegionInfo, len(regions))
 		for idx, region := range regions {
 			if len(waitingClients) > manager.regionConcurrency {
 				r := regions[idx:]
 				unfinishedRegions = append(unfinishedRegions, r...)
 				break
 			}
-			_, start, _ := codec.DecodeBytes(region.Meta.StartKey, []byte{})
-			_, end, _ := codec.DecodeBytes(region.Meta.EndKey, []byte{})
-			if bytes.Compare(startKey, region.Meta.StartKey) > 0 {
+			_, start, _ := codec.DecodeBytes(region.Region.StartKey, []byte{})
+			_, end, _ := codec.DecodeBytes(region.Region.EndKey, []byte{})
+			if bytes.Compare(startKey, region.Region.StartKey) > 0 {
 				start = req.start
 			}
-			if region.Meta.EndKey == nil || len(region.Meta.EndKey) == 0 || bytes.Compare(endKey, region.Meta.EndKey) < 0 {
+			if region.Region.EndKey == nil || len(region.Region.EndKey) == 0 || bytes.Compare(endKey, region.Region.EndKey) < 0 {
 				end = req.end
 			}
 
 			cli, err := manager.getDuplicateStream(ctx, region, start, end)
 			if err != nil {
-				r, err := manager.pdClient.GetRegionByID(ctx, region.Meta.GetId())
+				r, err := manager.splitCli.GetRegionByID(ctx, region.Region.GetId())
 				if err != nil {
 					unfinishedRegions = append(unfinishedRegions, region)
 				} else {
@@ -237,7 +195,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 				}
 
 				if hasErr || resp.GetKeyError() != nil {
-					r, err := manager.pdClient.GetRegionByID(ctx, region.Meta.GetId())
+					r, err := manager.splitCli.GetRegionByID(ctx, region.Region.GetId())
 					if err != nil {
 						unfinishedRegions = append(unfinishedRegions, region)
 					} else {
@@ -246,22 +204,22 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 				}
 				if hasErr {
 					log.L().Warn("meet error when recving duplicate detect response from TiKV, retry again",
-						logutil.Region(region.Meta), logutil.Leader(region.Leader), zap.Error(reqErr))
+						logutil.Region(region.Region), logutil.Leader(region.Leader), zap.Error(reqErr))
 					break
 				}
 				if resp.GetKeyError() != nil {
 					log.L().Warn("meet key error in duplicate detect response from TiKV, retry again ",
-						logutil.Region(region.Meta), logutil.Leader(region.Leader),
+						logutil.Region(region.Region), logutil.Leader(region.Leader),
 						zap.String("KeyError", resp.GetKeyError().GetMessage()))
 					break
 				}
 
 				if resp.GetRegionError() != nil {
 					log.L().Warn("meet key error in duplicate detect response from TiKV, retry again ",
-						logutil.Region(region.Meta), logutil.Leader(region.Leader),
+						logutil.Region(region.Region), logutil.Leader(region.Leader),
 						zap.String("RegionError", resp.GetRegionError().GetMessage()))
 
-					r, err := paginateScanRegion(ctx, manager.pdClient, watingRegions[idx].Meta.GetStartKey(), watingRegions[idx].Meta.GetEndKey())
+					r, err := paginateScanRegion(ctx, manager.splitCli, watingRegions[idx].Region.GetStartKey(), watingRegions[idx].Region.GetEndKey(), 1024)
 					if err != nil {
 						unfinishedRegions = append(unfinishedRegions, watingRegions[idx])
 					} else {
@@ -292,7 +250,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context, decoder 
 
 func (manager *DuplicateManager) storeDuplicateData(
 	ctx context.Context,
-	region *pd.Region,
+	region *split.RegionInfo,
 	resp *sst.DuplicateDetectResponse, decoder *backendkv.TableKVDecoder, req *DuplicateRequest,
 ) ([][]byte, error) {
 	opts := &pebble.WriteOptions{Sync: false}
@@ -352,7 +310,7 @@ func (manager *DuplicateManager) GetValues(
 	l := len(handles)
 	startKey := codec.EncodeBytes([]byte{}, handles[0])
 	endKey := codec.EncodeBytes([]byte{}, handles[l-1])
-	regions, err := paginateScanRegion(ctx, manager.pdClient, startKey, endKey)
+	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, 128)
 	if err != nil {
 		return handles
 	}
@@ -361,13 +319,13 @@ func (manager *DuplicateManager) GetValues(
 	batch := make([][]byte, len(handles))
 	for _, region := range regions {
 		handleKey := codec.EncodeBytes([]byte{}, handles[startIdx])
-		if bytes.Compare(handleKey, region.Meta.EndKey) >= 0 {
+		if bytes.Compare(handleKey, region.Region.EndKey) >= 0 {
 			continue
 		}
 		endIdx = startIdx
 		for endIdx < l {
 			handleKey := codec.EncodeBytes([]byte{}, handles[endIdx])
-			if bytes.Compare(handleKey, region.Meta.EndKey) < 0 {
+			if bytes.Compare(handleKey, region.Region.EndKey) < 0 {
 				batch = append(batch, handles[endIdx])
 			} else {
 				break
@@ -384,7 +342,7 @@ func (manager *DuplicateManager) GetValues(
 
 func (manager *DuplicateManager) getValuesFromRegion(
 	ctx context.Context,
-	region *pd.Region,
+	region *split.RegionInfo,
 	handles [][]byte,
 ) error {
 	kvclient, err := manager.getKvClient(ctx, region.Leader)
@@ -392,8 +350,8 @@ func (manager *DuplicateManager) getValuesFromRegion(
 		return err
 	}
 	reqCtx := &kvrpcpb.Context{
-		RegionId:    region.Meta.GetId(),
-		RegionEpoch: region.Meta.GetRegionEpoch(),
+		RegionId:    region.Region.GetId(),
+		RegionEpoch: region.Region.GetRegionEpoch(),
 		Peer:        region.Leader,
 	}
 
@@ -437,11 +395,11 @@ func (manager *DuplicateManager) getValuesFromRegion(
 }
 
 func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
-	region *pd.Region,
+	region *split.RegionInfo,
 	start []byte, end []byte) (sst.ImportSST_DuplicateDetectClient, error) {
 	leader := region.Leader
 	if leader == nil {
-		leader = region.Meta.GetPeers()[0]
+		leader = region.Region.GetPeers()[0]
 	}
 
 	cli, err := manager.getImportClient(ctx, leader)
@@ -450,8 +408,8 @@ func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
 	}
 
 	reqCtx := &kvrpcpb.Context{
-		RegionId:    region.Meta.GetId(),
-		RegionEpoch: region.Meta.GetRegionEpoch(),
+		RegionId:    region.Region.GetId(),
+		RegionEpoch: region.Region.GetRegionEpoch(),
 		Peer:        leader,
 	}
 	req := &sst.DuplicateDetectRequest{
@@ -485,7 +443,7 @@ func (manager *DuplicateManager) getImportClient(ctx context.Context, peer *meta
 }
 
 func (manager *DuplicateManager) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	store, err := manager.pdClient.GetStore(ctx, storeID)
+	store, err := manager.splitCli.GetStore(ctx, storeID)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -573,42 +531,3 @@ func buildIndexRequest(tableID int64, indexInfo *model.IndexInfo) ([]*DuplicateR
 	return reqs, nil
 }
 
-func paginateScanRegion(
-	ctx context.Context, client pd.Client, start, end []byte,
-) ([]*pd.Region, error) {
-	if len(end) != 0 && bytes.Compare(start, end) >= 0 {
-		return nil, errors.Errorf("startKey > endKey when paginating scan region")
-	}
-
-	var globalErr error
-	for i := 0; i < maxRetryTimes; i++ {
-		startKey := start
-		endKey := end
-		var regions []*pd.Region
-		for {
-			batch, err := client.ScanRegions(ctx, startKey, endKey, maxScanRegionSize)
-			if err != nil {
-				globalErr = err
-				break
-			}
-			regions = append(regions, batch...)
-			if len(batch) < maxScanRegionSize {
-				// No more region
-				break
-			}
-			startKey = batch[len(batch)-1].Meta.GetEndKey()
-			if len(startKey) == 0 ||
-				(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
-				// All key space have scanned
-				break
-			}
-		}
-		if globalErr == nil {
-			sort.Slice(regions, func(i, j int) bool {
-				return bytes.Compare(regions[i].Meta.StartKey, regions[j].Meta.StartKey) < 0
-			})
-			return regions, nil
-		}
-	}
-	return nil, globalErr
-}

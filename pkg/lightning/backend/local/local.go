@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/pingcap/parser/mysql"
 	"io"
 	"math"
 	"os"
@@ -2096,6 +2097,19 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength),
 		zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
 	return nil
+}
+
+func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	return duplicateManager.DuplicateTable(ctx, tbl)
 }
 
 func (e *File) unfinishedRanges(ranges []Range) []Range {

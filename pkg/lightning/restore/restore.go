@@ -20,7 +20,6 @@ import (
 	"io"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -111,10 +110,6 @@ const (
 
 	compactionLowerThreshold = 512 * units.MiB
 	compactionUpperThreshold = 32 * units.GiB
-)
-
-const (
-	defaultDeplicatePath = "duplicate"
 )
 
 // DeliverPauser is a shared pauser to pause progress to (*chunkRestore).encodeLoop
@@ -261,7 +256,6 @@ type Controller struct {
 	diskQuotaLock    *diskQuotaLock
 	diskQuotaState   atomic.Int32
 	compactState     atomic.Int32
-	duplicateManager *DuplicateManager
 }
 
 func NewRestoreController(
@@ -361,13 +355,6 @@ func NewRestoreControllerWithPauser(
 		metaBuilder = noopMetaMgrBuilder{}
 	}
 
-	detectPath := filepath.Join(cfg.TikvImporter.SortedKVDir, defaultDeplicatePath)
-
-	duplicateManager, err := NewDuplicateManager(ctx, detectPath, cfg.TiDB.PdAddr, tls, cfg.TiDB.DistSQLScanConcurrency, cfg.TiDB.SQLMode)
-	if err != nil {
-		return nil, errors.Annotate(err, "open duplicatemanager failed")
-	}
-
 	rc := &Controller{
 		cfg:           cfg,
 		dbMetas:       dbMetas,
@@ -391,7 +378,6 @@ func NewRestoreControllerWithPauser(
 		store:            s,
 		metaMgrBuilder:   metaBuilder,
 		diskQuotaLock:    newDiskQuotaLock(),
-		duplicateManager: duplicateManager,
 	}
 
 	return rc, nil
