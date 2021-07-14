@@ -13,8 +13,6 @@
 
 package utils
 
-import "github.com/pingcap/br/pkg/manual"
-
 const (
 	bigValueSize = 1 << 16 // 64K
 )
@@ -39,7 +37,7 @@ func (c *bytesRecycleChan) Acquire() []byte {
 	case b := <-c.ch:
 		return b
 	default:
-		return manual.New(1 << 20) // 1M
+		return make([]byte, 1<<20) // 1M
 	}
 }
 
@@ -47,9 +45,7 @@ func (c *bytesRecycleChan) Acquire() []byte {
 func (c *bytesRecycleChan) Release(w []byte) {
 	select {
 	case c.ch <- w:
-		return
 	default:
-		manual.Free(w)
 	}
 }
 
