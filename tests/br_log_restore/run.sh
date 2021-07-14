@@ -90,6 +90,8 @@ end_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}'
 # if we restore with ts range [start_ts, end_ts], then the below record won't be restored.
 run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 
+sleep 5
+
 wait_time=0
 run_cdc cli capture list --pd=https://$PD_ADDR
 run_cdc cli changefeed list --pd=https://$PD_ADDR
