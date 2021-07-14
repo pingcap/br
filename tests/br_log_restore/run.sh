@@ -91,7 +91,7 @@ end_ts=$(run_sql "show master status;" | grep Position | awk -F ':' '{print $2}'
 run_sql "insert into ${DB}_DDL2.t2 values (5, 'x');"
 
 wait_time=0
-run_cdc cli changefeed list
+run_cdc cli changefeed list --pd=https://$PD_ADDR
 run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR
 checkpoint_ts=$(run_cdc cli changefeed query -c simple-replication-task --pd=https://$PD_ADDR | jq '.status."checkpoint-ts"')
 while [ "$checkpoint_ts" -lt "$end_ts" ]; do
