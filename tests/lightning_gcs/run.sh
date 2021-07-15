@@ -14,7 +14,7 @@
 # limitations under the License.
 
 set -eux
-DB="gcs"
+DB="gcs_test"
 TABLE="tbl"
 
 check_cluster_version 4 0 0 'local backend' || exit 0
@@ -73,9 +73,9 @@ curl -XPOST http://$GCS_HOST:$GCS_PORT/storage/v1/b -d "{\"name\":\"${BUCKET}\"}
 
 DATA_PATH="$TEST_DIR/$DB"
 mkdir -p $DATA_PATH/$DB
-echo 'CREATE DATABASE s3_test;' > "$DATA_PATH/$DB-schema-create.sql"
-echo "CREATE TABLE tbl(i INT, s varchar(32));" > "$DATA_PATH/$DB.$TABLE-schema.sql"
-echo 'INSERT INTO tbl (i, s) VALUES (1, "1"),(2, "test2"), (3, "qqqtest");' > "$DATA_PATH/$DB.$TABLE.sql"
+echo "CREATE DATABASE $DB;" > "$DATA_PATH/$DB-schema-create.sql"
+echo "CREATE TABLE $TABLE(i INT, s varchar(32));" > "$DATA_PATH/$DB.$TABLE-schema.sql"
+echo "INSERT INTO $TABLE (i, s) VALUES (1, \"1\"),(2, \"test2\"), (3, \"qqqtest\");" > "$DATA_PATH/$DB.$TABLE.sql"
 cat > "$DATA_PATH/$DB.$TABLE.0.csv" << _EOF_
 i,s
 100,"test100"
