@@ -29,7 +29,7 @@ run_sql "INSERT INTO $DB.USERTABLE1 VALUES (\"aa\", \"b\");"
 
 # backup table with upper name
 echo "backup start..."
-run_br --pd $PD_ADDR backup table --db "$DB" --table "USERTABLE1" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup table --db "$DB" --table "USERTABLE1" -s "local://$TEST_DIR/$DB"
 
 run_sql "DROP DATABASE $DB;"
 
