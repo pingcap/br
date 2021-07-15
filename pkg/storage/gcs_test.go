@@ -40,6 +40,12 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	err = stg.WriteFile(ctx, "key", []byte("data"))
 	c.Assert(err, IsNil)
 
+	err = stg.WriteFile(ctx, "key1", []byte("data1"))
+	c.Assert(err, IsNil)
+
+	err = stg.WriteFile(ctx, "key2", []byte("data22223346757222222222222222222"))
+	c.Assert(err, IsNil)
+
 	rc, err := server.Client().Bucket(bucketName).Object("a/b/key").NewReader(ctx)
 	c.Assert(err, IsNil)
 	d, err := io.ReadAll(rc)
@@ -58,6 +64,55 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	exist, err = stg.FileExists(ctx, "key_not_exist")
 	c.Assert(err, IsNil)
 	c.Assert(exist, IsFalse)
+
+	list := ""
+	var totalSize int64 = 0
+	err = stg.WalkDir(ctx, nil, func(name string, size int64) error {
+		list += name
+		totalSize += size
+		return nil
+	})
+	c.Assert(err, IsNil)
+	c.Assert(list, Equals, "keykey1key2")
+	c.Assert(totalSize, Equals, int64(42))
+
+	efr, err := stg.Open(ctx, "key2")
+	c.Assert(err, IsNil)
+
+	p := make([]byte, 10)
+	n, err := efr.Read(p)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 10)
+	c.Assert(string(p), Equals, "data222233")
+
+	p = make([]byte, 40)
+	n, err = efr.Read(p)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 23)
+	c.Assert(string(p[:23]), Equals, "46757222222222222222222")
+
+	p = make([]byte, 5)
+	offs, err := efr.Seek(3, io.SeekStart)
+	c.Assert(err, IsNil)
+	c.Assert(offs, Equals, int64(3))
+
+	n, err = efr.Read(p)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 5)
+	c.Assert(string(p), Equals, "a2222")
+
+	p = make([]byte, 5)
+	offs, err = efr.Seek(3, io.SeekCurrent)
+	c.Assert(err, IsNil)
+	c.Assert(offs, Equals, int64(11))
+
+	n, err = efr.Read(p)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 5)
+	c.Assert(string(p), Equals, "67572")
+
+	err = efr.Close()
+	c.Assert(err, IsNil)
 
 	c.Assert(stg.URI(), Equals, "gcs://testbucket/a/b/")
 }
