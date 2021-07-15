@@ -31,7 +31,7 @@ done
 
 # full backup
 echo "full backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/full" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/full" --db $DB -t $TABLE
 # run ddls
 echo "run ddls..."
 run_sql "RENAME TABLE ${DB}.${TABLE} to ${DB}.${TABLE}1;"
@@ -48,7 +48,7 @@ done
 # incremental backup
 echo "incremental backup start..."
 last_backup_ts=$(run_br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | grep -oE "^[0-9]+")
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --lastbackupts $last_backup_ts
 
 run_sql "DROP DATABASE $DB;"
 # full restore

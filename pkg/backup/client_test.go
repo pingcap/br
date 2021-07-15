@@ -16,8 +16,8 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/tikv/client-go/v2/mockstore/mocktikv"
 	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/testutils"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 
@@ -42,13 +42,13 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	mvccStore := mocktikv.MustNewMVCCStore()
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
+	_, _, pdClient, err := testutils.NewMockTiKV("", nil)
+	c.Assert(err, IsNil)
+	r.mockPDClient = pdClient
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
 	mockMgr.SetPDClient(r.mockPDClient)
 	mockMgr.SetHTTP([]string{"test"}, nil)
-	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)
 }
