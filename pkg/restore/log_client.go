@@ -242,7 +242,7 @@ func (l *LogClient) doDBDDLJob(ctx context.Context, ddls []string) error {
 	}
 
 	for _, path := range ddls {
-		data, err := l.restoreClient.storage.Read(ctx, path)
+		data, err := l.restoreClient.storage.ReadFile(ctx, path)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -572,7 +572,7 @@ func (l *LogClient) doWriteAndIngest(ctx context.Context, kvs kv.Pairs, region *
 			if !needRetry {
 				log.Warn("ingest failed noretry", zap.Error(errIngest), logutil.SSTMeta(meta),
 					logutil.Region(region.Region), zap.Any("leader", region.Leader))
-				// met non-retryable error retry whole Write procedure
+				// met non-retryable error retry whole WriteFile procedure
 				return errIngest
 			}
 			// retry with not leader and epoch not match error
@@ -787,7 +787,7 @@ func (l *LogClient) restoreTableFromPuller(
 		if item == nil {
 			log.Info("[restoreFromPuller] nothing in this puller, we should stop and flush",
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -808,7 +808,7 @@ func (l *LogClient) restoreTableFromPuller(
 				zap.Uint64("end ts", l.endTS),
 				zap.Uint64("item ts", item.TS),
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -819,7 +819,7 @@ func (l *LogClient) restoreTableFromPuller(
 			log.Debug("[restoreFromPuller] filter item because later drop schema will affect on this item",
 				zap.Any("item", item),
 				zap.Int64("table id", tableID))
-			err := l.applyKVChanges(ctx, tableID)
+			err = l.applyKVChanges(ctx, tableID)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -931,7 +931,7 @@ func (l *LogClient) RestoreLogData(ctx context.Context, dom *domain.Domain) erro
 	// 3. Encode and ingest data to tikv
 
 	// parse meta file
-	data, err := l.restoreClient.storage.Read(ctx, metaFile)
+	data, err := l.restoreClient.storage.ReadFile(ctx, metaFile)
 	if err != nil {
 		return errors.Trace(err)
 	}

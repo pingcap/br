@@ -138,7 +138,7 @@ func (bc *Client) GetTS(ctx context.Context, duration time.Duration, ts uint64) 
 
 // SetLockFile set write lock file.
 func (bc *Client) SetLockFile(ctx context.Context) error {
-	return bc.storage.Write(ctx, utils.LockFile,
+	return bc.storage.WriteFile(ctx, utils.LockFile,
 		[]byte("DO NOT DELETE\n"+
 			"This file exists to remind other backup jobs won't use this path"))
 }
@@ -230,7 +230,7 @@ func (bc *Client) SaveBackupMeta(ctx context.Context, backupMeta *backuppb.Backu
 		}
 		time.Sleep(3 * time.Second)
 	})
-	return bc.storage.Write(ctx, utils.MetaFile, backupMetaData)
+	return bc.storage.WriteFile(ctx, utils.MetaFile, backupMetaData)
 }
 
 // GetClusterID returns the cluster ID of the tidb cluster to backup.

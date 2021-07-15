@@ -4,9 +4,7 @@ package storage
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -15,13 +13,12 @@ import (
 	. "github.com/pingcap/check"
 )
 
-func (r *testStorageSuite) TestUploaderWriter(c *C) {
+func (r *testStorageSuite) TestExternalFileWriter(c *C) {
 	dir := c.MkDir()
 
 	type testcase struct {
-		name      string
-		content   []string
-		chunkSize int
+		name    string
+		content []string
 	}
 	testFn := func(test *testcase, c *C) {
 		c.Log(test.name)
@@ -31,9 +28,8 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		storage, err := Create(ctx, backend, true)
 		c.Assert(err, IsNil)
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt"
-		uploader, err := storage.CreateUploader(ctx, fileName)
+		writer, err := storage.Create(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize, NoCompression)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -45,14 +41,11 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 		content, err := ioutil.ReadFile(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
 		c.Assert(string(content), Equals, strings.Join(test.content, ""))
-		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.buf.Cap(), Equals, test.chunkSize)
 	}
 	tests := []testcase{
 		{
-			name:      "short and sweet",
-			content:   []string{"hi"},
-			chunkSize: 5,
+			name:    "short and sweet",
+			content: []string{"hi"},
 		},
 		{
 			name: "long text small chunks",
@@ -64,7 +57,6 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 5,
 		},
 		{
 			name: "long text medium chunks",
@@ -76,7 +68,6 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 30,
 		},
 		{
 			name: "long text large chunks",
@@ -88,7 +79,6 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 500,
 		},
 	}
 	for i := range tests {
@@ -96,13 +86,12 @@ func (r *testStorageSuite) TestUploaderWriter(c *C) {
 	}
 }
 
-func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
+func (r *testStorageSuite) TestCompressReaderWriter(c *C) {
 	dir := c.MkDir()
 
 	type testcase struct {
 		name         string
 		content      []string
-		chunkSize    int
 		compressType CompressType
 	}
 	testFn := func(test *testcase, c *C) {
@@ -112,10 +101,10 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		ctx := context.Background()
 		storage, err := Create(ctx, backend, true)
 		c.Assert(err, IsNil)
+		storage = WithCompression(storage, Gzip)
 		fileName := strings.ReplaceAll(test.name, " ", "-") + ".txt.gz"
-		uploader, err := storage.CreateUploader(ctx, fileName)
+		writer, err := storage.Create(ctx, fileName)
 		c.Assert(err, IsNil)
-		writer := newUploaderWriter(uploader, test.chunkSize, test.compressType)
 		for _, str := range test.content {
 			p := []byte(str)
 			written, err2 := writer.Write(ctx, p)
@@ -124,22 +113,25 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 		}
 		err = writer.Close(ctx)
 		c.Assert(err, IsNil)
+
+		// make sure compressed file is written correctly
 		file, err := os.Open(filepath.Join(dir, fileName))
 		c.Assert(err, IsNil)
-		var r io.Reader
-		switch test.compressType {
-		case Gzip:
-			r, err = gzip.NewReader(file)
-		default:
-			c.Fatal("unknown compressType")
-		}
+		r, err := newCompressReader(test.compressType, file)
 		c.Assert(err, IsNil)
 		var bf bytes.Buffer
 		_, err = bf.ReadFrom(r)
 		c.Assert(err, IsNil)
 		c.Assert(bf.String(), Equals, strings.Join(test.content, ""))
-		// Sanity check we didn't write past the chunk size
-		c.Assert(writer.buf.Cap(), Equals, test.chunkSize)
+		c.Assert(r.Close(), IsNil)
+
+		// test withCompression Open
+		r, err = storage.Open(ctx, fileName)
+		c.Assert(err, IsNil)
+		content, err := ioutil.ReadAll(r)
+		c.Assert(err, IsNil)
+		c.Assert(string(content), Equals, strings.Join(test.content, ""))
+
 		c.Assert(file.Close(), IsNil)
 	}
 	compressTypeArr := []CompressType{Gzip}
@@ -154,7 +146,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 30,
 		},
 		{
 			name: "long text large chunks",
@@ -166,7 +157,6 @@ func (r *testStorageSuite) TestUploaderCompressWriter(c *C) {
 				"hello world",
 				"hello world",
 			},
-			chunkSize: 500,
 		},
 	}
 	for i := range tests {
