@@ -330,8 +330,10 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 
 	summary.CollectInt("backup total ranges", len(ranges))
 
-	var updateCh glue.Progress
-	var unit backup.ProgressUnit
+	var (
+		updateCh glue.Progress
+		unit     backup.ProgressUnit
+	)
 	if len(ranges) < 100 {
 		unit = backup.RegionUnit
 		// The number of regions need to backup
@@ -363,14 +365,14 @@ func RunBackup(c context.Context, g glue.Glue, cmdName string, cfg *BackupConfig
 			failpoint.Inject("progress-call-back", func(v failpoint.Value) {
 				log.Info("failpoint progress-call-back injected")
 				if fileName, ok := v.(string); ok {
-					f, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
-					if err != nil {
-						log.Warn("failed to create file", zap.Error(err))
+					f, err2 := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+					if err2 != nil {
+						log.Warn("failed to create file", zap.Error(err2))
 					}
 					msg := []byte(fmt.Sprintf("%s:%d\n", unit, progressCount))
-					_, err = f.Write(msg)
-					if err != nil {
-						log.Warn("failed to write data to file", zap.Error(err))
+					_, err2 = f.Write(msg)
+					if err2 != nil {
+						log.Warn("failed to write data to file", zap.Error(err2))
 					}
 				}
 			})
