@@ -147,11 +147,18 @@ func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader,
 	object := s.objectName(path)
 	handle := s.bucket.Object(object)
 
+	rc, err := handle.NewRangeReader(ctx, 0, -1)
+	if err != nil {
+		return nil, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			s.gcs.Bucket, path)
+	}
+
 	return &gcsObjectReader{
 		storage:   s,
 		name:      path,
 		objHandle: handle,
-		reader:    nil,
+		reader:    rc,
 		ctx:       ctx,
 	}, nil
 }
@@ -317,9 +324,6 @@ func (r *gcsObjectReader) Read(p []byte) (n int, err error) {
 		r.reader = rc
 	}
 	n, err = r.reader.Read(p)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
 	r.pos += int64(n)
 	return n, err
 }
@@ -339,11 +343,20 @@ func (r *gcsObjectReader) Seek(offset int64, whence int) (int64, error) {
 	var realOffset int64
 	switch whence {
 	case io.SeekStart:
+		if r.pos < 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' out of range.", offset)
+		}
 		realOffset = offset
 	case io.SeekCurrent:
 		realOffset = r.pos + offset
+		if r.pos < 0 && realOffset >= 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' out of range. current pos is '%v'.", offset, r.pos)
+		}
 	case io.SeekEnd:
-		//?realOffset = r.rangeInfo.Size + offset
+		if offset >= 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' should be negative.", offset)
+		}
+		realOffset = offset
 	default:
 		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
 	}
