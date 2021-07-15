@@ -4,7 +4,7 @@ package trace
 
 import (
 	"context"
-	"io/ioutil"
+	"os"
 	"path"
 	"testing"
 	"time"
@@ -50,7 +50,7 @@ func (t *testTracingSuite) TestSpan(c *C) {
 	ctx, store := TracerStartSpan(context.Background())
 	jobA(ctx)
 	TracerFinishSpan(ctx, store)
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	c.Assert(err, IsNil)
 	s := string(content)
 	// possible result:

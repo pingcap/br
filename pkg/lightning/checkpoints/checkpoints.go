@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"sort"
@@ -953,7 +952,7 @@ func NewFileCheckpointsDB(path string) *FileCheckpointsDB {
 		},
 	}
 	// ignore all errors -- file maybe not created yet (and it is fine).
-	content, err := ioutil.ReadFile(path)
+	content, err := os.ReadFile(path)
 	if err == nil {
 		err2 := cpdb.checkpoints.Unmarshal(content)
 		if err2 != nil {
@@ -988,10 +987,10 @@ func (cpdb *FileCheckpointsDB) save() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// because `ioutil.WriteFile` is not atomic, directly write into it may reset the file
+	// because `os.WriteFile` is not atomic, directly write into it may reset the file
 	// to an empty file if write is not finished.
 	tmpPath := cpdb.path + ".tmp"
-	if err := ioutil.WriteFile(tmpPath, serialized, 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, serialized, 0o644); err != nil {
 		return errors.Trace(err)
 	}
 	if err := os.Rename(tmpPath, cpdb.path); err != nil {

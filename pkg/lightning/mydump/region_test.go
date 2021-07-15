@@ -15,7 +15,6 @@ package mydump_test
 
 import (
 	"context"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -263,7 +262,7 @@ func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
 	filePath := filepath.Join(dir, fileName)
 
 	content := []byte("a,b\r\n123,456\r\n789,101")
-	err := ioutil.WriteFile(filePath, content, 0o644)
+	err := os.WriteFile(filePath, content, 0o644)
 	c.Assert(err, IsNil)
 
 	dataFileInfo, err := os.Stat(filePath)

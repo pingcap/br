@@ -18,13 +18,12 @@ import (
 	"io"
 	"strings"
 
-	"github.com/pingcap/br/pkg/utils"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/types"
 
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 var (
@@ -38,8 +37,17 @@ type CSVParser struct {
 	blockParser
 	cfg *config.CSVConfig
 
-	comma            []byte
-	quote            []byte
+	comma   []byte
+	quote   []byte
+	newLine []byte
+
+	// quoteIndexFunc and unquoteIndexFunc take a byte slice and return the
+	// first index which some special character may appear.
+	// quoteIndexFunc is used inside quoted fields (so the first characters of
+	// the closing delimiter and backslash are special).
+	// unquoteIndexFunc is used outside quoted fields (so the first characters
+	// of the opening delimiter, separator, terminator and backslash are
+	// special).
 	quoteIndexFunc   func([]byte) int
 	unquoteIndexFunc func([]byte) int
 
@@ -69,10 +77,15 @@ func NewCSVParser(
 ) *CSVParser {
 	escFlavor := backslashEscapeFlavorNone
 	var quoteStopSet []byte
-	unquoteStopSet := []byte{'\r', '\n', cfg.Separator[0]}
+	unquoteStopSet := []byte{cfg.Separator[0]}
 	if len(cfg.Delimiter) > 0 {
 		quoteStopSet = []byte{cfg.Delimiter[0]}
 		unquoteStopSet = append(unquoteStopSet, cfg.Delimiter[0])
+	}
+	if len(cfg.Terminator) > 0 {
+		unquoteStopSet = append(unquoteStopSet, cfg.Terminator[0])
+	} else {
+		unquoteStopSet = append(unquoteStopSet, '\r', '\n')
 	}
 	if cfg.BackslashEscape {
 		escFlavor = backslashEscapeFlavorMySQL
@@ -89,6 +102,7 @@ func NewCSVParser(
 		cfg:               cfg,
 		comma:             []byte(cfg.Separator),
 		quote:             []byte(cfg.Delimiter),
+		newLine:           []byte(cfg.Terminator),
 		escFlavor:         escFlavor,
 		quoteIndexFunc:    makeBytesIndexFunc(quoteStopSet),
 		unquoteIndexFunc:  makeBytesIndexFunc(unquoteStopSet),
@@ -115,6 +129,25 @@ func (parser *CSVParser) unescapeString(input string) (unescaped string, isNull 
 	return
 }
 
+// csvToken is a type representing either a normal byte or some CSV-specific
+// tokens such as the separator (comma), delimiter (quote) and terminator (new
+// line).
+type csvToken int16
+
+const (
+	// csvTokenAnyUnquoted is a placeholder to represent any unquoted character.
+	csvTokenAnyUnquoted csvToken = 0
+	// csvTokenWithBackslash is a mask indicating an escaped character.
+	// The actual token is represented like `csvTokenWithBackslash | 'n'`.
+	csvTokenWithBackslash csvToken = 0x100
+	// csvTokenComma is the CSV separator token.
+	csvTokenComma csvToken = 0x200
+	// csvTokenNewLine is the CSV terminator token.
+	csvTokenNewLine csvToken = 0x400
+	// csvTokenDelimiter is the CSV delimiter token.
+	csvTokenDelimiter csvToken = 0x800
+)
+
 func (parser *CSVParser) readByte() (byte, error) {
 	if len(parser.buf) == 0 {
 		if err := parser.readBlock(); err != nil {
@@ -128,28 +161,6 @@ func (parser *CSVParser) readByte() (byte, error) {
 	parser.buf = parser.buf[1:]
 	parser.pos++
 	return b, nil
-}
-
-//nolint:unused // Maybe useful in the future.
-func (parser *CSVParser) readBytes(buf []byte) (int, error) {
-	cnt := 0
-	for cnt < len(buf) {
-		if len(parser.buf) == 0 {
-			if err := parser.readBlock(); err != nil {
-				return cnt, err
-			}
-		}
-		if len(parser.buf) == 0 {
-			parser.pos += int64(cnt)
-			return cnt, io.EOF
-		}
-		readCnt := utils.MinInt(len(buf)-cnt, len(parser.buf))
-		copy(buf[cnt:], parser.buf[:readCnt])
-		parser.buf = parser.buf[readCnt:]
-		cnt += readCnt
-	}
-	parser.pos += int64(cnt)
-	return cnt, nil
 }
 
 func (parser *CSVParser) peekBytes(cnt int) ([]byte, error) {
@@ -168,6 +179,100 @@ func (parser *CSVParser) peekBytes(cnt int) ([]byte, error) {
 func (parser *CSVParser) skipBytes(n int) {
 	parser.buf = parser.buf[n:]
 	parser.pos += int64(n)
+}
+
+// tryReadExact peeks the bytes ahead, and if it matches `content` exactly will
+// consume it (advance the cursor) and return `true`.
+func (parser *CSVParser) tryReadExact(content []byte) (bool, error) {
+	if len(content) == 0 {
+		return true, nil
+	}
+	bs, err := parser.peekBytes(len(content))
+	if err == nil {
+		if bytes.Equal(bs, content) {
+			parser.skipBytes(len(content))
+			return true, nil
+		}
+	} else if errors.Cause(err) == io.EOF {
+		err = nil
+	}
+	return false, err
+}
+
+func (parser *CSVParser) tryReadNewLine(b byte) (bool, error) {
+	if len(parser.newLine) == 0 {
+		return b == '\r' || b == '\n', nil
+	}
+	if b != parser.newLine[0] {
+		return false, nil
+	}
+	return parser.tryReadExact(parser.newLine[1:])
+}
+
+func (parser *CSVParser) tryReadOpenDelimiter(b byte) (bool, error) {
+	if len(parser.quote) == 0 || parser.quote[0] != b {
+		return false, nil
+	}
+	return parser.tryReadExact(parser.quote[1:])
+}
+
+// tryReadCloseDelimiter is currently equivalent to tryReadOpenDelimiter until
+// we support asymmetric delimiters.
+func (parser *CSVParser) tryReadCloseDelimiter(b byte) (bool, error) {
+	if parser.quote[0] != b {
+		return false, nil
+	}
+	return parser.tryReadExact(parser.quote[1:])
+}
+
+func (parser *CSVParser) tryReadComma(b byte) (bool, error) {
+	if parser.comma[0] != b {
+		return false, nil
+	}
+	return parser.tryReadExact(parser.comma[1:])
+}
+
+func (parser *CSVParser) tryReadBackslashed(bs byte) (bool, byte, error) {
+	if bs != '\\' || parser.escFlavor == backslashEscapeFlavorNone {
+		return false, 0, nil
+	}
+	b, err := parser.readByte()
+	return true, b, parser.replaceEOF(err, errDanglingBackslash)
+}
+
+// readQuoteToken reads a token inside quoted fields.
+func (parser *CSVParser) readQuotedToken(b byte) (csvToken, error) {
+	if ok, err := parser.tryReadCloseDelimiter(b); ok || err != nil {
+		return csvTokenDelimiter, err
+	}
+	if ok, eb, err := parser.tryReadBackslashed(b); ok || err != nil {
+		return csvTokenWithBackslash | csvToken(eb), err
+	}
+	return csvToken(b), nil
+}
+
+// readUnquoteToken reads a token outside quoted fields.
+func (parser *CSVParser) readUnquoteToken(b byte) (csvToken, error) {
+	if ok, err := parser.tryReadNewLine(b); ok || err != nil {
+		return csvTokenNewLine, err
+	}
+	if ok, err := parser.tryReadComma(b); ok || err != nil {
+		return csvTokenComma, err
+	}
+	if ok, err := parser.tryReadOpenDelimiter(b); ok || err != nil {
+		return csvTokenDelimiter, err
+	}
+	if ok, eb, err := parser.tryReadBackslashed(b); ok || err != nil {
+		return csvTokenWithBackslash | csvToken(eb), err
+	}
+	return csvToken(b), nil
+}
+
+func (parser *CSVParser) appendCSVTokenToRecordBuffer(token csvToken) {
+	if token&csvTokenWithBackslash != 0 {
+		parser.recordBuffer = append(parser.recordBuffer, '\\')
+	}
+	parser.recordBuffer = append(parser.recordBuffer, byte(token))
 }
 
 // readUntil reads the buffer until any character from the `chars` set is found.
@@ -209,83 +314,53 @@ func (parser *CSVParser) readRecord(dst []string) ([]string, error) {
 
 	isEmptyLine := true
 	whitespaceLine := true
-
-	processDefault := func(b byte) error {
-		if b == '\\' && parser.escFlavor != backslashEscapeFlavorNone {
-			if err := parser.readByteForBackslashEscape(); err != nil {
-				return err
-			}
-		} else {
-			parser.recordBuffer = append(parser.recordBuffer, b)
-		}
-		return parser.readUnquoteField()
-	}
-
-	processQuote := func(b byte) error {
-		return parser.readQuotedField()
-	}
-	if len(parser.quote) > 1 {
-		processQuote = func(b byte) error {
-			pb, err := parser.peekBytes(len(parser.quote) - 1)
-			if err != nil && errors.Cause(err) != io.EOF {
-				return err
-			}
-			if bytes.Equal(pb, parser.quote[1:]) {
-				parser.skipBytes(len(parser.quote) - 1)
-				return parser.readQuotedField()
-			}
-			return processDefault(b)
-		}
-	}
-
-	processComma := func(b byte) error {
-		parser.fieldIndexes = append(parser.fieldIndexes, len(parser.recordBuffer))
-		return nil
-	}
-	if len(parser.comma) > 1 {
-		processNotComma := processDefault
-		if len(parser.quote) > 0 && parser.comma[0] == parser.quote[0] {
-			processNotComma = processQuote
-		}
-		processComma = func(b byte) error {
-			pb, err := parser.peekBytes(len(parser.comma) - 1)
-			if err != nil && errors.Cause(err) != io.EOF {
-				return err
-			}
-			if bytes.Equal(pb, parser.comma[1:]) {
-				parser.skipBytes(len(parser.comma) - 1)
-				parser.fieldIndexes = append(parser.fieldIndexes, len(parser.recordBuffer))
-				return nil
-			}
-			return processNotComma(b)
-		}
-	}
+	prevToken := csvTokenNewLine
+	var firstToken csvToken
 
 outside:
 	for {
-		firstByte, err := parser.readByte()
+		content, firstByte, err := parser.readUntil(parser.unquoteIndexFunc)
+
+		if len(content) > 0 {
+			isEmptyLine = false
+			if prevToken == csvTokenDelimiter {
+				parser.logSyntaxError()
+				return nil, errors.AddStack(errUnexpectedQuoteField)
+			}
+			parser.recordBuffer = append(parser.recordBuffer, content...)
+			prevToken = csvTokenAnyUnquoted
+		}
+
 		if err != nil {
 			if isEmptyLine || errors.Cause(err) != io.EOF {
 				return nil, err
 			}
 			// treat EOF as the same as trailing \n.
-			firstByte = '\n'
+			firstToken = csvTokenNewLine
+		} else {
+			parser.skipBytes(1)
+			firstToken, err = parser.readUnquoteToken(firstByte)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		switch {
-		case firstByte == parser.comma[0]:
+		switch firstToken {
+		case csvTokenComma:
 			whitespaceLine = false
-			if err = processComma(firstByte); err != nil {
+			parser.fieldIndexes = append(parser.fieldIndexes, len(parser.recordBuffer))
+		case csvTokenDelimiter:
+			if prevToken != csvTokenComma && prevToken != csvTokenNewLine {
+				parser.logSyntaxError()
+				return nil, errors.AddStack(errUnexpectedQuoteField)
+			}
+			if err = parser.readQuotedField(); err != nil {
 				return nil, err
 			}
-
-		case len(parser.quote) > 0 && firstByte == parser.quote[0]:
-			if err = processQuote(firstByte); err != nil {
-				return nil, err
-			}
 			whitespaceLine = false
-		case firstByte == '\r', firstByte == '\n':
+		case csvTokenNewLine:
 			// new line = end of record (ignore empty lines)
+			prevToken = firstToken
 			if isEmptyLine {
 				continue
 			}
@@ -297,10 +372,13 @@ outside:
 			parser.fieldIndexes = append(parser.fieldIndexes, len(parser.recordBuffer))
 			break outside
 		default:
-			if err = processDefault(firstByte); err != nil {
-				return nil, err
+			if prevToken == csvTokenDelimiter {
+				parser.logSyntaxError()
+				return nil, errors.AddStack(errUnexpectedQuoteField)
 			}
+			parser.appendCSVTokenToRecordBuffer(firstToken)
 		}
+		prevToken = firstToken
 		isEmptyLine = false
 	}
 	// Create a single string and create slices out of it.
@@ -321,36 +399,7 @@ outside:
 	return dst, nil
 }
 
-func (parser *CSVParser) readByteForBackslashEscape() error {
-	b, err := parser.readByte()
-	err = parser.replaceEOF(err, errDanglingBackslash)
-	if err != nil {
-		return err
-	}
-	parser.recordBuffer = append(parser.recordBuffer, '\\', b)
-	return nil
-}
-
 func (parser *CSVParser) readQuotedField() error {
-	processDefault := func() error {
-		// in all other cases, we've got a syntax error.
-		parser.logSyntaxError()
-		return errors.AddStack(errUnexpectedQuoteField)
-	}
-
-	processComma := func() error { return nil }
-	if len(parser.comma) > 1 {
-		processComma = func() error {
-			b, err := parser.peekBytes(len(parser.comma))
-			if err != nil && errors.Cause(err) != io.EOF {
-				return err
-			}
-			if !bytes.Equal(b, parser.comma) {
-				return processDefault()
-			}
-			return nil
-		}
-	}
 	for {
 		content, terminator, err := parser.readUntil(parser.quoteIndexFunc)
 		err = parser.replaceEOF(err, errUnterminatedQuotedField)
@@ -359,142 +408,30 @@ func (parser *CSVParser) readQuotedField() error {
 		}
 		parser.recordBuffer = append(parser.recordBuffer, content...)
 		parser.skipBytes(1)
-		switch {
-		case len(parser.quote) > 0 && terminator == parser.quote[0]:
-			if len(parser.quote) > 1 {
-				b, err := parser.peekBytes(len(parser.quote) - 1)
-				if err != nil && err != io.EOF {
-					return err
-				}
-				if !bytes.Equal(b, parser.quote[1:]) {
-					parser.recordBuffer = append(parser.recordBuffer, terminator)
-					continue
-				}
-				parser.skipBytes(len(parser.quote) - 1)
-			}
+
+		token, err := parser.readQuotedToken(terminator)
+		if err != nil {
+			return err
+		}
+
+		switch token {
+		case csvTokenDelimiter:
 			// encountered '"' -> continue if we're seeing '""'.
-			b, err := parser.peekBytes(1)
+			doubledDelimiter, err := parser.tryReadExact(parser.quote)
 			if err != nil {
-				if err == io.EOF {
-					err = nil
-				}
 				return err
 			}
-			switch b[0] {
-			case parser.quote[0]:
+			if doubledDelimiter {
 				// consume the double quotation mark and continue
-				if len(parser.quote) > 1 {
-					b, err := parser.peekBytes(len(parser.quote))
-					if err != nil && err != io.EOF {
-						return err
-					}
-					if !bytes.Equal(b, parser.quote) {
-						if parser.quote[0] == parser.comma[0] {
-							return processComma()
-						}
-						return processDefault()
-					}
-				}
-				parser.skipBytes(len(parser.quote))
 				parser.recordBuffer = append(parser.recordBuffer, parser.quote...)
-			case '\r', '\n':
-				// end the field if the next is a separator
-				return nil
-			case parser.comma[0]:
-				return processComma()
-			default:
-				return processDefault()
-			}
-
-		case terminator == '\\':
-			if err := parser.readByteForBackslashEscape(); err != nil {
-				return err
-			}
-		}
-	}
-}
-
-func (parser *CSVParser) readUnquoteField() error {
-	addByte := func(b byte) {
-		// read the following byte
-		parser.recordBuffer = append(parser.recordBuffer, b)
-		parser.skipBytes(1)
-	}
-	parseQuote := func(b byte) error {
-		r, err := parser.checkBytes(parser.quote)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if r {
-			parser.logSyntaxError()
-			return errors.AddStack(errUnexpectedQuoteField)
-		}
-		addByte(b)
-		return nil
-	}
-
-	parserNoComma := func(b byte) error {
-		addByte(b)
-		return nil
-	}
-	if len(parser.quote) > 0 && parser.comma[0] == parser.quote[0] {
-		parserNoComma = parseQuote
-	}
-	for {
-		content, terminator, err := parser.readUntil(parser.unquoteIndexFunc)
-		parser.recordBuffer = append(parser.recordBuffer, content...)
-		finished := false
-		if err != nil {
-			if errors.Cause(err) == io.EOF {
-				finished = true
-				err = nil
-			}
-			if err != nil {
-				return err
-			}
-		}
-
-		switch {
-		case terminator == '\r', terminator == '\n', finished:
-			return nil
-		case terminator == parser.comma[0]:
-			r, err := parser.checkBytes(parser.comma)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if r {
+			} else {
+				// the field is completed, exit.
 				return nil
 			}
-			if err = parserNoComma(terminator); err != nil {
-				return err
-			}
-		case len(parser.quote) > 0 && terminator == parser.quote[0]:
-			r, err := parser.checkBytes(parser.quote)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			if r {
-				parser.logSyntaxError()
-				return errors.AddStack(errUnexpectedQuoteField)
-			}
-		case terminator == '\\':
-			parser.skipBytes(1)
-			if err := parser.readByteForBackslashEscape(); err != nil {
-				return err
-			}
+		default:
+			parser.appendCSVTokenToRecordBuffer(token)
 		}
 	}
-}
-
-func (parser *CSVParser) checkBytes(b []byte) (bool, error) {
-	if len(b) == 1 {
-		return true, nil
-	}
-	pb, err := parser.peekBytes(len(b))
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(pb, b), nil
 }
 
 func (parser *CSVParser) replaceEOF(err error, replaced error) error {
@@ -572,6 +509,10 @@ func indexOfNewLine(b []byte) int {
 	return IndexAnyByte(b, &newLineASCIISet)
 }
 
+// ReadUntilTokNewLine seeks the file until either `\r` or `\n` is found, and
+// return the file offset beyond the newline.
+// This function is used in strict-format dividing a CSV file.
+// TODO: support custom terminator.
 func (parser *CSVParser) ReadUntilTokNewLine() (int64, error) {
 	_, _, err := parser.readUntil(indexOfNewLine)
 	if err != nil {
