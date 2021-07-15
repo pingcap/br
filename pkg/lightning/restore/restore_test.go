@@ -1017,7 +1017,7 @@ func (s *tableRestoreSuite) TestSaveStatusCheckpoint(c *C) {
 	go rc.listenCheckpointUpdates()
 
 	start := time.Now()
-	err := rc.saveStatusCheckpoint(common.UniqueTable("test", "tbl"), indexEngineID, nil, checkpoints.CheckpointStatusImported)
+	err := rc.saveStatusCheckpoint(context.Background(), common.UniqueTable("test", "tbl"), indexEngineID, nil, checkpoints.CheckpointStatusImported)
 	c.Assert(err, IsNil)
 	elapsed := time.Since(start)
 	c.Assert(elapsed, GreaterEqual, time.Millisecond*100)
