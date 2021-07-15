@@ -93,6 +93,7 @@ func NewDuplicateManager(
 }
 
 func (manager *DuplicateManager) DuplicateTable(ctx context.Context, tbl table.Table) error {
+	log.L().Info("Begin collect duplicate data from remote TiKV")
 	reqs, err := buildDuplicateRequests(tbl.Meta())
 	if err != nil {
 		return err
@@ -121,6 +122,7 @@ func (manager *DuplicateManager) DuplicateTable(ctx context.Context, tbl table.T
 		}(r)
 	}
 	wg.Wait()
+	log.L().Info("End collect duplicate data from remote TiKV")
 	return nil
 }
 

@@ -2108,6 +2108,7 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 		return nil
 	}
 
+	log.L().Info("Begin Collect duplicate Keys")
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2184,8 +2185,45 @@ func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, s
 }
 
 func (local *local) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
-	// ranges := ranger.FullIntRange(false)
-	// keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	strSQLMode := "ONLY_FULL_GROUP_BY,NO_AUTO_CREATE_USER"
+	sqlMode, err := mysql.GetSQLMode(strSQLMode)
+	if err != nil {
+		return errors.Annotate(err, "invalid config: `mydumper.tidb.sql_mode` must be a valid SQL_MODE")
+	}
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
+		SQLMode: sqlMode,
+	})
+	if err != nil {
+		return errors.Annotate(err, "create decoder failed")
+	}
+
+	ranges := ranger.FullIntRange(false)
+	keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	for _, r := range keysRanges {
+		opts := &pebble.IterOptions{
+			LowerBound: r.StartKey,
+			UpperBound: r.EndKey,
+		}
+		iter := local.duplicateDB.NewIter(opts)
+		for iter.SeekGE(r.StartKey); iter.Valid(); iter.Next() {
+			h, err := decoder.DecodeHandleFromTable(iter.Key())
+			if err != nil {
+				continue
+			}
+			rows, _, err := decoder.DecodeRawRowData(h, iter.Value())
+			if err != nil {
+				continue
+			}
+			for _, row := range rows {
+				v := row.GetValue()
+				if b, ok := v.([]byte); ok {
+					v = string(b)
+				}
+				fmt.Printf("%v, ", v)
+			}
+			fmt.Printf("\n")
+		}
+	}
 	return nil
 }
 
