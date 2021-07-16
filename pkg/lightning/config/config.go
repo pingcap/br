@@ -87,7 +87,7 @@ const (
 )
 
 var (
-	supportedStorageTypes = []string{"file", "local", "s3", "noop"}
+	supportedStorageTypes = []string{"file", "local", "s3", "noop", "gcs"}
 
 	DefaultFilter = []string{
 		"*.*",
@@ -236,6 +236,7 @@ type PostRestore struct {
 type CSVConfig struct {
 	Separator       string `toml:"separator" json:"separator"`
 	Delimiter       string `toml:"delimiter" json:"delimiter"`
+	Terminator      string `toml:"terminator" json:"terminator"`
 	Null            string `toml:"null" json:"null"`
 	Header          bool   `toml:"header" json:"header"`
 	TrimLastSep     bool   `toml:"trim-last-separator" json:"trim-last-separator"`
@@ -302,15 +303,16 @@ type FileRouteRule struct {
 }
 
 type TikvImporter struct {
-	Addr             string   `toml:"addr" json:"addr"`
-	Backend          string   `toml:"backend" json:"backend"`
-	OnDuplicate      string   `toml:"on-duplicate" json:"on-duplicate"`
-	MaxKVPairs       int      `toml:"max-kv-pairs" json:"max-kv-pairs"`
-	SendKVPairs      int      `toml:"send-kv-pairs" json:"send-kv-pairs"`
-	RegionSplitSize  ByteSize `toml:"region-split-size" json:"region-split-size"`
-	SortedKVDir      string   `toml:"sorted-kv-dir" json:"sorted-kv-dir"`
-	DiskQuota        ByteSize `toml:"disk-quota" json:"disk-quota"`
-	RangeConcurrency int      `toml:"range-concurrency" json:"range-concurrency"`
+	Addr               string   `toml:"addr" json:"addr"`
+	Backend            string   `toml:"backend" json:"backend"`
+	OnDuplicate        string   `toml:"on-duplicate" json:"on-duplicate"`
+	MaxKVPairs         int      `toml:"max-kv-pairs" json:"max-kv-pairs"`
+	SendKVPairs        int      `toml:"send-kv-pairs" json:"send-kv-pairs"`
+	RegionSplitSize    ByteSize `toml:"region-split-size" json:"region-split-size"`
+	SortedKVDir        string   `toml:"sorted-kv-dir" json:"sorted-kv-dir"`
+	DiskQuota          ByteSize `toml:"disk-quota" json:"disk-quota"`
+	RangeConcurrency   int      `toml:"range-concurrency" json:"range-concurrency"`
+	DuplicateDetection bool     `toml:"duplicate-detection" json:"duplicate-detection"`
 
 	EngineMemCacheSize      ByteSize `toml:"engine-mem-cache-size" json:"engine-mem-cache-size"`
 	LocalWriterMemCacheSize ByteSize `toml:"local-writer-mem-cache-size" json:"local-writer-mem-cache-size"`
@@ -421,7 +423,7 @@ func NewConfig() *Config {
 			Filter:        DefaultFilter,
 		},
 		TikvImporter: TikvImporter{
-			Backend:         BackendImporter,
+			Backend:         "",
 			OnDuplicate:     ReplaceOnDup,
 			MaxKVPairs:      4096,
 			SendKVPairs:     32768,
@@ -534,12 +536,19 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		return errors.New("invalid config: `mydumper.csv.separator` and `mydumper.csv.delimiter` must not be prefix of each other")
 	}
 
+	if len(csv.Terminator) > 0 && cfg.Mydumper.StrictFormat {
+		return errors.New("invalid config: `mydumper.strict-format` is not compatible with custom `mydumper.csv.terminator`")
+	}
+
 	if csv.BackslashEscape {
 		if csv.Separator == `\` {
 			return errors.New("invalid config: cannot use '\\' as CSV separator when `mydumper.csv.backslash-escape` is true")
 		}
 		if csv.Delimiter == `\` {
 			return errors.New("invalid config: cannot use '\\' as CSV delimiter when `mydumper.csv.backslash-escape` is true")
+		}
+		if csv.Terminator == `\` {
+			return errors.New("invalid config: cannot use '\\' as CSV terminator when `mydumper.csv.backslash-escape` is true")
 		}
 	}
 
@@ -563,6 +572,9 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		cfg.Mydumper.DefaultFileRules = true
 	}
 
+	if cfg.TikvImporter.Backend == "" {
+		return errors.New("tikv-importer.backend must not be empty!")
+	}
 	cfg.TikvImporter.Backend = strings.ToLower(cfg.TikvImporter.Backend)
 	mustHaveInternalConnections := true
 	switch cfg.TikvImporter.Backend {

@@ -5,7 +5,7 @@ package storage
 import (
 	"context"
 	"io"
-	"io/ioutil"
+	"os"
 	"path"
 	"strings"
 
@@ -43,7 +43,7 @@ func (options *GCSBackendOptions) apply(gcs *backuppb.GCS) error {
 	gcs.PredefinedAcl = options.PredefinedACL
 
 	if options.CredentialsFile != "" {
-		b, err := ioutil.ReadFile(options.CredentialsFile)
+		b, err := os.ReadFile(options.CredentialsFile)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -121,7 +121,7 @@ func (s *gcsStorage) ReadFile(ctx context.Context, name string) ([]byte, error) 
 	var b []byte
 	if size < 0 {
 		// happened when using fake-gcs-server in integration test
-		b, err = ioutil.ReadAll(rc)
+		b, err = io.ReadAll(rc)
 	} else {
 		b = make([]byte, size)
 		_, err = io.ReadFull(rc, b)
@@ -144,8 +144,23 @@ func (s *gcsStorage) FileExists(ctx context.Context, name string) (bool, error) 
 
 // Open a Reader by file path.
 func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
-	// TODO, implement this if needed
-	panic("Unsupported Operation")
+	object := s.objectName(path)
+	handle := s.bucket.Object(object)
+
+	rc, err := handle.NewRangeReader(ctx, 0, -1)
+	if err != nil {
+		return nil, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			s.gcs.Bucket, path)
+	}
+
+	return &gcsObjectReader{
+		storage:   s,
+		name:      path,
+		objHandle: handle,
+		reader:    rc,
+		ctx:       ctx,
+	}, nil
 }
 
 // WalkDir traverse all the files in a dir.
@@ -155,8 +170,41 @@ func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader,
 // function; the second argument is the size in byte of the file determined
 // by path.
 func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
-	// TODO, implement this if needed
-	panic("Unsupported Operation")
+	if opt == nil {
+		opt = &WalkOption{}
+	}
+
+	maxKeys := int64(1000)
+	if opt.ListCount > 0 {
+		maxKeys = opt.ListCount
+	}
+
+	prefix := path.Join(s.gcs.Prefix, opt.SubDir)
+	if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	query := &storage.Query{Prefix: prefix}
+	// only need each object's name and size
+	query.SetAttrSelection([]string{"Name", "Size"})
+	iter := s.bucket.Objects(ctx, query)
+	for i := int64(0); i != maxKeys; i++ {
+		attrs, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// when walk on specify directory, the result include storage.Prefix,
+		// which can not be reuse in other API(Open/Read) directly.
+		// so we use TrimPrefix to filter Prefix for next Open/Read.
+		path := strings.TrimPrefix(attrs.Name, s.gcs.Prefix)
+		if err = fn(path, attrs.Size); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
 }
 
 func (s *gcsStorage) URI() string {
@@ -257,4 +305,84 @@ func hasSSTFiles(ctx context.Context, bucket *storage.BucketHandle, prefix strin
 		}
 	}
 	return false
+}
+
+// gcsObjectReader wrap storage.Reader and add the `Seek` method.
+type gcsObjectReader struct {
+	storage   *gcsStorage
+	name      string
+	objHandle *storage.ObjectHandle
+	reader    io.ReadCloser
+	pos       int64
+	// reader context used for implement `io.Seek`
+	// currently, lightning depends on package `xitongsys/parquet-go` to read parquet file and it needs `io.Seeker`
+	// See: https://github.com/xitongsys/parquet-go/blob/207a3cee75900b2b95213627409b7bac0f190bb3/source/source.go#L9-L10
+	ctx context.Context
+}
+
+// Read implement the io.Reader interface.
+func (r *gcsObjectReader) Read(p []byte) (n int, err error) {
+	if r.reader == nil {
+		rc, err := r.objHandle.NewRangeReader(r.ctx, r.pos, -1)
+		if err != nil {
+			return 0, errors.Annotatef(err,
+				"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+				r.storage.gcs.Bucket, r.name)
+		}
+		r.reader = rc
+	}
+	n, err = r.reader.Read(p)
+	r.pos += int64(n)
+	return n, err
+}
+
+// Close implement the io.Closer interface.
+func (r *gcsObjectReader) Close() error {
+	if r.reader == nil {
+		return nil
+	}
+	return r.reader.Close()
+}
+
+// Seek implement the io.Seeker interface.
+//
+// Currently, tidb-lightning depends on this method to read parquet file for gcs storage.
+func (r *gcsObjectReader) Seek(offset int64, whence int) (int64, error) {
+	var realOffset int64
+	switch whence {
+	case io.SeekStart:
+		if offset < 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' out of range.", offset)
+		}
+		realOffset = offset
+	case io.SeekCurrent:
+		realOffset = r.pos + offset
+		if r.pos < 0 && realOffset >= 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' out of range. current pos is '%v'.", offset, r.pos)
+		}
+	case io.SeekEnd:
+		if offset >= 0 {
+			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' should be negative.", offset)
+		}
+		// GCS supports `NewRangeReader(ctx, -10, -1)`, which means read the last 10 bytes.
+		realOffset = offset
+	default:
+		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
+	}
+
+	if realOffset == r.pos {
+		return realOffset, nil
+	}
+
+	_ = r.reader.Close()
+	r.pos = realOffset
+	rc, err := r.objHandle.NewRangeReader(r.ctx, r.pos, -1)
+	if err != nil {
+		return 0, errors.Annotatef(err,
+			"failed to read gcs file, file info: input.bucket='%s', input.key='%s'",
+			r.storage.gcs.Bucket, r.name)
+	}
+	r.reader = rc
+
+	return realOffset, nil
 }

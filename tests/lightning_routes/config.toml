@@ -1,3 +1,6 @@
+[tikv-importer]
+backend = 'local'
+
 # the complicated routing rules should be tested in tidb-tools repo already
 # here we're just verifying the basic things do work.
 [[routes]]

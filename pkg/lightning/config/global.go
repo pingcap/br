@@ -16,7 +16,6 @@ package config
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -104,7 +103,7 @@ func NewGlobalConfig() *GlobalConfig {
 			Filter: DefaultFilter,
 		},
 		TikvImporter: GlobalImporter{
-			Backend: "importer",
+			Backend: "",
 		},
 		PostRestore: GlobalPostRestore{
 			Checksum: OpLevelRequired,
@@ -154,7 +153,7 @@ func LoadGlobalConfig(args []string, extraFlags func(*flag.FlagSet)) (*GlobalCon
 	pdAddr := fs.String("pd-urls", "", "PD endpoint address")
 	dataSrcPath := fs.String("d", "", "Directory of the dump to import")
 	importerAddr := fs.String("importer", "", "address (host:port) to connect to tikv-importer")
-	backend := flagext.ChoiceVar(fs, "backend", "", `delivery backend: importer, tidb, local (default importer)`, "", "importer", "tidb", "local")
+	backend := flagext.ChoiceVar(fs, "backend", "", `delivery backend: local, importer, tidb`, "", "local", "importer", "tidb")
 	sortedKVDir := fs.String("sorted-kv-dir", "", "path for KV pairs when local backend enabled")
 	enableCheckpoint := fs.Bool("enable-checkpoint", true, "whether to enable checkpoints")
 	noSchema := fs.Bool("no-schema", false, "ignore schema files, get schema directly from TiDB instead")
@@ -185,7 +184,7 @@ func LoadGlobalConfig(args []string, extraFlags func(*flag.FlagSet)) (*GlobalCon
 	}
 
 	if len(configFilePath) > 0 {
-		data, err := ioutil.ReadFile(configFilePath)
+		data, err := os.ReadFile(configFilePath)
 		if err != nil {
 			return nil, errors.Annotatef(err, "Cannot read config file `%s`", configFilePath)
 		}

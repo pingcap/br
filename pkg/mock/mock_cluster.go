@@ -5,7 +5,7 @@ package mock
 import (
 	"database/sql"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/pprof"
 	"net/url"
@@ -23,7 +23,7 @@ import (
 	"github.com/pingcap/tidb/server"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/store/mockstore"
-	"github.com/tikv/client-go/v2/mockstore/cluster"
+	"github.com/tikv/client-go/v2/testutils"
 	"github.com/tikv/client-go/v2/tikv"
 	pd "github.com/tikv/pd/client"
 	"github.com/tikv/pd/pkg/tempurl"
@@ -35,7 +35,7 @@ var pprofOnce sync.Once
 // Cluster is mock tidb cluster, includes tikv and pd.
 type Cluster struct {
 	*server.Server
-	cluster.Cluster
+	testutils.Cluster
 	kv.Storage
 	*server.TiDBDriver
 	*domain.Domain
@@ -57,9 +57,9 @@ func NewCluster() (*Cluster, error) {
 		}()
 	})
 
-	var mockCluster cluster.Cluster
+	var mockCluster testutils.Cluster
 	storage, err := mockstore.NewMockStore(
-		mockstore.WithClusterInspector(func(c cluster.Cluster) {
+		mockstore.WithClusterInspector(func(c testutils.Cluster) {
 			mockstore.BootstrapWithSingleStore(c)
 			mockCluster = c
 		}),
@@ -180,7 +180,7 @@ func waitUntilServerOnline(addr string, statusPort uint) string {
 		resp, err := http.Get(statusURL) // nolint:noctx
 		if err == nil {
 			// Ignore errors.
-			_, _ = ioutil.ReadAll(resp.Body)
+			_, _ = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
 			break
 		}

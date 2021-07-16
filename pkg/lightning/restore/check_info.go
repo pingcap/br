@@ -260,8 +260,8 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 		passed = true
 	default:
 		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, but local available is %s,"+
-			"we may use disk-quota(%s) to finish imports", units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)),
-			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
+			"we may use disk-quota(%s) to finish imports", units.BytesSize(float64(sourceSize)),
+			units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
 		passed = true
 	}
 	rc.checkTemplate.Collect(Critical, passed, message)

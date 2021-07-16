@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/url"
 	"path"
 	"regexp"
@@ -396,7 +395,7 @@ func (rs *S3Storage) ReadFile(ctx context.Context, file string) ([]byte, error) 
 			*input.Bucket, *input.Key)
 	}
 	defer result.Body.Close()
-	data, err := ioutil.ReadAll(result.Body)
+	data, err := io.ReadAll(result.Body)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -659,7 +658,7 @@ func (r *s3ObjectReader) Seek(offset int64, whence int) (int64, error) {
 
 	// if seek ahead no more than 64k, we discard these data
 	if realOffset > r.pos && realOffset-r.pos <= maxSkipOffsetByRead {
-		_, err := io.CopyN(ioutil.Discard, r, realOffset-r.pos)
+		_, err := io.CopyN(io.Discard, r, realOffset-r.pos)
 		if err != nil {
 			return r.pos, errors.Trace(err)
 		}

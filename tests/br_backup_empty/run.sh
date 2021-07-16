@@ -18,7 +18,7 @@ DB="$TEST_NAME"
 
 # backup empty.
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_db" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_db"
 if [ $? -ne 0 ]; then
     echo "TEST: [$TEST_NAME] failed on backup empty cluster!"
     exit 1
@@ -41,11 +41,11 @@ run_sql "CREATE TABLE $DB.usertable1 ( \
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
 
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_table" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/empty_table"
 
 run_sql "DROP DATABASE $DB;"
 echo "restore start..."
-run_br --pd $PD_ADDR restore full -s "local://$TEST_DIR/empty_table" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR restore full -s "local://$TEST_DIR/empty_table"
 
 # insert one row to make sure table is restored.
 run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"

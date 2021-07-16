@@ -16,7 +16,6 @@ package restore
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,6 +154,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 		cfg.TaskID = 123
 		cfg.TiDB.Port = 4000
 		cfg.TiDB.PdAddr = "127.0.0.1:2379"
+		cfg.TikvImporter.Backend = config.BackendImporter
 		cfg.TikvImporter.Addr = "127.0.0.1:8287"
 		cfg.TikvImporter.SortedKVDir = "/tmp/sorted-kv"
 
@@ -166,7 +166,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 
 	adjustFuncs := map[string]func(cfg *config.Config){
 		"tikv-importer.backend": func(cfg *config.Config) {
-			cfg.TikvImporter.Backend = "local"
+			cfg.TikvImporter.Backend = config.BackendLocal
 		},
 		"tikv-importer.addr": func(cfg *config.Config) {
 			cfg.TikvImporter.Addr = "128.0.0.1:8287"
@@ -351,7 +351,7 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 	for i := 1; i <= fakeDataFilesCount; i++ {
 		fakeFileName := fmt.Sprintf("db.table.%d.sql", i)
 		fakeDataPath := filepath.Join(fakeDataDir, fakeFileName)
-		err = ioutil.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
+		err = os.WriteFile(fakeDataPath, fakeDataFilesContent, 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 			TableName: filter.Table{Schema: "db", Name: "table"},
@@ -366,7 +366,7 @@ func (s *tableRestoreSuiteBase) SetUpSuite(c *C) {
 
 	fakeCsvContent := []byte("1,2,3\r\n4,5,6\r\n")
 	csvName := "db.table.99.csv"
-	err = ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
+	err = os.WriteFile(filepath.Join(fakeDataDir, csvName), fakeCsvContent, 0o644)
 	c.Assert(err, IsNil)
 	fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 		TableName: filter.Table{Schema: "db", Name: "table"},
@@ -550,7 +550,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 	total := 0
 	for i, s := range fakeCsvContents {
 		csvName := fmt.Sprintf("db.table.%02d.csv", i)
-		err := ioutil.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
+		err := os.WriteFile(filepath.Join(fakeDataDir, csvName), []byte(s), 0o644)
 		c.Assert(err, IsNil)
 		fakeDataFiles = append(fakeDataFiles, mydump.FileInfo{
 			TableName: filter.Table{Schema: "db", Name: "table"},
@@ -923,6 +923,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 
 	cfg.Mydumper.SourceDir = "."
 	cfg.Mydumper.CSV.Header = false
+	cfg.TikvImporter.Backend = config.BackendImporter
 	tls, err := cfg.ToTLS()
 	c.Assert(err, IsNil)
 
@@ -1238,7 +1239,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 
 	dir := c.MkDir()
 	fileName := "db.limit.000.csv"
-	err = ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
+	err = os.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3\r\n4,5,6\r\n7,8,9\r"), 0o644)
 	c.Assert(err, IsNil)
 
 	store, err := storage.NewLocalStorage(dir)
@@ -1302,7 +1303,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverErrored(c *C) {
 func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 	dir := c.MkDir()
 	fileName := "db.table.000.csv"
-	err := ioutil.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0o644)
+	err := os.WriteFile(filepath.Join(dir, fileName), []byte("1,2,3,4\r\n4,5,6,7\r\n"), 0o644)
 	c.Assert(err, IsNil)
 
 	store, err := storage.NewLocalStorage(dir)
@@ -1472,29 +1473,14 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		Return(s.tableInfos, nil)
 	mockBackend.EXPECT().Close()
 	s.rc.backend = backend.MakeBackend(mockBackend)
-	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
-	mockSQLExecutor.EXPECT().
-		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil)
-	mockSession := mock.NewMockSession(s.controller)
-	mockSession.EXPECT().
-		Close().
-		AnyTimes().
-		Return()
-	mockSession.EXPECT().
-		Execute(gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil, nil)
+
+	mockDB, sqlMock, err := sqlmock.New()
+	c.Assert(err, IsNil)
+	for i := 0; i < 17; i++ {
+		sqlMock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(int64(i), 1))
+	}
 	mockTiDBGlue := mock.NewMockGlue(s.controller)
-	mockTiDBGlue.EXPECT().
-		GetSQLExecutor().
-		AnyTimes().
-		Return(mockSQLExecutor)
-	mockTiDBGlue.EXPECT().
-		GetSession(gomock.Any()).
-		AnyTimes().
-		Return(mockSession, nil)
+	mockTiDBGlue.EXPECT().GetDB().AnyTimes().Return(mockDB, nil)
 	mockTiDBGlue.EXPECT().
 		OwnsSQLExecutor().
 		AnyTimes().
@@ -1504,7 +1490,6 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		GetParser().
 		AnyTimes().
 		Return(parser)
-	mockSQLExecutor.EXPECT().Close()
 	s.rc.tidbGlue = mockTiDBGlue
 }
 

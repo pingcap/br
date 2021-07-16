@@ -369,7 +369,7 @@ func SplitLargeFile(
 				if !errors.ErrorEqual(err, io.EOF) {
 					return 0, nil, nil, err
 				}
-				log.L().Warn("file contains no '\r\n' at end", zap.String("path", dataFile.FileMeta.Path))
+				log.L().Warn(`file contains no '\r\n' at end`, zap.String("path", dataFile.FileMeta.Path))
 				pos = dataFile.FileMeta.FileSize
 			}
 			endOffset = pos

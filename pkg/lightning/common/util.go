@@ -20,7 +20,6 @@ import (
 	stderrors "errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -92,7 +91,7 @@ func IsDirExists(name string) bool {
 
 // IsEmptyDir checks if dir is empty.
 func IsEmptyDir(name string) bool {
-	entries, err := ioutil.ReadDir(name)
+	entries, err := os.ReadDir(name)
 	if err != nil {
 		return false
 	}
@@ -345,7 +344,7 @@ func GetJSON(ctx context.Context, client *http.Client, url string, v interface{}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -372,6 +371,10 @@ type KvPair struct {
 	Key []byte
 	// Val is the value of the KV pair
 	Val []byte
+	// RowID is the row id of the KV pair.
+	RowID int64
+	// Offset is the row's offset in file.
+	Offset int64
 }
 
 // TableHasAutoRowID return whether table has auto generated row id

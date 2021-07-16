@@ -156,6 +156,15 @@ func (reader *MetaReader) readDataFiles(ctx context.Context, output func(*backup
 	return walkLeafMetaFile(ctx, reader.storage, reader.backupMeta.FileIndex, outputFn)
 }
 
+// ArchiveSize return the size of Archive data
+func (reader *MetaReader) ArchiveSize(ctx context.Context, files []*backuppb.File) uint64 {
+	total := uint64(0)
+	for _, file := range files {
+		total += file.Size_
+	}
+	return total
+}
+
 // ReadDDLs reads the ddls from the backupmeta.
 // This function is compatible with the old backupmeta.
 func (reader *MetaReader) ReadDDLs(ctx context.Context) ([]byte, error) {
@@ -346,7 +355,7 @@ func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) (int, int) {
 	switch op {
 	case AppendMetaFile:
 		a.MetaFiles = append(a.MetaFiles, b.(*backuppb.File))
-		size += b.(*backuppb.File).Size()
+		size += int(b.(*backuppb.File).Size_)
 		itemCount++
 	case AppendDataFile:
 		// receive a batch of file because we need write and default sst are adjacent.
@@ -354,7 +363,7 @@ func (op AppendOp) appendFile(a *backuppb.MetaFile, b interface{}) (int, int) {
 		a.DataFiles = append(a.DataFiles, files...)
 		for _, f := range files {
 			itemCount++
-			size += f.Size()
+			size += int(f.Size_)
 		}
 	case AppendSchema:
 		a.Schemas = append(a.Schemas, b.(*backuppb.Schema))
@@ -634,13 +643,11 @@ func (writer *MetaWriter) flushMetasV2(ctx context.Context, op AppendOp) error {
 
 // ArchiveSize represents the size of ArchiveSize.
 func (writer *MetaWriter) ArchiveSize() uint64 {
-	total := uint64(writer.backupMeta.Size())
+	total := uint64(0)
 	for _, file := range writer.backupMeta.Files {
 		total += file.Size_
 	}
-	for _, size := range writer.metafileSizes {
-		total += uint64(size)
-	}
+	total += uint64(writer.metafileSizes["datafile"])
 	return total
 }
 

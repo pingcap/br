@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -38,6 +39,7 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
+	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -586,10 +588,10 @@ func (worker *restoreSchemaWorker) makeJobs(
 }
 
 func (worker *restoreSchemaWorker) doJob() {
-	var session checkpoints.Session
+	var session *sql.Conn
 	defer func() {
 		if session != nil {
-			session.Close()
+			_ = session.Close()
 		}
 	}()
 loop:
@@ -607,7 +609,14 @@ loop:
 			}
 			var err error
 			if session == nil {
-				session, err = worker.glue.GetSession(worker.ctx)
+				session, err = func() (*sql.Conn, error) {
+					// TODO: support lightning in SQL
+					db, err := worker.glue.GetDB()
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+					return db.Conn(worker.ctx)
+				}()
 				if err != nil {
 					worker.wg.Done()
 					worker.throw(err)
@@ -616,9 +625,13 @@ loop:
 				}
 			}
 			logger := log.With(zap.String("db", job.dbName), zap.String("table", job.tblName))
+			sqlWithRetry := common.SQLWithRetry{
+				Logger: log.L(),
+				DB:     session,
+			}
 			for _, stmt := range job.stmts {
 				task := logger.Begin(zap.DebugLevel, fmt.Sprintf("execute SQL: %s", stmt.sql))
-				_, err = session.Execute(worker.ctx, stmt.sql)
+				err = sqlWithRetry.Exec(worker.ctx, "run create schema job", stmt.sql)
 				task.End(zap.ErrorLevel, err)
 				if err != nil {
 					err = errors.Annotatef(err, "%s %s failed", job.stmtType.String(), common.UniqueTable(job.dbName, job.tblName))
@@ -2746,8 +2759,9 @@ func (tr *TableRestore) importKV(
 
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
-	if err == nil {
-		err = closedEngine.Cleanup(ctx)
+	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
+	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
+		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 
 	dur := task.End(zap.ErrorLevel, err)
@@ -3025,6 +3039,7 @@ func (cr *chunkRestore) encodeLoop(
 		var readDur, encodeDur time.Duration
 		canDeliver := false
 		kvPacket := make([]deliveredKVs, 0, maxKvPairsCnt)
+		curOffset := offset
 		var newOffset, rowID int64
 		var kvSize uint64
 	outLoop:
@@ -3055,7 +3070,7 @@ func (cr *chunkRestore) encodeLoop(
 			encodeDurStart := time.Now()
 			lastRow := cr.parser.LastRow()
 			// sql -> kv
-			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation)
+			kvs, encodeErr := kvEncoder.Encode(logger, lastRow.Row, lastRow.RowID, cr.chunk.ColumnPermutation, curOffset)
 			encodeDur += time.Since(encodeDurStart)
 			cr.parser.RecycleRow(lastRow)
 			if encodeErr != nil {
@@ -3074,6 +3089,7 @@ func (cr *chunkRestore) encodeLoop(
 				canDeliver = true
 				kvSize = 0
 			}
+			curOffset = newOffset
 		}
 		encodeTotalDur += encodeDur
 		metric.RowEncodeSecondsHistogram.Observe(encodeDur.Seconds())
