@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/pingcap/br/pkg/pdutil"
 	"io"
 	"math"
 	"os"
@@ -810,7 +811,7 @@ type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
 	conns    gRPCConns
-	pdCli    pd.Client
+	pdCtl    *pdutil.PdController
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -914,11 +915,11 @@ func NewLocalBackend(
 	localFile := cfg.SortedKVDir
 	rangeConcurrency := cfg.RangeConcurrency
 
-	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
+	pdCtl, err := pdutil.NewPdController(ctx, pdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
 	if err != nil {
 		return backend.MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
 	}
-	splitCli := split.NewSplitClient(pdCli, tls.TLSConfig())
+	splitCli := split.NewSplitClient(pdCtl.GetPDClient(), tls.TLSConfig())
 
 	shouldCreate := true
 	if enableCheckpoint {
@@ -954,7 +955,7 @@ func NewLocalBackend(
 
 	local := &local{
 		engines:  sync.Map{},
-		pdCli:    pdCli,
+		pdCtl:    pdCtl,
 		splitCli: splitCli,
 		tls:      tls,
 		pdAddr:   pdAddr,
@@ -977,7 +978,7 @@ func NewLocalBackend(
 		duplicateDB:             duplicateDB,
 	}
 	local.conns.conns = make(map[uint64]*connPool)
-	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
+	if err = local.checkMultiIngestSupport(ctx, pdCtl.GetPDClient()); err != nil {
 		return backend.MakeBackend(nil), err
 	}
 
@@ -1288,7 +1289,7 @@ func (local *local) allocateTSIfNotExists(ctx context.Context, engine *File) err
 	if engine.TS > 0 {
 		return nil
 	}
-	physical, logical, err := local.pdCli.GetTS(ctx)
+	physical, logical, err := local.pdCtl.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return err
 	}
@@ -1378,6 +1379,27 @@ func (local *local) WriteToTiKV(
 	region *split.RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, Range, rangeStats, error) {
+	for _, peer := range region.Region.GetPeers() {
+		var e error
+		for i := 0; i < maxRetryTimes; i ++ {
+			store, err := local.pdCtl.GetStoreInfo(ctx, peer.StoreId)
+			if err != nil {
+				e = err
+				continue
+			}
+			if store.Status.Capacity > 0 {
+				// The available disk percent of TiKV
+				ratio := store.Status.Available * 100 / store.Status.Capacity
+				if ratio < 10 {
+					return nil, Range{}, rangeStats{}, errors.Errorf("The available disk of TiKV only left %d, and capacity is %d", store.Status.Available, store.Status.Capacity)
+				}
+			}
+			break
+		}
+		if e != nil {
+			log.L().Error("failed to get StoreInfo from pd http api", zap.Error(e))
+		}
+	}
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}

@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	pd "github.com/tikv/pd/client"
 	"net"
 	"net/url"
 	"os"
@@ -67,6 +68,7 @@ const (
 	ErrorOnDup = "error"
 
 	defaultDistSQLScanConcurrency     = 15
+	distSQLScanConcurrencyPerStore    = 15
 	defaultBuildStatsConcurrency      = 20
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
@@ -84,6 +86,9 @@ const (
 	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 	defaultEngineMemCacheSize              = 512 * units.MiB
 	defaultLocalWriterMemCacheSize         = 128 * units.MiB
+
+	maxRetryTimes = 4
+	defaultRetryBackoffTime = 3 * time.Second
 )
 
 var (
@@ -398,7 +403,7 @@ func NewConfig() *Config {
 			StrSQLMode:                 "ONLY_FULL_GROUP_BY,NO_AUTO_CREATE_USER",
 			MaxAllowedPacket:           defaultMaxAllowedPacket,
 			BuildStatsConcurrency:      defaultBuildStatsConcurrency,
-			DistSQLScanConcurrency:     defaultDistSQLScanConcurrency,
+			DistSQLScanConcurrency:     0,
 			IndexSerialScanConcurrency: defaultIndexSerialScanConcurrency,
 			ChecksumTableConcurrency:   defaultChecksumTableConcurrency,
 		},
@@ -589,7 +594,7 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		if cfg.App.RegionConcurrency > cpuCount {
 			cfg.App.RegionConcurrency = cpuCount
 		}
-		cfg.DefaultVarsForImporterAndLocalBackend()
+		cfg.DefaultVarsForImporterAndLocalBackend(ctx)
 	default:
 		return errors.Errorf("invalid config: unsupported `tikv-importer.backend` (%s)", cfg.TikvImporter.Backend)
 	}
@@ -705,7 +710,41 @@ func (cfg *Config) DefaultVarsForTiDBBackend() {
 	}
 }
 
-func (cfg *Config) DefaultVarsForImporterAndLocalBackend() {
+func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
+	tls, err := cfg.ToTLS()
+	if err != nil {
+		return err
+	}
+	pdCli, err := pd.NewClientWithContext(ctx, []string{cfg.TiDB.PdAddr}, tls.ToPDSecurityOption())
+	if err != nil {
+		return err
+	}
+	stores, err := pdCli.GetAllStores(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.TiDB.DistSQLScanConcurrency = len(stores) * distSQLScanConcurrencyPerStore
+	log.L().Info("adjust scan concurrency success", zap.Int("DistSQLScanConcurrency", cfg.TiDB.DistSQLScanConcurrency))
+	pdCli.Close()
+	return nil
+}
+
+func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
+	if cfg.TiDB.DistSQLScanConcurrency == 0 {
+		var e error
+		for i:= 0; i < maxRetryTimes; i ++ {
+			e = cfg.adjustDistSQLConcurrency(ctx)
+			if e == nil {
+				break
+			}
+			time.Sleep(defaultRetryBackoffTime)
+		}
+		if e != nil {
+			log.L().Error("failed to adjust scan concurrency", zap.Error(e))
+			cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
+		}
+	}
+
 	if cfg.App.IndexConcurrency == 0 {
 		cfg.App.IndexConcurrency = 2
 	}
@@ -720,9 +759,6 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend() {
 	}
 	if cfg.TikvImporter.RegionSplitSize == 0 {
 		cfg.TikvImporter.RegionSplitSize = SplitRegionSize
-	}
-	if cfg.TiDB.DistSQLScanConcurrency == 0 {
-		cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
 	}
 	if cfg.TiDB.BuildStatsConcurrency == 0 {
 		cfg.TiDB.BuildStatsConcurrency = defaultBuildStatsConcurrency
