@@ -364,7 +364,7 @@ func (r *gcsObjectReader) Seek(offset int64, whence int) (int64, error) {
 		if offset >= 0 {
 			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' should be negative.", offset)
 		}
-		// It's support for `NewRangeReader(ctx, -10, -1)`, which means read the last 10 bytes.
+		// GCS supports `NewRangeReader(ctx, -10, -1)`, which means read the last 10 bytes.
 		realOffset = offset
 	default:
 		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
