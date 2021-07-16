@@ -43,7 +43,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	err = stg.WriteFile(ctx, "key1", []byte("data1"))
 	c.Assert(err, IsNil)
 
-	err = stg.WriteFile(ctx, "key2", []byte("data22223346757222222222222222222"))
+	err = stg.WriteFile(ctx, "key2", []byte("data22223346757222222222289722222"))
 	c.Assert(err, IsNil)
 
 	rc, err := server.Client().Bucket(bucketName).Object("a/b/key").NewReader(ctx)
@@ -89,7 +89,7 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	n, err = efr.Read(p)
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 23)
-	c.Assert(string(p[:23]), Equals, "46757222222222222222222")
+	c.Assert(string(p[:23]), Equals, "46757222222222289722222")
 
 	p = make([]byte, 5)
 	offs, err := efr.Seek(3, io.SeekStart)
@@ -110,6 +110,18 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(n, Equals, 5)
 	c.Assert(string(p), Equals, "67572")
+
+	/* Since fake_gcs_server hasn't support for negative offset yet.
+	p = make([]byte, 5)
+	offs, err = efr.Seek(int64(-7), io.SeekEnd)
+	c.Assert(err, IsNil)
+	c.Assert(offs, Equals, int64(-7))
+
+	n, err = efr.Read(p)
+	c.Assert(err, IsNil)
+	c.Assert(n, Equals, 5)
+	c.Assert(string(p), Equals, "97222")
+	*/
 
 	err = efr.Close()
 	c.Assert(err, IsNil)

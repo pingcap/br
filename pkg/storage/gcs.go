@@ -173,14 +173,22 @@ func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(strin
 	if opt == nil {
 		opt = &WalkOption{}
 	}
+
+	maxKeys := int64(1000)
+	if opt.ListCount > 0 {
+		maxKeys = opt.ListCount
+	}
+
 	prefix := path.Join(s.gcs.Prefix, opt.SubDir)
 	if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
 
 	query := &storage.Query{Prefix: prefix}
+	// only need each object's name and size
+	query.SetAttrSelection([]string{"Name", "Size"})
 	iter := s.bucket.Objects(ctx, query)
-	for {
+	for i := int64(0); i != maxKeys; i++ {
 		attrs, err := iter.Next()
 		if err == iterator.Done {
 			break
@@ -343,7 +351,7 @@ func (r *gcsObjectReader) Seek(offset int64, whence int) (int64, error) {
 	var realOffset int64
 	switch whence {
 	case io.SeekStart:
-		if r.pos < 0 {
+		if offset < 0 {
 			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' out of range.", offset)
 		}
 		realOffset = offset
@@ -356,6 +364,7 @@ func (r *gcsObjectReader) Seek(offset int64, whence int) (int64, error) {
 		if offset >= 0 {
 			return 0, errors.Annotatef(berrors.ErrInvalidArgument, "Seek: offset '%v' should be negative.", offset)
 		}
+		// It's support for `NewRangeReader(ctx, -10, -1)`, which means read the last 10 bytes.
 		realOffset = offset
 	default:
 		return 0, errors.Annotatef(berrors.ErrStorageUnknown, "Seek: invalid whence '%d'", whence)
