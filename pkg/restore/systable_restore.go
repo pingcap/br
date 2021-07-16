@@ -91,7 +91,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 		tableName := table.Info.Name
 		if f.MatchTable(sysDB, tableName.O) {
 			if err := rc.replaceTemporaryTableToSystable(ctx, tableName.L, db); err != nil {
-				logutil.WarnTerm("error during merging temporary tables into system tables",
+				log.Warn("error during merging temporary tables into system tables",
 					logutil.ShortError(err),
 					zap.Stringer("table", tableName),
 				)
@@ -101,7 +101,7 @@ func (rc *Client) RestoreSystemSchemas(ctx context.Context, f filter.Filter) {
 	}
 	if err := rc.afterSystemTablesReplaced(ctx, tablesRestored); err != nil {
 		for _, e := range multierr.Errors(err) {
-			logutil.WarnTerm("error during reconfigurating the system tables", zap.String("database", sysDB), logutil.ShortError(e))
+			log.Warn("error during reconfigurating the system tables", zap.String("database", sysDB), logutil.ShortError(e))
 		}
 	}
 }
