@@ -86,7 +86,7 @@ restore_size=`cat ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]
 echo "restore data size is ${restore_size}"
 
 diff=$(calc "$backupv2_size-$restore_size*$TABLES_COUNT")
-echo ${diff}
+echo "the difference is ${diff}"
 
 threshold="1"
 
