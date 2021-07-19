@@ -221,12 +221,17 @@ func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
 	}
 	return nil
 }
+// LocalResource checks the local node has enough resources for this import when local backend enabled;
+func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) error {
+	return rc.SampleSourceData(ctx)
+}
 
 // LocalResource checks the local node has enough resources for this import when local backend enabled;
 func (rc *Controller) LocalResource(ctx context.Context) error {
 	if rc.isSourceInLocal() {
 		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
 		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
+
 		if err != nil {
 			return errors.Trace(err)
 		}

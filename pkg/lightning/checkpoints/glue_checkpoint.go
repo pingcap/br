@@ -221,6 +221,41 @@ func (g GlueCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckpoint,
 	return taskCp, nil
 }
 
+func (g GlueCheckpointsDB) IsEmpty(ctx context.Context) (bool, error) {
+	logger := log.L()
+	sql := fmt.Sprintf(ReadEngineCountTemplate, g.schema, CheckpointTableNameTask)
+	se, err := g.getSessionFunc()
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+	defer se.Close()
+
+	taskCount := int64(0)
+	err = common.Retry("fetch engine count", logger, func() error {
+		rs, err := se.Execute(ctx, sql)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		r := rs[0]
+		defer r.Close()
+		req := r.NewChunk()
+		err = r.Next(ctx, req)
+		if err != nil {
+			return err
+		}
+		if req.NumRows() == 0 {
+			return nil
+		}
+		row := req.GetRow(0)
+		taskCount = row.GetInt64(0)
+		return nil
+	})
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+	return taskCount == 0, nil
+}
+
 func (g GlueCheckpointsDB) Get(ctx context.Context, tableName string) (*TableCheckpoint, error) {
 	cp := &TableCheckpoint{
 		Engines: map[int32]*EngineCheckpoint{},

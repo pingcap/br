@@ -43,6 +43,7 @@ type MDTableMeta struct {
 	DataFiles  []FileInfo
 	charSet    string
 	TotalSize  int64
+	IndexRatio float64
 }
 
 type SourceFileMeta struct {
@@ -432,6 +433,7 @@ func (s *mdLoaderSetup) insertTable(fileInfo FileInfo) (*MDTableMeta, bool, bool
 		SchemaFile: fileInfo,
 		DataFiles:  make([]FileInfo, 0, 16),
 		charSet:    s.loader.charSet,
+		IndexRatio: 0.0,
 	}
 	dbMeta.Tables = append(dbMeta.Tables, ptr)
 	return ptr, dbExists, false
@@ -446,6 +448,7 @@ func (s *mdLoaderSetup) insertView(fileInfo FileInfo) (bool, bool) {
 			Name:       fileInfo.TableName.Name,
 			SchemaFile: fileInfo,
 			charSet:    s.loader.charSet,
+			IndexRatio: 0.0,
 		}
 		dbMeta.Views = append(dbMeta.Views, meta)
 	}
