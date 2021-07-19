@@ -30,7 +30,8 @@ func (s *testLoggingSuite) TestLogRanges(c *C) {
 		{4, `{"ranges": {"total": 4, "ranges": ["[30, 31)", "[31, 32)", "[32, 33)", "[33, 34)"], "file-count": 4, "kv-paris-count": 6, "data-size": "6B", "after-compress-size": "0B"}}`},
 		{5, `{"ranges": {"total": 5, "ranges": ["[30, 31)", "(skip 3)", "[34, 35)"], "file-count": 5, "kv-paris-count": 10, "data-size": "10B", "after-compress-size": "0B"}}`},
 		{6, `{"ranges": {"total": 6, "ranges": ["[30, 31)", "(skip 4)", "[35, 36)"], "file-count": 6, "kv-paris-count": 15, "data-size": "15B", "after-compress-size": "0B"}}`},
-		{1024, `{"ranges": {"total": 1024, "ranges": ["[30, 31)", "(skip 1022)", "[31303233, 31303234)"], "file-count": 1024, "kv-paris-count": 523776, "data-size": "523.8kB", "after-compress-size": "0B"}}`}}
+		{1024, `{"ranges": {"total": 1024, "ranges": ["[30, 31)", "(skip 1022)", "[31303233, 31303234)"], "file-count": 1024, "kv-paris-count": 523776, "data-size": "523.8kB", "after-compress-size": "0B"}}`},
+	}
 
 	encoder := zapcore.NewConsoleEncoder(zapcore.EncoderConfig{})
 	for _, cs := range cases {
