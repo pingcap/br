@@ -2287,7 +2287,7 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 	w := &Writer{
 		local:              f,
 		memtableSizeLimit:  cacheSize,
-		kvBuffer:           membuf.NewBuffer(),
+		kvBuffer:           bufferPool.NewBuffer(),
 		isKVSorted:         cfg.IsKVSorted,
 		isWriteBatchSorted: true,
 	}
