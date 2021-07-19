@@ -102,7 +102,7 @@ func (b *Buffer) addBuf() {
 	b.curIdx = 0
 }
 
-// Reset reset the buffer.
+// Reset resets the buffer.
 func (b *Buffer) Reset() {
 	if len(b.bufs) > 0 {
 		b.curBuf = b.bufs[0]
@@ -112,7 +112,7 @@ func (b *Buffer) Reset() {
 	}
 }
 
-// Destroy free all buffer.
+// Destroy frees all buffers.
 func (b *Buffer) Destroy() {
 	for _, buf := range b.bufs {
 		b.pool.release(buf)
@@ -125,7 +125,7 @@ func (b *Buffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
-// AllocBytes allocate bytes with the given length.
+// AllocBytes allocates bytes with the given length.
 func (b *Buffer) AllocBytes(n int) []byte {
 	if n > bigValueSize {
 		return make([]byte, n)
@@ -138,7 +138,7 @@ func (b *Buffer) AllocBytes(n int) []byte {
 	return b.curBuf[idx:b.curIdx:b.curIdx]
 }
 
-// AddBytes add the bytes into this Buffer.
+// AddBytes adds the bytes into this Buffer.
 func (b *Buffer) AddBytes(bytes []byte) []byte {
 	buf := b.AllocBytes(len(bytes))
 	copy(buf, bytes)
