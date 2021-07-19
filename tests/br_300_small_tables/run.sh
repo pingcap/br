@@ -26,6 +26,11 @@ rm -rf $PROGRESS_FILE
 # functions to do float point arithmetric
 calc() { awk "BEGIN{print $*}"; }
 
+# functions to get the abs of the value 
+abs() { awk "
+  function abs(v) {return v < 0.0 ? -v : v}
+  BEGIN{print abs(${diff})}"; }
+
 run_sql "create schema $DB;"
 
 # generate 300 tables with 1 row content.
@@ -86,6 +91,7 @@ restore_size=`cat ${RESTORE_LOG} | grep "restore data size" | grep -oP '\[\K[^\]
 echo "restore data size is ${restore_size}"
 
 diff=$(calc "$backupv2_size-$restore_size*$TABLES_COUNT")
+diff=$(abs "$diff")
 echo "the difference is ${diff}"
 
 threshold="1"
