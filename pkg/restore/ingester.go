@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/membuf"
+
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -377,7 +379,7 @@ func (i *Ingester) writeToTiKV(
 		requests = append(requests, req)
 	}
 
-	bytesBuf := utils.NewBytesBuffer()
+	bytesBuf := membuf.NewBuffer()
 	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, i.batchWriteKVPairs)
 	count := 0

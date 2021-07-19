@@ -1,4 +1,4 @@
-// Copyright 2020 PingCAP, Inc.
+// Copyright 2021 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,46 +11,75 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package utils
+package membuf
 
 const (
+	allocBufLen  = 1 << 20 // 1M
 	bigValueSize = 1 << 16 // 64K
 )
 
-type bytesRecycleChan struct {
-	ch chan []byte
+// Allocator is the abstract interface for allocating and freeing memory.
+type Allocator interface {
+	Alloc(n int) []byte
+	Free([]byte)
 }
 
-// recycleChan is used for reusing allocated []byte so we can use memory more efficiently
+type stdAllocator struct{}
+
+func (stdAllocator) Alloc(n int) []byte {
+	return make([]byte, n)
+}
+
+func (stdAllocator) Free(_ []byte) {}
+
+// Pool is like `sync.Pool`, which manages memory for all bytes buffers.
 //
 // NOTE: we don't used a `sync.Pool` because when will sync.Pool release is depending on the
 // garbage collector which always release the memory so late. Use a fixed size chan to reuse
 // can decrease the memory usage to 1/3 compare with sync.Pool.
-var recycleChan = &bytesRecycleChan{
-	ch: make(chan []byte, 1024),
+type Pool struct {
+	allocator Allocator
+	recycleCh chan []byte
 }
 
-// Acquire try reuse the buffer from pool or alloc 1M buffer
-// if there is nothing in pool.
-func (c *bytesRecycleChan) Acquire() []byte {
+// NewPool creates a new pool.
+func NewPool(size int, allocator Allocator) *Pool {
+	return &Pool{
+		allocator: allocator,
+		recycleCh: make(chan []byte, size),
+	}
+}
+
+func (p *Pool) acquire() []byte {
 	select {
-	case b := <-c.ch:
+	case b := <-p.recycleCh:
 		return b
 	default:
-		return make([]byte, 1<<20) // 1M
+		return p.allocator.Alloc(allocBufLen)
 	}
 }
 
-// Release free the buffer or put it into pool.
-func (c *bytesRecycleChan) Release(w []byte) {
+func (p *Pool) release(b []byte) {
 	select {
-	case c.ch <- w:
+	case p.recycleCh <- b:
 	default:
+		p.allocator.Free(b)
 	}
 }
 
-// BytesBuffer represents the reuse buffer.
-type BytesBuffer struct {
+// NewBuffer creates a new buffer in current pool.
+func (p *Pool) NewBuffer() *Buffer {
+	return &Buffer{pool: p, bufs: make([][]byte, 0, 128), curBufIdx: -1}
+}
+
+var globalPool = NewPool(1024, stdAllocator{})
+
+// NewBuffer creates a new buffer in global pool.
+func NewBuffer() *Buffer { return globalPool.NewBuffer() }
+
+// Buffer represents the reuse buffer.
+type Buffer struct {
+	pool      *Pool
 	bufs      [][]byte
 	curBuf    []byte
 	curIdx    int
@@ -58,18 +87,13 @@ type BytesBuffer struct {
 	curBufLen int
 }
 
-// NewBytesBuffer creates the BytesBuffer.
-func NewBytesBuffer() *BytesBuffer {
-	return &BytesBuffer{bufs: make([][]byte, 0, 128), curBufIdx: -1}
-}
-
-// AddBuf adds buffer to BytesBuffer.
-func (b *BytesBuffer) AddBuf() {
+// AddBuf adds buffer to Buffer.
+func (b *Buffer) addBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
 		b.curBufIdx++
 		b.curBuf = b.bufs[b.curBufIdx]
 	} else {
-		buf := recycleChan.Acquire()
+		buf := b.pool.acquire()
 		b.bufs = append(b.bufs, buf)
 		b.curBuf = buf
 		b.curBufIdx = len(b.bufs) - 1
@@ -80,7 +104,7 @@ func (b *BytesBuffer) AddBuf() {
 }
 
 // Reset reset the buffer.
-func (b *BytesBuffer) Reset() {
+func (b *Buffer) Reset() {
 	if len(b.bufs) > 0 {
 		b.curBuf = b.bufs[0]
 		b.curBufLen = len(b.bufs[0])
@@ -90,33 +114,33 @@ func (b *BytesBuffer) Reset() {
 }
 
 // Destroy free all buffer.
-func (b *BytesBuffer) Destroy() {
+func (b *Buffer) Destroy() {
 	for _, buf := range b.bufs {
-		recycleChan.Release(buf)
+		b.pool.release(buf)
 	}
 	b.bufs = b.bufs[:0]
 }
 
-// TotalSize represents the total memory size of this BytesBuffer.
-func (b *BytesBuffer) TotalSize() int64 {
+// TotalSize represents the total memory size of this Buffer.
+func (b *Buffer) TotalSize() int64 {
 	return int64(len(b.bufs)) * int64(1<<20)
 }
 
 // AllocBytes allocate bytes with the given length.
-func (b *BytesBuffer) AllocBytes(n int) []byte {
+func (b *Buffer) AllocBytes(n int) []byte {
 	if n > bigValueSize {
 		return make([]byte, n)
 	}
 	if b.curIdx+n > b.curBufLen {
-		b.AddBuf()
+		b.addBuf()
 	}
 	idx := b.curIdx
 	b.curIdx += n
 	return b.curBuf[idx:b.curIdx:b.curIdx]
 }
 
-// AddBytes add the bytes into this BytesBuffer.
-func (b *BytesBuffer) AddBytes(bytes []byte) []byte {
+// AddBytes add the bytes into this Buffer.
+func (b *Buffer) AddBytes(bytes []byte) []byte {
 	buf := b.AllocBytes(len(bytes))
 	copy(buf, bytes)
 	return buf

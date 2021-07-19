@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pingcap/br/pkg/lightning/manual"
+
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/coreos/go-semver/semver"
@@ -72,6 +74,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/membuf"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -893,6 +896,8 @@ func newConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, e
 	}
 }
 
+var bufferPool = membuf.NewPool(1024, manual.Allocator{})
+
 func openDuplicateDB(storeDir string) (*pebble.DB, error) {
 	dbPath := filepath.Join(storeDir, duplicateDBName)
 	// TODO: Optimize the opts for better write.
@@ -1445,7 +1450,7 @@ func (local *local) WriteToTiKV(
 		requests = append(requests, req)
 	}
 
-	bytesBuf := utils.NewBytesBuffer()
+	bytesBuf := bufferPool.NewBuffer()
 	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, local.batchWriteKVPairs)
 	count := 0
@@ -2282,7 +2287,7 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 	w := &Writer{
 		local:              f,
 		memtableSizeLimit:  cacheSize,
-		kvBuffer:           utils.NewBytesBuffer(),
+		kvBuffer:           membuf.NewBuffer(),
 		isKVSorted:         cfg.IsKVSorted,
 		isWriteBatchSorted: true,
 	}
@@ -2599,7 +2604,7 @@ type Writer struct {
 	writer     *sstWriter
 
 	// bytes buffer for writeBatch
-	kvBuffer   *utils.BytesBuffer
+	kvBuffer   *membuf.Buffer
 	writeBatch []common.KvPair
 	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
 	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
