@@ -117,7 +117,7 @@ func (b *Buffer) Destroy() {
 	for _, buf := range b.bufs {
 		b.pool.release(buf)
 	}
-	b.bufs = b.bufs[:0]
+	b.bufs = nil
 }
 
 // TotalSize represents the total memory size of this Buffer.
