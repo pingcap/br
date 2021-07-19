@@ -13,10 +13,9 @@
 
 package membuf
 
-const (
-	allocBufLen  = 1 << 20 // 1M
-	bigValueSize = 1 << 16 // 64K
-)
+const bigValueSize = 1 << 16 // 64K
+
+var allocBufLen = 1 << 20 // 1M
 
 // Allocator is the abstract interface for allocating and freeing memory.
 type Allocator interface {
