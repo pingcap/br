@@ -120,7 +120,7 @@ bin/br restore table --db test \
 	--log-file restore_test.log
 
 # How many rows do we get after restore? Expected to be 300242 rows.
-mysql --host 127.0.0.1 -P4000 -E -e "SELECT COUNT(*) FROM test.order_line" -uroot -p
+mysql --host 127.0.0.1 -P4000 -E -e "SELECT COUNT(*) FROM test.order_line" -u root -p
 ```
 
 ## Compatible test
