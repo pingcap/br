@@ -28,12 +28,12 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
-
-	"github.com/pingcap/br/pkg/lightning/glue"
+	"github.com/pingcap/tidb/sessionctx/binloginfo"
 
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
@@ -219,7 +219,7 @@ func createTableIfNotExistsStmt(p *parser.Parser, createTable, dbName, tblName s
 			return []string{}, err
 		}
 		ctx.WritePlain(";")
-		retStmts = append(retStmts, res.String())
+		retStmts = append(retStmts, binloginfo.AddSpecialComment(res.String()))
 		res.Reset()
 	}
 
