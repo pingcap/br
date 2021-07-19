@@ -422,12 +422,10 @@ func (bc *Client) BackupRanges(
 	// we collect all files in a single goroutine to avoid thread safety issues.
 	workerPool := utils.NewWorkerPool(concurrency, "Ranges")
 	eg, ectx := errgroup.WithContext(ctx)
-	for id, r := range ranges {
-		id := id
+	for _, r := range ranges {
 		sk, ek := r.StartKey, r.EndKey
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			elctx := logutil.ContextWithField(ectx, zap.Int("range-sn", id))
-			err := bc.BackupRange(elctx, sk, ek, req, metaWriter, progressCallBack)
+			err := bc.BackupRange(ectx, sk, ek, req, metaWriter, progressCallBack)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -449,14 +447,15 @@ func (bc *Client) BackupRange(
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
-		logutil.CL(ctx).Info("backup range finished", zap.Duration("take", elapsed))
+		log.Info("backup range finished", zap.Duration("take", elapsed))
 		key := "range start:" + hex.EncodeToString(startKey) + " end:" + hex.EncodeToString(endKey)
 		if err != nil {
 			summary.CollectFailureUnit(key, err)
 		}
 	}()
-	logutil.CL(ctx).Info("backup started",
-		logutil.Key("startKey", startKey), logutil.Key("endKey", endKey),
+	log.Info("backup started",
+		logutil.Key("startKey", startKey),
+		logutil.Key("endKey", endKey),
 		zap.Uint64("rateLimit", req.RateLimit),
 		zap.Uint32("concurrency", req.Concurrency))
 
@@ -477,7 +476,7 @@ func (bc *Client) BackupRange(
 	if err != nil {
 		return errors.Trace(err)
 	}
-	logutil.CL(ctx).Info("finish backup push down", zap.Int("small-range-count", results.Len()))
+	log.Info("finish backup push down", zap.Int("Ok", results.Len()))
 
 	// Find and backup remaining ranges.
 	// TODO: test fine grained backup.
@@ -492,12 +491,12 @@ func (bc *Client) BackupRange(
 	progressCallBack(RangeUnit)
 
 	if req.IsRawKv {
-		logutil.CL(ctx).Info("raw ranges backed up",
+		log.Info("backup raw ranges",
 			logutil.Key("startKey", startKey),
 			logutil.Key("endKey", endKey),
 			zap.String("cf", req.Cf))
 	} else {
-		logutil.CL(ctx).Info("time range backed up",
+		log.Info("backup time range",
 			zap.Reflect("StartVersion", req.StartVersion),
 			zap.Reflect("EndVersion", req.EndVersion))
 	}
@@ -592,7 +591,7 @@ func (bc *Client) fineGrainedBackup(
 		if len(incomplete) == 0 {
 			return nil
 		}
-		logutil.CL(ctx).Info("start fine grained backup", zap.Int("incomplete", len(incomplete)))
+		log.Info("start fine grained backup", zap.Int("incomplete", len(incomplete)))
 		// Step2, retry backup on incomplete range
 		respCh := make(chan *backuppb.BackupResponse, 4)
 		errCh := make(chan error, 4)
@@ -649,12 +648,12 @@ func (bc *Client) fineGrainedBackup(
 					break selectLoop
 				}
 				if resp.Error != nil {
-					logutil.CL(ctx).Panic("unexpected backup error",
+					log.Panic("unexpected backup error",
 						zap.Reflect("error", resp.Error))
 				}
-				logutil.CL(ctx).Info("put fine grained range",
-					logutil.Key("fine-grained-range-start", resp.StartKey),
-					logutil.Key("fine-grained-range-end", resp.EndKey),
+				log.Info("put fine grained range",
+					logutil.Key("startKey", resp.StartKey),
+					logutil.Key("endKey", resp.EndKey),
 				)
 				rangeTree.Put(resp.StartKey, resp.EndKey, resp.Files)
 
@@ -782,11 +781,11 @@ func (bc *Client) handleFineGrained(
 		if berrors.Is(err, berrors.ErrFailedToConnect) {
 			// When the leader store is died,
 			// 20s for the default max duration before the raft election timer fires.
-			logutil.CL(ctx).Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
 			return 20000, nil
 		}
 
-		logutil.CL(ctx).Error("fail to connect store", zap.Uint64("StoreID", storeID))
+		log.Error("fail to connect store", zap.Uint64("StoreID", storeID))
 		return 0, errors.Annotatef(err, "failed to connect to store %d", storeID)
 	}
 	hasProgress := false
@@ -813,17 +812,17 @@ func (bc *Client) handleFineGrained(
 			return nil
 		},
 		func() (backuppb.BackupClient, error) {
-			logutil.CL(ctx).Warn("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
+			log.Warn("reset the connection in handleFineGrained", zap.Uint64("storeID", storeID))
 			return bc.mgr.ResetBackupClient(ctx, storeID)
 		})
 	if err != nil {
 		if berrors.Is(err, berrors.ErrFailedToConnect) {
 			// When the leader store is died,
 			// 20s for the default max duration before the raft election timer fires.
-			logutil.CL(ctx).Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
+			log.Warn("failed to connect to store, skipping", logutil.ShortError(err), zap.Uint64("storeID", storeID))
 			return 20000, nil
 		}
-		logutil.CL(ctx).Error("failed to send fine-grained backup", zap.Uint64("storeID", storeID), logutil.ShortError(err))
+		log.Error("failed to send fine-grained backup", zap.Uint64("storeID", storeID), logutil.ShortError(err))
 		return 0, errors.Annotatef(err, "failed to send fine-grained backup [%s, %s)",
 			redact.Key(req.StartKey), redact.Key(req.EndKey))
 	}
@@ -841,7 +840,6 @@ func (bc *Client) handleFineGrained(
 // Stop receiving response if respFn returns error.
 func SendBackup(
 	ctx context.Context,
-	// the `storeID` seems only used for logging now, maybe we can remove it then?
 	storeID uint64,
 	client backuppb.BackupClient,
 	req backuppb.BackupRequest,
@@ -860,11 +858,14 @@ func SendBackup(
 	var errReset error
 backupLoop:
 	for retry := 0; retry < backupRetryTimes; retry++ {
-		logutil.CL(ctx).Info("try backup",
+		log.Info("try backup",
+			logutil.Key("startKey", req.StartKey),
+			logutil.Key("endKey", req.EndKey),
+			zap.Uint64("storeID", storeID),
 			zap.Int("retry time", retry),
 		)
 		failpoint.Inject("hint-backup-start", func(v failpoint.Value) {
-			logutil.CL(ctx).Info("failpoint hint-backup-start injected, " +
+			log.Info("failpoint hint-backup-start injected, " +
 				"process will notify the shell.")
 			if sigFile, ok := v.(string); ok {
 				file, err := os.Create(sigFile)
@@ -880,13 +881,13 @@ backupLoop:
 		bcli, err := client.Backup(ctx, &req)
 		failpoint.Inject("reset-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
-				logutil.CL(ctx).Debug("failpoint reset-retryable-error injected.")
+				log.Debug("failpoint reset-retryable-error injected.")
 				err = status.Error(codes.Unavailable, "Unavailable error")
 			}
 		})
 		failpoint.Inject("reset-not-retryable-error", func(val failpoint.Value) {
 			if val.(bool) {
-				logutil.CL(ctx).Debug("failpoint reset-not-retryable-error injected.")
+				log.Debug("failpoint reset-not-retryable-error injected.")
 				err = status.Error(codes.Unknown, "Your server was haunted hence doesn't work, meow :3")
 			}
 		})
@@ -900,7 +901,7 @@ backupLoop:
 				}
 				continue
 			}
-			logutil.CL(ctx).Error("fail to backup", zap.Uint64("StoreID", storeID),
+			log.Error("fail to backup", zap.Uint64("StoreID", storeID),
 				zap.Int("retry time", retry))
 			return berrors.ErrFailedToConnect.Wrap(err).GenWithStack("failed to create backup stream to store %d", storeID)
 		}
@@ -910,8 +911,9 @@ backupLoop:
 			resp, err := bcli.Recv()
 			if err != nil {
 				if errors.Cause(err) == io.EOF { // nolint:errorlint
-					logutil.CL(ctx).Info("backup streaming finish",
-						zap.Int("retry-time", retry))
+					log.Info("backup streaming finish",
+						zap.Uint64("StoreID", storeID),
+						zap.Int("retry time", retry))
 					break backupLoop
 				}
 				if isRetryableError(err) {
@@ -928,9 +930,9 @@ backupLoop:
 			}
 
 			// TODO: handle errors in the resp.
-			logutil.CL(ctx).Info("range backed up",
-				logutil.Key("small-range-start-key", resp.GetStartKey()),
-				logutil.Key("small-range-end-key", resp.GetEndKey()))
+			log.Info("range backuped",
+				logutil.Key("startKey", resp.GetStartKey()),
+				logutil.Key("endKey", resp.GetEndKey()))
 			err = respFn(resp)
 			if err != nil {
 				return errors.Trace(err)
