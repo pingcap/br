@@ -26,7 +26,7 @@ do_run_lightning() {
 mkdir -p $DBPATH
 echo 'CREATE DATABASE cppq_tsr;' > "$DBPATH/cppq_tsr-schema-create.sql"
 # column "iVal" use for testing column name with upper case is properly handled
-echo 'CREATE TABLE tbl(iVal INT, s VARCHAR(16));' > "$DBPATH/cppq_tsr.tbl-schema.sql"
+echo 'CREATE TABLE tbl(iVal INT PRIMARY KEY, s VARCHAR(16));' > "$DBPATH/cppq_tsr.tbl-schema.sql"
 bin/parquet_gen --dir $DBPATH --schema cppq_tsr --table tbl --chunk 1 --rows $ROW_COUNT
 
 # Set the failpoint to kill the lightning instance as soon as one batch data is written
