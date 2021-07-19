@@ -130,6 +130,24 @@ func NewRestoreClient(
 	}, nil
 }
 
+// ReportWorkerPoolUtilizationLoop let the client report the health of the worker pool.
+func (rc *Client) ReportWorkerPoolUtilizationLoop(ctx context.Context, gap time.Duration) {
+	tick := time.NewTicker(gap)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			log.Info("restore client: worker health report",
+				zap.Int("idle", rc.workerPool.IdleCount()),
+				zap.Int("total", rc.workerPool.Limit()),
+				zap.String("used", fmt.Sprintf("%.2f%%", (1-float64(rc.workerPool.IdleCount())/float64(rc.workerPool.Limit()))*100)),
+			)
+		}
+	}
+}
+
 // SetRateLimit to set rateLimit.
 func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
@@ -498,9 +516,14 @@ func (rc *Client) createTablesWithDBPool(ctx context.Context,
 	tables []*metautil.Table, dbPool []*DB) error {
 	eg, ectx := errgroup.WithContext(ctx)
 	workers := utils.NewWorkerPool(uint(len(dbPool)), "DDL workers")
+	rater := logutil.NewTrivialRater()
 	for _, t := range tables {
 		table := t
 		workers.ApplyWithIDInErrorGroup(eg, func(id uint64) error {
+			defer func() {
+				rater.Success(1)
+				rater.L().Info("table restored", zap.Stringer("table", table.Info.Name))
+			}()
 			db := dbPool[id%uint64(len(dbPool))]
 			return createOneTable(ectx, db, table)
 		})
@@ -577,13 +600,15 @@ func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.F
 	return files[:idx], files[idx:]
 }
 
-// RestoreFiles tries to restore the files.
-func (rc *Client) RestoreFiles(
+// RestoreFilesAndThen tries to restore the files.
+func (rc *Client) RestoreFilesAndThen(
 	ctx context.Context,
 	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
-) (err error) {
+	callback func(error),
+) {
+	var err error
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
@@ -604,7 +629,8 @@ func (rc *Client) RestoreFiles(
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {
-		return errors.Trace(err)
+		callback(errors.Trace(err))
+		return
 	}
 
 	var rangeFiles []*backuppb.File
@@ -629,9 +655,9 @@ func (rc *Client) RestoreFiles(
 			"restore files failed",
 			zap.Error(err),
 		)
-		return errors.Trace(err)
+		callback(errors.Trace(err))
 	}
-	return nil
+	callback(nil)
 }
 
 // RestoreRaw tries to restore raw keys in the specified range.

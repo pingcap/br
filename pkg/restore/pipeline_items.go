@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/pingcap/br/pkg/metautil"
+	"github.com/pingcap/br/pkg/utils"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -184,6 +185,8 @@ type tikvSender struct {
 	inCh chan<- DrainResult
 
 	wg *sync.WaitGroup
+
+	tableWaiters *sync.Map
 }
 
 func (b *tikvSender) PutSink(sink TableSink) {
@@ -193,6 +196,7 @@ func (b *tikvSender) PutSink(sink TableSink) {
 }
 
 func (b *tikvSender) RestoreBatch(ranges DrainResult) {
+	log.Info("restore batch: waiting ranges", zap.Int("range", len(b.inCh)))
 	b.inCh <- ranges
 }
 
@@ -201,29 +205,49 @@ func NewTiKVSender(
 	ctx context.Context,
 	cli *Client,
 	updateCh glue.Progress,
+	splitConcurrency uint,
 ) (BatchSender, error) {
 	inCh := make(chan DrainResult, defaultChannelSize)
-	midCh := make(chan DrainResult, defaultChannelSize)
+	midCh := make(chan drainResultAndDone, defaultChannelSize)
 
 	sender := &tikvSender{
-		client:   cli,
-		updateCh: updateCh,
-		inCh:     inCh,
-		wg:       new(sync.WaitGroup),
+		client:       cli,
+		updateCh:     updateCh,
+		inCh:         inCh,
+		wg:           new(sync.WaitGroup),
+		tableWaiters: new(sync.Map),
 	}
 
 	sender.wg.Add(2)
-	go sender.splitWorker(ctx, inCh, midCh)
+	go sender.splitWorker(ctx, inCh, midCh, splitConcurrency)
 	go sender.restoreWorker(ctx, midCh)
 	return sender, nil
 }
 
-func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult, next chan<- DrainResult) {
+func (b *tikvSender) Close() {
+	close(b.inCh)
+	b.wg.Wait()
+	log.Debug("tikv sender closed")
+}
+
+type drainResultAndDone struct {
+	result DrainResult
+	done   func()
+}
+
+func (b *tikvSender) splitWorker(ctx context.Context,
+	ranges <-chan DrainResult,
+	next chan<- drainResultAndDone,
+	concurrency uint,
+) {
 	defer log.Debug("split worker closed")
+	splitWorks := new(sync.WaitGroup)
 	defer func() {
+		splitWorks.Wait()
 		b.wg.Done()
 		close(next)
 	}()
+	pool := utils.NewWorkerPool(concurrency, "split")
 	for {
 		select {
 		case <-ctx.Done():
@@ -232,19 +256,58 @@ func (b *tikvSender) splitWorker(ctx context.Context, ranges <-chan DrainResult,
 			if !ok {
 				return
 			}
-			if err := SplitRanges(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh); err != nil {
-				log.Error("failed on split range", rtree.ZapRanges(result.Ranges), zap.Error(err))
-				b.sink.EmitError(err)
-				return
-			}
-			next <- result
+			splitWorks.Add(1)
+			done := b.registerTableIsRestoring(result.TablesToSend)
+			pool.Apply(func() {
+				SplitRangesAndThen(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh, func(err error) {
+					if err != nil {
+						log.Error("failed on split range", rtree.ZapRanges(result.Ranges), zap.Error(err))
+						b.sink.EmitError(err)
+						return
+					}
+					next <- drainResultAndDone{
+						result: result,
+						done:   done,
+					}
+					splitWorks.Done()
+				})
+			})
 		}
 	}
 }
 
-func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResult) {
+func (b *tikvSender) registerTableIsRestoring(ts []CreatedTable) func() {
+	wgs := make([]*sync.WaitGroup, 0, len(ts))
+	for _, t := range ts {
+		i, _ := b.tableWaiters.LoadOrStore(t.Table.ID, new(sync.WaitGroup))
+		wg := i.(*sync.WaitGroup)
+		wg.Add(1)
+		wgs = append(wgs, wg)
+	}
+	return func() {
+		for _, wg := range wgs {
+			wg.Done()
+		}
+	}
+}
+
+func (b *tikvSender) waitTablesDone(ts []CreatedTable) {
+	for _, t := range ts {
+		wg, ok := b.tableWaiters.LoadAndDelete(t.Table.ID)
+		if !ok {
+			log.Panic("bug! table done before register!",
+				zap.Any("wait-table-map", b.tableWaiters),
+				zap.Stringer("table", t.Table.Name))
+		}
+		wg.(*sync.WaitGroup).Wait()
+	}
+}
+
+func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan drainResultAndDone) {
+	restoreWorks := new(sync.WaitGroup)
 	defer func() {
 		log.Debug("restore worker closed")
+		restoreWorks.Wait()
 		b.wg.Done()
 		b.sink.Close()
 	}()
@@ -252,24 +315,24 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan DrainResul
 		select {
 		case <-ctx.Done():
 			return
-		case result, ok := <-ranges:
+		case r, ok := <-ranges:
 			if !ok {
 				return
 			}
-			files := result.Files()
-			if err := b.client.RestoreFiles(ctx, files, result.RewriteRules, b.updateCh); err != nil {
-				b.sink.EmitError(err)
-				return
-			}
-
-			log.Info("restore batch done", rtree.ZapRanges(result.Ranges))
-			b.sink.EmitTables(result.BlankTablesAfterSend...)
+			restoreWorks.Add(1)
+			files := r.result.Files()
+			// There has been a worker in the `RestoreFiles` procedure.
+			// Spawning a raw goroutine won't make too many requests to TiKV.
+			go b.client.RestoreFilesAndThen(ctx, files, r.result.RewriteRules, b.updateCh, func(e error) {
+				if e != nil {
+					b.sink.EmitError(e)
+				}
+				log.Info("restore batch done", rtree.ZapRanges(r.result.Ranges))
+				r.done()
+				b.waitTablesDone(r.result.BlankTablesAfterSend)
+				b.sink.EmitTables(r.result.BlankTablesAfterSend...)
+				restoreWorks.Done()
+			})
 		}
 	}
-}
-
-func (b *tikvSender) Close() {
-	close(b.inCh)
-	b.wg.Wait()
-	log.Debug("tikv sender closed")
 }
