@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/docker/go-units"
+
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/redact"
 )
@@ -56,7 +57,7 @@ func (rs rangesMarshaler) MarshalLogObject(encoder zapcore.ObjectEncoder) error 
 
 	encoder.AddInt("file-count", totalFile)
 	encoder.AddUint64("kv-paris-count", totalKV)
-	encoder.AddString("after-compress-size", units.HumanSize(float64(totalBytes)))
-	encoder.AddString("data-size", units.HumanSize(float64(totalSize)))
+	encoder.AddString("data-size", units.HumanSize(float64(totalBytes)))
+	encoder.AddString("after-compress-size", units.HumanSize(float64(totalSize)))
 	return nil
 }

@@ -378,6 +378,7 @@ func SplitRangesAndThen(
 	}))
 }
 
+// SplitRanges is the synchronous version of SplitRangesAndThen.
 func SplitRanges(
 	ctx context.Context,
 	client *Client,

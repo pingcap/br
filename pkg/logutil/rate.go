@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Rater is a trivial rate tracer.
+// TrivialRater is a trivial rate tracer.
 // It doesn't record any time sequence, and always
 // return the average speed over all the time.
 // TODO: replace it with Prometheus.
@@ -20,6 +20,7 @@ type TrivialRater struct {
 	current uint64
 }
 
+// NewTrivialRater make a trivial rater.
 func NewTrivialRater() TrivialRater {
 	return TrivialRater{
 		start:   time.Now(),
@@ -37,7 +38,7 @@ func (r *TrivialRater) Rate(unit time.Duration) float64 {
 	return float64(atomic.LoadUint64(&r.current)) / float64(time.Since(r.start)/unit)
 }
 
-// Log log the current rate(in ops per second) to the info level.
+// L make a logger with the current speed.
 func (r *TrivialRater) L() *zap.Logger {
 	return log.With(zap.String("speed", fmt.Sprintf("%.2f ops/s", r.Rate(time.Second))))
 }

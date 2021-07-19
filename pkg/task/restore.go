@@ -149,11 +149,11 @@ func (cfg *RestoreConfig) ParseFromFlags(flags *pflag.FlagSet) error {
 	}
 	cfg.PDConcurrency, err = flags.GetUint(FlagPDConcurrency)
 	if err != nil {
-		return errors.Wrapf(err, "failed to get flag %s", FlagPDConcurrency)
+		return errors.Annotatef(err, "failed to get flag %s", FlagPDConcurrency)
 	}
 	cfg.BatchFlushInterval, err = flags.GetDuration(FlagBatchFlushInterval)
 	if err != nil {
-		return errors.Wrapf(err, "failed to get flag %s", FlagBatchFlushInterval)
+		return errors.Annotatef(err, "failed to get flag %s", FlagBatchFlushInterval)
 	}
 	return nil
 }
