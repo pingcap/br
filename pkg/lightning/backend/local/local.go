@@ -29,8 +29,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/lightning/manual"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/coreos/go-semver/semver"
@@ -70,6 +68,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/glue"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
