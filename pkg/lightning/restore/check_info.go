@@ -84,23 +84,23 @@ func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 		rc.checkTemplate.Collect(Warn, passed, message)
 	}()
 
-	result := &api.RegionsInfo{}
-	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
-	if err != nil {
-		return errors.Trace(err)
-	}
+	// result := &api.RegionsInfo{}
+	// err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
 
-	for _, region := range result.Regions {
-		if region.WrittenBytes > OnlineBytesLimitation || region.WrittenKeys > OnlineKeysLimitation {
-			passed = false
-			regionStr, err := json.Marshal(region)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			message = fmt.Sprintf("The write flow on cluster are more than expection, %s", string(regionStr))
-			return nil
-		}
-	}
+	// for _, region := range result.Regions {
+	// 	if region.WrittenBytes > OnlineBytesLimitation || region.WrittenKeys > OnlineKeysLimitation {
+	// 		passed = false
+	// 		regionStr, err := json.Marshal(region)
+	// 		if err != nil {
+	// 			return errors.Trace(err)
+	// 		}
+	// 		message = fmt.Sprintf("The write flow on cluster are more than expection, %s", string(regionStr))
+	// 		return nil
+	// 	}
+	// }
 	return nil
 }
 
