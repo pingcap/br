@@ -478,31 +478,32 @@ func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *stri
 func (be *tidbBackend) execStmt(ctx context.Context, stmts []string, rows tidbRows) error {
 	// Retry will be done externally, so we're not going to retry here.
 	tx, err := be.db.BeginTx(ctx, &sql.TxOptions{})
-	if checkErrAndCtxCancel(err) {
-		log.L().Error("begin a transaction failed before executing statement", zap.Array("rows", rows), zap.Error(err))
+	if err != nil {
+		if !common.IsContextCanceledError(err) {
+			log.L().Error("begin a transaction failed before executing statement", zap.Array("rows", rows), zap.Error(err))
+		}
 		return errors.Trace(err)
 	}
 	for _, stmt := range stmts {
 		_, err = tx.ExecContext(ctx, stmt)
-		if checkErrAndCtxCancel(err) {
-			log.L().Error("execute statement failed inside the transaction", zap.String("stmt", redact.String(stmt)),
-				zap.Array("rows", rows), zap.Error(err))
+		if err != nil {
+			if !common.IsContextCanceledError(err) {
+				log.L().Error("execute statement failed inside the transaction", zap.String("stmt", redact.String(stmt)),
+					zap.Array("rows", rows), zap.Error(err))
+			}
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				panic(fmt.Sprintf("execute statement failed: %v, unable to rollback: %v\n", err, rollbackErr))
 			}
+			return errors.Trace(err)
 		}
 	}
-	if err = tx.Commit(); checkErrAndCtxCancel(err) {
+	if err = tx.Commit(); err != nil && !common.IsContextCanceledError(err) {
 		log.L().Error("execute statement failed when commit the transaction", zap.Array("rows", rows), zap.Error(err))
 	}
 	failpoint.Inject("FailIfImportedSomeRows", func() {
 		panic("forcing failure due to FailIfImportedSomeRows, before saving checkpoint")
 	})
 	return errors.Trace(err)
-}
-
-func checkErrAndCtxCancel(err error) bool {
-	return err != nil && !common.IsContextCanceledError(err)
 }
 
 //nolint:nakedret // TODO: refactor
