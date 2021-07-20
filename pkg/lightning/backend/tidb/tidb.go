@@ -371,32 +371,86 @@ func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
+// TODO: make this variable global and configurable
+const maxErrorCount = 0
+
 func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, rows kv.Rows) error {
-	var err error
-outside:
+	var (
+		err        error
+		errorCount int
+		batch      bool = true
+	)
+rowLoop:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
+	retryLoop:
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
-			err = be.WriteRowsToDB(ctx, tableName, columnNames, r)
+			err = be.WriteRowsToDB(ctx, tableName, columnNames, r, batch)
 			switch {
 			case err == nil:
-				continue outside
+				continue rowLoop
 			case common.IsRetryableError(err):
 				// retry next loop
 			default:
-				return err
+				// retry next loop when batch is true
+				if batch {
+					batch = false
+					continue retryLoop
+				}
+				// batch is false and the error is not retryable, which means we meets an import error that shoud be recorded and skipped.
+				errorCount++
+				if errorCount >= maxErrorCount {
+					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
+				}
+				// TODO: record and skip the error to not fail the whole import process.
 			}
 		}
-		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
 	}
 	return nil
 }
 
-func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows) error {
+// If batch is true, we will insert multiple rows like this:
+//   start transaction;
+//   insert into t1 values (111), (222), (333), (444);
+//   commit;
+// If batch is false, we will insert multiple rows like this:
+//   start transaction;
+//   insert into t1 values (111);
+//   insert into t1 values (222);
+//   insert into t1 values (333);
+//   insert into t1 values (444);
+//   commit;
+// See more details in #1366: https://github.com/pingcap/br/issues/1366
+func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool) error {
 	rows := r.(tidbRows)
 	if len(rows) == 0 {
 		return nil
 	}
 
+	insertStmt := be.prepareStmt(tableName, columnNames)
+	// Note: we are not going to do interpolation (prepared statements) to avoid
+	// complication arise from data length overflow of BIT and BINARY columns
+	var insertStmts []string
+	if batch {
+		insertStmts = make([]string, 1)
+		for i, row := range rows {
+			if i != 0 {
+				insertStmt.WriteByte(',')
+			}
+			insertStmt.WriteString(string(row))
+		}
+		insertStmts[0] = insertStmt.String()
+	} else {
+		insertStmts = make([]string, 0, len(rows))
+		for _, row := range rows {
+			newInsertStmt := insertStmt
+			newInsertStmt.WriteString(string(row))
+			insertStmts = append(insertStmts, newInsertStmt.String())
+		}
+	}
+	return be.execStmt(ctx, insertStmts, rows)
+}
+
+func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *strings.Builder {
 	var insertStmt strings.Builder
 	switch be.onDuplicate {
 	case config.ReplaceOnDup:
@@ -406,7 +460,6 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	case config.ErrorOnDup:
 		insertStmt.WriteString("INSERT INTO ")
 	}
-
 	insertStmt.WriteString(tableName)
 	if len(columnNames) > 0 {
 		insertStmt.WriteByte('(')
@@ -419,27 +472,37 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 		insertStmt.WriteByte(')')
 	}
 	insertStmt.WriteString(" VALUES")
+	return &insertStmt
+}
 
-	// Note: we are not going to do interpolation (prepared statements) to avoid
-	// complication arise from data length overflow of BIT and BINARY columns
-
-	for i, row := range rows {
-		if i != 0 {
-			insertStmt.WriteByte(',')
-		}
-		insertStmt.WriteString(string(row))
-	}
-
+func (be *tidbBackend) execStmt(ctx context.Context, stmts []string, rows tidbRows) error {
 	// Retry will be done externally, so we're not going to retry here.
-	_, err := be.db.ExecContext(ctx, insertStmt.String())
-	if err != nil && !common.IsContextCanceledError(err) {
-		log.L().Error("execute statement failed", zap.String("stmt", redact.String(insertStmt.String())),
-			zap.Array("rows", rows), zap.Error(err))
+	tx, err := be.db.BeginTx(ctx, &sql.TxOptions{})
+	if checkErrAndCtxCancel(err) {
+		log.L().Error("begin a transaction failed before executing statement", zap.Array("rows", rows), zap.Error(err))
+		return errors.Trace(err)
+	}
+	for _, stmt := range stmts {
+		_, err = tx.ExecContext(ctx, stmt)
+		if checkErrAndCtxCancel(err) {
+			log.L().Error("execute statement failed inside the transaction", zap.String("stmt", redact.String(stmt)),
+				zap.Array("rows", rows), zap.Error(err))
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				panic(fmt.Sprintf("execute statement failed: %v, unable to rollback: %v\n", err, rollbackErr))
+			}
+		}
+	}
+	if err = tx.Commit(); checkErrAndCtxCancel(err) {
+		log.L().Error("execute statement failed when commit the transaction", zap.Array("rows", rows), zap.Error(err))
 	}
 	failpoint.Inject("FailIfImportedSomeRows", func() {
 		panic("forcing failure due to FailIfImportedSomeRows, before saving checkpoint")
 	})
 	return errors.Trace(err)
+}
+
+func checkErrAndCtxCancel(err error) bool {
+	return err != nil && !common.IsContextCanceledError(err)
 }
 
 //nolint:nakedret // TODO: refactor
