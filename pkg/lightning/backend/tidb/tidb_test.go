@@ -394,31 +394,52 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_random(c *C) {
 }
 
 func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+		}
+	}()
 	c.Assert(failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError", "return"), IsNil)
 	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError")
 
 	// First, batch insert, fail and rollback.
+	// In this test, inserting 2 and 4 will trigger the mock error.
 	s.mockDB.ExpectBegin()
 	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`,`b`) VALUES(1,'1'),(2,'2'),(3,'3'),(4,'4')\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1),(2),(3),(4),(5)\\E").
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	s.mockDB.ExpectRollback()
 	// Then, insert row-by-row due to the non-retryable error.
 	s.mockDB.ExpectBegin()
 	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`,`b`) VALUES(1,'1')\\E"). // Successfully executed.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`,`b`) VALUES(2,'2')\\E"). // Failed due to the non-retryable error.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(2)\\E"). // Failed due to the non-retryable error.
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.ExpectRollback()
-	// Skip the previous error, and successfully written in a single transaction.
+	// Skip the previous error and continue writing the rest.
 	s.mockDB.ExpectBegin()
 	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`,`b`) VALUES(3,'3')\\E").
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`,`b`) VALUES(4,'4')\\E").
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(4)\\E"). // Failed due to the non-retryable error.
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.ExpectRollback()
+	// Skip the previous error and continue writing the rest.
+	s.mockDB.ExpectBegin()
+	s.mockDB.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.
+		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(5)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.ExpectCommit()
 
@@ -438,7 +459,6 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 	c.Assert(err, IsNil)
 	row, err := encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(1),
-		types.NewStringDatum("1"),
 	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
 	c.Assert(err, IsNil)
 
@@ -446,7 +466,6 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 
 	row, err = encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(2),
-		types.NewStringDatum("2"),
 	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
 	c.Assert(err, IsNil)
 
@@ -454,7 +473,6 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 
 	row, err = encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(3),
-		types.NewStringDatum("3"),
 	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
 	c.Assert(err, IsNil)
 
@@ -462,7 +480,13 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 
 	row, err = encoder.Encode(logger, []types.Datum{
 		types.NewIntDatum(4),
-		types.NewStringDatum("4"),
+	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
+	c.Assert(err, IsNil)
+
+	row.ClassifyAndAppend(&dataRows, &dataChecksum, &indexRows, &indexChecksum)
+
+	row, err = encoder.Encode(logger, []types.Datum{
+		types.NewIntDatum(5),
 	}, 1, []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, -1}, 0)
 	c.Assert(err, IsNil)
 
@@ -470,7 +494,7 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 
 	writer, err := engine.LocalWriter(ctx, nil)
 	c.Assert(err, IsNil)
-	err = writer.WriteRows(ctx, []string{"a", "b"}, dataRows)
+	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
 	c.Assert(err, IsNil)
 	st, err := writer.Close(ctx)
 	c.Assert(err, IsNil)

@@ -385,10 +385,10 @@ func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName str
 rowLoop:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
 		batch := true
-		offset := 0
+		rowsToSkip := make(map[int]struct{})
 	retryLoop:
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
-			lastIdx, err := be.WriteRowsToDB(ctx, tableName, columnNames, r, batch, offset)
+			rowIdx, err := be.WriteRowsToDB(ctx, tableName, columnNames, r, batch, rowsToSkip)
 			switch {
 			case err == nil:
 				continue rowLoop
@@ -411,12 +411,17 @@ rowLoop:
 				// TODO: record the error.
 				// Reset the retry count before we skip the error and continue inserting the rest of rows.
 				i = 0
-				// Calculate the offset we should start from.
-				offset = lastIdx + 1
+				// Update the row we should skip.
+				rowsToSkip[rowIdx] = struct{}{}
 			}
 		}
 	}
 	return nil
+}
+
+type stmtTask struct {
+	rowIdx int
+	stmt   string
 }
 
 // If batch is true, we will insert multiple rows like this:
@@ -431,40 +436,41 @@ rowLoop:
 //   insert into t1 values (444);
 //   commit;
 // See more details in #1366: https://github.com/pingcap/br/issues/1366
-func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool, offset int) (int, error) {
+func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool, rowsToSkip map[int]struct{}) (int, error) {
 	rows := r.(tidbRows)
 	if len(rows) == 0 {
-		return 0, nil
-	}
-	if len(rows) <= offset {
 		return 0, nil
 	}
 
 	insertStmt := be.prepareStmt(tableName, columnNames)
 	// Note: we are not going to do interpolation (prepared statements) to avoid
 	// complication arise from data length overflow of BIT and BINARY columns
-	var insertStmts []string
+	var stmtTasks []stmtTask
 	if batch {
-		insertStmts = make([]string, 1)
-		for i, row := range rows[offset:] {
+		stmtTasks = make([]stmtTask, 1)
+		for i, row := range rows {
+			if _, ok := rowsToSkip[i]; ok {
+				continue
+			}
 			if i != 0 {
 				insertStmt.WriteByte(',')
 			}
 			insertStmt.WriteString(string(row))
 		}
-		insertStmts[0] = insertStmt.String()
+		stmtTasks[0] = stmtTask{0, insertStmt.String()}
 	} else {
-		insertStmts = make([]string, 0, len(rows)-offset)
-		for _, row := range rows[offset:] {
+		stmtTasks = make([]stmtTask, 0, len(rows)-len(rowsToSkip))
+		for i, row := range rows {
+			if _, ok := rowsToSkip[i]; ok {
+				continue
+			}
 			var finalInsertStmt strings.Builder
 			finalInsertStmt.WriteString(insertStmt.String())
 			finalInsertStmt.WriteString(string(row))
-			insertStmts = append(insertStmts, finalInsertStmt.String())
+			stmtTasks = append(stmtTasks, stmtTask{i, finalInsertStmt.String()})
 		}
 	}
-	// offset + lastIdx is the actual row that failed.
-	lastIdx, err := be.execStmt(ctx, insertStmts, rows)
-	return offset + lastIdx, err
+	return be.execStmt(ctx, stmtTasks, rows)
 }
 
 func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *strings.Builder {
@@ -495,7 +501,7 @@ func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *stri
 // Only used for TestWriteRowsErrorSkip
 var mockErrorCount = 0
 
-func (be *tidbBackend) execStmt(ctx context.Context, stmts []string, rows tidbRows) (int, error) {
+func (be *tidbBackend) execStmt(ctx context.Context, stmtTasks []stmtTask, rows tidbRows) (int, error) {
 	// Retry will be done externally, so we're not going to retry here.
 	tx, err := be.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
@@ -504,11 +510,12 @@ func (be *tidbBackend) execStmt(ctx context.Context, stmts []string, rows tidbRo
 		}
 		return 0, errors.Trace(err)
 	}
-	for idx, stmt := range stmts {
+	for _, stmtTask := range stmtTasks {
+		stmt := stmtTask.stmt
 		_, err = tx.ExecContext(ctx, stmt)
 
 		failpoint.Inject("mockNonRetryableError", func() {
-			if mockErrorCount == 0 || mockErrorCount == 2 {
+			if mockErrorCount == 0 || mockErrorCount == 2 || mockErrorCount == 5 {
 				err = stderrors.New("mock non-retryable error")
 			}
 			mockErrorCount++
@@ -522,7 +529,7 @@ func (be *tidbBackend) execStmt(ctx context.Context, stmts []string, rows tidbRo
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				panic(fmt.Sprintf("execute statement failed: %v, unable to rollback: %v\n", err, rollbackErr))
 			}
-			return idx, errors.Trace(err)
+			return stmtTask.rowIdx, errors.Trace(err)
 		}
 	}
 	if err = tx.Commit(); err != nil && !common.IsContextCanceledError(err) {
