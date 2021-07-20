@@ -15,7 +15,6 @@ package restore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -84,6 +83,8 @@ func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
 		rc.checkTemplate.Collect(Warn, passed, message)
 	}()
 
+	// disabled the following code since it blocked some QA tests, it surpose to investigate a
+	// more thoughtful solution in the future.
 	// result := &api.RegionsInfo{}
 	// err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
 	// if err != nil {
