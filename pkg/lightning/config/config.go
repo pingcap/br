@@ -151,6 +151,7 @@ func (cfg *Config) ToTLS() (*common.TLS, error) {
 }
 
 type Lightning struct {
+	MaxErrorCount     int    `toml:"max-error-count" json:"max-error-count"`
 	TableConcurrency  int    `toml:"table-concurrency" json:"table-concurrency"`
 	IndexConcurrency  int    `toml:"index-concurrency" json:"index-concurrency"`
 	RegionConcurrency int    `toml:"region-concurrency" json:"region-concurrency"`
@@ -382,6 +383,7 @@ func (d *Duration) MarshalJSON() ([]byte, error) {
 func NewConfig() *Config {
 	return &Config{
 		App: Lightning{
+			MaxErrorCount:     0,
 			RegionConcurrency: runtime.NumCPU(),
 			TableConcurrency:  0,
 			IndexConcurrency:  0,

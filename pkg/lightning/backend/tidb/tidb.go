@@ -78,20 +78,29 @@ type tidbEncoder struct {
 type tidbBackend struct {
 	db          *sql.DB
 	onDuplicate string
+
+	// Max tolerable error count, once it's exceeded, stop the import.
+	maxErrorCount int
+	curErrorCount int
 }
 
 // NewTiDBBackend creates a new TiDB backend using the given database.
 //
 // The backend does not take ownership of `db`. Caller should close `db`
 // manually after the backend expired.
-func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
+func NewTiDBBackend(db *sql.DB, onDuplicate string, maxErrorCount int) backend.Backend {
 	switch onDuplicate {
 	case config.ReplaceOnDup, config.IgnoreOnDup, config.ErrorOnDup:
 	default:
 		log.L().Warn("unsupported action on duplicate, overwrite with `replace`")
 		onDuplicate = config.ReplaceOnDup
 	}
-	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
+	return backend.MakeBackend(&tidbBackend{
+		db:            db,
+		onDuplicate:   onDuplicate,
+		maxErrorCount: maxErrorCount,
+		curErrorCount: 0,
+	})
 }
 
 func (row tidbRow) Size() uint64 {
@@ -371,14 +380,10 @@ func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
-// TODO: make this variable global and configurable
-const maxErrorCount = 0
-
 func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, rows kv.Rows) error {
 	var (
-		err        error
-		errorCount int
-		batch      bool = true
+		err   error
+		batch bool = true
 	)
 rowLoop:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
@@ -397,9 +402,9 @@ rowLoop:
 					continue retryLoop
 				}
 				// batch is false and the error is not retryable, which means we meets an import error that shoud be recorded and skipped.
-				errorCount++
-				if errorCount >= maxErrorCount {
-					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
+				be.curErrorCount++
+				if be.curErrorCount >= be.maxErrorCount {
+					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, be.maxErrorCount)
 				}
 				// TODO: record and skip the error to not fail the whole import process.
 			}

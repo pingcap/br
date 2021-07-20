@@ -1329,7 +1329,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopColumnsMismatch(c *C) {
 
 	kvsCh := make(chan []deliveredKVs, 2)
 	deliverCompleteCh := make(chan deliverResult)
-	kvEncoder, err := tidb.NewTiDBBackend(nil, config.ReplaceOnDup).NewEncoder(
+	kvEncoder, err := tidb.NewTiDBBackend(nil, config.ReplaceOnDup, 0).NewEncoder(
 		s.tr.encTable,
 		&kv.SessionOptions{
 			SQLMode:   s.cfg.TiDB.SQLMode,

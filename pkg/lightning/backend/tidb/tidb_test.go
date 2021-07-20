@@ -69,7 +69,7 @@ func (s *mysqlSuite) SetUpTest(c *C) {
 
 	s.dbHandle = db
 	s.mockDB = mock
-	s.backend = tidb.NewTiDBBackend(db, config.ReplaceOnDup)
+	s.backend = tidb.NewTiDBBackend(db, config.ReplaceOnDup, 0)
 	s.tbl = tbl
 }
 
@@ -143,7 +143,7 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup)
+	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.IgnoreOnDup, 0)
 	engine, err := ignoreBackend.OpenEngine(ctx, &backend.EngineConfig{}, "`foo`.`bar`", 1)
 	c.Assert(err, IsNil)
 
@@ -189,7 +189,7 @@ func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
 	ctx := context.Background()
 	logger := log.L()
 
-	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	ignoreBackend := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	engine, err := ignoreBackend.OpenEngine(ctx, &backend.EngineConfig{}, "`foo`.`bar`", 1)
 	c.Assert(err, IsNil)
 
@@ -229,7 +229,7 @@ func (s *mysqlSuite) testStrictMode(c *C) {
 	tbl, err := tables.TableFromMeta(kv.NewPanickingAllocators(0), tblInfo)
 	c.Assert(err, IsNil)
 
-	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	encoder, err := bk.NewEncoder(tbl, &kv.SessionOptions{SQLMode: mysql.ModeStrictAllTables})
 	c.Assert(err, IsNil)
 
@@ -264,7 +264,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_3_x(c *C) {
 			AddRow("t", "id", "int(10)", "auto_increment"))
 	s.mockDB.ExpectCommit()
 
-	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -299,7 +299,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_0(c *C) {
 			AddRow("test", "t", "id", int64(1)))
 	s.mockDB.ExpectCommit()
 
-	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -334,7 +334,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_increment(c *C) {
 			AddRow("test", "t", "id", int64(1), "AUTO_INCREMENT"))
 	s.mockDB.ExpectCommit()
 
-	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
@@ -369,7 +369,7 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_random(c *C) {
 			AddRow("test", "t", "id", int64(1), "AUTO_RANDOM"))
 	s.mockDB.ExpectCommit()
 
-	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup)
+	bk := tidb.NewTiDBBackend(s.dbHandle, config.ErrorOnDup, 0)
 	tableInfos, err := bk.FetchRemoteTableModels(context.Background(), "test")
 	c.Assert(err, IsNil)
 	c.Assert(tableInfos, DeepEquals, []*model.TableInfo{
