@@ -31,6 +31,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/utils"
 
 	"go.uber.org/zap"
@@ -65,13 +66,14 @@ func (b *bytesBuf) add(v []byte) []byte {
 
 func newBytesBuf(size int) *bytesBuf {
 	return &bytesBuf{
-		buf: make([]byte, size),
+		buf: manual.New(size),
 		cap: size,
 	}
 }
 
 func (b *bytesBuf) destroy() {
 	if b != nil {
+		manual.Free(b.buf)
 		b.buf = nil
 	}
 }
