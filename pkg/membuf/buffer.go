@@ -86,7 +86,7 @@ type Buffer struct {
 	curBufLen int
 }
 
-// AddBuf adds buffer to Buffer.
+// addBuf adds buffer to Buffer.
 func (b *Buffer) addBuf() {
 	if b.curBufIdx < len(b.bufs)-1 {
 		b.curBufIdx++
@@ -122,7 +122,7 @@ func (b *Buffer) Destroy() {
 
 // TotalSize represents the total memory size of this Buffer.
 func (b *Buffer) TotalSize() int64 {
-	return int64(len(b.bufs)) * int64(1<<20)
+	return int64(len(b.bufs) * allocBufLen)
 }
 
 // AllocBytes allocates bytes with the given length.
