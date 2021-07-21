@@ -15,7 +15,6 @@ package mydump_test
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -194,25 +193,22 @@ func (s *testMydumpRegionSuite) TestSplitLargeFile(c *C) {
 	}
 	filePath := "./csv/split_large_file.csv"
 	dataFileInfo, err := os.Stat(filePath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.Assert(err, IsNil)
 	fileSize := dataFileInfo.Size()
 	fileInfo := FileInfo{FileMeta: SourceFileMeta{Path: filePath, Type: SourceTypeCSV, FileSize: fileSize}}
 	colCnt := int64(3)
 	columns := []string{"a", "b", "c"}
 	for _, tc := range []struct {
 		maxRegionSize config.ByteSize
-		chkCnt        int
 		offsets       [][]int64
 	}{
-		{1, 4, [][]int64{{6, 12}, {12, 18}, {18, 24}, {24, 30}}},
-		{6, 2, [][]int64{{6, 18}, {18, 30}}},
-		{8, 2, [][]int64{{6, 18}, {18, 30}}},
-		{12, 2, [][]int64{{6, 24}, {24, 30}}},
-		{13, 2, [][]int64{{6, 24}, {24, 30}}},
-		{18, 1, [][]int64{{6, 30}}},
-		{19, 1, [][]int64{{6, 30}}},
+		{1, [][]int64{{6, 12}, {12, 18}, {18, 24}, {24, 30}}},
+		{6, [][]int64{{6, 18}, {18, 30}}},
+		{8, [][]int64{{6, 18}, {18, 30}}},
+		{12, [][]int64{{6, 24}, {24, 30}}},
+		{13, [][]int64{{6, 24}, {24, 30}}},
+		{18, [][]int64{{6, 30}}},
+		{19, [][]int64{{6, 30}}},
 	} {
 		cfg.Mydumper.MaxRegionSize = tc.maxRegionSize
 		prevRowIdxMax := int64(0)
@@ -223,17 +219,16 @@ func (s *testMydumpRegionSuite) TestSplitLargeFile(c *C) {
 
 		_, regions, _, err := SplitLargeFile(context.Background(), meta, cfg, fileInfo, colCnt, prevRowIdxMax, ioWorker, store)
 		c.Assert(err, IsNil)
-		c.Assert(len(regions), Equals, tc.chkCnt)
+		c.Assert(regions, HasLen, len(tc.offsets))
 		for i := range tc.offsets {
 			c.Assert(regions[i].Chunk.Offset, Equals, tc.offsets[i][0])
 			c.Assert(regions[i].Chunk.EndOffset, Equals, tc.offsets[i][1])
-			c.Assert(len(regions[i].Chunk.Columns), Equals, len(columns))
 			c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
 		}
 	}
 }
 
-func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
+func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLineAtEOF(c *C) {
 	meta := &MDTableMeta{
 		DB:   "csv",
 		Name: "large_csv_file",
@@ -266,9 +261,7 @@ func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
 	c.Assert(err, IsNil)
 
 	dataFileInfo, err := os.Stat(filePath)
-	if err != nil {
-		log.Fatal(err)
-	}
+	c.Assert(err, IsNil)
 	fileSize := dataFileInfo.Size()
 	fileInfo := FileInfo{FileMeta: SourceFileMeta{Path: fileName, Type: SourceTypeCSV, FileSize: fileSize}}
 	colCnt := int64(2)
@@ -283,11 +276,59 @@ func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
 
 	_, regions, _, err := SplitLargeFile(context.Background(), meta, cfg, fileInfo, colCnt, prevRowIdxMax, ioWorker, store)
 	c.Assert(err, IsNil)
-	c.Assert(len(regions), Equals, 2)
+	c.Assert(regions, HasLen, len(offsets))
 	for i := range offsets {
 		c.Assert(regions[i].Chunk.Offset, Equals, offsets[i][0])
 		c.Assert(regions[i].Chunk.EndOffset, Equals, offsets[i][1])
-		c.Assert(len(regions[i].Chunk.Columns), Equals, len(columns))
 		c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
+	}
+}
+
+func (s *testMydumpRegionSuite) TestSplitLargeFileWithCustomTerminator(c *C) {
+	meta := &MDTableMeta{
+		DB:   "csv",
+		Name: "large_csv_with_custom_terminator",
+	}
+	cfg := &config.Config{
+		Mydumper: config.MydumperRuntime{
+			ReadBlockSize: config.ReadBlockSize,
+			CSV: config.CSVConfig{
+				Separator:  "|+|",
+				Terminator: "|+|\n",
+			},
+			StrictFormat:  true,
+			Filter:        []string{"*.*"},
+			MaxRegionSize: 1,
+		},
+	}
+
+	dir := c.MkDir()
+
+	fileName := "test2.csv"
+	filePath := filepath.Join(dir, fileName)
+
+	content := []byte("5|+|abc\ndef\nghi|+|6|+|\n7|+|xyz|+|8|+|\n9|+||+|10")
+	err := os.WriteFile(filePath, content, 0o644)
+	c.Assert(err, IsNil)
+
+	dataFileInfo, err := os.Stat(filePath)
+	c.Assert(err, IsNil)
+	fileSize := dataFileInfo.Size()
+	fileInfo := FileInfo{FileMeta: SourceFileMeta{Path: fileName, Type: SourceTypeCSV, FileSize: fileSize}}
+	colCnt := int64(3)
+	prevRowIdxMax := int64(0)
+	ioWorker := worker.NewPool(context.Background(), 4, "io")
+
+	store, err := storage.NewLocalStorage(dir)
+	c.Assert(err, IsNil)
+
+	offsets := [][]int64{{0, 23}, {23, 38}, {38, 47}}
+
+	_, regions, _, err := SplitLargeFile(context.Background(), meta, cfg, fileInfo, colCnt, prevRowIdxMax, ioWorker, store)
+	c.Assert(err, IsNil)
+	c.Assert(regions, HasLen, len(offsets))
+	for i := range offsets {
+		c.Assert(regions[i].Chunk.Offset, Equals, offsets[i][0])
+		c.Assert(regions[i].Chunk.EndOffset, Equals, offsets[i][1])
 	}
 }
