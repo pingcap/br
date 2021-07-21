@@ -201,8 +201,8 @@ func (c *TestClient) SetStoresLabel(ctx context.Context, stores []uint64, labelK
 // range: [aaa, aae), [aae, aaz), [ccd, ccf), [ccf, ccj)
 // rewrite rules: aa -> xx,  cc -> bb
 // expected regions after split:
-//   [, aay), [aay, bb), [bb, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
-//   [bbj, cca), [cca, xx), [xx, xxe), [xxe, xxz), [xxz, )
+//   [, aay), [aay, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
+//   [bbj, cca), [cca, xxe), [xxe, xxz), [xxz, )
 func (s *testRangeSuite) TestSplit(c *C) {
 	client := initTestClient()
 	ranges := initRanges()
@@ -296,11 +296,11 @@ func initRewriteRules() *restore.RewriteRules {
 }
 
 // expected regions after split:
-//   [, aay), [aay, bb), [bb, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
-//   [bbj, cca), [cca, xx), [xx, xxe), [xxe, xxz), [xxz, )
+//   [, aay), [aay, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
+//   [bbj, cca), [cca, xxe), [xxe, xxz), [xxz, )
 func validateRegions(regions map[uint64]*restore.RegionInfo) bool {
-	keys := [12]string{"", "aay", "bb", "bba", "bbf", "bbh", "bbj", "cca", "xx", "xxe", "xxz", ""}
-	if len(regions) != 11 {
+	keys := [...]string{"", "aay", "bba", "bbf", "bbh", "bbj", "cca", "xxe", "xxz", ""}
+	if len(regions) != len(keys)-1 {
 		return false
 	}
 FindRegion:
