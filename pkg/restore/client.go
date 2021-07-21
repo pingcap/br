@@ -656,6 +656,7 @@ func (rc *Client) RestoreFilesAndThen(
 			zap.Error(err),
 		)
 		callback(errors.Trace(err))
+		return
 	}
 	callback(nil)
 }
