@@ -337,15 +337,6 @@ func matchOldPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.Rewrit
 	return nil
 }
 
-func matchNewPrefix(key []byte, rewriteRules *RewriteRules) *import_sstpb.RewriteRule {
-	for _, rule := range rewriteRules.Data {
-		if bytes.HasPrefix(key, rule.GetNewKeyPrefix()) {
-			return rule
-		}
-	}
-	return nil
-}
-
 func truncateTS(key []byte) []byte {
 	if len(key) == 0 {
 		return nil
@@ -375,6 +366,16 @@ func SplitRanges(
 			updateCh.Inc()
 		}
 	})
+}
+
+func findMatchedRewriteRule(file *backuppb.File, rules *RewriteRules) *import_sstpb.RewriteRule {
+	startID := tablecodec.DecodeTableID(file.GetStartKey())
+	endID := tablecodec.DecodeTableID(file.GetEndKey())
+	if startID != endID {
+		return nil
+	}
+	_, rule := rewriteRawKey(file.StartKey, rules)
+	return rule
 }
 
 func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
