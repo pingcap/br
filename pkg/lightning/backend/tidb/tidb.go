@@ -81,6 +81,10 @@ type tidbBackend struct {
 	onDuplicate string
 
 	// Max tolerable error count, once it's exceeded, stop the import.
+	// Currently, this will only count the error happens inside the TiDB Backend,
+	// as for the errors occur before the inserting, e.g, parsing CSV files, KV conversion,
+	// are not being considered yet.
+	// TODO: clarify the scope of the error.
 	maxErrorCount int
 	curErrorCount int
 }
