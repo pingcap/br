@@ -394,11 +394,6 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_random(c *C) {
 }
 
 func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
-	defer func() {
-		if err := recover(); err != nil {
-			fmt.Println(err)
-		}
-	}()
 	c.Assert(failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError", "return"), IsNil)
 	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError")
 

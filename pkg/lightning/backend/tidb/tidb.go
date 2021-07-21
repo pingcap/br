@@ -435,7 +435,7 @@ type stmtTask struct {
 //   insert into t1 values (333);
 //   insert into t1 values (444);
 //   commit;
-// See more details in #1366: https://github.com/pingcap/br/issues/1366
+// See more details in br#1366: https://github.com/pingcap/br/issues/1366
 func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool, rowsToSkip map[int]struct{}) (int, error) {
 	rows := r.(tidbRows)
 	if len(rows) == 0 {
