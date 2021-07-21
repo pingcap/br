@@ -392,7 +392,7 @@ rowLoop:
 		rowsToSkip := make(map[int]struct{})
 	retryLoop:
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
-			rowIdx, err := be.WriteRowsToDB(ctx, tableName, columnNames, r, batch, rowsToSkip)
+			errRowIdx, err := be.WriteRowsToDB(ctx, tableName, columnNames, r, batch, rowsToSkip)
 			switch {
 			case err == nil:
 				continue rowLoop
@@ -416,7 +416,7 @@ rowLoop:
 				// Reset the retry count before we skip the error and continue inserting the rest of rows.
 				i = 0
 				// Update the row we should skip.
-				rowsToSkip[rowIdx] = struct{}{}
+				rowsToSkip[errRowIdx] = struct{}{}
 			}
 		}
 	}
@@ -440,6 +440,7 @@ type stmtTask struct {
 //   insert into t1 values (444);
 //   commit;
 // See more details in br#1366: https://github.com/pingcap/br/issues/1366
+// WriteRowsToDB will return the index of error row and its corresponding error if any error occurs.
 func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool, rowsToSkip map[int]struct{}) (int, error) {
 	rows := r.(tidbRows)
 	if len(rows) == 0 {
