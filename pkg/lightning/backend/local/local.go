@@ -1418,15 +1418,9 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	}
 	remains := &syncdRanges{}
 
-<<<<<<< HEAD
-=======
 	log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
 		zap.Int("ranges", len(ranges)), zap.Int64("count", lfLength), zap.Int64("size", lfTotalSize))
->>>>>>> 150bc639 (lightning: fix int handle overflow and add retry for create schema (#1294))
 	for {
-		log.L().Info("start import engine", zap.Stringer("uuid", engineUUID),
-			zap.Int("ranges", len(ranges)))
-
 		// if all the kv can fit in one region, skip split regions. TiDB will split one region for
 		// the table when table is created.
 		needSplit := len(ranges) > 1 || lfTotalSize > local.regionSplitSize || lfLength > regionMaxKeyCount
