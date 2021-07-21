@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -555,10 +556,10 @@ func (worker *restoreSchemaWorker) makeJobs(
 }
 
 func (worker *restoreSchemaWorker) doJob() {
-	var session checkpoints.Session
+	var session *sql.Conn
 	defer func() {
 		if session != nil {
-			session.Close()
+			_ = session.Close()
 		}
 	}()
 loop:
@@ -576,7 +577,14 @@ loop:
 			}
 			var err error
 			if session == nil {
-				session, err = worker.glue.GetSession(worker.ctx)
+				session, err = func() (*sql.Conn, error) {
+					// TODO: support lightning in SQL
+					db, err := worker.glue.GetDB()
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+					return db.Conn(worker.ctx)
+				}()
 				if err != nil {
 					worker.wg.Done()
 					worker.throw(err)
@@ -585,9 +593,13 @@ loop:
 				}
 			}
 			logger := log.With(zap.String("db", job.dbName), zap.String("table", job.tblName))
+			sqlWithRetry := common.SQLWithRetry{
+				Logger: log.L(),
+				DB:     session,
+			}
 			for _, stmt := range job.stmts {
 				task := logger.Begin(zap.DebugLevel, fmt.Sprintf("execute SQL: %s", stmt.sql))
-				_, err = session.Execute(worker.ctx, stmt.sql)
+				err = sqlWithRetry.Exec(worker.ctx, "run create schema job", stmt.sql)
 				task.End(zap.ErrorLevel, err)
 				if err != nil {
 					err = errors.Annotatef(err, "%s %s failed", job.stmtType.String(), common.UniqueTable(job.dbName, job.tblName))
