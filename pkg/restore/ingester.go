@@ -40,6 +40,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/kv"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/membuf"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -377,7 +378,7 @@ func (i *Ingester) writeToTiKV(
 		requests = append(requests, req)
 	}
 
-	bytesBuf := utils.NewBytesBuffer()
+	bytesBuf := membuf.NewBuffer()
 	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, i.batchWriteKVPairs)
 	count := 0
