@@ -8,13 +8,13 @@ import (
 
 type noopStorage struct{}
 
-// Write file to storage.
-func (*noopStorage) Write(ctx context.Context, name string, data []byte) error {
+// WriteFile file to storage.
+func (*noopStorage) WriteFile(ctx context.Context, name string, data []byte) error {
 	return nil
 }
 
-// Read storage file.
-func (*noopStorage) Read(ctx context.Context, name string) ([]byte, error) {
+// ReadFile storage file.
+func (*noopStorage) ReadFile(ctx context.Context, name string) ([]byte, error) {
 	return []byte{}, nil
 }
 
@@ -24,7 +24,7 @@ func (*noopStorage) FileExists(ctx context.Context, name string) (bool, error) {
 }
 
 // Open a Reader by file path.
-func (*noopStorage) Open(ctx context.Context, path string) (ReadSeekCloser, error) {
+func (*noopStorage) Open(ctx context.Context, path string) (ExternalFileReader, error) {
 	return noopReader{}, nil
 }
 
@@ -37,8 +37,8 @@ func (s *noopStorage) URI() string {
 	return "noop:///"
 }
 
-// CreateUploader implenments ExternalStorage interface.
-func (*noopStorage) CreateUploader(ctx context.Context, name string) (Uploader, error) {
+// Create implements ExternalStorage interface.
+func (*noopStorage) Create(ctx context.Context, name string) (ExternalFileWriter, error) {
 	return &noopWriter{}, nil
 }
 
@@ -62,10 +62,10 @@ func (noopReader) Seek(offset int64, whence int) (int64, error) {
 
 type noopWriter struct{}
 
-func (noopWriter) UploadPart(ctx context.Context, p []byte) error {
-	return nil
+func (noopWriter) Write(ctx context.Context, p []byte) (int, error) {
+	return len(p), nil
 }
 
-func (noopWriter) CompleteUpload(ctx context.Context) error {
+func (noopWriter) Close(ctx context.Context) error {
 	return nil
 }

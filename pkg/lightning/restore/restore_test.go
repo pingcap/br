@@ -1333,7 +1333,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 	fakeDBName := "fakedb"
 	// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}-schema-create.sql'
 	fakeFileName := fmt.Sprintf("%s-schema-create.sql", fakeDBName)
-	err = store.Write(ctx, fakeFileName, []byte(fmt.Sprintf("CREATE DATABASE %s;", fakeDBName)))
+	err = store.WriteFile(ctx, fakeFileName, []byte(fmt.Sprintf("CREATE DATABASE %s;", fakeDBName)))
 	c.Assert(err, IsNil)
 	// restore table schema files
 	fakeTableFilesCount := 8
@@ -1349,7 +1349,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		fakeFileName := fmt.Sprintf("%s.%s-schema.sql", fakeDBName, fakeTableName)
 
 		fakeFileContent := fmt.Sprintf("CREATE TABLE %s(i TINYINT);", fakeTableName)
-		err = store.Write(ctx, fakeFileName, []byte(fakeFileContent))
+		err = store.WriteFile(ctx, fakeFileName, []byte(fakeFileContent))
 		c.Assert(err, IsNil)
 
 		node, err := p.ParseOneStmt(fakeFileContent, "", "")
@@ -1367,7 +1367,7 @@ func (s *restoreSchemaSuite) SetUpSuite(c *C) {
 		// please follow the `mydump.defaultFileRouteRules`, matches files like '{schema}.{table}-schema-view.sql'
 		fakeFileName := fmt.Sprintf("%s.%s-schema-view.sql", fakeDBName, fakeViewName)
 		fakeFileContent := []byte(fmt.Sprintf("CREATE ALGORITHM=UNDEFINED VIEW `%s` (`i`) AS SELECT `i` FROM `%s`.`%s`;", fakeViewName, fakeDBName, fmt.Sprintf("tbl%d", i)))
-		err = store.Write(ctx, fakeFileName, fakeFileContent)
+		err = store.WriteFile(ctx, fakeFileName, fakeFileContent)
 		c.Assert(err, IsNil)
 	}
 	config := config.NewConfig()

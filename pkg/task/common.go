@@ -413,7 +413,7 @@ func ReadBackupMeta(
 	if err != nil {
 		return nil, nil, nil, errors.Trace(err)
 	}
-	metaData, err := s.Read(ctx, fileName)
+	metaData, err := s.ReadFile(ctx, fileName)
 	if err != nil {
 		if gcsObjectNotFound(err) {
 			// change gcs://bucket/abc/def to gcs://bucket/abc and read defbackupmeta
@@ -426,7 +426,7 @@ func ReadBackupMeta(
 				return nil, nil, nil, errors.Trace(err)
 			}
 			log.Info("retry load metadata in gcs", zap.String("newPrefix", newPrefix), zap.String("newFileName", newFileName))
-			metaData, err = s.Read(ctx, newFileName)
+			metaData, err = s.ReadFile(ctx, newFileName)
 			if err != nil {
 				return nil, nil, nil, errors.Trace(err)
 			}
