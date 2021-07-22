@@ -475,7 +475,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 			stmtTasks = append(stmtTasks, stmtTask{i, finalInsertStmt.String()})
 		}
 	}
-	return be.execStmt(ctx, stmtTasks, rows)
+	return be.execStmts(ctx, stmtTasks, rows)
 }
 
 func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *strings.Builder {
@@ -506,7 +506,7 @@ func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *stri
 // Only used for TestWriteRowsErrorSkip
 var mockErrorCount = 0
 
-func (be *tidbBackend) execStmt(ctx context.Context, stmtTasks []stmtTask, rows tidbRows) (int, error) {
+func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, rows tidbRows) (int, error) {
 	// Retry will be done externally, so we're not going to retry here.
 	tx, err := be.db.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
