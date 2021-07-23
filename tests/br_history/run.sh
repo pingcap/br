@@ -38,7 +38,7 @@ done
 # We expect above DDLs finish within 10s.
 # history backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --timeago "10s"
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --timeago "10s"
 
 # restore full
 echo "restore start..."
