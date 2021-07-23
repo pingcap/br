@@ -87,7 +87,7 @@ const (
 )
 
 var (
-	supportedStorageTypes = []string{"file", "local", "s3", "noop"}
+	supportedStorageTypes = []string{"file", "local", "s3", "noop", "gcs"}
 
 	DefaultFilter = []string{
 		"*.*",
@@ -534,10 +534,6 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 
 	if len(csv.Delimiter) > 0 && (strings.HasPrefix(csv.Separator, csv.Delimiter) || strings.HasPrefix(csv.Delimiter, csv.Separator)) {
 		return errors.New("invalid config: `mydumper.csv.separator` and `mydumper.csv.delimiter` must not be prefix of each other")
-	}
-
-	if len(csv.Terminator) > 0 && cfg.Mydumper.StrictFormat {
-		return errors.New("invalid config: `mydumper.strict-format` is not compatible with custom `mydumper.csv.terminator`")
 	}
 
 	if csv.BackslashEscape {

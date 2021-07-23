@@ -15,7 +15,6 @@ package restore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -67,34 +66,6 @@ func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
 		return 0, errors.Trace(err)
 	}
 	return result.MaxReplicas, nil
-}
-
-// ClusterIsOnline check cluster is online. this test can be skipped by user requirement.
-func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
-	passed := true
-	message := "Cluster has no other loads"
-	defer func() {
-		rc.checkTemplate.Collect(Warn, passed, message)
-	}()
-
-	result := &api.RegionsInfo{}
-	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	for _, region := range result.Regions {
-		if region.WrittenBytes > OnlineBytesLimitation || region.WrittenKeys > OnlineKeysLimitation {
-			passed = false
-			regionStr, err := json.Marshal(region)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			message = fmt.Sprintf("The write flow on cluster are more than expection, %s", string(regionStr))
-			return nil
-		}
-	}
-	return nil
 }
 
 // ClusterResource check cluster has enough resource to import data. this test can by skipped.

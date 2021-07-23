@@ -165,7 +165,7 @@ clustered_table_count=$(run_sql "\
 
 # backup table
 echo "backup start..."
-run_br --pd $PD_ADDR backup db -s "local://$TEST_DIR/$DB" --db $DB --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup db -s "local://$TEST_DIR/$DB" --db $DB
 
 # count
 echo "count rows..."
