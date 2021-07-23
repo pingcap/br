@@ -16,7 +16,7 @@
 set -eu
 DB="$TEST_NAME"
 TABLE="usertable"
-DDL_COUNT=10
+DDL_COUNT=5
 LOG=/$TEST_DIR/backup.log
 BACKUP_STAT=/$TEST_DIR/backup_stat
 RESOTRE_STAT=/$TEST_DIR/restore_stat
@@ -71,7 +71,7 @@ echo "backup start with stats..."
 unset BR_LOG_TO_TERM
 cluster_index_before_backup=$(run_sql "show variables like '%cluster%';" | awk '{print $2}')
 
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4 --log-file $LOG --ignore-stats=false || cat $LOG
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --log-file $LOG --ignore-stats=false || cat $LOG
 checksum_count=$(cat $LOG | grep "checksum success" | wc -l | xargs)
 
 if [ "${checksum_count}" -lt "1" ];then

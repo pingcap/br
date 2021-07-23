@@ -16,7 +16,6 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/summary"
-	"github.com/pingcap/br/pkg/utils"
 )
 
 // RestoreRawConfig is the configuration specific for raw kv restore tasks.
@@ -94,8 +93,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
-	g.Record(summary.RestoreDataSize, utils.ArchiveSize(backupMeta))
-	if err = client.InitBackupMeta(c, backupMeta, u, s); err != nil {
+	reader := metautil.NewMetaReader(backupMeta, s)
+	if err = client.InitBackupMeta(c, backupMeta, u, s, reader); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -107,6 +106,8 @@ func RunRestoreRaw(c context.Context, g glue.Glue, cmdName string, cfg *RestoreR
 	if err != nil {
 		return errors.Trace(err)
 	}
+	archiveSize := reader.ArchiveSize(ctx, files)
+	g.Record(summary.RestoreDataSize, archiveSize)
 
 	if len(files) == 0 {
 		log.Info("all files are filtered out from the backup archive, nothing to restore")

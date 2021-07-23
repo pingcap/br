@@ -1,6 +1,7 @@
 # config of tikv
 [storage]
 reserve-space = "1KB"
+data-dir = "/tmp/backup_restore_test/tikv1/"
 
 [coprocessor]
 region-max-keys = 100
@@ -25,3 +26,10 @@ hibernate-regions-compatible=false
 ca-path = "/tmp/backup_restore_test/certs/ca.pem"
 cert-path = "/tmp/backup_restore_test/certs/tikv.pem"
 key-path = "/tmp/backup_restore_test/certs/tikv.key"
+
+[security.encryption]
+data-encryption-method = "aes256-ctr"
+
+[security.encryption.master-key]
+type = "file"
+path = "/tmp/backup_restore_test/master-key-file"
