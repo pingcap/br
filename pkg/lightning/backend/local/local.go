@@ -46,7 +46,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
-	tidbkv "github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
@@ -65,7 +64,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -106,6 +104,7 @@ const (
 	openFilesLowerThreshold = 128
 
 	duplicateDBName = "duplicates"
+	remoteDuplicateDBName = "remote_duplicates"
 )
 
 var (
@@ -2094,7 +2093,6 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		log.L().Warn("duplicate detected during import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
-		return berrors.ErrDuplicateDetected
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
@@ -2103,93 +2101,48 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	return nil
 }
 
-func (local *local) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
 	if local.duplicateDB == nil {
 		return nil
 	}
-
-	log.L().Info("Begin Collect duplicate Keys")
+	log.L().Info("Begin collect duplicate local Keys",zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
 	}
-	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
-		SQLMode: sqlMode,
-	})
-	if err != nil {
-		return nil
-	}
-
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
 	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
-	handles := make([][]byte, 1)
-	allRanges := make([]tidbkv.KeyRange, 1)
-	for _, indexInfo := range tbl.Meta().Indices {
-		if indexInfo.State != model.StatePublic {
-			continue
-		}
-		ranges := ranger.FullRange()
-		keysRanges, err := distsql.IndexRangesToKVRanges(nil, tbl.Meta().ID, indexInfo.ID, ranges, nil)
-		if err != nil {
-			return err
-		}
-		allRanges = append(allRanges, keysRanges...)
-		for _, r := range keysRanges {
-			opts := &pebble.IterOptions{
-				LowerBound: r.StartKey,
-				UpperBound: r.EndKey,
-			}
-			iter := local.duplicateDB.NewIter(opts)
-			for iter.SeekGE(r.StartKey); iter.Valid(); iter.Next() {
-				value := iter.Value()
-				h, err := decoder.DecodeHandleFromIndex(indexInfo, iter.Key(), value)
-				if err != nil {
-					log.L().Error("decode handle error from index for duplicatedb",
-						zap.Error(err), logutil.Key("key", iter.Key()),
-						logutil.Key("value", value))
-					continue
-				}
-				key := decoder.EncodeHandleKey(h)
-				handles = append(handles, key)
-				if len(handles) > 1024 {
-					handles = duplicateManager.GetValues(ctx, handles)
-				}
-			}
-			if len(handles) > 0 {
-				handles = duplicateManager.GetValues(ctx, handles)
-			}
-			iter.Close()
-			if len(handles) == 0 {
-				local.duplicateDB.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
-			}
-		}
+	if err := duplicateManager.CollectRowFromLocalDuplicateKeys(ctx, tbl); err != nil {
+		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
-
-	if len(handles) == 0 {
-		return duplicateManager.DuplicateTable(ctx, tbl)
-	}
-
-	for i := 0; i < maxRetryTimes; i++ {
-		handles = duplicateManager.GetValues(ctx, handles)
-		if len(handles) == 0 {
-			for _, r := range allRanges {
-				local.duplicateDB.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
-			}
-			return duplicateManager.DuplicateTable(ctx, tbl)
-		}
-	}
-	return errors.Errorf("can not get values from tikv for local duplicate db")
+	return local.reportDuplicateRows(tbl, sqlMode)
 }
 
-func (local *local) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
-	strSQLMode := "ONLY_FULL_GROUP_BY,NO_AUTO_CREATE_USER"
-	sqlMode, err := mysql.GetSQLMode(strSQLMode)
+func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	log.L().Info("Begin collect remote duplicate Keys",zap.String("table", tbl.Meta().Name.String()))
+	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
-		return errors.Annotate(err, "invalid config: `mydumper.tidb.sql_mode` must be a valid SQL_MODE")
+		return err
 	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	if err = duplicateManager.CollectRowFromLocalDuplicateKeys(ctx, tbl); err != nil {
+		return errors.Annotate(err, "collect local duplicate keys failed")
+	}
+	if err = duplicateManager.DuplicateTable(ctx, tbl); err != nil {
+		return errors.Annotate(err, "duplicate table failed")
+	}
+	return local.reportDuplicateRows(tbl, sqlMode)
+}
+
+func (local *local) reportDuplicateRows(tbl table.Table, sqlMode mysql.SQLMode) error {
+	log.L().Info("Begin report duplicate rows",zap.String("table", tbl.Meta().Name.String()))
 	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
 		SQLMode: sqlMode,
 	})
@@ -2199,30 +2152,43 @@ func (local *local) ReportDuplicateRows(ctx context.Context, tbl table.Table) er
 
 	ranges := ranger.FullIntRange(false)
 	keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	keyAdapter := duplicateKeyAdapter{}
+	var nextUserKey []byte = nil
 	for _, r := range keysRanges {
+		startKey := codec.EncodeBytes([]byte{}, r.StartKey)
+		endKey := codec.EncodeBytes([]byte{}, r.EndKey)
 		opts := &pebble.IterOptions{
-			LowerBound: r.StartKey,
-			UpperBound: r.EndKey,
+			LowerBound: startKey,
+			UpperBound: endKey,
 		}
 		iter := local.duplicateDB.NewIter(opts)
-		for iter.SeekGE(r.StartKey); iter.Valid(); iter.Next() {
-			h, err := decoder.DecodeHandleFromTable(iter.Key())
+		for iter.SeekGE(startKey); iter.Valid(); iter.Next() {
+			nextUserKey, _, _, err = keyAdapter.Decode(nextUserKey[:0], iter.Key())
 			if err != nil {
+				log.L().Error("decode key error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+
+			h, err := decoder.DecodeHandleFromTable(nextUserKey)
+			if err != nil {
+				log.L().Error("decode handle error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
 				continue
 			}
 			rows, _, err := decoder.DecodeRawRowData(h, iter.Value())
 			if err != nil {
+				log.L().Error("decode row error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
 				continue
 			}
+			r := "row "
 			for _, row := range rows {
-				v := row.GetValue()
-				if b, ok := v.([]byte); ok {
-					v = string(b)
-				}
-				fmt.Printf("%v, ", v)
+				r += "," + row.String()
 			}
-			fmt.Printf("\n")
+			log.L().Info(r)
 		}
+		iter.Close()
 	}
 	return nil
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/pingcap/tidb/table"
 	"go.uber.org/zap"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -200,10 +199,10 @@ type AbstractBackend interface {
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
 	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
 
-	// CollectDuplicateKeys collect duplicate keys from remote TiKV storage.
-	CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
+	// CollectLocalDuplicateRows collect duplicate keys from remote TiKV storage.
+	CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
 
-	ReportDuplicateRows(ctx context.Context, tbl table.Table) error
+	CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
 }
 
 // Backend is the delivery target for Lightning
@@ -320,7 +319,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 			uuid:    engineUUID,
 		},
 	}
-	if err := closedEngine.Import(ctx); err != nil && !berrors.Is(err, berrors.ErrDuplicateDetected) {
+	if err := closedEngine.Import(ctx); err != nil  {
 		return err
 	}
 	return be.abstract.ResetEngine(ctx, engineUUID)
@@ -359,11 +358,12 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 	}, nil
 }
 
-func (be Backend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
-	if err := be.abstract.CollectDuplicateKeys(ctx, tbl, sqlMode); err != nil {
-		return err
-	}
-	return be.abstract.ReportDuplicateRows(ctx, tbl)
+func (be Backend) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	return be.abstract.CollectLocalDuplicateRows(ctx, tbl, sqlMode)
+}
+
+func (be Backend) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+	return be.abstract.CollectRemoteDuplicateRows(ctx, tbl, sqlMode)
 }
 
 // Close the opened engine to prepare it for importing.
@@ -441,9 +441,6 @@ func (engine *ClosedEngine) Import(ctx context.Context) error {
 	for i := 0; i < importMaxRetryTimes; i++ {
 		task := engine.logger.With(zap.Int("retryCnt", i)).Begin(zap.InfoLevel, "import")
 		err = engine.backend.ImportEngine(ctx, engine.uuid)
-		if berrors.Is(err, berrors.ErrDuplicateDetected) {
-			return err
-		}
 		if !common.IsRetryableError(err) {
 			task.End(zap.ErrorLevel, err)
 			return err

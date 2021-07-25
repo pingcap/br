@@ -359,11 +359,11 @@ func (be *tidbBackend) CleanupEngine(context.Context, uuid.UUID) error {
 	return nil
 }
 
-func (be *tidbBackend) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (be *tidbBackend) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
 	panic("Unsupported Operation")
 }
 
-func (be *tidbBackend) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
+func (be *tidbBackend) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
 	panic("Unsupported Operation")
 }
 

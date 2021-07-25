@@ -39,7 +39,6 @@ import (
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -1554,7 +1553,7 @@ func (tr *TableRestore) restoreTable(
 
 	// 2. Restore engines (if still needed)
 	err := tr.restoreEngines(ctx, rc, cp)
-	if err != nil {
+	if err != nil{
 		return false, errors.Trace(err)
 	}
 
@@ -2097,11 +2096,6 @@ func (tr *TableRestore) postProcess(
 	finished := true
 	if cp.Status < checkpoints.CheckpointStatusChecksummed {
 		// 4. do table checksum
-		if rc.cfg.TikvImporter.DuplicateDetection {
-			if err := rc.backend.CollectDuplicateKeys(ctx, tr.encTable,  rc.cfg.TiDB.SQLMode); err != nil {
-				tr.logger.Error("collect duplicate keys failed", log.ShortError(err))
-			}
-		}
 		var localChecksum verify.KVChecksum
 		for _, engine := range cp.Engines {
 			for _, chunk := range engine.Chunks {
@@ -2121,15 +2115,27 @@ func (tr *TableRestore) postProcess(
 					return false, err
 				}
 				if !needChecksum {
+					if rc.cfg.TikvImporter.DuplicateDetection {
+						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable,  rc.cfg.TiDB.SQLMode); err != nil {
+							tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
+						}
+					}
 					return false, nil
+				}
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectRemoteDuplicateRows(ctx, tr.encTable, rc.cfg.TiDB.SQLMode); err != nil {
+						tr.logger.Error("collect remote duplicate keys failed", log.ShortError(err))
+						err = nil
+					}
 				}
 				if cp.Checksum.SumKVS() > 0 || baseTotalChecksum.SumKVS() > 0 {
 					localChecksum.Add(&cp.Checksum)
 					localChecksum.Add(baseTotalChecksum)
 					tr.logger.Info("merged local checksum", zap.Object("checksum", &localChecksum))
 				}
-
-				err = tr.compareChecksum(ctx, localChecksum)
+				remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
+				// TODO: If there are duplicate keys, do not set the `ChecksumMismatch` error
+				err = tr.compareChecksum(remoteChecksum, localChecksum)
 				// with post restore level 'optional', we will skip checksum error
 				if rc.cfg.PostRestore.Checksum == config.OpLevelOptional {
 					if err != nil {
@@ -2765,7 +2771,7 @@ func (tr *TableRestore) importKV(
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
 	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
-	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
+	if err == nil {
 		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 
@@ -2783,21 +2789,25 @@ func (tr *TableRestore) importKV(
 }
 
 // do checksum for each table.
-func (tr *TableRestore) compareChecksum(ctx context.Context, localChecksum verify.KVChecksum) error {
-	remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
+func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum,localChecksum verify.KVChecksum) error {
 	if remoteChecksum.Checksum != localChecksum.Sum() ||
 		remoteChecksum.TotalKVs != localChecksum.SumKVS() ||
 		remoteChecksum.TotalBytes != localChecksum.SumSize() {
+		log.L().Error("checksum mismatched, remote: ",
+			zap.Uint64("Checksum", remoteChecksum.Checksum),
+			zap.Uint64("TotalKVs", remoteChecksum.TotalKVs),
+			zap.Uint64("TotalBytes", remoteChecksum.TotalBytes))
+		log.L().Error("checksum mismatched, local: ",
+			zap.Uint64("Checksum", localChecksum.Sum()),
+			zap.Uint64("TotalKVs", localChecksum.SumKVS()),
+			zap.Uint64("TotalBytes", localChecksum.SumSize()))
 		return errors.Errorf("checksum mismatched remote vs local => (checksum: %d vs %d) (total_kvs: %d vs %d) (total_bytes:%d vs %d)",
 			remoteChecksum.Checksum, localChecksum.Sum(),
 			remoteChecksum.TotalKVs, localChecksum.SumKVS(),
 			remoteChecksum.TotalBytes, localChecksum.SumSize(),
 		)
 	}
+
 
 	tr.logger.Info("checksum pass", zap.Object("local", &localChecksum))
 	return nil

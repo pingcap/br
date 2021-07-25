@@ -227,11 +227,11 @@ func (importer *importer) CleanupEngine(ctx context.Context, engineUUID uuid.UUI
 	return errors.Trace(err)
 }
 
-func (importer *importer) CollectDuplicateKeys(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (importer *importer) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
 	panic("Unsupported Operation")
 }
 
-func (importer *importer) ReportDuplicateRows(ctx context.Context, tbl table.Table) error {
+func (importer *importer) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
 	panic("Unsupported Operation")
 }
 

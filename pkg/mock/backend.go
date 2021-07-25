@@ -96,18 +96,32 @@ func (mr *MockBackendMockRecorder) CloseEngine(arg0, arg1, arg2 interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseEngine", reflect.TypeOf((*MockBackend)(nil).CloseEngine), arg0, arg1, arg2)
 }
 
-// CollectDuplicateKeys mocks base method
-func (m *MockBackend) CollectDuplicateKeys(arg0 context.Context, arg1 table.Table, arg2 mysql.SQLMode) error {
+// CollectLocalDuplicateRows mocks base method
+func (m *MockBackend) CollectLocalDuplicateRows(arg0 context.Context, arg1 table.Table, arg2 mysql.SQLMode) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CollectDuplicateKeys", arg0, arg1, arg2)
+	ret := m.ctrl.Call(m, "CollectLocalDuplicateRows", arg0, arg1, arg2)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// CollectDuplicateKeys indicates an expected call of CollectDuplicateKeys
-func (mr *MockBackendMockRecorder) CollectDuplicateKeys(arg0, arg1, arg2 interface{}) *gomock.Call {
+// CollectLocalDuplicateRows indicates an expected call of CollectLocalDuplicateRows
+func (mr *MockBackendMockRecorder) CollectLocalDuplicateRows(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectDuplicateKeys", reflect.TypeOf((*MockBackend)(nil).CollectDuplicateKeys), arg0, arg1, arg2)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectLocalDuplicateRows", reflect.TypeOf((*MockBackend)(nil).CollectLocalDuplicateRows), arg0, arg1, arg2)
+}
+
+// CollectRemoteDuplicateRows mocks base method
+func (m *MockBackend) CollectRemoteDuplicateRows(arg0 context.Context, arg1 table.Table, arg2 mysql.SQLMode) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CollectRemoteDuplicateRows", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CollectRemoteDuplicateRows indicates an expected call of CollectRemoteDuplicateRows
+func (mr *MockBackendMockRecorder) CollectRemoteDuplicateRows(arg0, arg1, arg2 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectRemoteDuplicateRows", reflect.TypeOf((*MockBackend)(nil).CollectRemoteDuplicateRows), arg0, arg1, arg2)
 }
 
 // EngineFileSizes mocks base method
@@ -237,20 +251,6 @@ func (m *MockBackend) OpenEngine(arg0 context.Context, arg1 *backend.EngineConfi
 func (mr *MockBackendMockRecorder) OpenEngine(arg0, arg1, arg2 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenEngine", reflect.TypeOf((*MockBackend)(nil).OpenEngine), arg0, arg1, arg2)
-}
-
-// ReportDuplicateRows mocks base method
-func (m *MockBackend) ReportDuplicateRows(arg0 context.Context, arg1 table.Table) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReportDuplicateRows", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ReportDuplicateRows indicates an expected call of ReportDuplicateRows
-func (mr *MockBackendMockRecorder) ReportDuplicateRows(arg0, arg1 interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReportDuplicateRows", reflect.TypeOf((*MockBackend)(nil).ReportDuplicateRows), arg0, arg1)
 }
 
 // ResetEngine mocks base method
