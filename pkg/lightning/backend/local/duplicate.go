@@ -51,7 +51,7 @@ import (
 )
 
 const (
-	maxWriteBatchCount        = 128
+	maxWriteBatchCount = 128
 )
 
 type DuplicateRequest struct {
@@ -299,7 +299,6 @@ func (manager *DuplicateManager) storeDuplicateData(
 }
 
 func (manager *DuplicateManager) ReportDuplicateData() error {
-
 	return nil
 }
 
@@ -307,6 +306,7 @@ func (manager *DuplicateManager) RepairDuplicateData() error {
 	// TODO
 	return nil
 }
+
 func (manager *DuplicateManager) CollectRowFromLocalDuplicateKeys(
 	ctx context.Context,
 	tbl table.Table,
@@ -421,7 +421,7 @@ func (manager *DuplicateManager) getValues(
 			handleKey := codec.EncodeBytes([]byte{}, handles[endIdx])
 			if bytes.Compare(handleKey, region.Region.EndKey) < 0 {
 				batch = append(batch, handles[endIdx])
-				endIdx ++
+				endIdx++
 			} else {
 				break
 			}
@@ -472,7 +472,7 @@ func (manager *DuplicateManager) getValuesFromRegion(
 	}
 	buf := make([]byte, totalKeyLen)
 
-	log.L().Error("get keys", zap.Int("key size",len(resp.Pairs)))
+	log.L().Error("get keys", zap.Int("key size", len(resp.Pairs)))
 	for i := 0; i < maxRetryTimes; i++ {
 		b := manager.db.NewBatch()
 		opts := &pebble.WriteOptions{Sync: false}

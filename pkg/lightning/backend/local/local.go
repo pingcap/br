@@ -20,8 +20,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/pingcap/tidb/distsql"
-	"github.com/pingcap/tidb/util/ranger"
 	"io"
 	"math"
 	"os"
@@ -30,6 +28,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pingcap/tidb/distsql"
+	"github.com/pingcap/tidb/util/ranger"
 
 	"github.com/pingcap/parser/mysql"
 
@@ -103,7 +104,7 @@ const (
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 
-	duplicateDBName = "duplicates"
+	duplicateDBName       = "duplicates"
 	remoteDuplicateDBName = "remote_duplicates"
 )
 
@@ -2105,7 +2106,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 	if local.duplicateDB == nil {
 		return nil
 	}
-	log.L().Info("Begin collect duplicate local Keys",zap.String("table", tbl.Meta().Name.String()))
+	log.L().Info("Begin collect duplicate local Keys", zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2122,7 +2123,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 }
 
 func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
-	log.L().Info("Begin collect remote duplicate Keys",zap.String("table", tbl.Meta().Name.String()))
+	log.L().Info("Begin collect remote duplicate Keys", zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2142,7 +2143,7 @@ func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Ta
 }
 
 func (local *local) reportDuplicateRows(tbl table.Table, sqlMode mysql.SQLMode) error {
-	log.L().Info("Begin report duplicate rows",zap.String("table", tbl.Meta().Name.String()))
+	log.L().Info("Begin report duplicate rows", zap.String("table", tbl.Meta().Name.String()))
 	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
 		SQLMode: sqlMode,
 	})

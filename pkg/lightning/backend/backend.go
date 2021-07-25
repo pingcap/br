@@ -319,7 +319,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 			uuid:    engineUUID,
 		},
 	}
-	if err := closedEngine.Import(ctx); err != nil  {
+	if err := closedEngine.Import(ctx); err != nil {
 		return err
 	}
 	return be.abstract.ResetEngine(ctx, engineUUID)

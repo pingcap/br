@@ -1553,7 +1553,7 @@ func (tr *TableRestore) restoreTable(
 
 	// 2. Restore engines (if still needed)
 	err := tr.restoreEngines(ctx, rc, cp)
-	if err != nil{
+	if err != nil {
 		return false, errors.Trace(err)
 	}
 
@@ -2116,7 +2116,7 @@ func (tr *TableRestore) postProcess(
 				}
 				if !needChecksum {
 					if rc.cfg.TikvImporter.DuplicateDetection {
-						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable,  rc.cfg.TiDB.SQLMode); err != nil {
+						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable, rc.cfg.TiDB.SQLMode); err != nil {
 							tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
 						}
 					}
@@ -2789,7 +2789,7 @@ func (tr *TableRestore) importKV(
 }
 
 // do checksum for each table.
-func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum,localChecksum verify.KVChecksum) error {
+func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum, localChecksum verify.KVChecksum) error {
 	if remoteChecksum.Checksum != localChecksum.Sum() ||
 		remoteChecksum.TotalKVs != localChecksum.SumKVS() ||
 		remoteChecksum.TotalBytes != localChecksum.SumSize() {
@@ -2807,7 +2807,6 @@ func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum,localChec
 			remoteChecksum.TotalBytes, localChecksum.SumSize(),
 		)
 	}
-
 
 	tr.logger.Info("checksum pass", zap.Object("local", &localChecksum))
 	return nil
