@@ -9,7 +9,9 @@ import (
 	"go.uber.org/zap"
 )
 
-var globalLogger = log.L()
+// We cannot directly set global logger as log.L(),
+// or when the global logger updated, we cannot get the latest logger.
+var globalLogger *zap.Logger = nil
 
 // ResetGlobalLogger resets the global logger.
 // Contexts have already made by `ContextWithField` would keep untouched,
@@ -37,7 +39,10 @@ func ContextWithField(c context.Context, fields ...zap.Field) context.Context {
 func LoggerFromContext(c context.Context) *zap.Logger {
 	logger, ok := c.Value(keyLogger).(*zap.Logger)
 	if !ok {
-		return globalLogger
+		if globalLogger != nil {
+			return globalLogger
+		}
+		return log.L()
 	}
 	return logger
 }
