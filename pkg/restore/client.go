@@ -443,8 +443,8 @@ func (rc *Client) GoCreateTables(
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
-
 	outCh := make(chan CreatedTable, len(tables))
+	rater := logutil.NewTrivialRater()
 	createOneTable := func(c context.Context, db *DB, t *metautil.Table) error {
 		select {
 		case <-c.Done():
@@ -464,6 +464,10 @@ func (rc *Client) GoCreateTables(
 			zap.Stringer("table", t.Info.Name),
 			zap.Stringer("database", t.DB.Name))
 		outCh <- rt
+		rater.Success(1)
+		rater.L().Info("table created",
+			zap.Stringer("table", t.Info.Name),
+			zap.Stringer("database", t.DB.Name))
 		return nil
 	}
 	go func() {
