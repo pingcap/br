@@ -27,9 +27,12 @@ import (
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/util/collate"
 	"go.uber.org/atomic"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"modernc.org/mathutil"
 
@@ -45,6 +48,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
@@ -1594,6 +1598,366 @@ func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) 
 	}
 
 	return threshold
+}
+
+// do full compaction for the whole data.
+func (rc *Controller) fullCompact(ctx context.Context) error {
+	if !rc.cfg.PostRestore.Compact {
+		log.L().Info("skip full compaction")
+		return nil
+	}
+
+	// wait until any existing level-1 compact to complete first.
+	task := log.L().Begin(zap.InfoLevel, "wait for completion of existing level 1 compaction")
+	for !rc.compactState.CAS(compactStateIdle, compactStateDoing) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	task.End(zap.ErrorLevel, nil)
+
+	return errors.Trace(rc.doCompact(ctx, FullLevelCompact))
+}
+
+func (rc *Controller) doCompact(ctx context.Context, level int32) error {
+	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
+	return tikv.ForAllStores(
+		ctx,
+		tls,
+		tikv.StoreStateDisconnected,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.Compact(c, tls, store.Address, level)
+		},
+	)
+}
+
+func (rc *Controller) switchToImportMode(ctx context.Context) {
+	rc.switchTiKVMode(ctx, sstpb.SwitchMode_Import)
+}
+
+func (rc *Controller) switchToNormalMode(ctx context.Context) error {
+	rc.switchTiKVMode(ctx, sstpb.SwitchMode_Normal)
+	return nil
+}
+
+func (rc *Controller) switchTiKVMode(ctx context.Context, mode sstpb.SwitchMode) {
+	// It is fine if we miss some stores which did not switch to Import mode,
+	// since we're running it periodically, so we exclude disconnected stores.
+	// But it is essential all stores be switched back to Normal mode to allow
+	// normal operation.
+	var minState tikv.StoreState
+	if mode == sstpb.SwitchMode_Import {
+		minState = tikv.StoreStateOffline
+	} else {
+		minState = tikv.StoreStateDisconnected
+	}
+	tls := rc.tls.WithHost(rc.cfg.TiDB.PdAddr)
+	// we ignore switch mode failure since it is not fatal.
+	// no need log the error, it is done in kv.SwitchMode already.
+	_ = tikv.ForAllStores(
+		ctx,
+		tls,
+		minState,
+		func(c context.Context, store *tikv.Store) error {
+			return tikv.SwitchMode(c, tls, store.Address, mode)
+		},
+	)
+}
+
+func (rc *Controller) enforceDiskQuota(ctx context.Context) {
+	if !rc.diskQuotaState.CAS(diskQuotaStateIdle, diskQuotaStateChecking) {
+		// do not run multiple the disk quota check / import simultaneously.
+		// (we execute the lock check in background to avoid blocking the cron thread)
+		return
+	}
+
+	go func() {
+		// locker is assigned when we detect the disk quota is exceeded.
+		// before the disk quota is confirmed exceeded, we keep the diskQuotaLock
+		// unlocked to avoid periodically interrupting the writer threads.
+		var locker sync.Locker
+		defer func() {
+			rc.diskQuotaState.Store(diskQuotaStateIdle)
+			if locker != nil {
+				locker.Unlock()
+			}
+		}()
+
+		isRetrying := false
+
+		for {
+			// sleep for a cycle if we are retrying because there is nothing new to import.
+			if isRetrying {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(rc.cfg.Cron.CheckDiskQuota.Duration):
+				}
+			} else {
+				isRetrying = true
+			}
+
+			quota := int64(rc.cfg.TikvImporter.DiskQuota)
+			largeEngines, inProgressLargeEngines, totalDiskSize, totalMemSize := rc.backend.CheckDiskQuota(quota)
+			metric.LocalStorageUsageBytesGauge.WithLabelValues("disk").Set(float64(totalDiskSize))
+			metric.LocalStorageUsageBytesGauge.WithLabelValues("mem").Set(float64(totalMemSize))
+
+			logger := log.With(
+				zap.Int64("diskSize", totalDiskSize),
+				zap.Int64("memSize", totalMemSize),
+				zap.Int64("quota", quota),
+				zap.Int("largeEnginesCount", len(largeEngines)),
+				zap.Int("inProgressLargeEnginesCount", inProgressLargeEngines))
+
+			if len(largeEngines) == 0 && inProgressLargeEngines == 0 {
+				logger.Debug("disk quota respected")
+				return
+			}
+
+			if locker == nil {
+				// blocks all writers when we detected disk quota being exceeded.
+				rc.diskQuotaLock.Lock()
+				locker = rc.diskQuotaLock
+			}
+
+			logger.Warn("disk quota exceeded")
+			if len(largeEngines) == 0 {
+				logger.Warn("all large engines are already importing, keep blocking all writes")
+				continue
+			}
+
+			// flush all engines so that checkpoints can be updated.
+			if err := rc.backend.FlushAll(ctx); err != nil {
+				logger.Error("flush engine for disk quota failed, check again later", log.ShortError(err))
+				return
+			}
+
+			// at this point, all engines are synchronized on disk.
+			// we then import every large engines one by one and complete.
+			// if any engine failed to import, we just try again next time, since the data are still intact.
+			rc.diskQuotaState.Store(diskQuotaStateImporting)
+			task := logger.Begin(zap.WarnLevel, "importing large engines for disk quota")
+			var importErr error
+			for _, engine := range largeEngines {
+				if err := rc.backend.UnsafeImportAndReset(ctx, engine); err != nil {
+					importErr = multierr.Append(importErr, err)
+				}
+			}
+			task.End(zap.ErrorLevel, importErr)
+			return
+		}
+	}()
+}
+
+func (rc *Controller) setGlobalVariables(ctx context.Context) error {
+	// set new collation flag base on tidb config
+	enabled := ObtainNewCollationEnabled(ctx, rc.tidbGlue.GetSQLExecutor())
+	// we should enable/disable new collation here since in server mode, tidb config
+	// may be different in different tasks
+	collate.SetNewCollationEnabledForTest(enabled)
+
+	return nil
+}
+
+func (rc *Controller) waitCheckpointFinish() {
+	// wait checkpoint process finish so that we can do cleanup safely
+	close(rc.saveCpCh)
+	rc.checkpointsWg.Wait()
+}
+
+func (rc *Controller) cleanCheckpoints(ctx context.Context) error {
+	rc.waitCheckpointFinish()
+
+	if !rc.cfg.Checkpoint.Enable {
+		return nil
+	}
+
+	logger := log.With(
+		zap.Bool("keepAfterSuccess", rc.cfg.Checkpoint.KeepAfterSuccess),
+		zap.Int64("taskID", rc.cfg.TaskID),
+	)
+
+	task := logger.Begin(zap.InfoLevel, "clean checkpoints")
+	var err error
+	if rc.cfg.Checkpoint.KeepAfterSuccess {
+		err = rc.checkpointsDB.MoveCheckpoints(ctx, rc.cfg.TaskID)
+	} else {
+		err = rc.checkpointsDB.RemoveCheckpoint(ctx, "all")
+	}
+	task.End(zap.ErrorLevel, err)
+	return errors.Annotate(err, "clean checkpoints")
+}
+
+func (rc *Controller) isLocalBackend() bool {
+	return rc.cfg.TikvImporter.Backend == config.BackendLocal
+}
+
+// preCheckRequirements checks
+// 1. Cluster resource
+// 2. Local node resource
+// 3. Lightning configuration
+// before restore tables start.
+func (rc *Controller) preCheckRequirements(ctx context.Context) error {
+	if !rc.cfg.App.CheckRequirements {
+		log.L().Info("skip pre check due to user requirement")
+		return nil
+	}
+	if err := rc.ClusterIsAvailable(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := rc.StoragePermission(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := rc.ClusterResource(ctx); err != nil {
+		return errors.Trace(err)
+	}
+
+	if rc.isLocalBackend() {
+		if err := rc.LocalResource(ctx); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+}
+
+// DataCheck checks the data schema which needs #rc.restoreSchema finished.
+func (rc *Controller) DataCheck(ctx context.Context) error {
+	if !rc.cfg.App.CheckRequirements {
+		log.L().Info("skip data check due to user requirement")
+		return nil
+	}
+	var err error
+	err = rc.HasLargeCSV(rc.dbMetas)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	checkPointCriticalMsgs := make([]string, 0, len(rc.dbMetas))
+	schemaCriticalMsgs := make([]string, 0, len(rc.dbMetas))
+	var msgs []string
+	for _, dbInfo := range rc.dbMetas {
+		for _, tableInfo := range dbInfo.Tables {
+			// if hasCheckpoint is true, the table will start import from the checkpoint
+			// so we can skip TableHasDataInCluster and SchemaIsValid check.
+			var noCheckpoint bool
+			if rc.cfg.Checkpoint.Enable {
+				if msgs, noCheckpoint, err = rc.CheckpointIsValid(ctx, tableInfo); err != nil {
+					return errors.Trace(err)
+				}
+				if len(msgs) != 0 {
+					checkPointCriticalMsgs = append(checkPointCriticalMsgs, msgs...)
+				}
+			}
+			if noCheckpoint && rc.cfg.TikvImporter.Backend != config.BackendTiDB {
+				if msgs, err = rc.SchemaIsValid(ctx, tableInfo); err != nil {
+					return errors.Trace(err)
+				}
+				if len(msgs) != 0 {
+					schemaCriticalMsgs = append(schemaCriticalMsgs, msgs...)
+				}
+			}
+		}
+	}
+	if len(checkPointCriticalMsgs) != 0 {
+		rc.checkTemplate.Collect(Critical, false, strings.Join(checkPointCriticalMsgs, "\n"))
+	} else {
+		rc.checkTemplate.Collect(Critical, true, "checkpoints are valid")
+	}
+	if len(schemaCriticalMsgs) != 0 {
+		rc.checkTemplate.Collect(Critical, false, strings.Join(schemaCriticalMsgs, "\n"))
+	} else {
+		rc.checkTemplate.Collect(Critical, true, "table schemas are valid")
+	}
+	return nil
+}
+
+type chunkRestore struct {
+	parser mydump.Parser
+	index  int
+	chunk  *checkpoints.ChunkCheckpoint
+}
+
+func newChunkRestore(
+	ctx context.Context,
+	index int,
+	cfg *config.Config,
+	chunk *checkpoints.ChunkCheckpoint,
+	ioWorkers *worker.Pool,
+	store storage.ExternalStorage,
+	tableInfo *checkpoints.TidbTableInfo,
+) (*chunkRestore, error) {
+	blockBufSize := int64(cfg.Mydumper.ReadBlockSize)
+
+	var reader storage.ReadSeekCloser
+	var err error
+	if chunk.FileMeta.Type == mydump.SourceTypeParquet {
+		reader, err = mydump.OpenParquetReader(ctx, store, chunk.FileMeta.Path, chunk.FileMeta.FileSize)
+	} else {
+		reader, err = store.Open(ctx, chunk.FileMeta.Path)
+	}
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var parser mydump.Parser
+	switch chunk.FileMeta.Type {
+	case mydump.SourceTypeCSV:
+		hasHeader := cfg.Mydumper.CSV.Header && chunk.Chunk.Offset == 0
+		parser = mydump.NewCSVParser(&cfg.Mydumper.CSV, reader, blockBufSize, ioWorkers, hasHeader)
+	case mydump.SourceTypeSQL:
+		parser = mydump.NewChunkParser(cfg.TiDB.SQLMode, reader, blockBufSize, ioWorkers)
+	case mydump.SourceTypeParquet:
+		parser, err = mydump.NewParquetParser(ctx, store, reader, chunk.FileMeta.Path)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	default:
+		panic(fmt.Sprintf("file '%s' with unknown source type '%s'", chunk.Key.Path, chunk.FileMeta.Type.String()))
+	}
+
+	if err = parser.SetPos(chunk.Chunk.Offset, chunk.Chunk.PrevRowIDMax); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if len(chunk.ColumnPermutation) > 0 {
+		parser.SetColumns(getColumnNames(tableInfo.Core, chunk.ColumnPermutation))
+	}
+
+	return &chunkRestore{
+		parser: parser,
+		index:  index,
+		chunk:  chunk,
+	}, nil
+}
+
+func (cr *chunkRestore) close() {
+	cr.parser.Close()
+}
+
+func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
+	colIndexes := make([]int, 0, len(permutation))
+	for i := 0; i < len(permutation); i++ {
+		colIndexes = append(colIndexes, -1)
+	}
+	colCnt := 0
+	for i, p := range permutation {
+		if p >= 0 {
+			colIndexes[p] = i
+			colCnt++
+		}
+	}
+
+	names := make([]string, 0, colCnt)
+	for _, idx := range colIndexes {
+		// skip columns with index -1
+		if idx >= 0 {
+			// original fields contains _tidb_rowid field
+			if idx == len(tableInfo.Columns) {
+				names = append(names, model.ExtraHandleName.O)
+			} else {
+				names = append(names, tableInfo.Columns[idx].Name.O)
+			}
+		}
+	}
+	return names
 }
 
 var (
