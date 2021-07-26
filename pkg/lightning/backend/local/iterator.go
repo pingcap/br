@@ -60,7 +60,7 @@ type duplicateIter struct {
 
 func (d *duplicateIter) Seek(key []byte) bool {
 	encodedKey := d.keyAdapter.Encode(nil, key, 0, 0)
-	if d.err != nil || !d.iter.SeekGE(codec.EncodeBytes(nil, encodedKey)) {
+	if d.err != nil || !d.iter.SeekGE(encodedKey) {
 		return false
 	}
 	d.fill()

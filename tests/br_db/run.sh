@@ -40,7 +40,7 @@ run_sql "INSERT INTO $DB.usertable2 VALUES (\"c\", \"d\");"
 # backup db
 echo "backup start..."
 export GO_FAILPOINTS="github.com/pingcap/br/pkg/task/progress-call-back=return(\"$PROGRESS_FILE\")"
-run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup db --db "$DB" -s "local://$TEST_DIR/$DB"
 export GO_FAILPOINTS=""
 
 # check if we use the region unit

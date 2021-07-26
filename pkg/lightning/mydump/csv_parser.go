@@ -41,15 +41,18 @@ type CSVParser struct {
 	quote   []byte
 	newLine []byte
 
-	// quoteIndexFunc and unquoteIndexFunc take a byte slice and return the
+	// These variables are used with IndexAnyByte to search a byte slice for the
 	// first index which some special character may appear.
-	// quoteIndexFunc is used inside quoted fields (so the first characters of
+	// quoteByteSet is used inside quoted fields (so the first characters of
 	// the closing delimiter and backslash are special).
-	// unquoteIndexFunc is used outside quoted fields (so the first characters
+	// unquoteByteSet is used outside quoted fields (so the first characters
 	// of the opening delimiter, separator, terminator and backslash are
 	// special).
-	quoteIndexFunc   func([]byte) int
-	unquoteIndexFunc func([]byte) int
+	// newLineByteSet is used in strict-format CSV dividing (so the first
+	// characters of the terminator are special).
+	quoteByteSet   byteSet
+	unquoteByteSet byteSet
+	newLineByteSet byteSet
 
 	// recordBuffer holds the unescaped fields, one after another.
 	// The fields can be accessed by using the indexes in fieldIndexes.
@@ -76,17 +79,18 @@ func NewCSVParser(
 	shouldParseHeader bool,
 ) *CSVParser {
 	escFlavor := backslashEscapeFlavorNone
-	var quoteStopSet []byte
+	var quoteStopSet, newLineStopSet []byte
 	unquoteStopSet := []byte{cfg.Separator[0]}
 	if len(cfg.Delimiter) > 0 {
 		quoteStopSet = []byte{cfg.Delimiter[0]}
 		unquoteStopSet = append(unquoteStopSet, cfg.Delimiter[0])
 	}
 	if len(cfg.Terminator) > 0 {
-		unquoteStopSet = append(unquoteStopSet, cfg.Terminator[0])
+		newLineStopSet = []byte{cfg.Terminator[0]}
 	} else {
-		unquoteStopSet = append(unquoteStopSet, '\r', '\n')
+		newLineStopSet = []byte{'\r', '\n'}
 	}
+	unquoteStopSet = append(unquoteStopSet, newLineStopSet...)
 	if cfg.BackslashEscape {
 		escFlavor = backslashEscapeFlavorMySQL
 		quoteStopSet = append(quoteStopSet, '\\')
@@ -104,17 +108,10 @@ func NewCSVParser(
 		quote:             []byte(cfg.Delimiter),
 		newLine:           []byte(cfg.Terminator),
 		escFlavor:         escFlavor,
-		quoteIndexFunc:    makeBytesIndexFunc(quoteStopSet),
-		unquoteIndexFunc:  makeBytesIndexFunc(unquoteStopSet),
+		quoteByteSet:      makeByteSet(quoteStopSet),
+		unquoteByteSet:    makeByteSet(unquoteStopSet),
+		newLineByteSet:    makeByteSet(newLineStopSet),
 		shouldParseHeader: shouldParseHeader,
-	}
-}
-
-func makeBytesIndexFunc(chars []byte) func([]byte) int {
-	// chars are guaranteed to be ascii str, so this call will always success
-	as := makeByteSet(chars)
-	return func(s []byte) int {
-		return IndexAnyByte(s, &as)
 	}
 }
 
@@ -277,8 +274,8 @@ func (parser *CSVParser) appendCSVTokenToRecordBuffer(token csvToken) {
 
 // readUntil reads the buffer until any character from the `chars` set is found.
 // that character is excluded from the final buffer.
-func (parser *CSVParser) readUntil(findIndexFunc func([]byte) int) ([]byte, byte, error) {
-	index := findIndexFunc(parser.buf)
+func (parser *CSVParser) readUntil(chars *byteSet) ([]byte, byte, error) {
+	index := IndexAnyByte(parser.buf, chars)
 	if index >= 0 {
 		ret := parser.buf[:index]
 		parser.buf = parser.buf[index:]
@@ -298,7 +295,7 @@ func (parser *CSVParser) readUntil(findIndexFunc func([]byte) int) ([]byte, byte
 			parser.pos += int64(len(buf))
 			return buf, 0, errors.Trace(err)
 		}
-		index := findIndexFunc(parser.buf)
+		index := IndexAnyByte(parser.buf, chars)
 		if index >= 0 {
 			buf = append(buf, parser.buf[:index]...)
 			parser.buf = parser.buf[index:]
@@ -319,7 +316,7 @@ func (parser *CSVParser) readRecord(dst []string) ([]string, error) {
 
 outside:
 	for {
-		content, firstByte, err := parser.readUntil(parser.unquoteIndexFunc)
+		content, firstByte, err := parser.readUntil(&parser.unquoteByteSet)
 
 		if len(content) > 0 {
 			isEmptyLine = false
@@ -401,7 +398,7 @@ outside:
 
 func (parser *CSVParser) readQuotedField() error {
 	for {
-		content, terminator, err := parser.readUntil(parser.quoteIndexFunc)
+		content, terminator, err := parser.readUntil(&parser.quoteByteSet)
 		err = parser.replaceEOF(err, errUnterminatedQuotedField)
 		if err != nil {
 			return err
@@ -509,15 +506,18 @@ func indexOfNewLine(b []byte) int {
 	return IndexAnyByte(b, &newLineASCIISet)
 }
 
-// ReadUntilTokNewLine seeks the file until either `\r` or `\n` is found, and
-// return the file offset beyond the newline.
+// ReadUntilTerminator seeks the file until the terminator token is found, and
+// returns the file offset beyond the terminator.
 // This function is used in strict-format dividing a CSV file.
-// TODO: support custom terminator.
-func (parser *CSVParser) ReadUntilTokNewLine() (int64, error) {
-	_, _, err := parser.readUntil(indexOfNewLine)
-	if err != nil {
-		return 0, err
+func (parser *CSVParser) ReadUntilTerminator() (int64, error) {
+	for {
+		_, firstByte, err := parser.readUntil(&parser.newLineByteSet)
+		if err != nil {
+			return 0, err
+		}
+		parser.skipBytes(1)
+		if ok, err := parser.tryReadNewLine(firstByte); ok || err != nil {
+			return parser.pos, err
+		}
 	}
-	parser.skipBytes(1)
-	return parser.pos, nil
 }

@@ -31,7 +31,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/manual"
+	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/utils"
 
 	"go.uber.org/zap"
@@ -61,7 +61,7 @@ func (b *bytesBuf) add(v []byte) []byte {
 	start := b.idx
 	copy(b.buf[start:], v)
 	b.idx += len(v)
-	return b.buf[start:b.idx]
+	return b.buf[start:b.idx:b.idx]
 }
 
 func newBytesBuf(size int) *bytesBuf {
@@ -84,7 +84,6 @@ type kvMemBuf struct {
 	buf           *bytesBuf
 	availableBufs []*bytesBuf
 	kvPairs       *KvPairs
-	capacity      int
 	size          int
 }
 
