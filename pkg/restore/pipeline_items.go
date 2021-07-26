@@ -257,6 +257,21 @@ func (b *tikvSender) splitWorker(ctx context.Context,
 				return
 			}
 			splitWorks.Add(1)
+			// When the batcher has sent all ranges from a table, it would
+			// mark this table 'all done'(BlankTablesAfterSend), and then we can send it to checksum.
+			//
+			// When there a sole worker sequentially running those batch tasks, everything is fine, however,
+			// in the context of multi-workers, that become buggy, for example:
+			// |------table 1, ranges 1------|------table 1, ranges 2------|
+			// The batcher send batches: [
+			//		{Ranges: ranges 1},
+			// 		{Ranges: ranges 2, BlankTablesAfterSend: table 1}
+			// ]
+			// And there are two workers runs concurrently:
+			// 		worker 1: {Ranges: ranges 1}
+			//      worker 2: {Ranges: ranges 2, BlankTablesAfterSend: table 1}
+			// And worker 2 finished its job before worker 1 done. Note the table wasn't restored fully,
+			// hence the checksum would fail.
 			done := b.registerTableIsRestoring(result.TablesToSend)
 			pool.Apply(func() {
 				SplitRangesAndThen(ctx, b.client, result.Ranges, result.RewriteRules, b.updateCh, func(err error) {
@@ -276,6 +291,8 @@ func (b *tikvSender) splitWorker(ctx context.Context,
 	}
 }
 
+// registerTableIsRestoring marks some tables as 'current restoring'.
+// Returning a function that mark the restore has been done.
 func (b *tikvSender) registerTableIsRestoring(ts []CreatedTable) func() {
 	wgs := make([]*sync.WaitGroup, 0, len(ts))
 	for _, t := range ts {
@@ -291,6 +308,8 @@ func (b *tikvSender) registerTableIsRestoring(ts []CreatedTable) func() {
 	}
 }
 
+// waitTablesDone block the current goroutine,
+// till all tables provided are no more ‘current restoring’.
 func (b *tikvSender) waitTablesDone(ts []CreatedTable) {
 	for _, t := range ts {
 		wg, ok := b.tableWaiters.LoadAndDelete(t.Table.ID)
