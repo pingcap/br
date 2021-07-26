@@ -1427,21 +1427,11 @@ func (s *restoreSchemaSuite) TestRestoreSchemaSuccessful(c *C) {
 
 func (s *restoreSchemaSuite) TestRestoreSchemaFailed(c *C) {
 	injectErr := errors.New("Somthing wrong")
-	mockSession := mock.NewMockSession(s.controller)
-	mockSession.EXPECT().
-		Close().
-		AnyTimes().
-		Return()
-	mockSession.EXPECT().
-		Execute(gomock.Any(), gomock.Any()).
+	s.rc.tidbGlue.(*mock.MockGlue).EXPECT().
+		GetDB().
 		AnyTimes().
 		Return(nil, injectErr)
-	mockTiDBGlue := mock.NewMockGlue(s.controller)
-	mockTiDBGlue.EXPECT().
-		GetSession(gomock.Any()).
-		AnyTimes().
-		Return(mockSession, nil)
-	s.rc.tidbGlue = mockTiDBGlue
+
 	err := s.rc.restoreSchema(s.ctx)
 	c.Assert(err, NotNil)
 	c.Assert(errors.ErrorEqual(err, injectErr), IsTrue)
