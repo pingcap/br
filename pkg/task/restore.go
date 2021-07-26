@@ -447,8 +447,6 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		finish = dropToBlackhole(ctx, afterRestoreStream, errCh, updateCh)
 	}
 
-	go client.ReportWorkerPoolUtilizationLoop(ctx, 1*time.Second)
-
 	select {
 	case err = <-errCh:
 		err = multierr.Append(err, multierr.Combine(restore.Exhaust(errCh)...))

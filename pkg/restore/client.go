@@ -130,24 +130,6 @@ func NewRestoreClient(
 	}, nil
 }
 
-// ReportWorkerPoolUtilizationLoop let the client report the health of the worker pool.
-func (rc *Client) ReportWorkerPoolUtilizationLoop(ctx context.Context, gap time.Duration) {
-	tick := time.NewTicker(gap)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			log.Info("restore client: worker health report",
-				zap.Int("idle", rc.workerPool.IdleCount()),
-				zap.Int("total", rc.workerPool.Limit()),
-				zap.String("used", fmt.Sprintf("%.2f%%", (1-float64(rc.workerPool.IdleCount())/float64(rc.workerPool.Limit()))*100)),
-			)
-		}
-	}
-}
-
 // SetRateLimit to set rateLimit.
 func (rc *Client) SetRateLimit(rateLimit uint64) {
 	rc.rateLimit = rateLimit
@@ -516,14 +498,9 @@ func (rc *Client) createTablesWithDBPool(ctx context.Context,
 	tables []*metautil.Table, dbPool []*DB) error {
 	eg, ectx := errgroup.WithContext(ctx)
 	workers := utils.NewWorkerPool(uint(len(dbPool)), "DDL workers")
-	rater := logutil.NewTrivialRater()
 	for _, t := range tables {
 		table := t
 		workers.ApplyWithIDInErrorGroup(eg, func(id uint64) error {
-			defer func() {
-				rater.Success(1)
-				rater.L().Info("table restored", zap.Stringer("table", table.Info.Name))
-			}()
 			db := dbPool[id%uint64(len(dbPool))]
 			return createOneTable(ectx, db, table)
 		})
