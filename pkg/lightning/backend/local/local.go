@@ -2594,7 +2594,6 @@ type sstMeta struct {
 type Writer struct {
 	sync.Mutex
 	local             *File
-	sstDir            string
 	memtableSizeLimit int64
 
 	// if the KVs are append in order, we can directly write the into SST file,
