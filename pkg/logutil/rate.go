@@ -35,7 +35,7 @@ func (r *TrivialRater) Success(n uint64) {
 
 // Rate returns the rate over all time, in the given unit.
 func (r *TrivialRater) Rate(unit time.Duration) float64 {
-	return float64(atomic.LoadUint64(&r.current)) / float64(time.Since(r.start)/unit)
+	return float64(atomic.LoadUint64(&r.current)) / float64(time.Since(r.start)) * float64(unit)
 }
 
 // L make a logger with the current speed.

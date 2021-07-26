@@ -4,8 +4,10 @@ package logutil_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
@@ -48,6 +50,41 @@ func newFile(j int) *backuppb.File {
 		Cf:           "write",
 		Size_:        uint64(j),
 	}
+}
+
+type isAbout struct{}
+
+func (isAbout) Info() *CheckerInfo {
+	return &CheckerInfo{
+		Name: "isAbout",
+		Params: []string{
+			"actual",
+			"expect",
+		},
+	}
+}
+
+func (isAbout) Check(params []interface{}, names []string) (result bool, error string) {
+	actual := params[0].(float64)
+	expect := params[1].(float64)
+
+	if diff := math.Abs(1 - (actual / expect)); diff > 0.1 {
+		return false, fmt.Sprintf("The diff(%.2f) between actual(%.2f) and expect(%.2f) is too huge.", diff, actual, expect)
+	}
+	return true, ""
+}
+
+func (s *testLoggingSuite) TestRater(c *C) {
+	rater := logutil.NewTrivialRater()
+	time.Sleep(100 * time.Millisecond)
+	rater.Success(1)
+	c.Assert(rater.Rate(time.Second), isAbout{}, 10.0)
+	time.Sleep(50 * time.Millisecond)
+	rater.Success(1)
+	c.Assert(rater.Rate(time.Second), isAbout{}, 13.0)
+	time.Sleep(50 * time.Millisecond)
+	rater.Success(18)
+	c.Assert(rater.Rate(time.Second), isAbout{}, 100.0)
 }
 
 func (s *testLoggingSuite) TestFile(c *C) {
