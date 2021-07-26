@@ -20,7 +20,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/pingcap/br/pkg/pdutil"
 	"io"
 	"math"
 	"os"
@@ -29,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pingcap/br/pkg/pdutil"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
@@ -1381,7 +1382,7 @@ func (local *local) WriteToTiKV(
 ) ([]*sst.SSTMeta, Range, rangeStats, error) {
 	for _, peer := range region.Region.GetPeers() {
 		var e error
-		for i := 0; i < maxRetryTimes; i ++ {
+		for i := 0; i < maxRetryTimes; i++ {
 			store, err := local.pdCtl.GetStoreInfo(ctx, peer.StoreId)
 			if err != nil {
 				e = err

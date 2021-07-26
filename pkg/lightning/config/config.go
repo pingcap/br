@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	pd "github.com/tikv/pd/client"
 	"net"
 	"net/url"
 	"os"
@@ -26,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	pd "github.com/tikv/pd/client"
 
 	"github.com/BurntSushi/toml"
 	"github.com/docker/go-units"
@@ -87,7 +88,7 @@ const (
 	defaultEngineMemCacheSize              = 512 * units.MiB
 	defaultLocalWriterMemCacheSize         = 128 * units.MiB
 
-	maxRetryTimes = 4
+	maxRetryTimes           = 4
 	defaultRetryBackoffTime = 3 * time.Second
 )
 
@@ -732,7 +733,7 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
 	if cfg.TiDB.DistSQLScanConcurrency == 0 {
 		var e error
-		for i:= 0; i < maxRetryTimes; i ++ {
+		for i := 0; i < maxRetryTimes; i++ {
 			e = cfg.adjustDistSQLConcurrency(ctx)
 			if e == nil {
 				break

@@ -2,6 +2,20 @@ package restore
 
 import (
 	"context"
+	"sort"
+	"sync"
+	"time"
+
+	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/meta/autoid"
+	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/table/tables"
+	"go.uber.org/multierr"
+	"go.uber.org/zap"
+	"modernc.org/mathutil"
+
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
@@ -17,18 +31,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/failpoint"
-	"github.com/pingcap/parser/model"
-	"github.com/pingcap/tidb/meta/autoid"
-	"github.com/pingcap/tidb/table"
-	"github.com/pingcap/tidb/table/tables"
-	"go.uber.org/multierr"
-	"go.uber.org/zap"
-	"modernc.org/mathutil"
-	"sort"
-	"sync"
-	"time"
 )
 
 func (tr *TableRestore) restoreTable(
@@ -754,7 +756,6 @@ func (tr *TableRestore) postProcess(
 	return !finished, nil
 }
 
-
 type TableRestore struct {
 	// The unique table name in the form "`db`.`tbl`".
 	tableName string
@@ -1051,4 +1052,3 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 	task.End(zap.ErrorLevel, err)
 	return err
 }
-

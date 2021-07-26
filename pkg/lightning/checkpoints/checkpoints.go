@@ -148,7 +148,7 @@ const (
 	ReadEngineTemplate = `
 		SELECT engine_id, status FROM %s.%s WHERE table_name = ? ORDER BY engine_id DESC;`
 	ReadEngineCountTemplate = `SELECT count(*) FROM %s.%s;`
-	ReadChunkTemplate = `
+	ReadChunkTemplate       = `
 		SELECT
 			engine_id, path, offset, type, compression, sort_key, file_size, columns,
 			pos, end_offset, prev_rowid_max, rowid_max,

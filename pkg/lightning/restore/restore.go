@@ -17,15 +17,17 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/pingcap/br/pkg/lightning/tikv"
-	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/tidb/util/collate"
-	"go.uber.org/multierr"
 	"math"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
+	"github.com/pingcap/tidb/util/collate"
+	"go.uber.org/multierr"
+
+	"github.com/pingcap/br/pkg/lightning/tikv"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
@@ -380,9 +382,9 @@ func (rc *Controller) Close() {
 
 func (rc *Controller) Run(ctx context.Context) error {
 	opts := []func(context.Context) error{
-		rc.preCheckRequirements,
 		rc.setGlobalVariables,
 		rc.restoreSchema,
+		rc.preCheckRequirements,
 		rc.restoreTables,
 		rc.fullCompact,
 		rc.switchToNormalMode,

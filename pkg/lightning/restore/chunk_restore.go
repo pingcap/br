@@ -3,7 +3,15 @@ package restore
 import (
 	"context"
 	"fmt"
+	"io"
+	"time"
+
 	"github.com/docker/go-units"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
+	"github.com/pingcap/tidb/meta/autoid"
+	"go.uber.org/zap"
+
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -15,12 +23,6 @@ import (
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/storage"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/failpoint"
-	"github.com/pingcap/tidb/meta/autoid"
-	"go.uber.org/zap"
-	"io"
-	"time"
 )
 
 var (
@@ -39,8 +41,6 @@ type deliverResult struct {
 	totalDur time.Duration
 	err      error
 }
-
-
 
 type chunkRestore struct {
 	parser mydump.Parser
@@ -457,5 +457,3 @@ func (cr *chunkRestore) restore(
 		return ctx.Err()
 	}
 }
-
-

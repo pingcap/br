@@ -14,16 +14,27 @@
 package restore
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
 
+	"github.com/pingcap/tidb/table/tables"
+
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/log"
+	verify "github.com/pingcap/br/pkg/lightning/verification"
+
+	"github.com/pingcap/failpoint"
+
+	"github.com/pingcap/br/pkg/lightning/mydump"
+
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
-	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/tikv/pd/pkg/typeutil"
@@ -61,6 +72,8 @@ const (
 	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
 	// contribute 2.3 GiB to the reserved size.
 	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
+	maxSampleDataSize                      = 10 * 1024 * 1024
+	maxSampleRowCount                      = 10 * 1024
 )
 
 func (rc *Controller) isSourceInLocal() bool {
@@ -221,10 +234,6 @@ func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
 	}
 	return nil
 }
-// LocalResource checks the local node has enough resources for this import when local backend enabled;
-func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) error {
-	return rc.SampleSourceData(ctx)
-}
 
 // LocalResource checks the local node has enough resources for this import when local backend enabled;
 func (rc *Controller) LocalResource(ctx context.Context) error {
@@ -241,11 +250,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
 		}
 	}
-	var sourceSize uint64
-	err := rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
-		sourceSize += uint64(size)
-		return nil
-	})
+	sourceSize,err := rc.CalculateTableAndIndexRatio(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -259,7 +264,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 	var message string
 	var passed bool
 	switch {
-	case localAvailable > sourceSize*3/2:
+	case localAvailable > uint64(sourceSize):
 		message = fmt.Sprintf("local disk resources are rich, source dir has %s, local available is %s",
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
@@ -280,7 +285,7 @@ func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *md.MDTab
 	tableCheckPoint, err := rc.checkpointsDB.Get(ctx, uniqueName)
 	if err != nil {
 		// there is no checkpoint
-		log.Debug("no checkpoint detected", zap.String("table", uniqueName))
+		log.L().Debug("no checkpoint detected", zap.String("table", uniqueName))
 		return nil, true, nil
 	}
 	// if checkpoint enable and not missing, we skip the check table empty progress.
@@ -303,7 +308,7 @@ func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *md.MDTab
 		}
 	}
 	if len(columns) == 0 {
-		log.Debug("no valid checkpoint detected", zap.String("table", uniqueName))
+		log.L().Debug("no valid checkpoint detected", zap.String("table", uniqueName))
 		return nil, false, nil
 	}
 	info := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
@@ -347,7 +352,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 		}
 
 		if len(tableInfo.DataFiles) == 0 {
-			log.Info("no data files detected", zap.String("db", tableInfo.DB), zap.String("table", tableInfo.Name))
+			log.L().Info("no data files detected", zap.String("db", tableInfo.DB), zap.String("table", tableInfo.Name))
 			return nil, nil
 		}
 		// get columns name from data file.
@@ -454,4 +459,146 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 		}
 	}
 	return msgs, nil
+}
+
+func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, tableMeta *mydump.MDTableMeta, tableInfo *model.TableInfo) error {
+	if len(tableMeta.DataFiles) == 0 {
+		return nil
+	}
+	sampleFile := tableMeta.DataFiles[0].FileMeta
+	var reader storage.ReadSeekCloser
+	var err error
+	if sampleFile.Type == mydump.SourceTypeParquet {
+		reader, err = mydump.OpenParquetReader(ctx, rc.store, sampleFile.Path, sampleFile.FileSize)
+	} else {
+		reader, err = rc.store.Open(ctx, sampleFile.Path)
+	}
+	if err != nil {
+		return errors.Trace(err)
+	}
+	idAlloc := kv.NewPanickingAllocators(0)
+	tbl, err := tables.TableFromMeta(idAlloc, tableInfo)
+
+	kvEncoder, err := rc.backend.NewEncoder(tbl, &kv.SessionOptions{
+		SQLMode:        rc.cfg.TiDB.SQLMode,
+		Timestamp:      0,
+		SysVars:        rc.sysVars,
+		AutoRandomSeed: 0,
+	})
+	blockBufSize := int64(rc.cfg.Mydumper.ReadBlockSize)
+
+	var parser mydump.Parser
+	switch tableMeta.DataFiles[0].FileMeta.Type {
+	case mydump.SourceTypeCSV:
+		hasHeader := rc.cfg.Mydumper.CSV.Header
+		parser = mydump.NewCSVParser(&rc.cfg.Mydumper.CSV, reader, blockBufSize, rc.ioWorkers, hasHeader)
+	case mydump.SourceTypeSQL:
+		parser = mydump.NewChunkParser(rc.cfg.TiDB.SQLMode, reader, blockBufSize, rc.ioWorkers)
+	case mydump.SourceTypeParquet:
+		parser, err = mydump.NewParquetParser(ctx, rc.store, reader, sampleFile.Path)
+		if err != nil {
+			errors.Trace(err)
+		}
+	default:
+		panic(fmt.Sprintf("file '%s' with unknown source type '%s'", sampleFile.Path, sampleFile.Type.String()))
+	}
+	logTask := log.With(zap.String("table", tableMeta.Name)).Begin(zap.InfoLevel, "restore file")
+	igCols, err := rc.cfg.Mydumper.IgnoreColumns.GetIgnoreColumns(dbName, tableMeta.Name, rc.cfg.Mydumper.CaseSensitive)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	initializedColumns, reachEOF := false, false
+	var columnPermutation []int
+	var kvSize uint64 = 0
+	var rowSize uint64 = 0
+	rowCount := 0
+	dataKVs := rc.backend.MakeEmptyRows()
+	indexKVs := rc.backend.MakeEmptyRows()
+	lastKey := make([]byte, 0)
+	tableMeta.IsRowOrdered = true
+	for !reachEOF {
+		offset, _ := parser.Pos()
+		err = parser.ReadRow()
+		columnNames := parser.Columns()
+
+		switch errors.Cause(err) {
+		case nil:
+			if !initializedColumns {
+				if len(columnPermutation) == 0 {
+					columnPermutation, err = createColumnPermutation(columnNames, igCols.Columns, tableInfo)
+				}
+				initializedColumns = true
+			}
+		case io.EOF:
+			reachEOF = true
+			break
+		default:
+			err = errors.Annotatef(err, "in file  offset %d", offset)
+			continue
+		}
+		lastRow := parser.LastRow()
+		// sql -> kv
+		for _, r := range lastRow.Row {
+			rowSize += uint64(r.Length())
+		}
+		rowCount += 1
+
+		var dataChecksum, indexChecksum verify.KVChecksum
+		kvs, encodeErr := kvEncoder.Encode(logTask.Logger, lastRow.Row, lastRow.RowID, columnPermutation, offset)
+		parser.RecycleRow(lastRow)
+		if encodeErr != nil {
+			err = errors.Annotatef(encodeErr, "in file at offset %d", offset)
+			continue
+		}
+		if tableMeta.IsRowOrdered {
+			kvs.ClassifyAndAppend(&dataKVs, &dataChecksum, &indexKVs, &indexChecksum)
+			for _, kv := range kv.KvPairsFromRows(dataKVs) {
+				if len(lastKey) == 0 {
+					lastKey = kv.Key
+				} else if bytes.Compare(lastKey, kv.Key) > 0 {
+					tableMeta.IsRowOrdered = false
+					break
+				}
+			}
+			dataKVs = dataKVs.Clear()
+			indexKVs = indexKVs.Clear()
+		}
+		kvSize += kvs.Size()
+
+		failpoint.Inject("mock-kv-size", func(val failpoint.Value) {
+			kvSize += uint64(val.(int))
+		})
+		if rowSize > maxSampleDataSize && rowCount > maxSampleRowCount {
+			break
+		}
+	}
+
+	if rowSize > 0 && kvSize > rowSize {
+		tableMeta.IndexRatio = float64(kvSize) / float64(rowSize)
+	} else {
+		tableMeta.IndexRatio = 1.0
+	}
+	parser.Close()
+	return nil
+}
+
+func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) (int64,error) {
+	source := int64(0)
+	for _, db := range rc.dbMetas {
+		info, ok := rc.dbInfos[db.Name]
+		if !ok {
+			continue
+		}
+		for _, tbl := range db.Tables {
+			tableInfo, ok := info.Tables[tbl.Name]
+			if ok {
+				if err := rc.SampleDataFromTable(ctx, db.Name, tbl, tableInfo.Core); err != nil {
+					return source, err
+				}
+				source += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
+			}
+		}
+	}
+	return source, nil
 }

@@ -8,20 +8,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tikv/pd/pkg/typeutil"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/tikv/pd/pkg/typeutil"
+
 	"github.com/coreos/go-semver/semver"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/pd/server/api"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/statistics"
-	"github.com/tikv/pd/server/api"
 )
 
 func TestT(t *testing.T) {
@@ -202,10 +203,11 @@ func (s *testPDControllerSuite) TestPDRequestRetry(c *C) {
 	_, reqErr = pdRequest(ctx, taddr, "", cli, http.MethodGet, nil)
 	c.Assert(reqErr, NotNil)
 }
+
 func (s *testPDControllerSuite) TestStoreInfo(c *C) {
 	storeInfo := api.StoreInfo{
 		Status: &api.StoreStatus{
-			Capacity: typeutil.ByteSize(1024),
+			Capacity:  typeutil.ByteSize(1024),
 			Available: typeutil.ByteSize(1024),
 		},
 		Store: &api.MetaStore{
