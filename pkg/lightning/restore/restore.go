@@ -17,11 +17,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/pingcap/tidb/meta/autoid"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
@@ -35,6 +38,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/importer"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/backend/local"
 	"github.com/pingcap/br/pkg/lightning/backend/tidb"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -45,6 +49,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/tikv"
+	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/pdutil"
@@ -1446,7 +1451,6 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	logTask.End(zap.ErrorLevel, err)
 	return err
 }
-
 
 // do full compaction for the whole data.
 func (rc *Controller) fullCompact(ctx context.Context) error {

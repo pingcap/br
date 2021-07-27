@@ -19,11 +19,9 @@ import (
 	"sync"
 	"time"
 
-
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
-
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -165,13 +163,23 @@ func (t *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowIDB
 //
 // The argument `columns` _must_ be in lower case.
 func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.ChunkCheckpoint) error {
+	colPerm, err := createColumnPermutation(columns, tr.ignoreColumns, tr.tableInfo.Core)
+	if err != nil {
+		return err
+	} else {
+		ccp.ColumnPermutation = colPerm
+	}
+	return nil
+}
+
+func createColumnPermutation(columns []string, ignoreColumns []string, tableInfo *model.TableInfo) ([]int, error) {
 	var colPerm []int
 	if len(columns) == 0 {
-		colPerm = make([]int, 0, len(tr.tableInfo.Core.Columns)+1)
-		shouldIncludeRowID := common.TableHasAutoRowID(tr.tableInfo.Core)
+		colPerm = make([]int, 0, len(tableInfo.Columns)+1)
+		shouldIncludeRowID := common.TableHasAutoRowID(tableInfo)
 
 		// no provided columns, so use identity permutation.
-		for i := range tr.tableInfo.Core.Columns {
+		for i := range tableInfo.Columns {
 			colPerm = append(colPerm, i)
 		}
 		if shouldIncludeRowID {
@@ -179,14 +187,12 @@ func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.Chu
 		}
 	} else {
 		var err error
-		colPerm, err = parseColumnPermutations(tr.tableInfo.Core, columns, tr.ignoreColumns)
+		colPerm, err = parseColumnPermutations(tableInfo, columns, ignoreColumns)
 		if err != nil {
-			return errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 	}
-
-	ccp.ColumnPermutation = colPerm
-	return nil
+	return colPerm, nil
 }
 
 func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {

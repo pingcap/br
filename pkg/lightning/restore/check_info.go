@@ -62,9 +62,9 @@ const (
 	pdStores    = "/pd/api/v1/stores"
 	pdReplicate = "/pd/api/v1/config/replicate"
 
-	defaultCSVSize = 10 * units.GiB
-	maxSampleDataSize                      = 10 * 1024 * 1024
-	maxSampleRowCount                      = 10 * 1024
+	defaultCSVSize    = 10 * units.GiB
+	maxSampleDataSize = 10 * 1024 * 1024
+	maxSampleRowCount = 10 * 1024
 )
 
 func (rc *Controller) isSourceInLocal() bool {
