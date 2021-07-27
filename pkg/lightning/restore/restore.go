@@ -937,7 +937,7 @@ func (rc *Controller) saveStatusCheckpoint(ctx context.Context, tableName string
 	select {
 	case saveCpErr = <-waitCh:
 	case <-ctx.Done():
-		saveCpErr = ctx.Err()
+		return ctx.Err()
 	}
 	if saveCpErr != nil {
 		logger.Error("failed to save status checkpoint", zap.Error(saveCpErr))
@@ -973,9 +973,6 @@ func (rc *Controller) listenCheckpointUpdates() {
 				err := rc.checkpointsDB.Update(cpd)
 				for _, w := range ws {
 					w <- err
-				}
-				if err != nil {
-					log.L().Error("save checkpoint failed", zap.Error(err))
 				}
 				web.BroadcastCheckpointDiff(cpd)
 			}
