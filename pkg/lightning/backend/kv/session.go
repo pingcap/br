@@ -322,7 +322,7 @@ func (se *session) GetInfoSchema() sessionctx.InfoschemaMetaVersion {
 // GetBuiltinFunctionUsage returns the BuiltinFunctionUsage of current Context, which is not thread safe.
 // Use primitive map type to prevent circular import. Should convert it to telemetry.BuiltinFunctionUsage before using.
 func (se *session) GetBuiltinFunctionUsage() map[string]uint32 {
-	return nil
+	return make(map[string]uint32)
 }
 
 func (se *session) Close() {
