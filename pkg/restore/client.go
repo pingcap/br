@@ -182,6 +182,9 @@ func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupM
 		var ddlJobs []*model.Job
 		// ddls is the bytes of json.Marshal
 		ddls, err := reader.ReadDDLs(c)
+		if err != nil {
+			return errors.Trace(err)
+		}
 		if len(ddls) != 0 {
 			err = json.Unmarshal(ddls, &ddlJobs)
 			if err != nil {
