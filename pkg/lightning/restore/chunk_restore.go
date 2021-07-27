@@ -3,6 +3,7 @@ package restore
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/parser/model"
 	"io"
 	"time"
 
@@ -456,4 +457,32 @@ func (cr *chunkRestore) restore(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
+	colIndexes := make([]int, 0, len(permutation))
+	for i := 0; i < len(permutation); i++ {
+		colIndexes = append(colIndexes, -1)
+	}
+	colCnt := 0
+	for i, p := range permutation {
+		if p >= 0 {
+			colIndexes[p] = i
+			colCnt++
+		}
+	}
+
+	names := make([]string, 0, colCnt)
+	for _, idx := range colIndexes {
+		// skip columns with index -1
+		if idx >= 0 {
+			// original fields contains _tidb_rowid field
+			if idx == len(tableInfo.Columns) {
+				names = append(names, model.ExtraHandleName.O)
+			} else {
+				names = append(names, tableInfo.Columns[idx].Name.O)
+			}
+		}
+	}
+	return names
 }

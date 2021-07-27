@@ -240,7 +240,6 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 	if rc.isSourceInLocal() {
 		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
 		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
-
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -250,7 +249,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
 		}
 	}
-	sourceSize,err := rc.CalculateTableAndIndexRatio(ctx)
+	sourceSize, err := rc.CalculateTableAndIndexRatio(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -583,7 +582,7 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	return nil
 }
 
-func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) (int64,error) {
+func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) (int64, error) {
 	source := int64(0)
 	for _, db := range rc.dbMetas {
 		info, ok := rc.dbInfos[db.Name]

@@ -23,17 +23,14 @@ import (
 	"sync"
 	"time"
 
-	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
-	"github.com/pingcap/tidb/util/collate"
-	"go.uber.org/multierr"
-
-	"github.com/pingcap/br/pkg/lightning/tikv"
-
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
+	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/util/collate"
 	"go.uber.org/atomic"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/lightning/backend"
@@ -47,6 +44,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/pdutil"
@@ -382,9 +380,9 @@ func (rc *Controller) Close() {
 
 func (rc *Controller) Run(ctx context.Context) error {
 	opts := []func(context.Context) error{
+		rc.preCheckRequirements,
 		rc.setGlobalVariables,
 		rc.restoreSchema,
-		rc.preCheckRequirements,
 		rc.restoreTables,
 		rc.fullCompact,
 		rc.switchToNormalMode,
@@ -1652,27 +1650,18 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
 		return errors.Trace(err)
 	}
-	if err := rc.ClusterIsOnline(ctx); err != nil {
-		return errors.Trace(err)
-	}
 
 	if err := rc.StoragePermission(ctx); err != nil {
 		return errors.Trace(err)
 	}
 
-	isEmpty, err := rc.checkpointsDB.IsEmpty(ctx)
-	if err != nil {
+	if err := rc.ClusterResource(ctx); err != nil {
 		return errors.Trace(err)
 	}
-	if isEmpty {
-		if err := rc.ClusterResource(ctx); err != nil {
-			return errors.Trace(err)
-		}
 
-		if rc.isLocalBackend() {
-			if err := rc.LocalResource(ctx); err != nil {
-				return errors.Trace(err)
-			}
+	if rc.isLocalBackend() {
+		if err := rc.LocalResource(ctx); err != nil {
+			return errors.Trace(err)
 		}
 	}
 	return nil

@@ -1,3 +1,16 @@
+// Copyright 2021 PingCAP, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package restore
 
 import (
@@ -5,6 +18,10 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/pingcap/br/pkg/lightning/web"
+	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -27,157 +44,147 @@ import (
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
-	"github.com/pingcap/br/pkg/lightning/web"
 	"github.com/pingcap/br/pkg/lightning/worker"
-	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/version"
 )
 
-func (tr *TableRestore) restoreTable(
-	ctx context.Context,
-	rc *Controller,
-	cp *checkpoints.TableCheckpoint,
-) (bool, error) {
-	// 1. Load the table info.
+type TableRestore struct {
+	// The unique table name in the form "`db`.`tbl`".
+	tableName string
+	dbInfo    *checkpoints.TidbDBInfo
+	tableInfo *checkpoints.TidbTableInfo
+	tableMeta *mydump.MDTableMeta
+	encTable  table.Table
+	alloc     autoid.Allocators
+	logger    log.Logger
 
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
-	}
-
-	metaMgr := rc.metaMgrBuilder.TableMetaMgr(tr)
-	// no need to do anything if the chunks are already populated
-	if len(cp.Engines) > 0 {
-		tr.logger.Info("reusing engines and files info from checkpoint",
-			zap.Int("enginesCnt", len(cp.Engines)),
-			zap.Int("filesCnt", cp.CountChunks()),
-		)
-	} else if cp.Status < checkpoints.CheckpointStatusAllWritten {
-		versionStr, err := rc.tidbGlue.GetSQLExecutor().ObtainStringWithLog(
-			ctx, "SELECT version()", "fetch tidb version", log.L())
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-
-		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-
-		if err := tr.populateChunks(ctx, rc, cp); err != nil {
-			return false, errors.Trace(err)
-		}
-
-		// fetch the max chunk row_id max value as the global max row_id
-		rowIDMax := int64(0)
-		for _, engine := range cp.Engines {
-			if len(engine.Chunks) > 0 && engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax > rowIDMax {
-				rowIDMax = engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax
-			}
-		}
-
-		// "show table next_row_id" is only available after v4.0.0
-		if tidbVersion.Major >= 4 && (rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
-			// first, insert a new-line into meta table
-			if err = metaMgr.InitTableMeta(ctx); err != nil {
-				return false, err
-			}
-
-			checksum, rowIDBase, err := metaMgr.AllocTableRowIDs(ctx, rowIDMax)
-			if err != nil {
-				return false, err
-			}
-			tr.RebaseChunkRowIDs(cp, rowIDBase)
-
-			if checksum != nil {
-				if cp.Checksum != *checksum {
-					cp.Checksum = *checksum
-					rc.saveCpCh <- saveCp{
-						tableName: tr.tableName,
-						merger: &checkpoints.TableChecksumMerger{
-							Checksum: cp.Checksum,
-						},
-					}
-				}
-				tr.logger.Info("checksum before restore table", zap.Object("checksum", &cp.Checksum))
-			}
-		}
-		if err := rc.checkpointsDB.InsertEngineCheckpoints(ctx, tr.tableName, cp.Engines); err != nil {
-			return false, errors.Trace(err)
-		}
-		web.BroadcastTableCheckpoint(tr.tableName, cp)
-
-		// rebase the allocator so it exceeds the number of rows.
-		if tr.tableInfo.Core.PKIsHandle && tr.tableInfo.Core.ContainsAutoRandomBits() {
-			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoRandID)
-			if err := tr.alloc.Get(autoid.AutoRandomType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
-				return false, err
-			}
-		} else {
-			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoIncID)
-			if err := tr.alloc.Get(autoid.RowIDAllocType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
-				return false, err
-			}
-		}
-		rc.saveCpCh <- saveCp{
-			tableName: tr.tableName,
-			merger: &checkpoints.RebaseCheckpointMerger{
-				AllocBase: cp.AllocBase,
-			},
-		}
-	}
-
-	// 2. Restore engines (if still needed)
-	err := tr.restoreEngines(ctx, rc, cp)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
-
-	err = metaMgr.UpdateTableStatus(ctx, metaStatusRestoreFinished)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
-
-	// 3. Post-process. With the last parameter set to false, we can allow delay analyze execute latter
-	return tr.postProcess(ctx, rc, cp, false /* force-analyze */, metaMgr)
+	ignoreColumns []string
 }
 
-// estimate SST files compression threshold by total row file size
-// with a higher compression threshold, the compression time increases, but the iteration time decreases.
-// Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
-// we set the upper bound to 32GB to avoid too long compression time.
-// factor is the non-clustered(1 for data engine and number of non-clustered index count for index engine).
-func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) int64 {
-	totalRawFileSize := int64(0)
-	var lastFile string
-	for _, engineCp := range cp.Engines {
-		for _, chunk := range engineCp.Chunks {
-			if chunk.FileMeta.Path == lastFile {
-				continue
+func NewTableRestore(
+	tableName string,
+	tableMeta *mydump.MDTableMeta,
+	dbInfo *checkpoints.TidbDBInfo,
+	tableInfo *checkpoints.TidbTableInfo,
+	cp *checkpoints.TableCheckpoint,
+	ignoreColumns []string,
+) (*TableRestore, error) {
+	idAlloc := kv.NewPanickingAllocators(cp.AllocBase)
+	tbl, err := tables.TableFromMeta(idAlloc, tableInfo.Core)
+	if err != nil {
+		return nil, errors.Annotatef(err, "failed to tables.TableFromMeta %s", tableName)
+	}
+
+	return &TableRestore{
+		tableName:     tableName,
+		dbInfo:        dbInfo,
+		tableInfo:     tableInfo,
+		tableMeta:     tableMeta,
+		encTable:      tbl,
+		alloc:         idAlloc,
+		logger:        log.With(zap.String("table", tableName)),
+		ignoreColumns: ignoreColumns,
+	}, nil
+}
+
+func (tr *TableRestore) Close() {
+	tr.encTable = nil
+	tr.logger.Info("restore done")
+}
+
+func (tr *TableRestore) populateChunks(ctx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
+	task := tr.logger.Begin(zap.InfoLevel, "load engines and files")
+	chunks, err := mydump.MakeTableRegions(ctx, tr.tableMeta, len(tr.tableInfo.Core.Columns), rc.cfg, rc.ioWorkers, rc.store)
+	if err == nil {
+		timestamp := time.Now().Unix()
+		failpoint.Inject("PopulateChunkTimestamp", func(v failpoint.Value) {
+			timestamp = int64(v.(int))
+		})
+		for _, chunk := range chunks {
+			engine, found := cp.Engines[chunk.EngineID]
+			if !found {
+				engine = &checkpoints.EngineCheckpoint{
+					Status: checkpoints.CheckpointStatusLoaded,
+				}
+				cp.Engines[chunk.EngineID] = engine
 			}
-			size := chunk.FileMeta.FileSize
-			if chunk.FileMeta.Type == mydump.SourceTypeParquet {
-				// parquet file is compressed, thus estimates with a factor of 2
-				size *= 2
+			ccp := &checkpoints.ChunkCheckpoint{
+				Key: checkpoints.ChunkCheckpointKey{
+					Path:   chunk.FileMeta.Path,
+					Offset: chunk.Chunk.Offset,
+				},
+				FileMeta:          chunk.FileMeta,
+				ColumnPermutation: nil,
+				Chunk:             chunk.Chunk,
+				Timestamp:         timestamp,
 			}
-			totalRawFileSize += size
-			lastFile = chunk.FileMeta.Path
+			if len(chunk.Chunk.Columns) > 0 {
+				perms, err := parseColumnPermutations(tr.tableInfo.Core, chunk.Chunk.Columns, tr.ignoreColumns)
+				if err != nil {
+					return errors.Trace(err)
+				}
+				ccp.ColumnPermutation = perms
+			}
+			engine.Chunks = append(engine.Chunks, ccp)
+		}
+
+		// Add index engine checkpoint
+		cp.Engines[indexEngineID] = &checkpoints.EngineCheckpoint{Status: checkpoints.CheckpointStatusLoaded}
+	}
+	task.End(zap.ErrorLevel, err,
+		zap.Int("enginesCnt", len(cp.Engines)),
+		zap.Int("filesCnt", len(chunks)),
+	)
+	return err
+}
+
+func (t *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowIDBase int64) {
+	if rowIDBase == 0 {
+		return
+	}
+	for _, engine := range cp.Engines {
+		for _, chunk := range engine.Chunks {
+			chunk.Chunk.PrevRowIDMax += rowIDBase
+			chunk.Chunk.RowIDMax += rowIDBase
 		}
 	}
-	totalRawFileSize *= factor
+}
 
-	// try restrict the total file number within 512
-	threshold := totalRawFileSize / 512
-	threshold = utils.NextPowerOfTwo(threshold)
-	if threshold < compactionLowerThreshold {
-		// disable compaction if threshold is smaller than lower bound
-		threshold = 0
-	} else if threshold > compactionUpperThreshold {
-		threshold = compactionUpperThreshold
+// initializeColumns computes the "column permutation" for an INSERT INTO
+// statement. Suppose a table has columns (a, b, c, d) in canonical order, and
+// we execute `INSERT INTO (d, b, a) VALUES ...`, we will need to remap the
+// columns as:
+//
+// - column `a` is at position 2
+// - column `b` is at position 1
+// - column `c` is missing
+// - column `d` is at position 0
+//
+// The column permutation of (d, b, a) is set to be [2, 1, -1, 0].
+//
+// The argument `columns` _must_ be in lower case.
+func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.ChunkCheckpoint) error {
+	var colPerm []int
+	if len(columns) == 0 {
+		colPerm = make([]int, 0, len(tr.tableInfo.Core.Columns)+1)
+		shouldIncludeRowID := common.TableHasAutoRowID(tr.tableInfo.Core)
+
+		// no provided columns, so use identity permutation.
+		for i := range tr.tableInfo.Core.Columns {
+			colPerm = append(colPerm, i)
+		}
+		if shouldIncludeRowID {
+			colPerm = append(colPerm, -1)
+		}
+	} else {
+		var err error
+		colPerm, err = parseColumnPermutations(tr.tableInfo.Core, columns, tr.ignoreColumns)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
 
-	return threshold
+	ccp.ColumnPermutation = colPerm
+	return nil
 }
 
 func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
@@ -756,153 +763,6 @@ func (tr *TableRestore) postProcess(
 	return !finished, nil
 }
 
-type TableRestore struct {
-	// The unique table name in the form "`db`.`tbl`".
-	tableName string
-	dbInfo    *checkpoints.TidbDBInfo
-	tableInfo *checkpoints.TidbTableInfo
-	tableMeta *mydump.MDTableMeta
-	encTable  table.Table
-	alloc     autoid.Allocators
-	logger    log.Logger
-
-	ignoreColumns []string
-}
-
-func NewTableRestore(
-	tableName string,
-	tableMeta *mydump.MDTableMeta,
-	dbInfo *checkpoints.TidbDBInfo,
-	tableInfo *checkpoints.TidbTableInfo,
-	cp *checkpoints.TableCheckpoint,
-	ignoreColumns []string,
-) (*TableRestore, error) {
-	idAlloc := kv.NewPanickingAllocators(cp.AllocBase)
-	tbl, err := tables.TableFromMeta(idAlloc, tableInfo.Core)
-	if err != nil {
-		return nil, errors.Annotatef(err, "failed to tables.TableFromMeta %s", tableName)
-	}
-
-	return &TableRestore{
-		tableName:     tableName,
-		dbInfo:        dbInfo,
-		tableInfo:     tableInfo,
-		tableMeta:     tableMeta,
-		encTable:      tbl,
-		alloc:         idAlloc,
-		logger:        log.With(zap.String("table", tableName)),
-		ignoreColumns: ignoreColumns,
-	}, nil
-}
-
-func (tr *TableRestore) Close() {
-	tr.encTable = nil
-	tr.logger.Info("restore done")
-}
-
-func (tr *TableRestore) populateChunks(ctx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
-	task := tr.logger.Begin(zap.InfoLevel, "load engines and files")
-	chunks, err := mydump.MakeTableRegions(ctx, tr.tableMeta, len(tr.tableInfo.Core.Columns), rc.cfg, rc.ioWorkers, rc.store)
-	if err == nil {
-		timestamp := time.Now().Unix()
-		failpoint.Inject("PopulateChunkTimestamp", func(v failpoint.Value) {
-			timestamp = int64(v.(int))
-		})
-		for _, chunk := range chunks {
-			engine, found := cp.Engines[chunk.EngineID]
-			if !found {
-				engine = &checkpoints.EngineCheckpoint{
-					Status: checkpoints.CheckpointStatusLoaded,
-				}
-				cp.Engines[chunk.EngineID] = engine
-			}
-			ccp := &checkpoints.ChunkCheckpoint{
-				Key: checkpoints.ChunkCheckpointKey{
-					Path:   chunk.FileMeta.Path,
-					Offset: chunk.Chunk.Offset,
-				},
-				FileMeta:          chunk.FileMeta,
-				ColumnPermutation: nil,
-				Chunk:             chunk.Chunk,
-				Timestamp:         timestamp,
-			}
-			if len(chunk.Chunk.Columns) > 0 {
-				perms, err := parseColumnPermutations(tr.tableInfo.Core, chunk.Chunk.Columns, tr.ignoreColumns)
-				if err != nil {
-					return errors.Trace(err)
-				}
-				ccp.ColumnPermutation = perms
-			}
-			engine.Chunks = append(engine.Chunks, ccp)
-		}
-
-		// Add index engine checkpoint
-		cp.Engines[indexEngineID] = &checkpoints.EngineCheckpoint{Status: checkpoints.CheckpointStatusLoaded}
-	}
-	task.End(zap.ErrorLevel, err,
-		zap.Int("enginesCnt", len(cp.Engines)),
-		zap.Int("filesCnt", len(chunks)),
-	)
-	return err
-}
-
-func (t *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowIDBase int64) {
-	if rowIDBase == 0 {
-		return
-	}
-	for _, engine := range cp.Engines {
-		for _, chunk := range engine.Chunks {
-			chunk.Chunk.PrevRowIDMax += rowIDBase
-			chunk.Chunk.RowIDMax += rowIDBase
-		}
-	}
-}
-
-// initializeColumns computes the "column permutation" for an INSERT INTO
-// statement. Suppose a table has columns (a, b, c, d) in canonical order, and
-// we execute `INSERT INTO (d, b, a) VALUES ...`, we will need to remap the
-// columns as:
-//
-// - column `a` is at position 2
-// - column `b` is at position 1
-// - column `c` is missing
-// - column `d` is at position 0
-//
-// The column permutation of (d, b, a) is set to be [2, 1, -1, 0].
-//
-// The argument `columns` _must_ be in lower case.
-func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.ChunkCheckpoint) error {
-	colPerm, err := createColumnPermutation(columns, tr.ignoreColumns, tr.tableInfo.Core)
-	if err != nil {
-		return err
-	}
-	ccp.ColumnPermutation = colPerm
-	return nil
-}
-
-func createColumnPermutation(columns []string, ignoreColumns []string, tableInfo *model.TableInfo) ([]int, error) {
-	var colPerm []int
-	if len(columns) == 0 {
-		colPerm = make([]int, 0, len(tableInfo.Columns)+1)
-		shouldIncludeRowID := common.TableHasAutoRowID(tableInfo)
-
-		// no provided columns, so use identity permutation.
-		for i := range tableInfo.Columns {
-			colPerm = append(colPerm, i)
-		}
-		if shouldIncludeRowID {
-			colPerm = append(colPerm, -1)
-		}
-	} else {
-		var err error
-		colPerm, err = parseColumnPermutations(tableInfo, columns, ignoreColumns)
-		if err != nil {
-			return nil, errors.Trace(err)
-		}
-	}
-	return colPerm, nil
-}
-
 func parseColumnPermutations(tableInfo *model.TableInfo, columns []string, ignoreColumns []string) ([]int, error) {
 	colPerm := make([]int, 0, len(tableInfo.Columns)+1)
 
@@ -969,34 +829,6 @@ func parseColumnPermutations(tableInfo *model.TableInfo, columns []string, ignor
 	return colPerm, nil
 }
 
-func getColumnNames(tableInfo *model.TableInfo, permutation []int) []string {
-	colIndexes := make([]int, 0, len(permutation))
-	for i := 0; i < len(permutation); i++ {
-		colIndexes = append(colIndexes, -1)
-	}
-	colCnt := 0
-	for i, p := range permutation {
-		if p >= 0 {
-			colIndexes[p] = i
-			colCnt++
-		}
-	}
-
-	names := make([]string, 0, colCnt)
-	for _, idx := range colIndexes {
-		// skip columns with index -1
-		if idx >= 0 {
-			// original fields contains _tidb_rowid field
-			if idx == len(tableInfo.Columns) {
-				names = append(names, model.ExtraHandleName.O)
-			} else {
-				names = append(names, tableInfo.Columns[idx].Name.O)
-			}
-		}
-	}
-	return names
-}
-
 func (tr *TableRestore) importKV(
 	ctx context.Context,
 	closedEngine *backend.ClosedEngine,
@@ -1051,4 +883,151 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 	err := g.ExecuteWithLog(ctx, "ANALYZE TABLE "+tr.tableName, "analyze table", tr.logger)
 	task.End(zap.ErrorLevel, err)
 	return err
+}
+
+func (tr *TableRestore) restoreTable(
+	ctx context.Context,
+	rc *Controller,
+	cp *checkpoints.TableCheckpoint,
+) (bool, error) {
+	// 1. Load the table info.
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	metaMgr := rc.metaMgrBuilder.TableMetaMgr(tr)
+	// no need to do anything if the chunks are already populated
+	if len(cp.Engines) > 0 {
+		tr.logger.Info("reusing engines and files info from checkpoint",
+			zap.Int("enginesCnt", len(cp.Engines)),
+			zap.Int("filesCnt", cp.CountChunks()),
+		)
+	} else if cp.Status < checkpoints.CheckpointStatusAllWritten {
+		versionStr, err := rc.tidbGlue.GetSQLExecutor().ObtainStringWithLog(
+			ctx, "SELECT version()", "fetch tidb version", log.L())
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+
+		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+
+		if err := tr.populateChunks(ctx, rc, cp); err != nil {
+			return false, errors.Trace(err)
+		}
+
+		// fetch the max chunk row_id max value as the global max row_id
+		rowIDMax := int64(0)
+		for _, engine := range cp.Engines {
+			if len(engine.Chunks) > 0 && engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax > rowIDMax {
+				rowIDMax = engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax
+			}
+		}
+
+		// "show table next_row_id" is only available after v4.0.0
+		if tidbVersion.Major >= 4 && (rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
+			// first, insert a new-line into meta table
+			if err = metaMgr.InitTableMeta(ctx); err != nil {
+				return false, err
+			}
+
+			checksum, rowIDBase, err := metaMgr.AllocTableRowIDs(ctx, rowIDMax)
+			if err != nil {
+				return false, err
+			}
+			tr.RebaseChunkRowIDs(cp, rowIDBase)
+
+			if checksum != nil {
+				if cp.Checksum != *checksum {
+					cp.Checksum = *checksum
+					rc.saveCpCh <- saveCp{
+						tableName: tr.tableName,
+						merger: &checkpoints.TableChecksumMerger{
+							Checksum: cp.Checksum,
+						},
+					}
+				}
+				tr.logger.Info("checksum before restore table", zap.Object("checksum", &cp.Checksum))
+			}
+		}
+		if err := rc.checkpointsDB.InsertEngineCheckpoints(ctx, tr.tableName, cp.Engines); err != nil {
+			return false, errors.Trace(err)
+		}
+		web.BroadcastTableCheckpoint(tr.tableName, cp)
+
+		// rebase the allocator so it exceeds the number of rows.
+		if tr.tableInfo.Core.PKIsHandle && tr.tableInfo.Core.ContainsAutoRandomBits() {
+			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoRandID)
+			if err := tr.alloc.Get(autoid.AutoRandomType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
+				return false, err
+			}
+		} else {
+			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoIncID)
+			if err := tr.alloc.Get(autoid.RowIDAllocType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
+				return false, err
+			}
+		}
+		rc.saveCpCh <- saveCp{
+			tableName: tr.tableName,
+			merger: &checkpoints.RebaseCheckpointMerger{
+				AllocBase: cp.AllocBase,
+			},
+		}
+	}
+
+	// 2. Restore engines (if still needed)
+	err := tr.restoreEngines(ctx, rc, cp)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+
+	err = metaMgr.UpdateTableStatus(ctx, metaStatusRestoreFinished)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+
+	// 3. Post-process. With the last parameter set to false, we can allow delay analyze execute latter
+	return tr.postProcess(ctx, rc, cp, false /* force-analyze */, metaMgr)
+}
+
+// estimate SST files compression threshold by total row file size
+// with a higher compression threshold, the compression time increases, but the iteration time decreases.
+// Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
+// we set the upper bound to 32GB to avoid too long compression time.
+// factor is the non-clustered(1 for data engine and number of non-clustered index count for index engine).
+func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) int64 {
+	totalRawFileSize := int64(0)
+	var lastFile string
+	for _, engineCp := range cp.Engines {
+		for _, chunk := range engineCp.Chunks {
+			if chunk.FileMeta.Path == lastFile {
+				continue
+			}
+			size := chunk.FileMeta.FileSize
+			if chunk.FileMeta.Type == mydump.SourceTypeParquet {
+				// parquet file is compressed, thus estimates with a factor of 2
+				size *= 2
+			}
+			totalRawFileSize += size
+			lastFile = chunk.FileMeta.Path
+		}
+	}
+	totalRawFileSize *= factor
+
+	// try restrict the total file number within 512
+	threshold := totalRawFileSize / 512
+	threshold = utils.NextPowerOfTwo(threshold)
+	if threshold < compactionLowerThreshold {
+		// disable compaction if threshold is smaller than lower bound
+		threshold = 0
+	} else if threshold > compactionUpperThreshold {
+		threshold = compactionUpperThreshold
+	}
+
+	return threshold
 }
