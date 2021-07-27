@@ -15,7 +15,6 @@ package restore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -53,14 +52,6 @@ const (
 	pdReplicate = "/pd/api/v1/config/replicate"
 
 	defaultCSVSize = 10 * units.GiB
-	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
-	// millisecond per write thread the local backend may gain on all engines.
-	// This is used to compute the maximum size overshoot between two disk quota
-	// checks, if the first one has barely passed.
-	//
-	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
-	// contribute 2.3 GiB to the reserved size.
-	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 )
 
 func (rc *Controller) isSourceInLocal() bool {
@@ -74,34 +65,6 @@ func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
 		return 0, errors.Trace(err)
 	}
 	return result.MaxReplicas, nil
-}
-
-// ClusterIsOnline check cluster is online. this test can be skipped by user requirement.
-func (rc *Controller) ClusterIsOnline(ctx context.Context) error {
-	passed := true
-	message := "Cluster has no other loads"
-	defer func() {
-		rc.checkTemplate.Collect(Warn, passed, message)
-	}()
-
-	result := &api.RegionsInfo{}
-	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdWriteFlow, &result)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	for _, region := range result.Regions {
-		if region.WrittenBytes > OnlineBytesLimitation || region.WrittenKeys > OnlineKeysLimitation {
-			passed = false
-			regionStr, err := json.Marshal(region)
-			if err != nil {
-				return errors.Trace(err)
-			}
-			message = fmt.Sprintf("The write flow on cluster are more than expection, %s", string(regionStr))
-			return nil
-		}
-	}
-	return nil
 }
 
 // ClusterResource check cluster has enough resource to import data. this test can by skipped.

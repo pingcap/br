@@ -39,7 +39,7 @@ function check_version() {
 
 # backup empty using BR
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/br_version_1" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/br_version_1"
 if [ $? -ne 0 ]; then
     echo "TEST: [$TEST_NAME] failed on backup empty cluster version!"
     exit 1
@@ -66,7 +66,7 @@ run_sql "INSERT INTO $DB.usertable1 VALUES (\"a\", \"b\");"
 
 # backup tables using BR
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/br_version_3" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/br_version_3"
 if [ $? -ne 0 ]; then
     echo "TEST: [$TEST_NAME] failed on backup empty cluster version!"
     exit 1

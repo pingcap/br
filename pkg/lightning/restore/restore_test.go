@@ -1260,6 +1260,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 	c.Assert(failpoint.Enable(
 		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
+	c.Assert(err, IsNil)
 
 	// we have 3 kvs total. after the failpoint injected.
 	// we will send one kv each time.
@@ -1551,70 +1552,6 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
-}
-
-func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
-	cases := []struct {
-		mockHttpResponse []byte
-		expectMsg        string
-		expectResult     bool
-		expectWarnCount  int
-		expectErrorCount int
-	}{
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1,
-						"written_bytes": 11000000
-					}
-				]
-			}`),
-			"(.*)write flow(.*)",
-			false,
-			1,
-			0,
-		},
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1
-					}
-				]
-			}`),
-			"(.*)Cluster has no other loads(.*)",
-			true,
-			0,
-			0,
-		},
-	}
-
-	ctx := context.Background()
-	for _, ca := range cases {
-		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			_, err := w.Write(ca.mockHttpResponse)
-			c.Assert(err, IsNil)
-		}))
-
-		tls := common.NewTLSFromMockServer(server)
-		template := NewSimpleTemplate()
-
-		url := strings.TrimPrefix(server.URL, "https://")
-		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
-		rc := &Controller{cfg: cfg, tls: tls, checkTemplate: template}
-		err := rc.ClusterIsOnline(ctx)
-		c.Assert(err, IsNil)
-
-		c.Assert(template.FailedCount(Warn), Equals, ca.expectWarnCount)
-		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
-		c.Assert(template.Success(), Equals, ca.expectResult)
-		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
-
-		server.Close()
-	}
 }
 
 func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {

@@ -77,6 +77,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/membuf"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -885,6 +886,8 @@ func newConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, e
 	}
 }
 
+var bufferPool = membuf.NewPool(1024, manual.Allocator{})
+
 func openDuplicateDB(storeDir string) (*pebble.DB, error) {
 	dbPath := filepath.Join(storeDir, duplicateDBName)
 	// TODO: Optimize the opts for better write.
@@ -1432,8 +1435,8 @@ func (local *local) WriteToTiKV(
 		requests = append(requests, req)
 	}
 
-	bytesBuf := newBytesBuffer()
-	defer bytesBuf.destroy()
+	bytesBuf := bufferPool.NewBuffer()
+	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, local.batchWriteKVPairs)
 	count := 0
 	size := int64(0)
@@ -1446,13 +1449,13 @@ func (local *local) WriteToTiKV(
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
 			pair := &sst.Pair{
-				Key:   bytesBuf.addBytes(iter.Key()),
-				Value: bytesBuf.addBytes(iter.Value()),
+				Key:   bytesBuf.AddBytes(iter.Key()),
+				Value: bytesBuf.AddBytes(iter.Value()),
 			}
 			pairs = append(pairs, pair)
 		} else {
-			pairs[count].Key = bytesBuf.addBytes(iter.Key())
-			pairs[count].Value = bytesBuf.addBytes(iter.Value())
+			pairs[count].Key = bytesBuf.AddBytes(iter.Key())
+			pairs[count].Value = bytesBuf.AddBytes(iter.Value())
 		}
 		count++
 		totalCount++
@@ -1465,7 +1468,7 @@ func (local *local) WriteToTiKV(
 				}
 			}
 			count = 0
-			bytesBuf.reset()
+			bytesBuf.Reset()
 			firstLoop = false
 		}
 		if size >= regionMaxSize || totalCount >= local.regionSplitKeys {
@@ -1513,7 +1516,7 @@ func (local *local) WriteToTiKV(
 	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size),
-		zap.Int64("buf_size", bytesBuf.totalSize()),
+		zap.Int64("buf_size", bytesBuf.TotalSize()),
 		zap.Stringer("takeTime", time.Since(begin)))
 
 	finishedRange := regionRange
@@ -1648,101 +1651,6 @@ func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File)
 		zap.Int("ranges", len(ranges)))
 
 	return ranges, nil
-}
-
-type bytesRecycleChan struct {
-	ch chan []byte
-}
-
-// recycleChan is used for reusing allocated []byte so we can use memory more efficiently
-//
-// NOTE: we don't used a `sync.Pool` because when will sync.Pool release is depending on the
-// garbage collector which always release the memory so late. Use a fixed size chan to reuse
-// can decrease the memory usage to 1/3 compare with sync.Pool.
-var recycleChan = &bytesRecycleChan{
-	ch: make(chan []byte, 1024),
-}
-
-func (c *bytesRecycleChan) Acquire() []byte {
-	select {
-	case b := <-c.ch:
-		return b
-	default:
-		return manual.New(1 << 20) // 1M
-	}
-}
-
-func (c *bytesRecycleChan) Release(w []byte) {
-	select {
-	case c.ch <- w:
-		return
-	default:
-		manual.Free(w)
-	}
-}
-
-type bytesBuffer struct {
-	bufs      [][]byte
-	curBuf    []byte
-	curIdx    int
-	curBufIdx int
-	curBufLen int
-}
-
-func newBytesBuffer() *bytesBuffer {
-	return &bytesBuffer{bufs: make([][]byte, 0, 128), curBufIdx: -1}
-}
-
-func (b *bytesBuffer) addBuf() {
-	if b.curBufIdx < len(b.bufs)-1 {
-		b.curBufIdx++
-		b.curBuf = b.bufs[b.curBufIdx]
-	} else {
-		buf := recycleChan.Acquire()
-		b.bufs = append(b.bufs, buf)
-		b.curBuf = buf
-		b.curBufIdx = len(b.bufs) - 1
-	}
-
-	b.curBufLen = len(b.curBuf)
-	b.curIdx = 0
-}
-
-func (b *bytesBuffer) reset() {
-	if len(b.bufs) > 0 {
-		b.curBuf = b.bufs[0]
-		b.curBufLen = len(b.bufs[0])
-		b.curBufIdx = 0
-		b.curIdx = 0
-	}
-}
-
-func (b *bytesBuffer) destroy() {
-	for _, buf := range b.bufs {
-		recycleChan.Release(buf)
-	}
-	b.bufs = b.bufs[:0]
-}
-
-func (b *bytesBuffer) totalSize() int64 {
-	return int64(len(b.bufs)) * int64(1<<20)
-}
-
-func (b *bytesBuffer) requireBytes(n int) []byte {
-	if n > bigValueSize {
-		return make([]byte, n)
-	}
-	if b.curIdx+n > b.curBufLen {
-		b.addBuf()
-	}
-	idx := b.curIdx
-	b.curIdx += n
-	return b.curBuf[idx:b.curIdx]
-}
-
-func (b *bytesBuffer) addBytes(bytes []byte) []byte {
-	buf := b.requireBytes(len(bytes))
-	return append(buf[:0], bytes...)
 }
 
 func (local *local) writeAndIngestByRange(
@@ -2455,7 +2363,7 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 	w := &Writer{
 		local:              f,
 		memtableSizeLimit:  cacheSize,
-		kvBuffer:           newBytesBuffer(),
+		kvBuffer:           bufferPool.NewBuffer(),
 		isKVSorted:         cfg.IsKVSorted,
 		isWriteBatchSorted: true,
 	}
@@ -2763,7 +2671,6 @@ type sstMeta struct {
 type Writer struct {
 	sync.Mutex
 	local             *File
-	sstDir            string
 	memtableSizeLimit int64
 
 	// if the KVs are append in order, we can directly write the into SST file,
@@ -2772,7 +2679,7 @@ type Writer struct {
 	writer     *sstWriter
 
 	// bytes buffer for writeBatch
-	kvBuffer   *bytesBuffer
+	kvBuffer   *membuf.Buffer
 	writeBatch []common.KvPair
 	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
 	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
@@ -2827,9 +2734,9 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		}
 		lastKey = pair.Key
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
-		buf := w.kvBuffer.requireBytes(w.local.keyAdapter.EncodedLen(pair.Key))
+		buf := w.kvBuffer.AllocBytes(w.local.keyAdapter.EncodedLen(pair.Key))
 		key := w.local.keyAdapter.Encode(buf, pair.Key, pair.RowID, pair.Offset)
-		val := w.kvBuffer.addBytes(pair.Val)
+		val := w.kvBuffer.AddBytes(pair.Val)
 		if cnt < l {
 			w.writeBatch[cnt].Key = key
 			w.writeBatch[cnt].Val = val
@@ -2925,7 +2832,7 @@ func (f flushStatus) Flushed() bool {
 }
 
 func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
-	defer w.kvBuffer.destroy()
+	defer w.kvBuffer.Destroy()
 	defer w.local.localWriters.Delete(w)
 	err := w.flush(ctx)
 	// FIXME: in theory this line is useless, but In our benchmark with go1.15
@@ -2968,7 +2875,7 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	w.totalSize += w.batchSize
 	w.batchSize = 0
 	w.batchCount = 0
-	w.kvBuffer.reset()
+	w.kvBuffer.Reset()
 	return nil
 }
 
