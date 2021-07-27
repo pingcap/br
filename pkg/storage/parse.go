@@ -37,19 +37,33 @@ func ParseRawURL(rawURL string) (*url.URL, error) {
 
 // ParseBackend constructs a structured backend description from the
 // storage URL.
-func ParseBackend(rawURL string, options *BackendOptions) (*backuppb.StorageBackend, error) {
+func ParseBackend(rawURL string, options *BackendOptions) (_ *backuppb.StorageBackend, err error) {
 	if len(rawURL) == 0 {
 		return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "empty store is not allowed")
 	}
-	u, err := ParseRawURL(rawURL)
-	if err != nil {
-		return nil, errors.Trace(err)
+
+	// An absolute Windows path like "C:\Users\XYZ" would be interpreted as
+	// an URL with scheme "C" and opaque data "\Users\XYZ".
+	// Therefore, we only perform URL parsing if we are sure the path is not
+	// an absolute Windows path.
+	// Here we use the `filepath.VolumeName` which can identify the "C:" part
+	// out of the path. On Linux this method always return an empty string.
+	// On Windows, the drive letter can only be single letters from "A:" to "Z:",
+	// so this won't mistake "S3:" as a Windows path.
+	var u *url.URL
+	if len(filepath.VolumeName(rawURL)) == 0 {
+		u, err = ParseRawURL(rawURL)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+	} else {
+		u = &url.URL{}
 	}
 	switch u.Scheme {
 	case "":
 		absPath, err := filepath.Abs(rawURL)
 		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "covert data-source-dir '%s' to absolute path failed", rawURL)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "cannot convert data source path '%s' to absolute path", rawURL)
 		}
 		local := &backuppb.Local{Path: absPath}
 		return &backuppb.StorageBackend{Backend: &backuppb.StorageBackend_Local{Local: local}}, nil
@@ -155,7 +169,7 @@ func FormatBackendURL(backend *backuppb.StorageBackend) (u url.URL) {
 	switch b := backend.Backend.(type) {
 	case *backuppb.StorageBackend_Local:
 		u.Scheme = "local"
-		u.Path = b.Local.Path
+		u.Path = filepath.ToSlash(b.Local.Path)
 	case *backuppb.StorageBackend_Noop:
 		u.Scheme = "noop"
 		u.Path = "/"

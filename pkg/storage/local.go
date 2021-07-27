@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -22,6 +24,7 @@ const (
 //
 // export for using in tests.
 type LocalStorage struct {
+	// base is the base path, using the native slash (`\` on windows).
 	base string
 }
 
@@ -50,7 +53,8 @@ func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error
 // fn is the function called for each regular file visited by WalkDir.
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
-// by path.
+// by path. The path yielded always use `/` as directory separator regardless of
+// platform.
 func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	base := filepath.Join(l.base, opt.SubDir)
 	return filepath.Walk(base, func(path string, f os.FileInfo, err error) error {
@@ -78,13 +82,13 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 			}
 			size = stat.Size()
 		}
-		return fn(path, size)
+		return fn(filepath.ToSlash(path), size)
 	})
 }
 
 // URI returns the base path as an URI with a file:/// prefix.
 func (l *LocalStorage) URI() string {
-	return LocalURIPrefix + "/" + l.base
+	return LocalURIPrefix + "/" + filepath.ToSlash(l.base)
 }
 
 // Open a Reader by file path, path is a relative path to base path.

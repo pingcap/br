@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	. "github.com/pingcap/check"
@@ -135,6 +136,20 @@ func (r *testStorageSuite) TestCreateStorage(c *C) {
 	expectedLocalPath, err := filepath.Abs("/test")
 	c.Assert(err, IsNil)
 	c.Assert(local.GetPath(), Equals, expectedLocalPath)
+}
+
+func (r *testStorageSuite) TestParseWindowsBackend(c *C) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+
+	s, err := ParseBackend(`L:\Data\Backup`, nil)
+	c.Assert(err, IsNil)
+	local := s.GetLocal()
+	c.Assert(local, NotNil)
+	c.Assert(local.GetPath(), Equals, `L:\Data\Backup`)
+	url := FormatBackendURL(s)
+	c.Assert(url.String(), Equals, "local://L:/Data/Backup")
 }
 
 func (r *testStorageSuite) TestFormatBackendURL(c *C) {
