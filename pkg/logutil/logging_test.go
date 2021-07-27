@@ -78,11 +78,11 @@ func (s *testLoggingSuite) TestRater(c *C) {
 	rater := logutil.NewTrivialRater()
 	timePass := time.Now()
 	rater.Success(1)
-	c.Assert(rater.RateAt(timePass.Add(100*time.Millisecond), time.Second), isAbout{}, 10.0)
+	c.Assert(rater.RateAt(timePass.Add(100*time.Millisecond)), isAbout{}, 10.0)
 	rater.Success(1)
-	c.Assert(rater.RateAt(timePass.Add(150*time.Millisecond), time.Second), isAbout{}, 13.0)
+	c.Assert(rater.RateAt(timePass.Add(150*time.Millisecond)), isAbout{}, 13.0)
 	rater.Success(18)
-	c.Assert(rater.RateAt(timePass.Add(200*time.Millisecond), time.Second), isAbout{}, 100.0)
+	c.Assert(rater.RateAt(timePass.Add(200*time.Millisecond)), isAbout{}, 100.0)
 }
 
 func (s *testLoggingSuite) TestFile(c *C) {
