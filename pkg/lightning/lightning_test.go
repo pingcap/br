@@ -195,7 +195,7 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 		select {
 		case taskCfg := <-s.taskCfgCh:
 			c.Assert(taskCfg.TiDB.Host, Equals, "test.invalid")
-			c.Assert(taskCfg.Mydumper.SourceDir, Equals, fmt.Sprintf("file://demo-path-%d", i))
+			c.Assert(taskCfg.Mydumper.SourceDir.String(), Equals, fmt.Sprintf("local://demo-path-%d", i))
 			c.Assert(taskCfg.Mydumper.CSV.Separator, Equals, "/")
 		case <-time.After(5 * time.Second):
 			c.Fatalf("task is not queued after 5 seconds (i = %d)", i)
@@ -287,7 +287,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	err = json.NewDecoder(resp.Body).Decode(&resCfg)
 	resp.Body.Close()
 	c.Assert(err, IsNil)
-	c.Assert(resCfg.Mydumper.SourceDir, Equals, "file://demo-path-2")
+	c.Assert(resCfg.Mydumper.SourceDir.String(), Equals, "local://demo-path-2")
 
 	resp, err = http.Get(fmt.Sprintf("%s/%d", url, first))
 	c.Assert(err, IsNil)
@@ -295,7 +295,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	err = json.NewDecoder(resp.Body).Decode(&resCfg)
 	resp.Body.Close()
 	c.Assert(err, IsNil)
-	c.Assert(resCfg.Mydumper.SourceDir, Equals, "file://demo-path-1")
+	c.Assert(resCfg.Mydumper.SourceDir.String(), Equals, "local://demo-path-1")
 
 	// Check `DELETE /tasks` returns error.
 
