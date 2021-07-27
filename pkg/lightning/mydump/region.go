@@ -364,12 +364,14 @@ func SplitLargeFile(
 			if err = parser.SetPos(endOffset, prevRowIDMax); err != nil {
 				return 0, nil, nil, err
 			}
-			pos, err := parser.ReadUntilTokNewLine()
+			pos, err := parser.ReadUntilTerminator()
 			if err != nil {
 				if !errors.ErrorEqual(err, io.EOF) {
 					return 0, nil, nil, err
 				}
-				log.L().Warn(`file contains no '\r\n' at end`, zap.String("path", dataFile.FileMeta.Path))
+				log.L().Warn("file contains no terminator at end",
+					zap.String("path", dataFile.FileMeta.Path),
+					zap.String("terminator", cfg.Mydumper.CSV.Terminator))
 				pos = dataFile.FileMeta.FileSize
 			}
 			endOffset = pos
