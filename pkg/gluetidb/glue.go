@@ -172,7 +172,7 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 		sync.NotifyCleanExpiredPaths()
 		<-ctx.Done()
 	}
-	log.Info("[ddl] wait latest schema version changed",
+	log.Info("BR wait latest schema version changed",
 		zap.Int64("ver", target),
 		zap.Duration("take time", time.Since(timeStart)))
 }
@@ -190,9 +190,7 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 	}
 
 	var version int64
-	err := kv.RunInNewTxn(ctx, gs.store, true, func(ctx context.Context, txn kv.Transaction) (err error) {
-		m := meta.NewMeta(txn)
-
+	err := gs.WithMeta(ctx, func(ctx context.Context, m *meta.Meta) (err error) {
 		schemaInfo, ok := is.SchemaByName(dbName)
 		if !ok {
 			return errors.Errorf("database %s doesn't exist", dbName)
@@ -226,6 +224,13 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 // Close implements glue.Session.
 func (gs *tidbSession) Close() {
 	gs.se.Close()
+}
+
+// WithMeta implements glue.Session.
+func (gs *tidbSession) WithMeta(ctx context.Context, cont func(ctx context.Context, m *meta.Meta) error) error {
+	return kv.RunInNewTxn(ctx, gs.se.GetStore(), false, func(ctx context.Context, txn kv.Transaction) error {
+		return cont(ctx, meta.NewMeta(txn))
+	})
 }
 
 // showCreateTable shows the result of SHOW CREATE TABLE from a TableInfo.
