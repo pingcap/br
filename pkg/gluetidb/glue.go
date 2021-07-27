@@ -15,6 +15,7 @@ import (
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
+	"github.com/pingcap/tidb/infoschema"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
@@ -177,6 +178,28 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 		zap.Duration("take time", time.Since(timeStart)))
 }
 
+func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
+	// TODO partition and check.
+
+	if err := m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID); err != nil {
+		if infoschema.ErrTableExists.Equal(err) {
+			newID, err := gs.generateTableID()
+			log.Warn("table id conflict, allocating new table ID",
+				zap.Stringer("table", table.Name),
+				zap.Stringer("database", schemaInfo.Name),
+				zap.Int64("old-id", table.ID),
+				zap.Int64("new-id", table.ID))
+			if err != nil {
+				return err
+			}
+			table.ID = newID
+			return gs.createTableViaMeta(m, table, schemaInfo)
+		}
+		return err
+	}
+	return nil
+}
+
 // CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	dom := domain.GetDomain(gs.se)
@@ -195,17 +218,10 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		if !ok {
 			return errors.Errorf("database %s doesn't exist", dbName)
 		}
-
-		table.ID, err = gs.generateTableID()
-		if err != nil {
+		if err := gs.createTableViaMeta(m, table, schemaInfo); err != nil {
 			return err
 		}
-		// TODO partition and check.
-		schemaID := schemaInfo.ID
-		if err := m.CreateTableOrView(schemaID, table); err != nil {
-			return err
-		}
-		version, err = gs.applyInfoSchemaDiff(m, schemaID, table.ID)
+		version, err = gs.applyInfoSchemaDiff(m, schemaInfo.ID, table.ID)
 		if err != nil {
 			return err
 		}
