@@ -120,7 +120,7 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 	exe3, err := checksum.NewExecutorBuilder(tableInfo3, math.MaxUint64).Build()
 	c.Assert(err, IsNil)
 	first := true
-	exe3.Each(func(req *kv.Request) error {
+	c.Assert(exe3.Each(func(req *kv.Request) error {
 		if first {
 			first = false
 			ranges, err := backup.BuildTableRanges(tableInfo3)
@@ -128,5 +128,5 @@ func (s *testChecksumSuite) TestChecksum(c *C) {
 			c.Assert(req.KeyRanges, DeepEquals, ranges[:1], Commentf("%v", req.KeyRanges))
 		}
 		return nil
-	})
+	}), IsNil)
 }
