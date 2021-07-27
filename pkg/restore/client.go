@@ -470,11 +470,7 @@ func (rc *Client) GoCreateTables(
 		defer close(outCh)
 		defer log.Debug("all tables are created")
 		var err error
-		if len(dbPool) > 0 {
-			err = rc.createTablesWithDBPool(ctx, createOneTable, tables, dbPool)
-		} else {
-			err = rc.createTablesWithSoleDB(ctx, createOneTable, tables)
-		}
+		err = rc.createTablesWithSoleDB(ctx, createOneTable, tables)
 		if err != nil {
 			errCh <- err
 		}

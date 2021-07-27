@@ -5,6 +5,7 @@ package gluetidb
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -15,10 +16,12 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/meta"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
 	pd "github.com/tikv/pd/client"
+	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/gluetikv"
@@ -45,7 +48,8 @@ type Glue struct {
 }
 
 type tidbSession struct {
-	se session.Session
+	se    session.Session
+	store kv.Storage
 }
 
 // GetDomain implements glue.Glue.
@@ -73,7 +77,8 @@ func (Glue) CreateSession(store kv.Storage) (glue.Session, error) {
 		return nil, errors.Trace(err)
 	}
 	tiSession := &tidbSession{
-		se: se,
+		se:    se,
+		store: store,
 	}
 	return tiSession, nil
 }
@@ -124,22 +129,98 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 	return d.CreateSchemaWithInfo(gs.se, schema, ddl.OnExistIgnore, true)
 }
 
+func (gs *tidbSession) generateTableID() (int64, error) {
+	var ret []int64
+	err := kv.RunInNewTxn(context.Background(), gs.store, true, func(ctx context.Context, txn kv.Transaction) error {
+		m := meta.NewMeta(txn)
+		var err error
+		ret, err = m.GenGlobalIDs(1)
+		return err
+	})
+	return ret[0], err
+}
+
+func (gs *tidbSession) applyInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID int64) (int64, error) {
+	schemaVersion, err := m.GenSchemaVersion()
+	if err != nil {
+		return 0, err
+	}
+	diff := &model.SchemaDiff{
+		Version:  schemaVersion,
+		Type:     model.ActionCreateTable,
+		SchemaID: schemaID,
+		TableID:  tableID,
+	}
+	m.SetSchemaDiff(diff)
+	return diff.Version, nil
+}
+
+func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
+	timeStart := time.Now()
+	sync := domain.GetDomain(gs.se).DDL().SchemaSyncer()
+	if err := sync.OwnerUpdateGlobalVersion(ctx, target); err != nil {
+		log.Info("OwnerUpdateGlobalVersion", zap.Error(err))
+		if errors.Find(err, func(e error) bool { return e == context.DeadlineExceeded }) != nil {
+			return
+		}
+	}
+	if err := sync.OwnerCheckAllVersions(ctx, target); err != nil {
+		log.Info("OwnerCheckAllVersions", zap.Error(err))
+		if errors.Find(err, func(e error) bool { return e == context.DeadlineExceeded }) != nil {
+			return
+		}
+		sync.NotifyCleanExpiredPaths()
+		<-ctx.Done()
+	}
+	log.Info("[ddl] wait latest schema version changed",
+		zap.Int64("ver", target),
+		zap.Duration("take time", time.Since(timeStart)))
+}
+
 // CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
-	d := domain.GetDomain(gs.se).DDL()
-	query, err := gs.showCreateTable(table)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	gs.se.SetValue(sessionctx.QueryString, query)
-	// Clone() does not clone partitions yet :(
+	dom := domain.GetDomain(gs.se)
+	is := dom.InfoSchema()
 	table = table.Clone()
+	// Clone() does not clone partitions yet :(
 	if table.Partition != nil {
 		newPartition := *table.Partition
 		newPartition.Definitions = append([]model.PartitionDefinition{}, table.Partition.Definitions...)
 		table.Partition = &newPartition
 	}
-	return d.CreateTableWithInfo(gs.se, dbName, table, ddl.OnExistIgnore, true)
+
+	var version int64
+	err := kv.RunInNewTxn(ctx, gs.store, true, func(ctx context.Context, txn kv.Transaction) (err error) {
+		m := meta.NewMeta(txn)
+
+		schemaInfo, ok := is.SchemaByName(dbName)
+		if !ok {
+			return errors.Errorf("database %s doesn't exist", dbName)
+		}
+
+		table.ID, err = gs.generateTableID()
+		if err != nil {
+			return err
+		}
+		// TODO partition and check.
+		schemaID := schemaInfo.ID
+		if err := m.CreateTableOrView(schemaID, table); err != nil {
+			return err
+		}
+		version, err = gs.applyInfoSchemaDiff(m, schemaID, table.ID)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	cctx, cancel := context.WithTimeout(ctx, dom.DDL().GetLease())
+	gs.waitSchemaDiff(cctx, version)
+	cancel()
+	return nil
 }
 
 // Close implements glue.Session.
