@@ -76,15 +76,13 @@ func (isAbout) Check(params []interface{}, names []string) (result bool, error s
 
 func (s *testLoggingSuite) TestRater(c *C) {
 	rater := logutil.NewTrivialRater()
-	time.Sleep(100 * time.Millisecond)
+	timePass := time.Now()
 	rater.Success(1)
-	c.Assert(rater.Rate(time.Second), isAbout{}, 10.0)
-	time.Sleep(50 * time.Millisecond)
+	c.Assert(rater.RateAt(timePass.Add(100*time.Millisecond), time.Second), isAbout{}, 10.0)
 	rater.Success(1)
-	c.Assert(rater.Rate(time.Second), isAbout{}, 13.0)
-	time.Sleep(50 * time.Millisecond)
+	c.Assert(rater.RateAt(timePass.Add(150*time.Millisecond), time.Second), isAbout{}, 13.0)
 	rater.Success(18)
-	c.Assert(rater.Rate(time.Second), isAbout{}, 100.0)
+	c.Assert(rater.RateAt(timePass.Add(200*time.Millisecond), time.Second), isAbout{}, 100.0)
 }
 
 func (s *testLoggingSuite) TestFile(c *C) {
