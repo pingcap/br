@@ -41,7 +41,8 @@ func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error
 // FileExists implement ExternalStorage.FileExists.
 func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	path := filepath.Join(l.base, name)
-	return pathExists(path)
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err), errors.Trace(err)
 }
 
 // WalkDir traverse all the files in a dir.
@@ -101,29 +102,41 @@ func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWri
 	return newFlushStorageWriter(buf, buf, file), nil
 }
 
-func pathExists(_path string) (bool, error) {
-	_, err := os.Stat(_path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, errors.Trace(err)
+var localPermissionCheckFn = map[Permission]func(string) error{
+	AccessBuckets: checkLocalPathExists,
+	ListObjects:   checkLocalPathExists,
+	GetObject:     checkLocalPathExists,
+	PutObject:     tryMkdirLocalPath,
+}
+
+func checkLocalPathExists(path string) error {
+	// FIXME: make this more precise (specifically check the permission bits)
+	_, err := os.Stat(path)
+	return errors.Trace(err)
+}
+
+func tryMkdirLocalPath(path string) error {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		err = mkdirAll(path)
 	}
-	return true, nil
+	return errors.Trace(err)
 }
 
 // NewLocalStorage return a LocalStorage at directory `base`.
 //
 // export for test.
 func NewLocalStorage(base string) (*LocalStorage, error) {
-	ok, err := pathExists(base)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if !ok {
-		err := mkdirAll(base)
+	return newLocalStorage(base, &ExternalStorageOptions{
+		CheckPermissions: []Permission{PutObject},
+	})
+}
+
+func newLocalStorage(base string, opts *ExternalStorageOptions) (*LocalStorage, error) {
+	for _, p := range opts.CheckPermissions {
+		err := localPermissionCheckFn[p](base)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidPermission, "check permission %s failed due to %v", p, err)
 		}
 	}
 	return &LocalStorage{base: base}, nil

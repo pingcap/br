@@ -222,9 +222,12 @@ func RunRestore(c context.Context, g glue.Glue, cmdName string, cfg *RestoreConf
 		return errors.Trace(err)
 	}
 	opts := storage.ExternalStorageOptions{
-		NoCredentials:   cfg.NoCreds,
-		SendCredentials: cfg.SendCreds,
-		SkipCheckPath:   cfg.SkipCheckPath,
+		NoCredentials:    cfg.NoCreds,
+		SendCredentials:  cfg.SendCreds,
+		CheckPermissions: []storage.Permission{storage.GetObject},
+	}
+	if cfg.SkipCheckPath {
+		opts.CheckPermissions = nil
 	}
 	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)

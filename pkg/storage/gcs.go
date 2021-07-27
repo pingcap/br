@@ -275,15 +275,30 @@ func newGCSStorage(ctx context.Context, gcs *backuppb.GCS, opts *ExternalStorage
 		// so we need find sst in slash directory
 		gcs.Prefix += "//"
 	}
-	// TODO remove it after BR remove cfg skip-check-path
-	if !opts.SkipCheckPath {
-		// check bucket exists
-		_, err = bucket.Attrs(ctx)
+	for _, p := range opts.CheckPermissions {
+		err := gcsPermissionCheckFn[p](ctx, bucket, gcs)
 		if err != nil {
-			return nil, errors.Annotatef(err, "gcs://%s/%s", gcs.Bucket, gcs.Prefix)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidPermission, "check permission %s failed due to %v", p, err)
 		}
 	}
 	return &gcsStorage{gcs: gcs, bucket: bucket}, nil
+}
+
+var gcsPermissionCheckFn = map[Permission]func(context.Context, *storage.BucketHandle, *backuppb.GCS) error{
+	AccessBuckets: checkGCSBucket,
+	ListObjects:   checkGCSNothing,
+	GetObject:     checkGCSNothing,
+	PutObject:     checkGCSNothing,
+}
+
+// checkGCSBucket checks if a bucket exists.
+func checkGCSBucket(ctx context.Context, bucket *storage.BucketHandle, _ *backuppb.GCS) error {
+	_, err := bucket.Attrs(ctx)
+	return errors.Trace(err)
+}
+
+func checkGCSNothing(context.Context, *storage.BucketHandle, *backuppb.GCS) error {
+	return nil
 }
 
 func hasSSTFiles(ctx context.Context, bucket *storage.BucketHandle, prefix string) bool {
