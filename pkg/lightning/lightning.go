@@ -259,6 +259,15 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 		}
 	}()
 
+	storagePermissions := []storage.Permission{storage.ListObjects, storage.GetObject}
+	if !taskCfg.App.CheckRequirements {
+		storagePermissions = nil
+	}
+	s, err := taskCfg.Mydumper.SourceDir.NewStorage(ctx, storagePermissions)
+	if err != nil {
+		return errors.Annotatef(err, "cannot open storage at '%s'", taskCfg.Mydumper.SourceDir)
+	}
+
 	// initiation of default glue should be after RegisterMySQL, which is ready to be called after taskCfg.Adjust
 	// and also put it here could avoid injecting another two SkipRunTask failpoint to caller
 	if g == nil {
@@ -267,15 +276,6 @@ func (l *Lightning) run(taskCtx context.Context, taskCfg *config.Config, g glue.
 			return err
 		}
 		g = glue.NewExternalTiDBGlue(db, taskCfg.TiDB.SQLMode)
-	}
-
-	u, err := storage.ParseBackend(taskCfg.Mydumper.SourceDir, nil)
-	if err != nil {
-		return errors.Annotate(err, "parse backend failed")
-	}
-	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{})
-	if err != nil {
-		return errors.Annotate(err, "create storage failed")
 	}
 
 	loadTask := log.L().Begin(zap.InfoLevel, "load data source")

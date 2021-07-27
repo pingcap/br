@@ -46,7 +46,7 @@ func newConfigWithSourceDir(sourceDir string) *config.Config {
 	path, _ := filepath.Abs(sourceDir)
 	return &config.Config{
 		Mydumper: config.MydumperRuntime{
-			SourceDir:        "file://" + filepath.ToSlash(path),
+			SourceDir:        config.NewSourceDirFromPath(path),
 			Filter:           []string{"*.*"},
 			DefaultFileRules: true,
 		},

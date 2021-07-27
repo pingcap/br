@@ -87,11 +87,7 @@ type mdLoaderSetup struct {
 }
 
 func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error) {
-	u, err := storage.ParseBackend(cfg.Mydumper.SourceDir, nil)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{})
+	s, err := cfg.Mydumper.SourceDir.NewStorage(ctx, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

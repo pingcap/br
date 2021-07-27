@@ -1006,7 +1006,7 @@ func (cpdb *FileCheckpointsDB) Initialize(ctx context.Context, cfg *config.Confi
 
 	cpdb.checkpoints.TaskCheckpoint = &checkpointspb.TaskCheckpointModel{
 		TaskId:       cfg.TaskID,
-		SourceDir:    cfg.Mydumper.SourceDir,
+		SourceDir:    cfg.Mydumper.SourceDir.String(),
 		Backend:      cfg.TikvImporter.Backend,
 		ImporterAddr: cfg.TikvImporter.Addr,
 		TidbHost:     cfg.TiDB.Host,

@@ -790,7 +790,7 @@ func verifyCheckpoint(cfg *config.Config, taskCp *checkpoints.TaskCheckpoint) er
 		}
 
 		errorFmt := "config '%s' value '%s' different from checkpoint value '%s'. You may set 'check-requirements = false' to skip this check or " + retryUsage
-		if cfg.Mydumper.SourceDir != taskCp.SourceDir {
+		if cfg.Mydumper.SourceDir.String() != taskCp.SourceDir {
 			return errors.Errorf(errorFmt, "mydumper.data-source-dir", cfg.Mydumper.SourceDir, taskCp.SourceDir)
 		}
 
@@ -1801,10 +1801,6 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		return nil
 	}
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
-		return errors.Trace(err)
-	}
-
-	if err := rc.StoragePermission(ctx); err != nil {
 		return errors.Trace(err)
 	}
 
