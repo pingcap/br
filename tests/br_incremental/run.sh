@@ -51,7 +51,7 @@ run_br restore table --db $DB --table $TABLE -s "local://$TEST_DIR/$DB/inc" --pd
 row_count_inc=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print $2}')
 # check full restore
 if [ "${row_count_inc}" != "${row_count_ori_inc}" ];then
-    echo "TEST: [$TEST_NAME] incremental restore fail on database $DB"
+    echo "TEST: [$TEST_NAME] incremental restore fail on database $DB (${row_count_inc} vs ${row_count_ori_inc})"
     exit 1
 fi
 
