@@ -66,9 +66,9 @@ if [ "$table_count" -ne "2" ];then
     exit 1
 fi
 
-# Test BR DDL query string
-echo "testing DDL query..."
-run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE TABLE'
-run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE DATABASE'
+# ~~Test BR DDL query string~~ We have bypassed the DDL layer.
+# echo "testing DDL query..."
+# run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE TABLE'
+# run_curl https://$TIDB_STATUS_ADDR/ddl/history | grep -E '/\*from\(br\)\*/CREATE DATABASE'
 
 run_sql "DROP DATABASE $DB;"
