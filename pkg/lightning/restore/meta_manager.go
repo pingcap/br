@@ -623,10 +623,14 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 			return errors.Trace(err)
 		}
 		paused = true
-
 		pausedCfg = storedCfgs{PauseCfg: removed, RestoreCfg: orig}
 		jsonByts, err := json.Marshal(&pausedCfg)
 		if err != nil {
+			// try to rollback the stopped schedulers
+			cancelFunc := m.pd.MakeUndoFunctionByConfig(pausedCfg.RestoreCfg)
+			if err1 := cancelFunc(ctx); err1 != nil {
+				log.L().Warn("undo remove schedulers failed", zap.Error(err1))
+			}
 			return errors.Trace(err)
 		}
 
@@ -650,7 +654,6 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	}
 
 	cancelFunc := m.pd.MakeUndoFunctionByConfig(pausedCfg.RestoreCfg)
-
 	return func(ctx context.Context) error {
 		// close the periodic task ctx
 		cancel()
