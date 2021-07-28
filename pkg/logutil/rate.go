@@ -6,49 +6,50 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/lightning/metric"
 )
 
-// TrivialRater is a trivial rate tracer.
-// It doesn't record any time sequence, and always
-// return the average speed over all the time.
-type TrivialRater struct {
-	start   time.Time
-	current prometheus.Counter
+// MetricTableCreatedCounter counts how many tables created.
+// TODO: when br decided to introduce Prometheus, move this to its metric package.
+var MetricTableCreatedCounter = prometheus.NewCounter(prometheus.CounterOpts{
+	Namespace: "BR",
+	Name:      "table_created",
+	Help:      "The count of tables have been created.",
+})
+
+// RateTracer is a trivial rate tracer based on a promethues counter.
+// It traces the average speed from it was created.
+type RateTracer struct {
+	start time.Time
+	base  float64
+	prometheus.Counter
 }
 
-// NewTrivialRater make a trivial rater.
-func NewTrivialRater() TrivialRater {
-	return TrivialRater{
-		start: time.Now(),
-		// TODO: when br decided to introduce Prometheus, move this to its metric package.
-		current: prometheus.NewCounter(prometheus.CounterOpts{
-			Namespace: "BR",
-			Name:      "table_created",
-			Help:      "The count of tables have been created.",
-		}),
+// TraceRateOver make a trivial rater based on a counter.
+// the current value of this counter would be omitted.
+func TraceRateOver(counter prometheus.Counter) RateTracer {
+	return RateTracer{
+		start:   time.Now(),
+		Counter: counter,
+		base:    metric.ReadCounter(counter),
 	}
 }
 
-// Success adds n success units for the rater.
-func (r *TrivialRater) Success(n float64) {
-	r.current.Add(n)
-}
-
-// Rate returns the rate over all time, in the given unit.
-func (r *TrivialRater) Rate() float64 {
+// Rate returns the average rate from when it was created.
+func (r *RateTracer) Rate() float64 {
 	return r.RateAt(time.Now())
 }
 
 // RateAt returns the rate until some instant.
-func (r *TrivialRater) RateAt(instant time.Time) float64 {
-	return metric.ReadCounter(r.current) / float64(instant.Sub(r.start)) * float64(time.Second)
+func (r *RateTracer) RateAt(instant time.Time) float64 {
+	return (metric.ReadCounter(r.Counter) - r.base) / float64(instant.Sub(r.start)) * float64(time.Second)
 }
 
 // L make a logger with the current speed.
-func (r *TrivialRater) L() *zap.Logger {
+func (r *RateTracer) L() *zap.Logger {
 	return log.With(zap.String("speed", fmt.Sprintf("%.2f ops/s", r.Rate())))
 }
