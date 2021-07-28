@@ -106,7 +106,8 @@ func (s *testRestoreSchemaSuite) TestRestoreAutoIncID(c *C) {
 	// Check if AutoIncID is altered successfully
 	autoIncID, err = strconv.ParseUint(tk.MustQuery("admin show `\"t\"` next_row_id").Rows()[0][3].(string), 10, 64)
 	c.Assert(err, IsNil, Commentf("Error query auto inc id: %s", err))
-	c.Assert(autoIncID, Equals, uint64(globalAutoID+100))
+	// The auto ID would be increased (1 + tableInfo.AutoID)
+	c.Assert(autoIncID, GreaterEqual, uint64(globalAutoID+100))
 }
 
 func (s *testRestoreSchemaSuite) TestFilterDDLJobs(c *C) {
