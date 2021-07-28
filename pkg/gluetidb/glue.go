@@ -214,6 +214,13 @@ func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, 
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	dom := domain.GetDomain(gs.se)
 	is := dom.InfoSchema()
+	if is.TableExists(dbName, table.Name) {
+		log.Warn("table exists, skipping creat table.",
+			zap.Stringer("table", table.Name),
+			zap.Stringer("database", dbName))
+		return nil
+	}
+
 	table = table.Clone()
 	// Clone() does not clone partitions yet :(
 	if table.Partition != nil {
