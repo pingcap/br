@@ -64,16 +64,8 @@ func (s *testBackupSchemaSuite) GetSchemasFromMeta(c *C, es storage.ExternalStor
 	}()
 
 	schemas := make([]*metautil.Table, 0, 4)
-
-ForLoop:
-	for {
-		select {
-		case s, ok := <-output:
-			if !ok {
-				break ForLoop
-			}
-			schemas = append(schemas, s)
-		}
+	for s := range output {
+		schemas = append(schemas, s)
 	}
 	return schemas
 }

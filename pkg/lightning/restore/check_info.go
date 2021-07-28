@@ -52,14 +52,6 @@ const (
 	pdReplicate = "/pd/api/v1/config/replicate"
 
 	defaultCSVSize = 10 * units.GiB
-	// autoDiskQuotaLocalReservedSpeed is the estimated size increase per
-	// millisecond per write thread the local backend may gain on all engines.
-	// This is used to compute the maximum size overshoot between two disk quota
-	// checks, if the first one has barely passed.
-	//
-	// With cron.check-disk-quota = 1m, region-concurrency = 40, this should
-	// contribute 2.3 GiB to the reserved size.
-	autoDiskQuotaLocalReservedSpeed uint64 = 1 * units.KiB
 )
 
 func (rc *Controller) isSourceInLocal() bool {
