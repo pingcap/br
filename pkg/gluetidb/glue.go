@@ -141,7 +141,7 @@ func (gs *tidbSession) generateTableID() (int64, error) {
 	return ret[0], err
 }
 
-func (gs *tidbSession) applyInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID int64) (int64, error) {
+func (gs *tidbSession) setInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID int64) (int64, error) {
 	schemaVersion, err := m.GenSchemaVersion()
 	if err != nil {
 		return 0, err
@@ -152,7 +152,9 @@ func (gs *tidbSession) applyInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID
 		SchemaID: schemaID,
 		TableID:  tableID,
 	}
-	m.SetSchemaDiff(diff)
+	if err := m.SetSchemaDiff(diff); err != nil {
+		return 0, err
+	}
 	return diff.Version, nil
 }
 
@@ -160,14 +162,18 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 	timeStart := time.Now()
 	sync := domain.GetDomain(gs.se).DDL().SchemaSyncer()
 	if err := sync.OwnerUpdateGlobalVersion(ctx, target); err != nil {
-		log.Info("OwnerUpdateGlobalVersion", zap.Error(err))
 		if errors.Find(err, func(e error) bool { return e == context.DeadlineExceeded }) != nil {
+			log.Info("BR wait latest schema version changed (2 * lease time exceed)",
+				zap.Int64("ver", target),
+				zap.Duration("take time", time.Since(timeStart)))
 			return
 		}
 	}
 	if err := sync.OwnerCheckAllVersions(ctx, target); err != nil {
-		log.Info("OwnerCheckAllVersions", zap.Error(err))
 		if errors.Find(err, func(e error) bool { return e == context.DeadlineExceeded }) != nil {
+			log.Info("BR wait latest schema version changed (2 * lease time exceed)",
+				zap.Int64("ver", target),
+				zap.Duration("take time", time.Since(timeStart)))
 			return
 		}
 		sync.NotifyCleanExpiredPaths()
@@ -180,20 +186,27 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 
 func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
 	// TODO partition and check.
+	runWithNewTableID := func() error {
+		newID, err := gs.generateTableID()
+		if err != nil {
+			return err
+		}
+		log.Warn("table id conflict, allocating new table ID",
+			zap.Stringer("table", table.Name),
+			zap.Stringer("database", schemaInfo.Name),
+			zap.Int64("old-id", table.ID),
+			zap.Int64("new-id", table.ID))
+		table.ID = newID
+		return gs.createTableViaMeta(m, table, schemaInfo)
+	}
+
+	if table.ID == 0 {
+		return runWithNewTableID()
+	}
 
 	if err := m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID); err != nil {
 		if infoschema.ErrTableExists.Equal(err) {
-			newID, err := gs.generateTableID()
-			log.Warn("table id conflict, allocating new table ID",
-				zap.Stringer("table", table.Name),
-				zap.Stringer("database", schemaInfo.Name),
-				zap.Int64("old-id", table.ID),
-				zap.Int64("new-id", table.ID))
-			if err != nil {
-				return err
-			}
-			table.ID = newID
-			return gs.createTableViaMeta(m, table, schemaInfo)
+			return runWithNewTableID()
 		}
 		return err
 	}
@@ -211,17 +224,21 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		newPartition.Definitions = append([]model.PartitionDefinition{}, table.Partition.Definitions...)
 		table.Partition = &newPartition
 	}
+	if table.State != model.StatePublic {
+		log.Warn("table backed up with non-public state", zap.Stringer("table", table.Name), zap.Stringer("database", dbName))
+		table.State = model.StatePublic
+	}
 
 	var version int64
 	err := gs.WithMeta(ctx, func(ctx context.Context, m *meta.Meta) (err error) {
 		schemaInfo, ok := is.SchemaByName(dbName)
 		if !ok {
-			return errors.Errorf("database %s doesn't exist", dbName)
+			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
-		if err := gs.createTableViaMeta(m, table, schemaInfo); err != nil {
-			return err
+		if errCreateTable := gs.createTableViaMeta(m, table, schemaInfo); errCreateTable != nil {
+			return errCreateTable
 		}
-		version, err = gs.applyInfoSchemaDiff(m, schemaInfo.ID, table.ID)
+		version, err = gs.setInfoSchemaDiff(m, schemaInfo.ID, table.ID)
 		if err != nil {
 			return err
 		}
@@ -231,10 +248,11 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		return err
 	}
 
-	cctx, cancel := context.WithTimeout(ctx, dom.DDL().GetLease())
+	cctx, cancel := context.WithTimeout(ctx, dom.DDL().GetLease()*2)
 	gs.waitSchemaDiff(cctx, version)
 	cancel()
-	return nil
+	// TODO only reload in unit tests.
+	return dom.Reload()
 }
 
 // Close implements glue.Session.

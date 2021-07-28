@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/pingcap/errors"
+
 	"github.com/pingcap/br/pkg/metautil"
 
 	. "github.com/pingcap/check"
@@ -78,7 +80,7 @@ func (s *testRestoreClientSuite) TestCreateTables(c *C) {
 		}
 	}
 	rules, newTables, err := client.CreateTables(s.mock.Domain, tables, 0)
-	c.Assert(err, IsNil)
+	c.Assert(err, IsNil, Commentf("stack %s", errors.ErrorStack(err)))
 	// make sure tables and newTables have same order
 	for i, t := range tables {
 		c.Assert(newTables[i].Name, Equals, t.Info.Name)
