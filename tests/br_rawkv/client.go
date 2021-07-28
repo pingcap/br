@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/tikv/client-go/v2/config"
-	"github.com/tikv/client-go/v2/tikv"
+	"github.com/tikv/client-go/v2/rawkv"
 	"go.uber.org/zap"
 )
 
@@ -32,8 +33,8 @@ var (
 		"kv pairs are separated by commas, key and value in a pair are separated by a colon")
 )
 
-func createClient(addr string) (*tikv.RawKVClient, error) {
-	cli, err := tikv.NewRawKVClient([]string{addr}, config.Security{
+func createClient(addr string) (*rawkv.Client, error) {
+	cli, err := rawkv.NewClient(context.TODO(), []string{addr}, config.Security{
 		ClusterSSLCA:   *ca,
 		ClusterSSLCert: *cert,
 		ClusterSSLKey:  *key,
@@ -85,7 +86,7 @@ func main() {
 	}
 }
 
-func randGenWithDuration(client *tikv.RawKVClient, startKey, endKey []byte,
+func randGenWithDuration(client *rawkv.Client, startKey, endKey []byte,
 	maxLen int, concurrency int, duration int) error {
 	var err error
 	ok := make(chan struct{})
@@ -100,7 +101,7 @@ func randGenWithDuration(client *tikv.RawKVClient, startKey, endKey []byte,
 	return errors.Trace(err)
 }
 
-func randGen(client *tikv.RawKVClient, startKey, endKey []byte, maxLen int, concurrency int) error {
+func randGen(client *rawkv.Client, startKey, endKey []byte, maxLen int, concurrency int) error {
 	log.Info("Start rand-gen", zap.Int("maxlen", maxLen),
 		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 	log.Info("Rand-gen will keep running. Please Ctrl+C to stop manually.")
@@ -132,7 +133,7 @@ func randGen(client *tikv.RawKVClient, startKey, endKey []byte, maxLen int, conc
 					values = append(values, value)
 				}
 
-				err := client.BatchPut(keys, values)
+				err := client.BatchPut(context.TODO(), keys, values)
 				if err != nil {
 					errCh <- errors.Trace(err)
 				}
@@ -222,7 +223,7 @@ func randValue() []byte {
 	return result
 }
 
-func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
+func checksum(client *rawkv.Client, startKey, endKey []byte) error {
 	log.Info("Start checkcum on range",
 		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 
@@ -249,13 +250,13 @@ func checksum(client *tikv.RawKVClient, startKey, endKey []byte) error {
 	return nil
 }
 
-func deleteRange(client *tikv.RawKVClient, startKey, endKey []byte) error {
+func deleteRange(client *rawkv.Client, startKey, endKey []byte) error {
 	log.Info("Start delete data in range",
 		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
-	return client.DeleteRange(startKey, endKey)
+	return client.DeleteRange(context.TODO(), startKey, endKey)
 }
 
-func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
+func scan(client *rawkv.Client, startKey, endKey []byte) error {
 	log.Info("Start scanning data in range",
 		zap.String("startkey", hex.EncodeToString(startKey)), zap.String("endkey", hex.EncodeToString(endKey)))
 
@@ -281,7 +282,7 @@ func scan(client *tikv.RawKVClient, startKey, endKey []byte) error {
 	return nil
 }
 
-func put(client *tikv.RawKVClient, dataStr string) error {
+func put(client *rawkv.Client, dataStr string) error {
 	keys := make([][]byte, 0)
 	values := make([][]byte, 0)
 
@@ -306,14 +307,14 @@ func put(client *tikv.RawKVClient, dataStr string) error {
 
 	log.Info("Put rawkv data", zap.ByteStrings("keys", keys), zap.ByteStrings("values", values))
 
-	err := client.BatchPut(keys, values)
+	err := client.BatchPut(context.TODO(), keys, values)
 	return errors.Trace(err)
 }
 
 const defaultScanBatchSize = 128
 
 type rawKVScanner struct {
-	client    *tikv.RawKVClient
+	client    *rawkv.Client
 	batchSize int
 
 	currentKey []byte
@@ -325,7 +326,7 @@ type rawKVScanner struct {
 	noMore       bool
 }
 
-func newRawKVScanner(client *tikv.RawKVClient, startKey, endKey []byte) *rawKVScanner {
+func newRawKVScanner(client *rawkv.Client, startKey, endKey []byte) *rawKVScanner {
 	return &rawKVScanner{
 		client:    client,
 		batchSize: defaultScanBatchSize,
@@ -347,7 +348,7 @@ func (s *rawKVScanner) Next() ([]byte, []byte, error) {
 
 		batchSize := s.batchSize
 		var err error
-		s.bufferKeys, s.bufferValues, err = s.client.Scan(s.currentKey, s.endKey, batchSize)
+		s.bufferKeys, s.bufferValues, err = s.client.Scan(context.TODO(), s.currentKey, s.endKey, batchSize)
 		if err != nil {
 			return nil, nil, errors.Trace(err)
 		}

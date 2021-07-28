@@ -547,6 +547,7 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	pauseCtx, cancel := context.WithCancel(ctx)
 	conn, err := m.session.Conn(ctx)
 	if err != nil {
+		cancel()
 		return nil, errors.Trace(err)
 	}
 	defer conn.Close()
@@ -556,6 +557,7 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 	}
 	err = exec.Exec(ctx, "enable pessimistic transaction", "SET SESSION tidb_txn_mode = 'pessimistic';")
 	if err != nil {
+		cancel()
 		return nil, errors.Annotate(err, "enable pessimistic transaction failed")
 	}
 
@@ -634,15 +636,18 @@ func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.U
 		return errors.Annotate(err, "update task pd configs failed")
 	})
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
 	if !needSwitch {
+		cancel()
 		return nil, nil
 	}
 
 	if !paused {
 		if err = m.pd.RemoveSchedulersWithCfg(pauseCtx, pausedCfg.PauseCfg); err != nil {
+			cancel()
 			return nil, err
 		}
 	}

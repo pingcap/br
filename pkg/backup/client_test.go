@@ -16,9 +16,10 @@ import (
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/codec"
-	"github.com/tikv/client-go/v2/mockstore/mocktikv"
 	"github.com/tikv/client-go/v2/oracle"
+	"github.com/tikv/client-go/v2/testutils"
 	"github.com/tikv/client-go/v2/tikv"
+	"github.com/tikv/client-go/v2/txnkv/txnlock"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/backup"
@@ -42,13 +43,13 @@ func TestT(t *testing.T) {
 }
 
 func (r *testBackup) SetUpSuite(c *C) {
-	mvccStore := mocktikv.MustNewMVCCStore()
-	r.mockPDClient = mocktikv.NewPDClient(mocktikv.NewCluster(mvccStore))
+	_, _, pdClient, err := testutils.NewMockTiKV("", nil)
+	c.Assert(err, IsNil)
+	r.mockPDClient = pdClient
 	r.ctx, r.cancel = context.WithCancel(context.Background())
 	mockMgr := &conn.Mgr{PdController: &pdutil.PdController{}}
 	mockMgr.SetPDClient(r.mockPDClient)
 	mockMgr.SetHTTP([]string{"test"}, nil)
-	var err error
 	r.backupClient, err = backup.NewBackupClient(r.ctx, mockMgr)
 	c.Assert(err, IsNil)
 }
@@ -195,7 +196,7 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 		storeID           uint64
 		bo                *tikv.Backoffer
 		backupTS          uint64
-		lockResolver      *tikv.LockResolver
+		lockResolver      *txnlock.LockResolver
 		resp              *backuppb.BackupResponse
 		exceptedBackoffMs int
 		exceptedErr       bool
