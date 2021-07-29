@@ -52,10 +52,11 @@ const (
 	hardcodedS3ChunkSize = 5 * 1024 * 1024
 )
 
-var permissionCheckFn = map[Permission]func(*s3.S3, *backuppb.S3) error{
+var s3PermissionCheckFn = map[Permission]func(*s3.S3, *backuppb.S3) error{
 	AccessBuckets: checkS3Bucket,
 	ListObjects:   listObjects,
 	GetObject:     getObject,
+	PutObject:     putObject,
 }
 
 // S3Storage info for s3 storage.
@@ -282,20 +283,13 @@ func newS3Storage(backend *backuppb.S3, opts *ExternalStorageOptions) (*S3Storag
 	}
 
 	c := s3.New(ses)
-	// TODO remove it after BR remove cfg skip-check-path
-	if !opts.SkipCheckPath {
-		err = checkS3Bucket(c, &qs)
-		if err != nil {
-			return nil, errors.Annotatef(berrors.ErrStorageInvalidConfig, "Bucket %s is not accessible: %v", qs.Bucket, err)
-		}
-	}
 
 	if len(qs.Prefix) > 0 && !strings.HasSuffix(qs.Prefix, "/") {
 		qs.Prefix += "/"
 	}
 
 	for _, p := range opts.CheckPermissions {
-		err := permissionCheckFn[p](c, &qs)
+		err := s3PermissionCheckFn[p](c, &qs)
 		if err != nil {
 			return nil, errors.Annotatef(berrors.ErrStorageInvalidPermission, "check permission %s failed due to %v", p, err)
 		}
@@ -347,6 +341,12 @@ func getObject(svc *s3.S3, qs *backuppb.S3) error {
 		}
 		return errors.Trace(err)
 	}
+	return nil
+}
+
+// putObject checks the permission of PutObject
+func putObject(*s3.S3, *backuppb.S3) error {
+	// FIXME: actually implement me.
 	return nil
 }
 

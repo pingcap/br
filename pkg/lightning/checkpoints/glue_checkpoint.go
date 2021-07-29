@@ -138,7 +138,7 @@ func (g GlueCheckpointsDB) Initialize(ctx context.Context, cfg *config.Config, d
 		defer dropPreparedStmt(s, stmtID)
 		_, err = s.ExecutePreparedStmt(c, stmtID, []types.Datum{
 			types.NewIntDatum(cfg.TaskID),
-			types.NewStringDatum(cfg.Mydumper.SourceDir),
+			types.NewStringDatum(cfg.Mydumper.SourceDir.String()),
 			types.NewStringDatum(cfg.TikvImporter.Backend),
 			types.NewStringDatum(cfg.TikvImporter.Addr),
 			types.NewStringDatum(cfg.TiDB.Host),

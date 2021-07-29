@@ -15,7 +15,6 @@ package mydump
 
 import (
 	"context"
-	"path/filepath"
 	"sort"
 
 	"github.com/pingcap/errors"
@@ -88,11 +87,7 @@ type mdLoaderSetup struct {
 }
 
 func NewMyDumpLoader(ctx context.Context, cfg *config.Config) (*MDLoader, error) {
-	u, err := storage.ParseBackend(cfg.Mydumper.SourceDir, nil)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	s, err := storage.New(ctx, u, &storage.ExternalStorageOptions{})
+	s, err := cfg.Mydumper.SourceDir.NewStorage(ctx, nil)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -279,7 +274,7 @@ func (s *mdLoaderSetup) listFiles(ctx context.Context, store storage.ExternalSto
 	err := store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
 		logger := log.With(zap.String("path", path))
 
-		res, err := s.loader.fileRouter.Route(filepath.ToSlash(path))
+		res, err := s.loader.fileRouter.Route(path)
 		if err != nil {
 			return errors.Annotatef(err, "apply file routing on file '%s' failed", path)
 		}

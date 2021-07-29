@@ -62,7 +62,7 @@ func (s *lightningSuite) TestRun(c *C) {
 	globalConfig.TiDB.Host = "test.invalid"
 	globalConfig.TiDB.Port = 4000
 	globalConfig.TiDB.PdAddr = "test.invalid:2379"
-	globalConfig.Mydumper.SourceDir = "not-exists"
+	globalConfig.Mydumper.SourceDir = config.NewSourceDirFromPath("not-exists")
 	globalConfig.TikvImporter.Backend = config.BackendLocal
 	globalConfig.TikvImporter.SortedKVDir = c.MkDir()
 	lightning := New(globalConfig)
@@ -70,14 +70,14 @@ func (s *lightningSuite) TestRun(c *C) {
 	err := cfg.LoadFromGlobal(globalConfig)
 	c.Assert(err, IsNil)
 	err = lightning.RunOnce(context.Background(), cfg, nil)
-	c.Assert(err, ErrorMatches, ".*mydumper dir does not exist")
+	c.Assert(err, ErrorMatches, ".*(no such file or directory|The system cannot find the file specified).*")
 
 	path, _ := filepath.Abs(".")
 	ctx := context.Background()
 	invalidGlue := glue.NewExternalTiDBGlue(nil, 0)
 	err = lightning.run(ctx, &config.Config{
 		Mydumper: config.MydumperRuntime{
-			SourceDir:        "file://" + filepath.ToSlash(path),
+			SourceDir:        config.NewSourceDirFromPath(path),
 			Filter:           []string{"*.*"},
 			DefaultFileRules: true,
 		},
@@ -90,7 +90,7 @@ func (s *lightningSuite) TestRun(c *C) {
 
 	err = lightning.run(ctx, &config.Config{
 		Mydumper: config.MydumperRuntime{
-			SourceDir: ".",
+			SourceDir: config.NewSourceDirFromPath("."),
 			Filter:    []string{"*.*"},
 		},
 		Checkpoint: config.Checkpoint{
@@ -116,7 +116,7 @@ func (s *lightningServerSuite) SetUpTest(c *C) {
 	cfg.TiDB.PdAddr = "test.invalid:2379"
 	cfg.App.ServerMode = true
 	cfg.App.StatusAddr = "127.0.0.1:0"
-	cfg.Mydumper.SourceDir = "file://."
+	cfg.Mydumper.SourceDir = config.NewSourceDirFromPath(".")
 	cfg.TikvImporter.Backend = config.BackendLocal
 	cfg.TikvImporter.SortedKVDir = c.MkDir()
 
@@ -195,7 +195,7 @@ func (s *lightningServerSuite) TestRunServer(c *C) {
 		select {
 		case taskCfg := <-s.taskCfgCh:
 			c.Assert(taskCfg.TiDB.Host, Equals, "test.invalid")
-			c.Assert(taskCfg.Mydumper.SourceDir, Equals, fmt.Sprintf("file://demo-path-%d", i))
+			c.Assert(taskCfg.Mydumper.SourceDir.String(), Equals, fmt.Sprintf("local://demo-path-%d", i))
 			c.Assert(taskCfg.Mydumper.CSV.Separator, Equals, "/")
 		case <-time.After(5 * time.Second):
 			c.Fatalf("task is not queued after 5 seconds (i = %d)", i)
@@ -287,7 +287,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	err = json.NewDecoder(resp.Body).Decode(&resCfg)
 	resp.Body.Close()
 	c.Assert(err, IsNil)
-	c.Assert(resCfg.Mydumper.SourceDir, Equals, "file://demo-path-2")
+	c.Assert(resCfg.Mydumper.SourceDir.String(), Equals, "local://demo-path-2")
 
 	resp, err = http.Get(fmt.Sprintf("%s/%d", url, first))
 	c.Assert(err, IsNil)
@@ -295,7 +295,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	err = json.NewDecoder(resp.Body).Decode(&resCfg)
 	resp.Body.Close()
 	c.Assert(err, IsNil)
-	c.Assert(resCfg.Mydumper.SourceDir, Equals, "file://demo-path-1")
+	c.Assert(resCfg.Mydumper.SourceDir.String(), Equals, "local://demo-path-1")
 
 	// Check `DELETE /tasks` returns error.
 

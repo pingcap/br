@@ -16,9 +16,7 @@ package restore
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"reflect"
-	"strings"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
@@ -53,10 +51,6 @@ const (
 
 	defaultCSVSize = 10 * units.GiB
 )
-
-func (rc *Controller) isSourceInLocal() bool {
-	return strings.HasPrefix(rc.store.URI(), storage.LocalURIPrefix)
-}
 
 func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
 	result := &config.ReplicationConfig{}
@@ -133,32 +127,6 @@ func (rc *Controller) ClusterIsAvailable(ctx context.Context) error {
 	return nil
 }
 
-// StoragePermission checks whether Lightning has enough permission to storage.
-// this test cannot be skipped.
-func (rc *Controller) StoragePermission(ctx context.Context) error {
-	passed := true
-	message := "Lightning has the correct storage permission"
-	defer func() {
-		rc.checkTemplate.Collect(Critical, passed, message)
-	}()
-
-	u, err := storage.ParseBackend(rc.cfg.Mydumper.SourceDir, nil)
-	if err != nil {
-		return errors.Annotate(err, "parse backend failed")
-	}
-	_, err = storage.New(ctx, u, &storage.ExternalStorageOptions{
-		CheckPermissions: []storage.Permission{
-			storage.ListObjects,
-			storage.GetObject,
-		},
-	})
-	if err != nil {
-		passed = false
-		message = err.Error()
-	}
-	return nil
-}
-
 // HasLargeCSV checks whether input csvs is fit for Lightning import.
 // If strictFormat is false, and csv file is large. Lightning will have performance issue.
 // this test cannot be skipped.
@@ -187,16 +155,15 @@ func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
 
 // LocalResource checks the local node has enough resources for this import when local backend enabled;
 func (rc *Controller) LocalResource(ctx context.Context) error {
-	if rc.isSourceInLocal() {
-		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
-		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
+	if local := rc.cfg.Mydumper.SourceDir.GetLocal(); local != nil {
+		same, err := common.SameDisk(local.Path, rc.cfg.TikvImporter.SortedKVDir)
 		if err != nil {
 			return errors.Trace(err)
 		}
 		if same {
 			rc.checkTemplate.Collect(Warn, false,
 				fmt.Sprintf("sorted-kv-dir:%s and data-source-dir:%s are in the same disk, may slow down performance",
-					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
+					rc.cfg.TikvImporter.SortedKVDir, local.Path))
 		}
 	}
 	var sourceSize uint64
@@ -253,11 +220,7 @@ func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *md.MDTab
 			chunk := eng.Chunks[0]
 			permFromCheckpoint = chunk.ColumnPermutation
 			columns = chunk.Chunk.Columns
-			if filepath.Dir(chunk.FileMeta.Path) != rc.cfg.Mydumper.SourceDir {
-				message := fmt.Sprintf("chunk checkpoints path is not equal to config"+
-					"checkpoint is %s, config source dir is %s", chunk.FileMeta.Path, rc.cfg.Mydumper.SourceDir)
-				msgs = append(msgs, message)
-			}
+			break
 		}
 	}
 	if len(columns) == 0 {

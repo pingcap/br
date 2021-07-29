@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/errors"
 
 	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/version/build"
 )
 
@@ -50,7 +51,7 @@ type GlobalTiDB struct {
 }
 
 type GlobalMydumper struct {
-	SourceDir string `toml:"data-source-dir" json:"data-source-dir"`
+	SourceDir SourceDir `toml:"data-source-dir" json:"data-source-dir"`
 	// Deprecated
 	NoSchema      bool             `toml:"no-schema" json:"no-schema"`
 	Filter        []string         `toml:"filter" json:"filter"`
@@ -225,7 +226,11 @@ func LoadGlobalConfig(args []string, extraFlags func(*flag.FlagSet)) (*GlobalCon
 		cfg.TiDB.PdAddr = *pdAddr
 	}
 	if *dataSrcPath != "" {
-		cfg.Mydumper.SourceDir = *dataSrcPath
+		var err error
+		cfg.Mydumper.SourceDir.StorageBackend, err = storage.ParseBackend(*dataSrcPath, nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if *importerAddr != "" {
 		cfg.TikvImporter.Addr = *importerAddr

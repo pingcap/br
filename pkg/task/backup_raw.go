@@ -152,7 +152,11 @@ func RunBackupRaw(c context.Context, g glue.Glue, cmdName string, cfg *RawKvConf
 	opts := storage.ExternalStorageOptions{
 		NoCredentials:   cfg.NoCreds,
 		SendCredentials: cfg.SendCreds,
-		SkipCheckPath:   cfg.SkipCheckPath,
+		// we only include AccessBuckets for backward compatibility, and probably can be relaxed.
+		CheckPermissions: []storage.Permission{storage.PutObject, storage.AccessBuckets},
+	}
+	if cfg.SkipCheckPath {
+		opts.CheckPermissions = nil
 	}
 	if err = client.SetStorage(ctx, u, &opts); err != nil {
 		return errors.Trace(err)

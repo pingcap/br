@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -248,7 +247,7 @@ type MydumperRuntime struct {
 	ReadBlockSize    ByteSize         `toml:"read-block-size" json:"read-block-size"`
 	BatchSize        ByteSize         `toml:"batch-size" json:"batch-size"`
 	BatchImportRatio float64          `toml:"batch-import-ratio" json:"batch-import-ratio"`
-	SourceDir        string           `toml:"data-source-dir" json:"data-source-dir"`
+	SourceDir        SourceDir        `toml:"data-source-dir" json:"data-source-dir"`
 	CharacterSet     string           `toml:"character-set" json:"character-set"`
 	CSV              CSVConfig        `toml:"csv" json:"csv"`
 	MaxRegionSize    ByteSize         `toml:"max-region-size" json:"max-region-size"`
@@ -551,13 +550,17 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	// adjust file routing
 	for _, rule := range cfg.Mydumper.FileRouters {
 		if filepath.IsAbs(rule.Path) {
-			relPath, err := filepath.Rel(cfg.Mydumper.SourceDir, rule.Path)
+			local := cfg.Mydumper.SourceDir.GetLocal()
+			if local == nil {
+				return errors.New("cannot use absolute file route path when data source dir is not `local://`")
+			}
+			relPath, err := filepath.Rel(local.Path, rule.Path)
 			if err != nil {
 				return errors.Trace(err)
 			}
 			// ".." means that this path is not in source dir, so we should return an error
 			if strings.HasPrefix(relPath, "..") {
-				return errors.Errorf("file route path '%s' is not in source dir '%s'", rule.Path, cfg.Mydumper.SourceDir)
+				return errors.Errorf("file route path '%s' is not in source dir '%s'", rule.Path, local.Path)
 			}
 			rule.Path = relPath
 		}
@@ -645,7 +648,7 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 	}
 	cfg.AdjustMydumper()
 	cfg.AdjustCheckPoint()
-	return cfg.CheckAndAdjustFilePath()
+	return nil
 }
 
 func (cfg *Config) CheckAndAdjustForLocalBackend() error {
@@ -758,54 +761,6 @@ func (cfg *Config) CheckAndAdjustTiDBPort(ctx context.Context, mustHaveInternalC
 	}
 	if mustHaveInternalConnections && len(cfg.TiDB.PdAddr) == 0 {
 		return errors.New("invalid `tidb.pd-addr` setting")
-	}
-	return nil
-}
-
-func (cfg *Config) CheckAndAdjustFilePath() error {
-	var u *url.URL
-
-	// An absolute Windows path like "C:\Users\XYZ" would be interpreted as
-	// an URL with scheme "C" and opaque data "\Users\XYZ".
-	// Therefore, we only perform URL parsing if we are sure the path is not
-	// an absolute Windows path.
-	// Here we use the `filepath.VolumeName` which can identify the "C:" part
-	// out of the path. On Linux this method always return an empty string.
-	// On Windows, the drive letter can only be single letters from "A:" to "Z:",
-	// so this won't mistake "S3:" as a Windows path.
-	if len(filepath.VolumeName(cfg.Mydumper.SourceDir)) == 0 {
-		var err error
-		u, err = url.Parse(cfg.Mydumper.SourceDir)
-		if err != nil {
-			return errors.Trace(err)
-		}
-	} else {
-		u = &url.URL{}
-	}
-
-	// convert path and relative path to a valid file url
-	if u.Scheme == "" {
-		if !common.IsDirExists(cfg.Mydumper.SourceDir) {
-			return errors.Errorf("%s: mydumper dir does not exist", cfg.Mydumper.SourceDir)
-		}
-		absPath, err := filepath.Abs(cfg.Mydumper.SourceDir)
-		if err != nil {
-			return errors.Annotatef(err, "covert data-source-dir '%s' to absolute path failed", cfg.Mydumper.SourceDir)
-		}
-		cfg.Mydumper.SourceDir = "file://" + filepath.ToSlash(absPath)
-		u.Path = absPath
-		u.Scheme = "file"
-	}
-
-	found := false
-	for _, t := range supportedStorageTypes {
-		if u.Scheme == t {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return errors.Errorf("Unsupported data-source-dir url '%s'", cfg.Mydumper.SourceDir)
 	}
 	return nil
 }

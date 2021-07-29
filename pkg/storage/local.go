@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 const (
@@ -22,6 +24,7 @@ const (
 //
 // export for using in tests.
 type LocalStorage struct {
+	// base is the base path, using the native slash (`\` on windows).
 	base string
 }
 
@@ -41,7 +44,8 @@ func (l *LocalStorage) ReadFile(ctx context.Context, name string) ([]byte, error
 // FileExists implement ExternalStorage.FileExists.
 func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error) {
 	path := filepath.Join(l.base, name)
-	return pathExists(path)
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err), errors.Trace(err)
 }
 
 // WalkDir traverse all the files in a dir.
@@ -49,7 +53,8 @@ func (l *LocalStorage) FileExists(ctx context.Context, name string) (bool, error
 // fn is the function called for each regular file visited by WalkDir.
 // The first argument is the file path that can be used in `Open`
 // function; the second argument is the size in byte of the file determined
-// by path.
+// by path. The path yielded always use `/` as directory separator regardless of
+// platform.
 func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
 	base := filepath.Join(l.base, opt.SubDir)
 	return filepath.Walk(base, func(path string, f os.FileInfo, err error) error {
@@ -77,13 +82,13 @@ func (l *LocalStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(str
 			}
 			size = stat.Size()
 		}
-		return fn(path, size)
+		return fn(filepath.ToSlash(path), size)
 	})
 }
 
 // URI returns the base path as an URI with a file:/// prefix.
 func (l *LocalStorage) URI() string {
-	return LocalURIPrefix + "/" + l.base
+	return LocalURIPrefix + "/" + filepath.ToSlash(l.base)
 }
 
 // Open a Reader by file path, path is a relative path to base path.
@@ -101,29 +106,41 @@ func (l *LocalStorage) Create(ctx context.Context, name string) (ExternalFileWri
 	return newFlushStorageWriter(buf, buf, file), nil
 }
 
-func pathExists(_path string) (bool, error) {
-	_, err := os.Stat(_path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, errors.Trace(err)
+var localPermissionCheckFn = map[Permission]func(string) error{
+	AccessBuckets: checkLocalPathExists,
+	ListObjects:   checkLocalPathExists,
+	GetObject:     checkLocalPathExists,
+	PutObject:     tryMkdirLocalPath,
+}
+
+func checkLocalPathExists(path string) error {
+	// FIXME: make this more precise (specifically check the permission bits)
+	_, err := os.Stat(path)
+	return errors.Trace(err)
+}
+
+func tryMkdirLocalPath(path string) error {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		err = mkdirAll(path)
 	}
-	return true, nil
+	return errors.Trace(err)
 }
 
 // NewLocalStorage return a LocalStorage at directory `base`.
 //
 // export for test.
 func NewLocalStorage(base string) (*LocalStorage, error) {
-	ok, err := pathExists(base)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	if !ok {
-		err := mkdirAll(base)
+	return newLocalStorage(base, &ExternalStorageOptions{
+		CheckPermissions: []Permission{PutObject},
+	})
+}
+
+func newLocalStorage(base string, opts *ExternalStorageOptions) (*LocalStorage, error) {
+	for _, p := range opts.CheckPermissions {
+		err := localPermissionCheckFn[p](base)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, errors.Annotatef(berrors.ErrStorageInvalidPermission, "check permission %s failed due to %v", p, err)
 		}
 	}
 	return &LocalStorage{base: base}, nil

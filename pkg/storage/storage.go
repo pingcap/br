@@ -120,16 +120,8 @@ type ExternalStorageOptions struct {
 	// NoCredentials means that no cloud credentials are supplied to BR
 	NoCredentials bool
 
-	// SkipCheckPath marks whether to skip checking path's existence.
-	//
-	// This should only be set to true in testing, to avoid interacting with the
-	// real world.
-	// When this field is false (i.e. path checking is enabled), the New()
-	// function will ensure the path referred by the backend exists by
-	// recursively creating the folders. This will also throw an error if such
-	// operation is impossible (e.g. when the bucket storing the path is missing).
-
-	// deprecated: use checkPermissions and specify the checkPermission instead.
+	// SkipCheckPath is deprecated and does nothing.
+	// Use the CheckPermissions field to recover the old `SkipCheckPath = false` behavior.
 	SkipCheckPath bool
 
 	// HTTPClient to use. The created storage may ignore this field if it is not
@@ -147,7 +139,6 @@ type ExternalStorageOptions struct {
 func Create(ctx context.Context, backend *backuppb.StorageBackend, sendCreds bool) (ExternalStorage, error) {
 	return New(ctx, backend, &ExternalStorageOptions{
 		SendCredentials: sendCreds,
-		SkipCheckPath:   false,
 		HTTPClient:      nil,
 	})
 }
@@ -159,7 +150,7 @@ func New(ctx context.Context, backend *backuppb.StorageBackend, opts *ExternalSt
 		if backend.Local == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "local config not found")
 		}
-		return NewLocalStorage(backend.Local.Path)
+		return newLocalStorage(backend.Local.Path, opts)
 	case *backuppb.StorageBackend_S3:
 		if backend.S3 == nil {
 			return nil, errors.Annotate(berrors.ErrStorageInvalidConfig, "s3 config not found")

@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,39 @@ import (
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/version/build"
 )
+
+// asJSON wraps an existing checker (typically DeepEquals) and displays the comparison using the
+// JSON serialization if the checker fails. This is because the default %v output hides all pointer
+// values behind an address making it impossible to debug some deeply nested objects.
+func asJSON(sub Checker) Checker {
+	return asJSONChecker{sub: sub}
+}
+
+type asJSONChecker struct {
+	sub Checker
+}
+
+func (checker asJSONChecker) Info() *CheckerInfo {
+	info := *checker.sub.Info()
+	info.Name = "asJSON(" + info.Name + ")"
+	return &info
+}
+
+func (checker asJSONChecker) Check(params []interface{}, names []string) (bool, string) {
+	ok, msg := checker.sub.Check(params, names)
+	if ok {
+		return true, msg
+	}
+
+	for i, param := range params {
+		encoded, err := json.Marshal(param)
+		if err != nil {
+			return false, fmt.Sprintf("cannot marshal param[%d] as JSON: %v", i, err)
+		}
+		params[i] = string(encoded)
+	}
+	return false, msg
+}
 
 var _ = Suite(&restoreSuite{})
 
@@ -150,7 +184,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 
 	newCfg := func() *config.Config {
 		cfg := config.NewConfig()
-		cfg.Mydumper.SourceDir = "/data"
+		cfg.Mydumper.SourceDir = config.NewSourceDirFromPath("/data")
 		cfg.TaskID = 123
 		cfg.TiDB.Port = 4000
 		cfg.TiDB.PdAddr = "127.0.0.1:2379"
@@ -172,7 +206,7 @@ func (s *restoreSuite) TestVerifyCheckpoint(c *C) {
 			cfg.TikvImporter.Addr = "128.0.0.1:8287"
 		},
 		"mydumper.data-source-dir": func(cfg *config.Config) {
-			cfg.Mydumper.SourceDir = "/tmp/test"
+			cfg.Mydumper.SourceDir = config.NewSourceDirFromPath("/tmp/test")
 		},
 		"tidb.host": func(cfg *config.Config) {
 			cfg.TiDB.Host = "192.168.0.1"
@@ -418,7 +452,7 @@ func (s *tableRestoreSuite) TestPopulateChunks(c *C) {
 	err := s.tr.populateChunks(context.Background(), rc, cp)
 	c.Assert(err, IsNil)
 	//nolint:dupl // false positive.
-	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
+	c.Assert(cp.Engines, asJSON(DeepEquals), map[int32]*checkpoints.EngineCheckpoint{
 		-1: {
 			Status: checkpoints.CheckpointStatusLoaded,
 		},
@@ -587,7 +621,7 @@ func (s *tableRestoreSuite) TestPopulateChunksCSVHeader(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(tr.populateChunks(context.Background(), rc, cp), IsNil)
 
-	c.Assert(cp.Engines, DeepEquals, map[int32]*checkpoints.EngineCheckpoint{
+	c.Assert(cp.Engines, asJSON(DeepEquals), map[int32]*checkpoints.EngineCheckpoint{
 		-1: {
 			Status: checkpoints.CheckpointStatusLoaded,
 		},
@@ -921,7 +955,7 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 	cfg.TiDB.Port = 4000
 	cfg.TiDB.PdAddr = "127.0.0.1:2379"
 
-	cfg.Mydumper.SourceDir = "."
+	cfg.Mydumper.SourceDir = config.NewSourceDirFromPath(".")
 	cfg.Mydumper.CSV.Header = false
 	cfg.TikvImporter.Backend = config.BackendImporter
 	tls, err := cfg.ToTLS()

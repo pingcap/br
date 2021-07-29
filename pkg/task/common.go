@@ -412,7 +412,7 @@ func NewMgr(ctx context.Context,
 	)
 }
 
-// GetStorage gets the storage backend from the config.
+// GetStorage gets the storage backend from the config for the `br debug encode` command.
 func GetStorage(
 	ctx context.Context,
 	cfg *Config,
@@ -429,11 +429,15 @@ func GetStorage(
 }
 
 func storageOpts(cfg *Config) *storage.ExternalStorageOptions {
-	return &storage.ExternalStorageOptions{
-		NoCredentials:   cfg.NoCreds,
-		SendCredentials: cfg.SendCreds,
-		SkipCheckPath:   cfg.SkipCheckPath,
+	opts := &storage.ExternalStorageOptions{
+		NoCredentials:    cfg.NoCreds,
+		SendCredentials:  cfg.SendCreds,
+		CheckPermissions: []storage.Permission{storage.GetObject, storage.PutObject},
 	}
+	if cfg.SkipCheckPath {
+		opts.CheckPermissions = nil
+	}
+	return opts
 }
 
 // ReadBackupMeta reads the backupmeta file from the storage.
