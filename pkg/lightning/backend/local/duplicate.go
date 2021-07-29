@@ -259,11 +259,14 @@ func (manager *DuplicateManager) storeDuplicateData(
 ) ([][]byte, error) {
 	opts := &pebble.WriteOptions{Sync: false}
 	var err error
-	totalKeyLen := 0
+	maxKeyLen := 0
 	for _, kv := range resp.Pairs {
-		totalKeyLen += manager.keyAdapter.EncodedLen(kv.Key)
+		l := manager.keyAdapter.EncodedLen(kv.Key)
+		if l > maxKeyLen {
+			maxKeyLen = l
+		}
 	}
-	buf := make([]byte, totalKeyLen)
+	buf := make([]byte, maxKeyLen)
 	for i := 0; i < maxRetryTimes; i++ {
 		b := manager.db.NewBatch()
 		handles := make([][]byte, 0)
@@ -464,11 +467,14 @@ func (manager *DuplicateManager) getValuesFromRegion(
 		return errors.Errorf("key error")
 	}
 
-	totalKeyLen := 0
+	maxKeyLen := 0
 	for _, kv := range resp.Pairs {
-		totalKeyLen += manager.keyAdapter.EncodedLen(kv.Key)
+		l := manager.keyAdapter.EncodedLen(kv.Key)
+		if l > maxKeyLen {
+			maxKeyLen = l
+		}
 	}
-	buf := make([]byte, totalKeyLen)
+	buf := make([]byte, maxKeyLen)
 
 	log.L().Error("get keys", zap.Int("key size", len(resp.Pairs)))
 	for i := 0; i < maxRetryTimes; i++ {
