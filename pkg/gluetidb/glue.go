@@ -186,28 +186,31 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 
 func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
 	// TODO partition and check.
-	// runWithNewTableID := func() error {
+	runWithNewTableID := func() error {
+		newID, err := gs.generateTableID()
+		if err != nil {
+			return err
+		}
+		log.Warn("table id conflict, allocating new table ID",
+			zap.Stringer("table", table.Name),
+			zap.Stringer("database", schemaInfo.Name),
+			zap.Int64("old-id", table.ID),
+			zap.Int64("new-id", newID))
+		table.ID = newID
+		return gs.createTableViaMeta(m, table, schemaInfo)
+	}
 
-	// 	log.Warn("table id conflict, allocating new table ID",
-	// 		zap.Stringer("table", table.Name),
-	// 		zap.Stringer("database", schemaInfo.Name),
-	// 		zap.Int64("old-id", table.ID),
-	// 		zap.Int64("new-id", table.ID))
-	// 	table.ID = newID
-	// 	return gs.createTableViaMeta(m, table, schemaInfo)
-	// }
+	if table.ID == 0 {
+		return runWithNewTableID()
+	}
 
-	// if table.ID == 0 {
-	// 	return runWithNewTableID()
-	// }
-	// }
-
-	newID, err := gs.generateTableID()
-	table.ID = newID
-	if err != nil {
+	if err := m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID); err != nil {
+		if infoschema.ErrTableExists.Equal(err) {
+			return runWithNewTableID()
+		}
 		return err
 	}
-	return m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID)
+	return nil
 }
 
 // CreateTable implements glue.Session.
