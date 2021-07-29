@@ -21,6 +21,7 @@ import (
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/session"
 	"github.com/pingcap/tidb/sessionctx"
+	"github.com/pingcap/tidb/tablecodec"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 
@@ -218,6 +219,27 @@ func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, 
 	return nil
 }
 
+func (gs *tidbSession) tableNotExists(ctx context.Context, tableID int64) error {
+	txn, err := gs.store.Begin()
+	defer txn.Commit(ctx)
+	if err != nil {
+		return err
+	}
+	startKey := tablecodec.EncodeTablePrefix(tableID)
+	i, err := txn.Iter(startKey, startKey.PrefixNext())
+	if err != nil {
+		return err
+	}
+	defer i.Close()
+	// If any key with the table prefix exists, the table would probably exists.
+	// Using infoschema or meta api to check whether table exists would be error-prone
+	// when tables / databases are dropped recently.
+	if i.Valid() {
+		return meta.ErrTableExists.FastGenByArgs()
+	}
+	return nil
+}
+
 // CreateTable implements glue.Session.
 func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, table *model.TableInfo) error {
 	dom := domain.GetDomain(gs.se)
@@ -248,9 +270,9 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
 		createTableViaMeta := gs.createTableViaMeta
-		if t, ok := is.TableByID(table.ID); ok {
+		if err := gs.tableNotExists(ctx, table.ID); err != nil {
 			log.Warn("table id occupied by some table, allocating new table ID",
-				zap.Stringer("by-table", t.Meta().Name),
+				zap.String("reason", err.Error()),
 				zap.Int64("with-id", table.ID))
 			createTableViaMeta = gs.createTableViaMetaWithNewID
 		}
