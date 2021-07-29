@@ -454,6 +454,7 @@ func (importer *FileImporter) downloadSST(
 		OldKeyPrefix: encodeKeyPrefix(regionRule.GetOldKeyPrefix()),
 		NewKeyPrefix: encodeKeyPrefix(regionRule.GetNewKeyPrefix()),
 	}
+	log.Info("selected rewrite rule", logutil.RewriteRule(&rule), logutil.File(file))
 	sstMeta := GetSSTMetaFromFile(id, file, regionInfo.Region, &rule)
 
 	req := &import_sstpb.DownloadRequest{

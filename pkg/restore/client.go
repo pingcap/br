@@ -861,6 +861,8 @@ func (rc *Client) execChecksum(ctx context.Context, tbl CreatedTable, kvClient k
 			zap.Uint64("calculated total kvs", checksumResp.TotalKvs),
 			zap.Uint64("origin tidb total bytes", table.TotalBytes),
 			zap.Uint64("calculated total bytes", checksumResp.TotalBytes),
+			zap.Int64("old-table", tbl.OldTable.Info.ID),
+			zap.Int64("new-table", tbl.Table.ID),
 		)
 		return errors.Annotate(berrors.ErrRestoreChecksumMismatch, "failed to validate checksum")
 	}

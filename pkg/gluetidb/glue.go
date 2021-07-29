@@ -184,29 +184,34 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 		zap.Duration("take time", time.Since(timeStart)))
 }
 
+func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
+	newID, err := gs.generateTableID()
+	if err != nil {
+		return err
+	}
+	log.Warn("table id conflict, allocating new table ID",
+		zap.Stringer("table", table.Name),
+		zap.Stringer("database", schemaInfo.Name),
+		zap.Int64("old-id", table.ID),
+		zap.Int64("new-id", newID))
+	table.ID = newID
+	return m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID)
+}
+
 func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
 	// TODO partition and check.
-	runWithNewTableID := func() error {
-		newID, err := gs.generateTableID()
-		if err != nil {
-			return err
-		}
-		log.Warn("table id conflict, allocating new table ID",
-			zap.Stringer("table", table.Name),
-			zap.Stringer("database", schemaInfo.Name),
-			zap.Int64("old-id", table.ID),
-			zap.Int64("new-id", newID))
-		table.ID = newID
-		return gs.createTableViaMeta(m, table, schemaInfo)
-	}
 
 	if table.ID == 0 {
-		return runWithNewTableID()
+		return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
+	}
+
+	if tableInfo, _ := m.GetTable(schemaInfo.ID, table.ID); tableInfo != nil {
+		return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
 	}
 
 	if err := m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID); err != nil {
-		if infoschema.ErrTableExists.Equal(err) {
-			return runWithNewTableID()
+		if meta.ErrTableExists.Equal(err) {
+			return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
 		}
 		return err
 	}
@@ -242,7 +247,11 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		if !ok {
 			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
-		if errCreateTable := gs.createTableViaMeta(m, table, schemaInfo); errCreateTable != nil {
+		createTableViaMeta := gs.createTableViaMeta
+		if _, ok := is.TableByID(table.ID); ok {
+			createTableViaMeta = gs.createTableViaMetaWithNewID
+		}
+		if errCreateTable := createTableViaMeta(m, table, schemaInfo); errCreateTable != nil {
 			return errCreateTable
 		}
 		version, err = gs.setInfoSchemaDiff(m, schemaInfo.ID, table.ID)
