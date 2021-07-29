@@ -54,6 +54,9 @@ type SourceFileMeta struct {
 }
 
 func (m *MDTableMeta) GetSchema(ctx context.Context, store storage.ExternalStorage) (string, error) {
+	if m.SchemaFile.FileMeta.Path == "" {
+		return "", errors.Errorf("schema file for `%s`.`%s` not found", m.DB, m.Name)
+	}
 	schema, err := ExportStatement(ctx, store, m.SchemaFile, m.charSet)
 	if err != nil {
 		log.L().Error("failed to extract table schema",
