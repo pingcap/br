@@ -18,8 +18,9 @@ import (
 	"context"
 	"io"
 	"sort"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	split "github.com/pingcap/br/pkg/restore"
 
@@ -88,11 +89,11 @@ func NewDuplicateManager(
 		splitCli:          splitCli,
 		keyAdapter:        duplicateKeyAdapter{},
 		ts:                ts,
-		connPool:          common.NewGRPCConnc(),
+		connPool:          common.NewGRPCConns(),
 	}, nil
 }
 
-func (manager *DuplicateManager) DuplicateTable(ctx context.Context, tbl table.Table) error {
+func (manager *DuplicateManager) CollectDuplicateRowsFromTiKV(ctx context.Context, tbl table.Table) error {
 	log.L().Info("Begin collect duplicate data from remote TiKV")
 	reqs, err := buildDuplicateRequests(tbl.Meta())
 	if err != nil {
@@ -105,25 +106,22 @@ func (manager *DuplicateManager) DuplicateTable(ctx context.Context, tbl table.T
 	if err != nil {
 		return err
 	}
-	var wg sync.WaitGroup
-	var tableErr common.OnceError
 	rpcctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	g, rpcctx := errgroup.WithContext(ctx)
 	for _, r := range reqs {
-		wg.Add(1)
-		go func(req *DuplicateRequest) {
+		req := r
+		g.Go(func() error {
 			err := manager.sendRequestToTiKV(rpcctx, decoder, req)
 			if err != nil {
 				log.L().Error("error occur when collect duplicate data from TiKV", zap.Error(err))
-				tableErr.Set(err)
-				cancel()
 			}
-			wg.Done()
-		}(r)
+			return err
+		})
 	}
-	wg.Wait()
+	err = g.Wait()
 	log.L().Info("End collect duplicate data from remote TiKV")
-	return nil
+	return err
 }
 
 func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
@@ -307,7 +305,7 @@ func (manager *DuplicateManager) RepairDuplicateData() error {
 	return nil
 }
 
-func (manager *DuplicateManager) CollectRowFromLocalDuplicateKeys(
+func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 	ctx context.Context,
 	tbl table.Table,
 ) error {

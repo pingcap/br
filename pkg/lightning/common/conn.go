@@ -105,7 +105,7 @@ func (conns *GRPCConns) GetGrpcConn(ctx context.Context, storeID uint64, tcpConc
 	return conns.conns[storeID].get(ctx)
 }
 
-func NewGRPCConnc() GRPCConns {
+func NewGRPCConns() GRPCConns {
 	cons := GRPCConns{conns: make(map[uint64]*ConnPool)}
 	return cons
 }

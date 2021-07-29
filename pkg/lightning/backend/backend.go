@@ -199,9 +199,12 @@ type AbstractBackend interface {
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
 	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
 
-	// CollectLocalDuplicateRows collect duplicate keys from remote TiKV storage.
+	// CollectLocalDuplicateRows collect duplicate keys from local db. We will store the duplicate keys which
+	//  are produced by `duplicateIter`.
 	CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
 
+	// CollectLocalDuplicateRows collect duplicate keys from remote TiKV storage. This keys may be duplicate with
+	//  the data import by other lightning.
 	CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
 }
 

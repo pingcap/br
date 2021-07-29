@@ -970,7 +970,7 @@ func NewLocalBackend(
 		duplicateDetection:      cfg.DuplicateDetection,
 		duplicateDB:             duplicateDB,
 	}
-	local.conns = common.NewGRPCConnc()
+	local.conns = common.NewGRPCConns()
 	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
 		return backend.MakeBackend(nil), err
 	}
@@ -2014,7 +2014,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 	if local.duplicateDB == nil {
 		return nil
 	}
-	log.L().Info("Begin collect duplicate local Keys", zap.String("table", tbl.Meta().Name.String()))
+	log.L().Info("Begin collect duplicate local keys", zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2024,14 +2024,14 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
-	if err := duplicateManager.CollectRowFromLocalDuplicateKeys(ctx, tbl); err != nil {
+	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl); err != nil {
 		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
 	return local.reportDuplicateRows(tbl, sqlMode)
 }
 
 func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
-	log.L().Info("Begin collect remote duplicate Keys", zap.String("table", tbl.Meta().Name.String()))
+	log.L().Info("Begin collect remote duplicate keys", zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
@@ -2041,10 +2041,10 @@ func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Ta
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
-	if err = duplicateManager.CollectRowFromLocalDuplicateKeys(ctx, tbl); err != nil {
+	if err = duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl); err != nil {
 		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
-	if err = duplicateManager.DuplicateTable(ctx, tbl); err != nil {
+	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
 		return errors.Annotate(err, "duplicate table failed")
 	}
 	return local.reportDuplicateRows(tbl, sqlMode)
@@ -2091,6 +2091,8 @@ func (local *local) reportDuplicateRows(tbl table.Table, sqlMode mysql.SQLMode) 
 					zap.Error(err), logutil.Key("key", iter.Key()))
 				continue
 			}
+			// TODO: We need to output the duplicate rows into files or database.
+			//  Here I just output them for debug.
 			r := "row "
 			for _, row := range rows {
 				r += "," + row.String()
