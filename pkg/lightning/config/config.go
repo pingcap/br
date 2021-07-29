@@ -158,7 +158,6 @@ func (cfg *Config) ToTLS() (*common.TLS, error) {
 
 type Lightning struct {
 	TableConcurrency  int    `toml:"table-concurrency" json:"table-concurrency"`
-	IndexConcurrency  int    `toml:"index-concurrency" json:"index-concurrency"`
 	RegionConcurrency int    `toml:"region-concurrency" json:"region-concurrency"`
 	IOConcurrency     int    `toml:"io-concurrency" json:"io-concurrency"`
 	CheckRequirements bool   `toml:"check-requirements" json:"check-requirements"`
@@ -390,7 +389,6 @@ func NewConfig() *Config {
 		App: Lightning{
 			RegionConcurrency: runtime.NumCPU(),
 			TableConcurrency:  0,
-			IndexConcurrency:  0,
 			IOConcurrency:     5,
 			CheckRequirements: true,
 		},
@@ -677,7 +675,7 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 
 	// we need to calculate quota if disk-quota == 0
 	if cfg.TikvImporter.DiskQuota == 0 {
-		enginesCount := uint64(cfg.App.IndexConcurrency + cfg.App.TableConcurrency)
+		enginesCount := uint64(cfg.App.TableConcurrency)
 		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
 		reservedSize := enginesCount*uint64(cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
 
@@ -699,9 +697,6 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 }
 
 func (cfg *Config) DefaultVarsForTiDBBackend() {
-	if cfg.App.IndexConcurrency == 0 {
-		cfg.App.IndexConcurrency = cfg.App.RegionConcurrency
-	}
 	if cfg.App.TableConcurrency == 0 {
 		cfg.App.TableConcurrency = cfg.App.RegionConcurrency
 	}
@@ -742,11 +737,8 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
 		}
 	}
 
-	if cfg.App.IndexConcurrency == 0 {
-		cfg.App.IndexConcurrency = 2
-	}
 	if cfg.App.TableConcurrency == 0 {
-		cfg.App.TableConcurrency = 6
+		cfg.App.TableConcurrency = 2
 	}
 	if len(cfg.App.MetaSchemaName) == 0 {
 		cfg.App.MetaSchemaName = defaultMetaSchemaName
@@ -874,11 +866,6 @@ func (cfg *Config) AdjustCheckPoint() {
 }
 
 func (cfg *Config) AdjustMydumper() {
-	if cfg.Mydumper.BatchSize <= 0 {
-		// if rows in source files are not sorted by primary key(if primary is number or cluster index enabled),
-		// the key range in each data engine may have overlap, thus a bigger engine size can somewhat alleviate it.
-		cfg.Mydumper.BatchSize = defaultBatchSize
-	}
 	if cfg.Mydumper.BatchImportRatio < 0.0 || cfg.Mydumper.BatchImportRatio >= 1.0 {
 		cfg.Mydumper.BatchImportRatio = 0.75
 	}

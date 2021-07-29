@@ -38,7 +38,7 @@ import (
 	"github.com/pingcap/parser/mysql"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/api"
-	"github.com/tikv/pd/server/config"
+	pdconfig "github.com/tikv/pd/server/config"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/lightning/backend"
@@ -72,7 +72,7 @@ func (rc *Controller) isSourceInLocal() bool {
 }
 
 func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
-	result := &config.ReplicationConfig{}
+	result := &pdconfig.ReplicationConfig{}
 	err := rc.tls.WithHost(rc.cfg.TiDB.PdAddr).GetJSON(ctx, pdReplicate, &result)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -212,9 +212,22 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
 		}
 	}
-	sourceSize, err := rc.CalculateTableAndIndexRatio(ctx)
-	if err != nil {
-		return errors.Trace(err)
+	sourceSize := int64(0)
+	for _, db := range rc.dbMetas {
+		info, ok := rc.dbInfos[db.Name]
+		if !ok {
+			continue
+		}
+		for _, tbl := range db.Tables {
+			tableInfo, ok := info.Tables[tbl.Name]
+			if ok {
+				if err := rc.SampleDataFromTable(ctx, db.Name, tbl, tableInfo.Core); err != nil {
+					return errors.Trace(err)
+					return err
+				}
+				sourceSize += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
+			}
+		}
 	}
 
 	storageSize, err := common.GetStorageSize(rc.cfg.TikvImporter.SortedKVDir)
@@ -543,24 +556,4 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	}
 	parser.Close()
 	return nil
-}
-
-func (rc *Controller) CalculateTableAndIndexRatio(ctx context.Context) (int64, error) {
-	source := int64(0)
-	for _, db := range rc.dbMetas {
-		info, ok := rc.dbInfos[db.Name]
-		if !ok {
-			continue
-		}
-		for _, tbl := range db.Tables {
-			tableInfo, ok := info.Tables[tbl.Name]
-			if ok {
-				if err := rc.SampleDataFromTable(ctx, db.Name, tbl, tableInfo.Core); err != nil {
-					return source, err
-				}
-				source += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
-			}
-		}
-	}
-	return source, nil
 }

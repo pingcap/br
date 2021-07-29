@@ -19,10 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/lightning/web"
-	"github.com/pingcap/br/pkg/utils"
-	"github.com/pingcap/br/pkg/version"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/model"
@@ -31,7 +27,6 @@ import (
 	"github.com/pingcap/tidb/table/tables"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
-	"modernc.org/mathutil"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
@@ -45,6 +40,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type TableRestore struct {
@@ -221,9 +217,6 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 		TableInfo: tr.tableInfo,
 	}
 	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
-		indexWorker := rc.indexWorkers.Apply()
-		defer rc.indexWorkers.Recycle(indexWorker)
-
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
@@ -296,26 +289,29 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 			if engine.Status < checkpoints.CheckpointStatusImported {
 				wg.Add(1)
 
-				// Note: We still need tableWorkers to control the concurrency of tables.
-				// In the future, we will investigate more about
-				// the difference between restoring tables concurrently and restoring tables one by one.
-				restoreWorker := rc.tableWorkers.Apply()
+				// If the number of chunks is small, it means that this engine may be finished in a few times.
+				// We do not limit it in TableConcurrency
+				var restoreWorker *worker.Worker = nil
+				if len(engine.Chunks)*rc.cfg.App.TableConcurrency > rc.cfg.App.RegionConcurrency {
+					restoreWorker = rc.tableWorkers.Apply()
+				}
 
 				go func(w *worker.Worker, eid int32, ecp *checkpoints.EngineCheckpoint) {
 					defer wg.Done()
-
 					engineLogTask := tr.logger.With(zap.Int32("engineNumber", eid)).Begin(zap.InfoLevel, "restore engine")
 					dataClosedEngine, err := tr.restoreEngine(ctx, rc, indexEngine, eid, ecp)
 					engineLogTask.End(zap.ErrorLevel, err)
-					rc.tableWorkers.Recycle(w)
-					if err != nil {
-						setError(err)
-						return
+					if w != nil {
+						rc.tableWorkers.Recycle(w)
+						dataWorker := rc.closedEngineLimit.Apply()
+						defer rc.closedEngineLimit.Recycle(dataWorker)
+						if err == nil {
+							err = tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp)
+						}
+					} else if err == nil {
+						err = tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp)
 					}
-
-					dataWorker := rc.closedEngineLimit.Apply()
-					defer rc.closedEngineLimit.Recycle(dataWorker)
-					if err := tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp); err != nil {
+					if err != nil {
 						setError(err)
 					}
 				}(restoreWorker, engineID, engine)
@@ -891,116 +887,6 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 	err := g.ExecuteWithLog(ctx, "ANALYZE TABLE "+tr.tableName, "analyze table", tr.logger)
 	task.End(zap.ErrorLevel, err)
 	return err
-}
-
-func (tr *TableRestore) restoreTable(
-	ctx context.Context,
-	rc *Controller,
-	cp *checkpoints.TableCheckpoint,
-) (bool, error) {
-	// 1. Load the table info.
-
-	select {
-	case <-ctx.Done():
-		return false, ctx.Err()
-	default:
-	}
-
-	metaMgr := rc.metaMgrBuilder.TableMetaMgr(tr)
-	// no need to do anything if the chunks are already populated
-	if len(cp.Engines) > 0 {
-		tr.logger.Info("reusing engines and files info from checkpoint",
-			zap.Int("enginesCnt", len(cp.Engines)),
-			zap.Int("filesCnt", cp.CountChunks()),
-		)
-	} else if cp.Status < checkpoints.CheckpointStatusAllWritten {
-		versionStr, err := rc.tidbGlue.GetSQLExecutor().ObtainStringWithLog(
-			ctx, "SELECT version()", "fetch tidb version", log.L())
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-
-		tidbVersion, err := version.ExtractTiDBVersion(versionStr)
-		if err != nil {
-			return false, errors.Trace(err)
-		}
-
-		if err := tr.populateChunks(ctx, rc, cp); err != nil {
-			return false, errors.Trace(err)
-		}
-
-		// fetch the max chunk row_id max value as the global max row_id
-		rowIDMax := int64(0)
-		for _, engine := range cp.Engines {
-			if len(engine.Chunks) > 0 && engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax > rowIDMax {
-				rowIDMax = engine.Chunks[len(engine.Chunks)-1].Chunk.RowIDMax
-			}
-		}
-
-		// "show table next_row_id" is only available after v4.0.0
-		if tidbVersion.Major >= 4 && (rc.cfg.TikvImporter.Backend == config.BackendLocal || rc.cfg.TikvImporter.Backend == config.BackendImporter) {
-			// first, insert a new-line into meta table
-			if err = metaMgr.InitTableMeta(ctx); err != nil {
-				return false, err
-			}
-
-			checksum, rowIDBase, err := metaMgr.AllocTableRowIDs(ctx, rowIDMax)
-			if err != nil {
-				return false, err
-			}
-			tr.RebaseChunkRowIDs(cp, rowIDBase)
-
-			if checksum != nil {
-				if cp.Checksum != *checksum {
-					cp.Checksum = *checksum
-					rc.saveCpCh <- saveCp{
-						tableName: tr.tableName,
-						merger: &checkpoints.TableChecksumMerger{
-							Checksum: cp.Checksum,
-						},
-					}
-				}
-				tr.logger.Info("checksum before restore table", zap.Object("checksum", &cp.Checksum))
-			}
-		}
-		if err := rc.checkpointsDB.InsertEngineCheckpoints(ctx, tr.tableName, cp.Engines); err != nil {
-			return false, errors.Trace(err)
-		}
-		web.BroadcastTableCheckpoint(tr.tableName, cp)
-
-		// rebase the allocator so it exceeds the number of rows.
-		if tr.tableInfo.Core.PKIsHandle && tr.tableInfo.Core.ContainsAutoRandomBits() {
-			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoRandID)
-			if err := tr.alloc.Get(autoid.AutoRandomType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
-				return false, err
-			}
-		} else {
-			cp.AllocBase = mathutil.MaxInt64(cp.AllocBase, tr.tableInfo.Core.AutoIncID)
-			if err := tr.alloc.Get(autoid.RowIDAllocType).Rebase(tr.tableInfo.ID, cp.AllocBase, false); err != nil {
-				return false, err
-			}
-		}
-		rc.saveCpCh <- saveCp{
-			tableName: tr.tableName,
-			merger: &checkpoints.RebaseCheckpointMerger{
-				AllocBase: cp.AllocBase,
-			},
-		}
-	}
-
-	// 2. Restore engines (if still needed)
-	err := tr.restoreEngines(ctx, rc, cp)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
-
-	err = metaMgr.UpdateTableStatus(ctx, metaStatusRestoreFinished)
-	if err != nil {
-		return false, errors.Trace(err)
-	}
-
-	// 3. Post-process. With the last parameter set to false, we can allow delay analyze execute latter
-	return tr.postProcess(ctx, rc, cp, false /* force-analyze */, metaMgr)
 }
 
 // estimate SST files compression threshold by total row file size

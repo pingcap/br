@@ -944,7 +944,6 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 			s.tableInfo.DB: s.dbInfo,
 		},
 		tableWorkers:      worker.NewPool(ctx, 6, "table"),
-		indexWorkers:      worker.NewPool(ctx, 2, "index"),
 		ioWorkers:         worker.NewPool(ctx, 5, "io"),
 		regionWorkers:     worker.NewPool(ctx, 10, "region"),
 		checksumWorks:     worker.NewPool(ctx, 2, "region"),

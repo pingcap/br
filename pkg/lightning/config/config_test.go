@@ -560,8 +560,7 @@ func (s *configTestSuite) TestDefaultImporterBackendValue(c *C) {
 	cfg.TikvImporter.Backend = "importer"
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
-	c.Assert(cfg.App.IndexConcurrency, Equals, 2)
-	c.Assert(cfg.App.TableConcurrency, Equals, 6)
+	c.Assert(cfg.App.TableConcurrency, Equals, 2)
 }
 
 func (s *configTestSuite) TestDefaultTidbBackendValue(c *C) {
@@ -571,7 +570,6 @@ func (s *configTestSuite) TestDefaultTidbBackendValue(c *C) {
 	cfg.App.RegionConcurrency = 123
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
-	c.Assert(cfg.App.IndexConcurrency, Equals, 123)
 	c.Assert(cfg.App.TableConcurrency, Equals, 123)
 }
 
@@ -579,11 +577,9 @@ func (s *configTestSuite) TestDefaultCouldBeOverwritten(c *C) {
 	cfg := config.NewConfig()
 	assignMinimalLegalValue(cfg)
 	cfg.TikvImporter.Backend = "importer"
-	cfg.App.IndexConcurrency = 20
 	cfg.App.TableConcurrency = 60
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
-	c.Assert(cfg.App.IndexConcurrency, Equals, 20)
 	c.Assert(cfg.App.TableConcurrency, Equals, 60)
 }
 
