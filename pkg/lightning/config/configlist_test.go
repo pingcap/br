@@ -44,12 +44,13 @@ func (s *configListTestSuite) TestNormalPushPop(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(cfg.TikvImporter.Addr, Equals, "2.2.2.2:2222")
 
+	startTime = time.Now()
+
 	go func() {
 		time.Sleep(400 * time.Millisecond)
 		cl.Push(&config.Config{TikvImporter: config.TikvImporter{Addr: "3.3.3.3:3333"}})
 	}()
 
-	startTime = time.Now()
 	cfg, err = cl.Pop(context.Background()) // this should block for ≥400ms
 	c.Assert(time.Since(startTime), GreaterEqual, 400*time.Millisecond)
 	c.Assert(err, IsNil)
