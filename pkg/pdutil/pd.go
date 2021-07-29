@@ -338,7 +338,7 @@ func (p *PdController) getRegionCountWith(
 	return 0, errors.Trace(err)
 }
 
-// GetRegionCount returns the region count in the specified range.
+// GetStoreInfo returns the info of store with the specified id.
 func (p *PdController) GetStoreInfo(ctx context.Context, storeID uint64) (*pdapi.StoreInfo, error) {
 	return p.getStoreInfoWith(ctx, pdRequest, storeID)
 }
