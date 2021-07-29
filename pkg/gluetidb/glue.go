@@ -248,7 +248,10 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
 		createTableViaMeta := gs.createTableViaMeta
-		if _, ok := is.TableByID(table.ID); ok {
+		if t, ok := is.TableByID(table.ID); ok {
+			log.Warn("table id occupied by some table, allocating new table ID",
+				zap.Stringer("by-table", t.Meta().Name),
+				zap.Int64("with-id", table.ID))
 			createTableViaMeta = gs.createTableViaMetaWithNewID
 		}
 		if errCreateTable := createTableViaMeta(m, table, schemaInfo); errCreateTable != nil {
@@ -267,7 +270,10 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 	cctx, cancel := context.WithTimeout(ctx, dom.DDL().GetLease()*2)
 	gs.waitSchemaDiff(cctx, version)
 	cancel()
-	// TODO only reload in unit tests.
+	if dom.DDL().GetLease() > 0 {
+		return nil
+	}
+	// only reload in unit tests. (DDL lease == 0)
 	return dom.Reload()
 }
 
