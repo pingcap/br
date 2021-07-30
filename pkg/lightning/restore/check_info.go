@@ -95,13 +95,9 @@ func (rc *Controller) ClusterResource(ctx context.Context) error {
 	}
 	totalAvailable := typeutil.ByteSize(0)
 	for _, store := range result.Stores {
-		totalAvailable += store.Status.Available
+		totalAvailable += store.Status.Capacity
 	}
-	var sourceSize int64
-	err = rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
-		sourceSize += size
-		return nil
-	})
+	sourceSize, err := rc.taskMgr.CheckClusterSource(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -109,13 +105,7 @@ func (rc *Controller) ClusterResource(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	// sourceSize is the total size of current csv/parquet/sql files.
-	// it's not a simple multiple relationship with the final cluster occupancy, because
-	//   1. sourceSize didn't compress with RocksDB.
-	//   2. the index size was not included in sourceSize.
-	// so we have to make estimateSize redundant with 1.5.
-	estimateSize := uint64(sourceSize) * replicaCount * 3 / 2
-
+	estimateSize := uint64(sourceSize) * replicaCount
 	if typeutil.ByteSize(estimateSize) > totalAvailable {
 		passed = false
 		message = fmt.Sprintf("Cluster doesn't have enough space, %s is avaiable, but we need %s",
@@ -213,6 +203,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 		}
 	}
 	sourceSize := int64(0)
+	originSource := int64(0)
 	for _, db := range rc.dbMetas {
 		info, ok := rc.dbInfos[db.Name]
 		if !ok {
@@ -226,6 +217,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 					return err
 				}
 				sourceSize += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
+				originSource += tbl.TotalSize
 			}
 		}
 	}
@@ -235,17 +227,23 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	localAvailable := storageSize.Available
+	if err = rc.taskMgr.InitTask(ctx, sourceSize); err != nil {
+		return errors.Trace(err)
+	}
 
 	var message string
 	var passed bool
 	switch {
 	case localAvailable > uint64(sourceSize):
-		message = fmt.Sprintf("local disk resources are rich, source dir has %s, local available is %s",
+		message = fmt.Sprintf("local disk resources are rich, source dir has %s, estimate sorted data size %s, local available is %s",
+			units.BytesSize(float64(originSource)),
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
 	default:
-		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, but local available is %s,"+
-			"we may use disk-quota(%s) to finish imports", units.BytesSize(float64(sourceSize)),
+		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, estimate sorted data size is %s, but local available is %s,"+
+			"we may use disk-quota(%s) to finish imports",
+			units.BytesSize(float64(originSource)),
+			units.BytesSize(float64(sourceSize)),
 			units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
 		passed = true
 	}

@@ -103,6 +103,7 @@ const (
 		task_id BIGINT(20) UNSIGNED NOT NULL,
 		pd_cfgs VARCHAR(2048) NOT NULL DEFAULT '',
 		status  VARCHAR(32) NOT NULL,
+		source_bytes BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
 		PRIMARY KEY (task_id)
 	);`
 
@@ -249,6 +250,7 @@ type Controller struct {
 	closedEngineLimit *worker.Pool
 	store             storage.ExternalStorage
 	metaMgrBuilder    metaMgrBuilder
+	taskMgr           taskMetaMgr
 
 	diskQuotaLock  *diskQuotaLock
 	diskQuotaState atomic.Int32
@@ -374,6 +376,7 @@ func NewRestoreControllerWithPauser(
 		store:          s,
 		metaMgrBuilder: metaBuilder,
 		diskQuotaLock:  newDiskQuotaLock(),
+		taskMgr:        nil,
 	}
 
 	return rc, nil
@@ -386,9 +389,9 @@ func (rc *Controller) Close() {
 
 func (rc *Controller) Run(ctx context.Context) error {
 	opts := []func(context.Context) error{
-		rc.preCheckRequirements,
 		rc.setGlobalVariables,
 		rc.restoreSchema,
+		rc.preCheckRequirements,
 		rc.restoreTables,
 		rc.fullCompact,
 		rc.switchToNormalMode,
@@ -751,14 +754,6 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 
-	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
-		// print check template only if check requirements is true.
-		fmt.Println(rc.checkTemplate.Output())
-		if !rc.checkTemplate.Success() {
-			return errors.Errorf("tidb-lightning pre-check failed." +
-				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
-		}
-	}
 	return nil
 }
 
@@ -1183,10 +1178,6 @@ var checksumManagerKey struct{}
 func (rc *Controller) restoreTables(ctx context.Context) error {
 	logTask := log.L().Begin(zap.InfoLevel, "restore all tables data")
 
-	if err := rc.metaMgrBuilder.Init(ctx); err != nil {
-		return err
-	}
-
 	// for local backend, we should disable some pd scheduler and change some settings, to
 	// make split region and ingest sst more stable
 	// because importer backend is mostly use for v3.x cluster which doesn't support these api,
@@ -1197,26 +1188,15 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	cleanupFunc := func() {}
 	switchBack := false
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
-		// disable some pd schedulers
-		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
-			rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption())
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		mgr := rc.metaMgrBuilder.TaskMetaMgr(pdController)
-		if err = mgr.InitTask(ctx); err != nil {
-			return err
-		}
 
 		logTask.Info("removing PD leader&region schedulers")
 
-		restoreFn, err := mgr.CheckAndPausePdSchedulers(ctx)
+		restoreFn, err := rc.taskMgr.CheckAndPausePdSchedulers(ctx)
 		finishSchedulers = func() {
 			if restoreFn != nil {
 				// use context.Background to make sure this restore function can still be executed even if ctx is canceled
 				restoreCtx := context.Background()
-				needSwitchBack, err := mgr.CheckAndFinishRestore(restoreCtx)
+				needSwitchBack, err := rc.taskMgr.CheckAndFinishRestore(restoreCtx)
 				if err != nil {
 					logTask.Warn("check restore pd schedulers failed", zap.Error(err))
 					return
@@ -1227,12 +1207,12 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 						logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 					}
 					// clean up task metas
-					if cleanupErr := mgr.Cleanup(restoreCtx); cleanupErr != nil {
+					if cleanupErr := rc.taskMgr.Cleanup(restoreCtx); cleanupErr != nil {
 						logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
 					}
 					// cleanup table meta and schema db if needed.
 					cleanupFunc = func() {
-						if e := mgr.CleanupAllMetas(restoreCtx); err != nil {
+						if e := rc.taskMgr.CleanupAllMetas(restoreCtx); err != nil {
 							logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(e))
 						}
 					}
@@ -1241,7 +1221,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 				logTask.Info("add back PD leader&region schedulers")
 			}
 
-			pdController.Close()
+			rc.taskMgr.Close()
 		}
 
 		if err != nil {
@@ -1764,10 +1744,6 @@ func (rc *Controller) isLocalBackend() bool {
 // 3. Lightning configuration
 // before restore tables start.
 func (rc *Controller) preCheckRequirements(ctx context.Context) error {
-	if !rc.cfg.App.CheckRequirements {
-		log.L().Info("skip pre check due to user requirement")
-		return nil
-	}
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
 		return errors.Trace(err)
 	}
@@ -1775,14 +1751,43 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if err := rc.StoragePermission(ctx); err != nil {
 		return errors.Trace(err)
 	}
-
-	if err := rc.ClusterResource(ctx); err != nil {
-		return errors.Trace(err)
+	if err := rc.metaMgrBuilder.Init(ctx); err != nil {
+		return err
 	}
+	firstStarted := false
 
 	if rc.isLocalBackend() {
-		if err := rc.LocalResource(ctx); err != nil {
+		// disable some pd schedulers
+		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
+			rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption())
+		if err != nil {
 			return errors.Trace(err)
+		}
+
+		rc.taskMgr = rc.metaMgrBuilder.TaskMetaMgr(pdController)
+		hasStarted, err := rc.taskMgr.CheckTaskStart(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if !hasStarted {
+			firstStarted = true
+			if err := rc.LocalResource(ctx); err != nil {
+				return errors.Trace(err)
+			}
+			if err := rc.ClusterResource(ctx); err != nil {
+				return errors.Trace(err)
+			}
+		}
+	}
+	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
+		// print check template only if check requirements is true.
+		fmt.Println(rc.checkTemplate.Output())
+		if !rc.checkTemplate.Success() {
+			if firstStarted && rc.taskMgr != nil {
+				rc.taskMgr.Cleanup(ctx)
+			}
+			return errors.Errorf("tidb-lightning pre-check failed." +
+				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
 		}
 	}
 	return nil
