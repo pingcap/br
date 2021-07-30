@@ -371,7 +371,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			return nil, errors.Trace(err)
 		}
 		if colsFromDataFile == nil && colCountFromDataFile == 0 {
-			log.Info("file doesn't contain columns and rows, skip check it", zap.String("path", dataFileMeta.Path))
+			log.Info("file contains no data, skip checking against schema validity", zap.String("path", dataFileMeta.Path))
 			continue
 		}
 
