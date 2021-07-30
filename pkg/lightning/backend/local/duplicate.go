@@ -69,7 +69,6 @@ type DuplicateManager struct {
 	regionConcurrency int
 	connPool          common.GRPCConns
 	tls               *common.TLS
-	sqlMode           mysql.SQLMode
 	ts                uint64
 	keyAdapter        KeyAdapter
 }
@@ -79,13 +78,11 @@ func NewDuplicateManager(
 	splitCli split.SplitClient,
 	ts uint64,
 	tls *common.TLS,
-	regionConcurrency int,
-	sqlMode mysql.SQLMode) (*DuplicateManager, error) {
+	regionConcurrency int) (*DuplicateManager, error) {
 	return &DuplicateManager{
 		db:                db,
 		tls:               tls,
 		regionConcurrency: regionConcurrency,
-		sqlMode:           sqlMode,
 		splitCli:          splitCli,
 		keyAdapter:        duplicateKeyAdapter{},
 		ts:                ts,
@@ -101,7 +98,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromTiKV(ctx context.Contex
 	}
 
 	decoder, err := backendkv.NewTableKVDecoder(tbl, &backendkv.SessionOptions{
-		SQLMode: manager.sqlMode,
+		SQLMode: mysql.ModeStrictAllTables,
 	})
 	if err != nil {
 		return err
@@ -313,7 +310,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 	tbl table.Table,
 ) error {
 	decoder, err := backendkv.NewTableKVDecoder(tbl, &backendkv.SessionOptions{
-		SQLMode: manager.sqlMode,
+		SQLMode: mysql.ModeStrictAllTables,
 	})
 	if err != nil {
 		return err

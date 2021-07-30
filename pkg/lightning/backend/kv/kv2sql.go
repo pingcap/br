@@ -25,12 +25,8 @@ import (
 )
 
 type TableKVDecoder struct {
-	tbl         table.Table
-	se          *session
-	recordCache []types.Datum
-	genCols     []genCol
-	// auto random bits value for this chunk
-	autoRandomHeaderBits int64
+	tbl table.Table
+	se  *session
 }
 
 func (t *TableKVDecoder) DecodeHandleFromTable(key []byte) (kv.Handle, error) {

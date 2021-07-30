@@ -19,8 +19,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pingcap/parser/mysql"
-
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -200,12 +198,12 @@ type AbstractBackend interface {
 	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
 
 	// CollectLocalDuplicateRows collect duplicate keys from local db. We will store the duplicate keys which
-	//  are produced by `duplicateIter`.
-	CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
+	//  may be repeated with other keys in local data source.
+	CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error
 
 	// CollectLocalDuplicateRows collect duplicate keys from remote TiKV storage. This keys may be duplicate with
 	//  the data import by other lightning.
-	CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error
+	CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error
 }
 
 // Backend is the delivery target for Lightning
@@ -361,12 +359,12 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 	}, nil
 }
 
-func (be Backend) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
-	return be.abstract.CollectLocalDuplicateRows(ctx, tbl, sqlMode)
+func (be Backend) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
+	return be.abstract.CollectLocalDuplicateRows(ctx, tbl)
 }
 
-func (be Backend) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
-	return be.abstract.CollectRemoteDuplicateRows(ctx, tbl, sqlMode)
+func (be Backend) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
+	return be.abstract.CollectRemoteDuplicateRows(ctx, tbl)
 }
 
 // Close the opened engine to prepare it for importing.

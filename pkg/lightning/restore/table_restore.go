@@ -694,14 +694,14 @@ func (tr *TableRestore) postProcess(
 				}
 				if !needChecksum {
 					if rc.cfg.TikvImporter.DuplicateDetection {
-						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable, rc.cfg.TiDB.SQLMode); err != nil {
+						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable); err != nil {
 							tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
 						}
 					}
 					return false, nil
 				}
 				if rc.cfg.TikvImporter.DuplicateDetection {
-					if err := rc.backend.CollectRemoteDuplicateRows(ctx, tr.encTable, rc.cfg.TiDB.SQLMode); err != nil {
+					if err := rc.backend.CollectRemoteDuplicateRows(ctx, tr.encTable); err != nil {
 						tr.logger.Error("collect remote duplicate keys failed", log.ShortError(err))
 						err = nil
 					}

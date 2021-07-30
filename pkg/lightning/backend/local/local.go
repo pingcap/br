@@ -2010,7 +2010,7 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 	return nil
 }
 
-func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
 	if local.duplicateDB == nil {
 		return nil
 	}
@@ -2020,24 +2020,24 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 		return err
 	}
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
-	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
 	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl); err != nil {
 		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
-	return local.reportDuplicateRows(tbl, sqlMode)
+	return local.reportDuplicateRows(tbl)
 }
 
-func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
 	log.L().Info("Begin collect remote duplicate keys", zap.String("table", tbl.Meta().Name.String()))
 	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
 	if err != nil {
 		return err
 	}
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
-	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency, sqlMode)
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
@@ -2047,13 +2047,13 @@ func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Ta
 	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
 		return errors.Annotate(err, "duplicate table failed")
 	}
-	return local.reportDuplicateRows(tbl, sqlMode)
+	return local.reportDuplicateRows(tbl)
 }
 
-func (local *local) reportDuplicateRows(tbl table.Table, sqlMode mysql.SQLMode) error {
+func (local *local) reportDuplicateRows(tbl table.Table) error {
 	log.L().Info("Begin report duplicate rows", zap.String("table", tbl.Meta().Name.String()))
 	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
-		SQLMode: sqlMode,
+		SQLMode: mysql.ModeStrictAllTables,
 	})
 	if err != nil {
 		return errors.Annotate(err, "create decoder failed")

@@ -19,8 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/parser/mysql"
-
 	"github.com/coreos/go-semver/semver"
 	"github.com/google/uuid"
 	"github.com/pingcap/errors"
@@ -227,11 +225,11 @@ func (importer *importer) CleanupEngine(ctx context.Context, engineUUID uuid.UUI
 	return errors.Trace(err)
 }
 
-func (importer *importer) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (importer *importer) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
 	panic("Unsupported Operation")
 }
 
-func (importer *importer) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table, sqlMode mysql.SQLMode) error {
+func (importer *importer) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
 	panic("Unsupported Operation")
 }
 
