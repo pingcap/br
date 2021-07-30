@@ -47,7 +47,7 @@ func (r *RateTracer) Rate() float64 {
 // RateAt returns the rate until some instant. This function is mainly for testing.
 // WARN: the counter value for calculating is still its CURRENT VALUE.
 func (r *RateTracer) RateAt(instant time.Time) float64 {
-	return (metric.ReadCounter(r.Counter) - r.base) / float64(instant.Sub(r.start)) * float64(time.Second)
+	return (metric.ReadCounter(r.Counter) - r.base) / instant.Sub(r.start).Seconds()
 }
 
 // L make a logger with the current speed.
