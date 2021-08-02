@@ -196,6 +196,15 @@ func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.Ta
 		zap.Int64("old-id", table.ID),
 		zap.Int64("new-id", newID))
 	table.ID = newID
+	if table.Partition != nil {
+		for i := range table.Partition.Definitions {
+			// todo: batch it
+			table.Partition.Definitions[i].ID, err = gs.generateTableID()
+			if err != nil {
+				return nil
+			}
+		}
+	}
 	return m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID)
 }
 
