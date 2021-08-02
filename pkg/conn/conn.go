@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/kv"
 	"github.com/tikv/client-go/v2/tikv"
+	"github.com/tikv/client-go/v2/txnkv/txnlock"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -357,7 +358,7 @@ func (mgr *Mgr) GetTLSConfig() *tls.Config {
 }
 
 // GetLockResolver gets the LockResolver.
-func (mgr *Mgr) GetLockResolver() *tikv.LockResolver {
+func (mgr *Mgr) GetLockResolver() *txnlock.LockResolver {
 	return mgr.tikvStore.GetLockResolver()
 }
 

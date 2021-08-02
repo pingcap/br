@@ -730,10 +730,18 @@ func (rc *Controller) restoreSchema(ctx context.Context) error {
 	}
 	rc.dbInfos = dbInfos
 
-	err = rc.DataCheck(ctx)
-	if err != nil {
-		return errors.Trace(err)
+	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
+		if err = rc.DataCheck(ctx); err != nil {
+			return errors.Trace(err)
+		}
+		// print check template only if check requirements is true.
+		fmt.Println(rc.checkTemplate.Output())
+		if !rc.checkTemplate.Success() {
+			return errors.Errorf("tidb-lightning pre-check failed." +
+				" Please fix the failed check(s) or set --check-requirements=false to skip checks")
+		}
 	}
+
 	// Load new checkpoints
 	err = rc.checkpointsDB.Initialize(ctx, rc.cfg, dbInfos)
 	if err != nil {
@@ -1811,7 +1819,7 @@ func (rc *Controller) DataCheck(ctx context.Context) error {
 		for _, tableInfo := range dbInfo.Tables {
 			// if hasCheckpoint is true, the table will start import from the checkpoint
 			// so we can skip TableHasDataInCluster and SchemaIsValid check.
-			var noCheckpoint bool
+			noCheckpoint := true
 			if rc.cfg.Checkpoint.Enable {
 				if msgs, noCheckpoint, err = rc.CheckpointIsValid(ctx, tableInfo); err != nil {
 					return errors.Trace(err)
