@@ -501,7 +501,6 @@ stmtTaskLoop:
 			stmt := stmtTask.stmt
 			txnCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			// Retry will be done externally, so we're not going to retry here.
 			tx, err := be.db.BeginTx(txnCtx, &sql.TxOptions{})
 			if err != nil {
 				if !common.IsContextCanceledError(err) {
