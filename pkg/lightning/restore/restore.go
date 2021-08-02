@@ -1781,7 +1781,7 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	}
 	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
 		// print check template only if check requirements is true.
-		fmt.Println(rc.checkTemplate.Output())
+		log.L().Info(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
 			if firstStarted && rc.taskMgr != nil {
 				rc.taskMgr.Cleanup(ctx)

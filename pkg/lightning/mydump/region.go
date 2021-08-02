@@ -226,11 +226,6 @@ func MakeTableRegions(
 		prevRowIDMax = fileRegionsRes.regions[len(fileRegionsRes.regions)-1].Chunk.RowIDMax
 	}
 
-	log.L().Info("makeTableRegions", zap.Int("filesCount", len(meta.DataFiles)),
-		zap.Int64("maxRegionSize", int64(cfg.Mydumper.MaxRegionSize)),
-		zap.Int("RegionsCount", len(filesRegions)),
-		zap.Duration("cost", time.Since(start)))
-
 	batchSize := float64(cfg.Mydumper.BatchSize)
 	if cfg.Mydumper.BatchSize <= 0 {
 		if meta.IsRowOrdered {
@@ -240,6 +235,11 @@ func MakeTableRegions(
 		}
 	}
 
+	log.L().Info("makeTableRegions", zap.Int("filesCount", len(meta.DataFiles)),
+		zap.Int64("MaxRegionSize", int64(cfg.Mydumper.MaxRegionSize)),
+		zap.Int("RegionsCount", len(filesRegions)),
+		zap.Float64("BatchSize", batchSize),
+		zap.Duration("cost", time.Since(start)))
 	AllocateEngineIDs(filesRegions, dataFileSizes, batchSize, cfg.Mydumper.BatchImportRatio, float64(cfg.App.TableConcurrency))
 	return filesRegions, nil
 }

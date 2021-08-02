@@ -245,6 +245,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 			units.BytesSize(float64(originSource)),
 			units.BytesSize(float64(sourceSize)),
 			units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
+		log.L().Error(message)
 		passed = true
 	}
 	rc.checkTemplate.Collect(Critical, passed, message)
@@ -475,7 +476,7 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	default:
 		panic(fmt.Sprintf("file '%s' with unknown source type '%s'", sampleFile.Path, sampleFile.Type.String()))
 	}
-	logTask := log.With(zap.String("table", tableMeta.Name)).Begin(zap.InfoLevel, "restore file")
+	logTask := log.With(zap.String("table", tableMeta.Name)).Begin(zap.InfoLevel, "sample file")
 	igCols, err := rc.cfg.Mydumper.IgnoreColumns.GetIgnoreColumns(dbName, tableMeta.Name, rc.cfg.Mydumper.CaseSensitive)
 	if err != nil {
 		return errors.Trace(err)
@@ -552,6 +553,7 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	} else {
 		tableMeta.IndexRatio = 1.0
 	}
+	log.L().Info("Sample source data", zap.String("table", tableMeta.Name), zap.Float64("IndexRatio", tableMeta.IndexRatio), zap.Bool("IsSourceOrder", tableMeta.IsRowOrdered))
 	parser.Close()
 	return nil
 }
