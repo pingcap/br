@@ -409,30 +409,25 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.ExpectCommit()
+	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(2)\\E"). // Failed due to the non-retryable error.
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.ExpectRollback()
-	// Skip the previous error and continue writing the rest.
 	s.mockDB.ExpectBegin()
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	// Skip the previous error and continue writing the rest.
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	s.mockDB.ExpectCommit()
+	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(4)\\E"). // Failed due to the non-retryable error.
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.ExpectRollback()
 	// Skip the previous error and continue writing the rest.
 	s.mockDB.ExpectBegin()
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(5)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
