@@ -31,6 +31,7 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
+	"go.uber.org/atomic"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -85,8 +86,8 @@ type tidbBackend struct {
 	// as for the errors occur before the inserting, e.g, parsing CSV files, KV conversion,
 	// are not being considered yet.
 	// TODO: clarify the scope of the error.
-	maxErrorCount int
-	curErrorCount int
+	maxErrorCount *atomic.Uint64
+	curErrorCount *atomic.Uint64
 }
 
 // NewTiDBBackend creates a new TiDB backend using the given database.
@@ -103,8 +104,8 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string, maxErrorCount int) backend.B
 	return backend.MakeBackend(&tidbBackend{
 		db:            db,
 		onDuplicate:   onDuplicate,
-		maxErrorCount: maxErrorCount,
-		curErrorCount: 0,
+		maxErrorCount: atomic.NewUint64(uint64(maxErrorCount)),
+		curErrorCount: atomic.NewUint64(0),
 	})
 }
 
@@ -408,9 +409,9 @@ rowLoop:
 				}
 				// If batch is false, it means we find the row where the non-retryable error located,
 				// now we should record and skip it if necessary.
-				be.curErrorCount++
-				if be.curErrorCount >= be.maxErrorCount {
-					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, be.maxErrorCount)
+				be.curErrorCount.Inc()
+				if be.curErrorCount.Load() >= be.maxErrorCount.Load() {
+					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, be.maxErrorCount.Load())
 				}
 				// TODO: record the error.
 				// Reset the retry count before we skip the error and continue inserting the rest of rows.
@@ -507,8 +508,10 @@ func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *stri
 var mockErrorCount = 0
 
 func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, rows tidbRows) (int, error) {
+	txnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	// Retry will be done externally, so we're not going to retry here.
-	tx, err := be.db.BeginTx(ctx, &sql.TxOptions{})
+	tx, err := be.db.BeginTx(txnCtx, &sql.TxOptions{})
 	if err != nil {
 		if !common.IsContextCanceledError(err) {
 			log.L().Error("begin a transaction failed before executing statement", zap.Array("rows", rows), zap.Error(err))
@@ -516,8 +519,9 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, rows
 		return 0, errors.Trace(err)
 	}
 	for _, stmtTask := range stmtTasks {
+		row := string(rows[stmtTask.rowIdx])
 		stmt := stmtTask.stmt
-		_, err = tx.ExecContext(ctx, stmt)
+		_, err = tx.ExecContext(txnCtx, stmt)
 
 		failpoint.Inject("mockNonRetryableError", func() {
 			if mockErrorCount == 0 || mockErrorCount == 2 || mockErrorCount == 5 {
@@ -529,7 +533,7 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, rows
 		if err != nil {
 			if !common.IsContextCanceledError(err) {
 				log.L().Error("execute statement failed inside the transaction", zap.String("stmt", redact.String(stmt)),
-					zap.Array("rows", rows), zap.Error(err))
+					zap.String("row", row), zap.Error(err))
 			}
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				panic(fmt.Sprintf("execute statement failed: %v, unable to rollback: %v\n", err, rollbackErr))
