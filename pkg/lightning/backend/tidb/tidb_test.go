@@ -80,11 +80,9 @@ func (s *mysqlSuite) TearDownTest(c *C) {
 }
 
 func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QREPLACE INTO `foo`.`bar`(`a`,`b`,`c`,`d`,`e`,`f`,`g`,`h`,`i`,`j`,`k`,`l`,`m`,`n`,`o`) VALUES(18446744073709551615,-9223372036854775808,0,NULL,7.5,5e-324,1.7976931348623157e+308,0,'甲乙丙\\r\\n\\0\\Z''\"\\\\`',x'000000abcdef',2557891634,'12.5',51)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
 
 	ctx := context.Background()
 	logger := log.L()
@@ -135,11 +133,9 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 }
 
 func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT IGNORE INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
 
 	ctx := context.Background()
 	logger := log.L()
@@ -181,11 +177,9 @@ func (s *mysqlSuite) TestWriteRowsIgnoreOnDup(c *C) {
 }
 
 func (s *mysqlSuite) TestWriteRowsErrorOnDup(c *C) {
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
 
 	ctx := context.Background()
 	logger := log.L()
@@ -399,39 +393,27 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 
 	// First, batch insert, fail and rollback.
 	// In this test, inserting 2 and 4 will trigger the mock error.
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1),(2),(3),(4),(5)\\E").
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	s.mockDB.ExpectRollback()
 	// Then, insert row-by-row due to the non-retryable error.
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(2)\\E"). // Failed due to the non-retryable error.
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectRollback()
-	s.mockDB.ExpectBegin()
 	// Skip the previous error and continue writing the rest.
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(4)\\E"). // Failed due to the non-retryable error.
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectRollback()
 	// Skip the previous error and continue writing the rest.
-	s.mockDB.ExpectBegin()
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(5)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.ExpectCommit()
 
 	ctx := context.Background()
 	logger := log.L()
