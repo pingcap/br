@@ -386,12 +386,13 @@ func (be *tidbBackend) ImportEngine(context.Context, uuid.UUID) error {
 }
 
 func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName string, columnNames []string, rows kv.Rows) error {
+	var err error
 rowLoop:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
 		batch := true
 	retryLoop:
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
-			err := be.WriteRowsToDB(ctx, tableName, columnNames, r, batch)
+			err = be.WriteRowsToDB(ctx, tableName, columnNames, r, batch)
 			switch {
 			case err == nil:
 				continue rowLoop
@@ -409,6 +410,7 @@ rowLoop:
 				return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, be.maxErrorCount)
 			}
 		}
+		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
 	}
 	return nil
 }
