@@ -132,14 +132,14 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 }
 
 func (gs *tidbSession) generateTableID() (int64, error) {
-	var ret []int64
+	var ret int64
 	err := kv.RunInNewTxn(context.Background(), gs.store, true, func(ctx context.Context, txn kv.Transaction) error {
 		m := meta.NewMeta(txn)
 		var err error
-		ret, err = m.GenGlobalIDs(1)
+		ret, err = m.GenGlobalID()
 		return err
 	})
-	return ret[0], err
+	return ret, err
 }
 
 func (gs *tidbSession) setInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID int64) (int64, error) {
@@ -199,6 +199,18 @@ func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.Ta
 	return m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID)
 }
 
+func (gs *tidbSession) hackyRebaseGlobalID(m *meta.Meta, target int64) error {
+	id, err := m.GetGlobalID()
+	if err != nil {
+		return err
+	}
+	if id >= target {
+		return nil
+	}
+	_, err = m.GenGlobalIDs(int(target - id))
+	return err
+}
+
 func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
 	// TODO partition and check.
 
@@ -216,7 +228,7 @@ func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, 
 		}
 		return err
 	}
-	return nil
+	return errors.Annotate(gs.hackyRebaseGlobalID(m, table.ID), "failed to rebase global ID")
 }
 
 func (gs *tidbSession) tableNotExists(ctx context.Context, tableID int64) error {
@@ -235,7 +247,7 @@ func (gs *tidbSession) tableNotExists(ctx context.Context, tableID int64) error 
 	// Using infoschema or meta api to check whether table exists would be error-prone
 	// when tables / databases are dropped recently.
 	if i.Valid() {
-		return meta.ErrTableExists.FastGenByArgs()
+		return errors.Annotatef(meta.ErrTableExists, "find table key %s", i.Key())
 	}
 	return nil
 }
@@ -269,14 +281,7 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		if !ok {
 			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
-		createTableViaMeta := gs.createTableViaMeta
-		if err := gs.tableNotExists(ctx, table.ID); err != nil {
-			log.Warn("table id occupied by some table, allocating new table ID",
-				zap.String("reason", err.Error()),
-				zap.Int64("with-id", table.ID))
-			createTableViaMeta = gs.createTableViaMetaWithNewID
-		}
-		if errCreateTable := createTableViaMeta(m, table, schemaInfo); errCreateTable != nil {
+		if errCreateTable := gs.createTableViaMetaWithNewID(m, table, schemaInfo); errCreateTable != nil {
 			return errCreateTable
 		}
 		version, err = gs.setInfoSchemaDiff(m, schemaInfo.ID, table.ID)
