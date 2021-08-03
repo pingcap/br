@@ -200,12 +200,20 @@ func (tc *logCollector) Summary(name string) {
 		totalCost += cost
 	}
 
-	logFields = append(logFields, zap.Duration("total-take", time.Since(tc.startTime)))
+	totalDureTime := time.Since(tc.startTime)
+	logFields = append(logFields, zap.Duration("total-take", totalDureTime))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
+			var averageSpeed float64
+			if totalDureTime.Seconds() > 0 {
+				averageSpeed = float64(data) / totalDureTime.Seconds()
+			} else {
+				averageSpeed = float64(data)
+			}
+
 			logFields = append(logFields,
 				zap.String("total-kv-size", units.HumanSize(float64(data))),
-				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
+				zap.String("average-speed", units.HumanSize(averageSpeed)+"/s"))
 			continue
 		}
 		if name == BackupDataSize {
