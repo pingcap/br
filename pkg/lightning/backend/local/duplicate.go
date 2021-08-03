@@ -64,6 +64,7 @@ type DuplicateRequest struct {
 }
 
 type DuplicateManager struct {
+	// TODO: Remote the member `db` and store the result in another place.
 	db                *pebble.DB
 	splitCli          split.SplitClient
 	regionConcurrency int
@@ -302,9 +303,11 @@ func (manager *DuplicateManager) RepairDuplicateData() error {
 	return nil
 }
 
+// Collect rows by read the index in db.
 func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 	ctx context.Context,
 	tbl table.Table,
+	db *pebble.DB,
 ) error {
 	decoder, err := backendkv.NewTableKVDecoder(tbl, &backendkv.SessionOptions{
 		SQLMode: mysql.ModeStrictAllTables,
@@ -336,7 +339,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 				logutil.Key("end", endKey),
 			)
 
-			iter := manager.db.NewIter(opts)
+			iter := db.NewIter(opts)
 			for iter.SeekGE(startKey); iter.Valid(); iter.Next() {
 				rawKey, _, _, err := manager.keyAdapter.Decode(nil, iter.Key())
 				if err != nil {
@@ -364,7 +367,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 				handles = manager.getValues(ctx, handles)
 			}
 			if len(handles) == 0 {
-				manager.db.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
+				db.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
 			}
 			iter.Close()
 		}
@@ -377,7 +380,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 		handles = manager.getValues(ctx, handles)
 		if len(handles) == 0 {
 			for _, r := range allRanges {
-				manager.db.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
+				db.DeleteRange(r.StartKey, r.EndKey, &pebble.WriteOptions{Sync: false})
 			}
 		}
 	}

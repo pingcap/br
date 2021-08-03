@@ -687,17 +687,16 @@ func (tr *TableRestore) postProcess(
 		} else {
 			if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
 				tr.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
-
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable); err != nil {
+						tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
+					}
+				}
 				needChecksum, baseTotalChecksum, err := metaMgr.CheckAndUpdateLocalChecksum(ctx, &localChecksum)
 				if err != nil {
 					return false, err
 				}
 				if !needChecksum {
-					if rc.cfg.TikvImporter.DuplicateDetection {
-						if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable); err != nil {
-							tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
-						}
-					}
 					return false, nil
 				}
 				if rc.cfg.TikvImporter.DuplicateDetection {

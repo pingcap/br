@@ -105,8 +105,9 @@ const (
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 
-	duplicateDBName = "duplicates"
-	scanRegionLimit = 128
+	duplicateDBName       = "duplicates"
+	remoteDuplicateDBName = "remote_duplicates"
+	scanRegionLimit       = 128
 )
 
 var (
@@ -2020,14 +2021,16 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 		return err
 	}
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	// TODO: Here we use this db to store the duplicate rows. We shall remove this parameter and store the result in
+	//  a TiDB table.
 	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
-	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl); err != nil {
+	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl, local.duplicateDB); err != nil {
 		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
-	return local.reportDuplicateRows(tbl)
+	return local.reportDuplicateRows(tbl, local.duplicateDB)
 }
 
 func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
@@ -2037,20 +2040,29 @@ func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Ta
 		return err
 	}
 	ts := oracle.ComposeTS(physicalTS, logicalTS)
-	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
+	dbPath := filepath.Join(local.localStoreDir, remoteDuplicateDBName)
+	// TODO: Optimize the opts for better write.
+	opts := &pebble.Options{}
+	duplicateDB, err := pebble.Open(dbPath, opts)
+	if err != nil {
+		return errors.Annotate(err, "open duplicate db failed")
+	}
+
+	// TODO: Here we use the temp created db to store the duplicate rows. We shall remove this parameter and store the
+	//  result in a TiDB table.
+	duplicateManager, err := NewDuplicateManager(duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
 	if err != nil {
 		return errors.Annotate(err, "open duplicatemanager failed")
-	}
-	if err = duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl); err != nil {
-		return errors.Annotate(err, "collect local duplicate keys failed")
 	}
 	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
 		return errors.Annotate(err, "duplicate table failed")
 	}
-	return local.reportDuplicateRows(tbl)
+	err = local.reportDuplicateRows(tbl, duplicateDB)
+	duplicateDB.Close()
+	return err
 }
 
-func (local *local) reportDuplicateRows(tbl table.Table) error {
+func (local *local) reportDuplicateRows(tbl table.Table, db *pebble.DB) error {
 	log.L().Info("Begin report duplicate rows", zap.String("table", tbl.Meta().Name.String()))
 	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
 		SQLMode: mysql.ModeStrictAllTables,
@@ -2070,7 +2082,7 @@ func (local *local) reportDuplicateRows(tbl table.Table) error {
 			LowerBound: startKey,
 			UpperBound: endKey,
 		}
-		iter := local.duplicateDB.NewIter(opts)
+		iter := db.NewIter(opts)
 		for iter.SeekGE(startKey); iter.Valid(); iter.Next() {
 			nextUserKey, _, _, err = keyAdapter.Decode(nextUserKey[:0], iter.Key())
 			if err != nil {
