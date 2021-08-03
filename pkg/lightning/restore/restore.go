@@ -1764,6 +1764,11 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	}
 	firstStarted := false
 
+	source, err := rc.EstimateSourceData(ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
 	if rc.isLocalBackend() {
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
@@ -1773,13 +1778,12 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		}
 
 		rc.taskMgr = rc.metaMgrBuilder.TaskMetaMgr(pdController)
-		hasStarted, err := rc.taskMgr.CheckTaskStart(ctx)
+		exist, err := rc.taskMgr.CheckTaskExist(ctx)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if !hasStarted {
-			firstStarted = true
-			source, err := rc.LocalResource(ctx)
+		if !exist {
+			err = rc.LocalResource(ctx, source)
 			if err != nil {
 				rc.taskMgr.CleanupTask(ctx)
 				return errors.Trace(err)
@@ -1792,7 +1796,7 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	}
 	if rc.cfg.App.CheckRequirements && rc.tidbGlue.OwnsSQLExecutor() {
 		// print check template only if check requirements is true.
-		log.L().Info(rc.checkTemplate.Output())
+		fmt.Print(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
 			if firstStarted && rc.taskMgr != nil {
 				rc.taskMgr.CleanupTask(ctx)

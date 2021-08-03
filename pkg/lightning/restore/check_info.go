@@ -190,20 +190,7 @@ func (rc *Controller) HasLargeCSV(dbMetas []*mydump.MDDatabaseMeta) error {
 	return nil
 }
 
-// LocalResource checks the local node has enough resources for this import when local backend enabled;
-func (rc *Controller) LocalResource(ctx context.Context) (int64, error) {
-	if rc.isSourceInLocal() {
-		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
-		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
-		if err != nil {
-			return 0, errors.Trace(err)
-		}
-		if same {
-			rc.checkTemplate.Collect(Warn, false,
-				fmt.Sprintf("sorted-kv-dir:%s and data-source-dir:%s are in the same disk, may slow down performance",
-					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
-		}
-	}
+func (rc *Controller) EstimateSourceData(ctx context.Context) (int64, error) {
 	sourceSize := int64(0)
 	originSource := int64(0)
 	for _, db := range rc.dbMetas {
@@ -222,39 +209,53 @@ func (rc *Controller) LocalResource(ctx context.Context) (int64, error) {
 			}
 		}
 	}
+	return sourceSize, nil
+}
+
+// LocalResource checks the local node has enough resources for this import when local backend enabled;
+func (rc *Controller) LocalResource(ctx context.Context, sourceSize int64) error {
+	if rc.isSourceInLocal() {
+		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
+		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		if same {
+			rc.checkTemplate.Collect(Warn, false,
+				fmt.Sprintf("sorted-kv-dir:%s and data-source-dir:%s are in the same disk, may slow down performance",
+					rc.cfg.TikvImporter.SortedKVDir, sourceDir))
+		}
+	}
 
 	storageSize, err := common.GetStorageSize(rc.cfg.TikvImporter.SortedKVDir)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	localAvailable := storageSize.Available
 	if err = rc.taskMgr.InitTask(ctx, sourceSize); err != nil {
-		return 0, errors.Trace(err)
+		return errors.Trace(err)
 	}
 
 	var message string
 	var passed bool
 	switch {
 	case localAvailable > uint64(sourceSize):
-		message = fmt.Sprintf("local disk resources are rich, source dir has %s, estimate sorted data size %s, local available is %s",
-			units.BytesSize(float64(originSource)),
+		message = fmt.Sprintf("local disk resources are rich, estimate sorted data size %s, local available is %s",
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
 	default:
 		if int64(rc.cfg.TikvImporter.DiskQuota) > int64(localAvailable) {
-			message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, "+
+			message = fmt.Sprintf("local disk space may not enough to finish import"+
 				"estimate sorted data size is %s, but local available is %s,"+
 				"you need a smaller number for tikv-importer.disk-quota (%s) to finish imports",
-				units.BytesSize(float64(originSource)),
 				units.BytesSize(float64(sourceSize)),
 				units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
 			passed = false
 			log.L().Error(message)
 		} else {
-			message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, "+
+			message = fmt.Sprintf("local disk space may not enough to finish import, "+
 				"estimate sorted data size is %s, but local available is %s,"+
 				"we will use disk-quota (size: %s) to finish imports, which may slow down import",
-				units.BytesSize(float64(originSource)),
 				units.BytesSize(float64(sourceSize)),
 				units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
 			passed = true
@@ -262,7 +263,7 @@ func (rc *Controller) LocalResource(ctx context.Context) (int64, error) {
 		}
 	}
 	rc.checkTemplate.Collect(Critical, passed, message)
-	return sourceSize, nil
+	return nil
 }
 
 // CheckpointIsValid checks whether we can start this import with this checkpoint.

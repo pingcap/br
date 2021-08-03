@@ -462,7 +462,7 @@ func (m *dbTableMetaMgr) FinishTable(ctx context.Context) error {
 type taskMetaMgr interface {
 	InitTask(ctx context.Context, source int64) error
 	CheckClusterSource(ctx context.Context) (int64, error)
-	CheckTaskStart(ctx context.Context) (bool, error)
+	CheckTaskExist(ctx context.Context) (bool, error)
 	CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error)
 	CheckAndFinishRestore(ctx context.Context) (bool, error)
 	Cleanup(ctx context.Context) error
@@ -535,13 +535,13 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context, source int64) error {
 	return errors.Trace(err)
 }
 
-func (m *dbTaskMetaMgr) CheckTaskStart(ctx context.Context) (bool, error) {
+func (m *dbTaskMetaMgr) CheckTaskExist(ctx context.Context) (bool, error) {
 	exec := &common.SQLWithRetry{
 		DB:     m.session,
 		Logger: log.L(),
 	}
 	// avoid override existing metadata if the meta is already inserted.
-	hasStarted := false
+	exist := false
 	err := exec.Transact(ctx, "check whether this task has started before", func(ctx context.Context, tx *sql.Tx) error {
 		query := fmt.Sprintf("SELECT task_id from %s WHERE task_id = %d", m.tableName, m.taskID)
 		rows, err := tx.QueryContext(ctx, query)
@@ -555,13 +555,13 @@ func (m *dbTaskMetaMgr) CheckTaskStart(ctx context.Context) (bool, error) {
 				return errors.Trace(err)
 			}
 			if taskID == m.taskID {
-				hasStarted = true
+				exist = true
 			}
 		}
 		err = rows.Close()
 		return errors.Trace(err)
 	})
-	return hasStarted, errors.Trace(err)
+	return exist, errors.Trace(err)
 }
 
 func (m *dbTaskMetaMgr) CheckClusterSource(ctx context.Context) (int64, error) {
@@ -844,7 +844,7 @@ func (m noopTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.
 	}, nil
 }
 
-func (m noopTaskMetaMgr) CheckTaskStart(ctx context.Context) (bool, error) {
+func (m noopTaskMetaMgr) CheckTaskExist(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
