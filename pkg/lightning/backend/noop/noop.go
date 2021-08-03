@@ -17,8 +17,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap/parser/mysql"
-
 	"github.com/google/uuid"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/tidb/table"
