@@ -77,16 +77,19 @@ type tidbEncoder struct {
 	columnCnt int
 }
 
+// Max tolerable error count, once it's exceeded, stop the import.
+// Just treat maxErrorCount = 0 always for now. Define it as a variable rather than const is for test purpose.
+// Please check TestWriteRowsErrorSkip test for more details.
+// TODO: make the maxErrorCount can be counted and reused in different backends.
+var maxErrorCount = 0
+
 type tidbBackend struct {
 	db          *sql.DB
 	onDuplicate string
 
-	// Max tolerable error count, once it's exceeded, stop the import.
 	// Currently, this will only count the error happens inside the TiDB Backend,
 	// as for the errors occur before the inserting, e.g, parsing CSV files, KV conversion,
 	// are not being considered yet.
-	// TODO: clarify the scope of the error.
-	maxErrorCount int /* read only */
 	curErrorCount atomic.Uint64
 }
 
@@ -94,7 +97,7 @@ type tidbBackend struct {
 //
 // The backend does not take ownership of `db`. Caller should close `db`
 // manually after the backend expired.
-func NewTiDBBackend(db *sql.DB, onDuplicate string, maxErrorCount int) backend.Backend {
+func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 	switch onDuplicate {
 	case config.ReplaceOnDup, config.IgnoreOnDup, config.ErrorOnDup:
 	default:
@@ -102,9 +105,8 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string, maxErrorCount int) backend.B
 		onDuplicate = config.ReplaceOnDup
 	}
 	return backend.MakeBackend(&tidbBackend{
-		db:            db,
-		onDuplicate:   onDuplicate,
-		maxErrorCount: maxErrorCount,
+		db:          db,
+		onDuplicate: onDuplicate,
 	})
 }
 
@@ -407,7 +409,7 @@ rowLoop:
 					continue retryLoop
 				}
 				// If batch is false and the error is not nil, it means we reach the max error count in the non-batch mode.
-				return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, be.maxErrorCount)
+				return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
 			}
 		}
 		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
@@ -435,7 +437,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 		return nil
 	}
 
-	insertStmt := be.prepareStmt(tableName, columnNames)
+	insertStmt := be.buildStmt(tableName, columnNames)
 	// Note: we are not going to do interpolation (prepared statements) to avoid
 	// complication arise from data length overflow of BIT and BINARY columns
 	var stmtTasks []stmtTask
@@ -460,7 +462,7 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	return be.execStmts(ctx, stmtTasks, batch)
 }
 
-func (be *tidbBackend) prepareStmt(tableName string, columnNames []string) *strings.Builder {
+func (be *tidbBackend) buildStmt(tableName string, columnNames []string) *strings.Builder {
 	var insertStmt strings.Builder
 	switch be.onDuplicate {
 	case config.ReplaceOnDup:
@@ -492,6 +494,7 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 			_, err := be.db.ExecContext(ctx, stmt)
 
 			failpoint.Inject("mockNonRetryableError", func() {
+				maxErrorCount = 3
 				// To mock the non-retryable error for TestWriteRowsErrorSkip test, we will fail the execStmts when:
 				//   1. It's in batch mode.
 				//   2. It's inserting the row ("1").
@@ -517,7 +520,7 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 				// TODO: record the error.
 				// Check the error count.
 				be.curErrorCount.Inc()
-				if be.curErrorCount.Load() >= uint64(be.maxErrorCount) {
+				if be.curErrorCount.Load() >= uint64(maxErrorCount) {
 					return errors.Trace(err)
 				}
 			}
