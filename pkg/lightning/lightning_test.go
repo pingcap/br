@@ -244,7 +244,7 @@ func (s *lightningServerSuite) TestGetDeleteTask(c *C) {
 	go func() {
 		_ = s.lightning.RunServer()
 	}()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// Check `GET /tasks` without any active tasks
 

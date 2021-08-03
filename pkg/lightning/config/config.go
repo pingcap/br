@@ -90,7 +90,7 @@ const (
 	defaultLocalWriterMemCacheSize         = 128 * units.MiB
 
 	maxRetryTimes           = 4
-	defaultRetryBackoffTime = 1 * time.Second
+	defaultRetryBackoffTime = 100 * time.Millisecond
 	pdStores                = "/pd/api/v1/stores"
 )
 
