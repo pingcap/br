@@ -277,19 +277,20 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	return newRegions, nil
 }
 
+// ScatterRegions scatter the regions.
 func (rs *RegionSplitter) ScatterRegions(ctx context.Context, newRegions []*RegionInfo) {
 	for _, region := range newRegions {
 		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
 		if err := utils.WithRetry(ctx,
 			func() error { return rs.client.ScatterRegion(ctx, region) },
-			// backoff about ~2s, or we give up scattering this region.
+			// backoff about 6s, or we give up scattering this region.
 			&scatterBackoffer{
-				attempt:     5,
+				attempt:     7,
 				baseBackoff: 100 * time.Millisecond,
 			},
 		); err != nil {
-			log.Warn("scatter region failed", logutil.Region(region.Region), zap.Error(err))
+			log.Warn("scatter region failed, stop retry", logutil.Region(region.Region), zap.Error(err))
 		}
 	}
 }

@@ -535,11 +535,11 @@ func (b *scatterBackoffer) NextBackoff(err error) time.Duration {
 		return b.giveUp()
 	}
 	if strings.Contains(grpcErr.Message(), "is not fully replicated") {
-		log.Warn("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
+		log.Info("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
 		return b.exponentialBackoff()
 	}
 	if strings.Contains(grpcErr.Message(), "has no leader") {
-		log.Warn("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
+		log.Info("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
 		return b.exponentialBackoff()
 	}
 	return b.giveUp()
