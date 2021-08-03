@@ -691,13 +691,10 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 		return err
 	}
 	result := &api.StoresInfo{}
-	fmt.Printf("Begin get stores")
 	err = tls.WithHost(cfg.TiDB.PdAddr).GetJSON(ctx, pdStores, result)
 	if err != nil {
-		fmt.Printf("get stores err")
 		return errors.Trace(err)
 	}
-	fmt.Printf("get stores succ")
 	cfg.TiDB.DistSQLScanConcurrency = len(result.Stores) * DistSQLScanConcurrencyPerStore
 	log.L().Info("adjust scan concurrency success", zap.Int("DistSQLScanConcurrency", cfg.TiDB.DistSQLScanConcurrency))
 	return nil

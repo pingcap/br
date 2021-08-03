@@ -376,7 +376,7 @@ func (s *lightningServerSuite) TestHTTPAPIOutsideServerMode(c *C) {
 	go func() {
 		errCh <- s.lightning.RunOnce(s.lightning.ctx, cfg, nil)
 	}()
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 
 	var curTask struct {
 		Current int64
