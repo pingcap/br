@@ -523,7 +523,7 @@ func (b *scatterBackoffer) giveUp() time.Duration {
 
 // NextBackoff returns a duration to wait before retrying again
 func (b *scatterBackoffer) NextBackoff(err error) time.Duration {
-	// There are 3 type of reason that BR would reject a `scatter` request:
+	// There are 3 type of reason that PD would reject a `scatter` request:
 	// (1) region %d has no leader
 	// (2) region %d is hot
 	// (3) region %d is not fully replicated
