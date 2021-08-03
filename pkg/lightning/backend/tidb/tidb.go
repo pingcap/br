@@ -391,25 +391,21 @@ func (be *tidbBackend) WriteRows(ctx context.Context, _ uuid.UUID, tableName str
 	var err error
 rowLoop:
 	for _, r := range rows.SplitIntoChunks(be.MaxChunkSize()) {
-		batch := true
-	retryLoop:
 		for i := 0; i < writeRowsMaxRetryTimes; i++ {
-			err = be.WriteRowsToDB(ctx, tableName, columnNames, r, batch)
+			// Write in the batch mode first.
+			err = be.WriteBatchRowsToDB(ctx, tableName, columnNames, r)
 			switch {
 			case err == nil:
 				continue rowLoop
 			case common.IsRetryableError(err):
 				// retry next loop
 			default:
-				// retry next loop when batch is true, which means the last WriteRowsToDB failed in the batch mode,
-				// we need to redo the writing row-by-row to find where the error located and skip it correctly.
-				if batch {
-					i = 0
-					batch = false
-					continue retryLoop
+				// WriteBatchRowsToDB failed in the batch mode and can not be retried,
+				// we need to redo the writing row-by-row to find where the error locates and skip it correctly.
+				if err = be.WriteRowsToDB(ctx, tableName, columnNames, r); err != nil {
+					// If the error is not nil, it means we reach the max error count in the non-batch mode.
+					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
 				}
-				// If batch is false and the error is not nil, it means we reach the max error count in the non-batch mode.
-				return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
 			}
 		}
 		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
@@ -422,44 +418,54 @@ type stmtTask struct {
 	stmt string
 }
 
-// If batch is true, we will insert multiple rows like this:
+// WriteBatchRowsToDB write rows in batch mode, which will insert multiple rows like this:
 //   insert into t1 values (111), (222), (333), (444);
-// If batch is false, we will insert multiple rows like this:
+func (be *tidbBackend) WriteBatchRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows) error {
+	rows := r.(tidbRows)
+	insertStmt := be.checkAndBuildStmt(rows, tableName, columnNames)
+	if insertStmt == nil {
+		return nil
+	}
+	// Note: we are not going to do interpolation (prepared statements) to avoid
+	// complication arise from data length overflow of BIT and BINARY columns
+	stmtTasks := make([]stmtTask, 1)
+	for i, row := range rows {
+		if i != 0 {
+			insertStmt.WriteByte(',')
+		}
+		insertStmt.WriteString(string(row))
+	}
+	stmtTasks[0] = stmtTask{rows, insertStmt.String()}
+	return be.execStmts(ctx, stmtTasks, true)
+}
+
+func (be *tidbBackend) checkAndBuildStmt(rows tidbRows, tableName string, columnNames []string) *strings.Builder {
+	if len(rows) == 0 {
+		return nil
+	}
+	return be.buildStmt(tableName, columnNames)
+}
+
+// WriteRowsToDB write rows in row-by-row mode, which will insert multiple rows like this:
 //   insert into t1 values (111);
 //   insert into t1 values (222);
 //   insert into t1 values (333);
 //   insert into t1 values (444);
 // See more details in br#1366: https://github.com/pingcap/br/issues/1366
-// WriteRowsToDB will return the index of error row and its corresponding error if any error occurs.
-func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows, batch bool) error {
+func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, columnNames []string, r kv.Rows) error {
 	rows := r.(tidbRows)
-	if len(rows) == 0 {
+	insertStmt := be.checkAndBuildStmt(rows, tableName, columnNames)
+	if insertStmt == nil {
 		return nil
 	}
-
-	insertStmt := be.buildStmt(tableName, columnNames)
-	// Note: we are not going to do interpolation (prepared statements) to avoid
-	// complication arise from data length overflow of BIT and BINARY columns
-	var stmtTasks []stmtTask
-	if batch {
-		stmtTasks = make([]stmtTask, 1)
-		for i, row := range rows {
-			if i != 0 {
-				insertStmt.WriteByte(',')
-			}
-			insertStmt.WriteString(string(row))
-		}
-		stmtTasks[0] = stmtTask{rows, insertStmt.String()}
-	} else {
-		stmtTasks = make([]stmtTask, 0, len(rows))
-		for _, row := range rows {
-			var finalInsertStmt strings.Builder
-			finalInsertStmt.WriteString(insertStmt.String())
-			finalInsertStmt.WriteString(string(row))
-			stmtTasks = append(stmtTasks, stmtTask{[]tidbRow{row}, finalInsertStmt.String()})
-		}
+	stmtTasks := make([]stmtTask, 0, len(rows))
+	for _, row := range rows {
+		var finalInsertStmt strings.Builder
+		finalInsertStmt.WriteString(insertStmt.String())
+		finalInsertStmt.WriteString(string(row))
+		stmtTasks = append(stmtTasks, stmtTask{[]tidbRow{row}, finalInsertStmt.String()})
 	}
-	return be.execStmts(ctx, stmtTasks, batch)
+	return be.execStmts(ctx, stmtTasks, false)
 }
 
 func (be *tidbBackend) buildStmt(tableName string, columnNames []string) *strings.Builder {
