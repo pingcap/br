@@ -319,6 +319,11 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 	return be.abstract.ResetEngine(ctx, engineUUID)
 }
 
+// FlushEngine ensures all KV pairs written to an open engine has been synchronized
+func (be Backend) FlushEngine(ctx context.Context, engineUUID uuid.UUID) error {
+	return be.abstract.FlushEngine(ctx, engineUUID)
+}
+
 // OpenEngine opens an engine with the given table name and engine ID.
 func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableName string, engineID int32) (*OpenedEngine, error) {
 	tag, engineUUID := MakeUUID(tableName, engineID)

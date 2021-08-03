@@ -1739,7 +1739,10 @@ func (rc *Controller) enforceDiskQuota(ctx context.Context) {
 			task := logger.Begin(zap.WarnLevel, "importing large engines for disk quota")
 			var importErr error
 			for _, engine := range largeEngines {
-				if err := rc.backend.UnsafeImportAndReset(ctx, engine); err != nil {
+				var err error
+				if err = rc.backend.FlushEngine(ctx, engine); err != nil {
+					importErr = multierr.Append(importErr, err)
+				} else if err = rc.backend.UnsafeImportAndReset(ctx, engine); err != nil {
 					importErr = multierr.Append(importErr, err)
 				}
 			}
