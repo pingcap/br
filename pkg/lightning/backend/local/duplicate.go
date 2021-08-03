@@ -52,7 +52,8 @@ import (
 )
 
 const (
-	maxWriteBatchCount = 128
+	maxWriteBatchCount    = 128
+	maxGetRequestKeyCount = 1024
 )
 
 type DuplicateRequest struct {
@@ -103,8 +104,6 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromTiKV(ctx context.Contex
 	if err != nil {
 		return err
 	}
-	rpcctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	g, rpcctx := errgroup.WithContext(ctx)
 	for _, r := range reqs {
 		req := r
@@ -127,7 +126,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 	startKey := codec.EncodeBytes([]byte{}, req.start)
 	endKey := codec.EncodeBytes([]byte{}, req.end)
 
-	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, 1024)
+	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, scanRegionLimit)
 	if err != nil {
 		return err
 	}
@@ -189,9 +188,8 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 				if reqErr != nil {
 					if errors.Cause(reqErr) == io.EOF {
 						break
-					} else {
-						hasErr = true
 					}
+					hasErr = true
 				}
 
 				if hasErr || resp.GetKeyError() != nil {
@@ -219,7 +217,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 						logutil.Region(region.Region), logutil.Leader(region.Leader),
 						zap.String("RegionError", resp.GetRegionError().GetMessage()))
 
-					r, err := paginateScanRegion(ctx, manager.splitCli, watingRegions[idx].Region.GetStartKey(), watingRegions[idx].Region.GetEndKey(), 1024)
+					r, err := paginateScanRegion(ctx, manager.splitCli, watingRegions[idx].Region.GetStartKey(), watingRegions[idx].Region.GetEndKey(), scanRegionLimit)
 					if err != nil {
 						unfinishedRegions = append(unfinishedRegions, watingRegions[idx])
 					} else {
@@ -359,7 +357,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 				}
 				key := decoder.EncodeHandleKey(h)
 				handles = append(handles, key)
-				if len(handles) > 1024 {
+				if len(handles) > maxGetRequestKeyCount {
 					handles = manager.getValues(ctx, handles)
 				}
 			}
@@ -398,7 +396,7 @@ func (manager *DuplicateManager) getValues(
 	l := len(handles)
 	startKey := codec.EncodeBytes([]byte{}, handles[0])
 	endKey := codec.EncodeBytes([]byte{}, nextKey(handles[l-1]))
-	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, 128)
+	regions, err := paginateScanRegion(ctx, manager.splitCli, startKey, endKey, scanRegionLimit)
 	if err != nil {
 		log.L().Error("scan regions errors", zap.Error(err))
 		return handles

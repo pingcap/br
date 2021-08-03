@@ -105,8 +105,8 @@ const (
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 
-	duplicateDBName       = "duplicates"
-	remoteDuplicateDBName = "remote_duplicates"
+	duplicateDBName = "duplicates"
+	scanRegionLimit = 128
 )
 
 var (
@@ -1700,7 +1700,7 @@ WriteAndIngest:
 		}
 		startKey := codec.EncodeBytes([]byte{}, pairStart)
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
-		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, 128)
+		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, scanRegionLimit)
 		if err != nil || len(regions) == 0 {
 			log.L().Warn("scan region failed", log.ShortError(err), zap.Int("region_len", len(regions)),
 				logutil.Key("startKey", startKey), logutil.Key("endKey", endKey), zap.Int("retry", retry))
