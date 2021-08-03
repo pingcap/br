@@ -28,7 +28,6 @@ import (
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -688,7 +687,11 @@ func (tr *TableRestore) postProcess(
 		} else {
 			if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
 				tr.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
-
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable); err != nil {
+						tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
+					}
+				}
 				needChecksum, baseTotalChecksum, err := metaMgr.CheckAndUpdateLocalChecksum(ctx, &localChecksum)
 				if err != nil {
 					return false, err
@@ -696,13 +699,21 @@ func (tr *TableRestore) postProcess(
 				if !needChecksum {
 					return false, nil
 				}
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectRemoteDuplicateRows(ctx, tr.encTable); err != nil {
+						tr.logger.Error("collect remote duplicate keys failed", log.ShortError(err))
+						err = nil
+					}
+				}
 				if cp.Checksum.SumKVS() > 0 || baseTotalChecksum.SumKVS() > 0 {
 					localChecksum.Add(&cp.Checksum)
 					localChecksum.Add(baseTotalChecksum)
 					tr.logger.Info("merged local checksum", zap.Object("checksum", &localChecksum))
 				}
 
-				err = tr.compareChecksum(ctx, localChecksum)
+				remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
+				// TODO: If there are duplicate keys, do not set the `ChecksumMismatch` error
+				err = tr.compareChecksum(remoteChecksum, localChecksum)
 				// with post restore level 'optional', we will skip checksum error
 				if rc.cfg.PostRestore.Checksum == config.OpLevelOptional {
 					if err != nil {
@@ -835,7 +846,7 @@ func (tr *TableRestore) importKV(
 	err := closedEngine.Import(ctx)
 	rc.saveStatusCheckpoint(tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
 	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
-	if err == nil || berrors.Is(err, berrors.ErrDuplicateDetected) {
+	if err == nil {
 		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
 
@@ -853,12 +864,7 @@ func (tr *TableRestore) importKV(
 }
 
 // do checksum for each table.
-func (tr *TableRestore) compareChecksum(ctx context.Context, localChecksum verify.KVChecksum) error {
-	remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
+func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum, localChecksum verify.KVChecksum) error {
 	if remoteChecksum.Checksum != localChecksum.Sum() ||
 		remoteChecksum.TotalKVs != localChecksum.SumKVS() ||
 		remoteChecksum.TotalBytes != localChecksum.SumSize() {
