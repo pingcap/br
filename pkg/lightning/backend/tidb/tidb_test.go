@@ -387,12 +387,11 @@ func (s *mysqlSuite) TestFetchRemoteTableModels_4_x_auto_random(c *C) {
 	})
 }
 
-func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
+func (s *mysqlSuite) TestWriteRowsErrorDowngrading(c *C) {
 	c.Assert(failpoint.Enable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError", "return"), IsNil)
 	defer failpoint.Disable("github.com/pingcap/br/pkg/lightning/backend/tidb/mockNonRetryableError")
 
 	// First, batch insert, fail and rollback.
-	// In this test, inserting 2 and 4 will trigger the mock error.
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1),(2),(3),(4),(5)\\E").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -400,20 +399,19 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 	s.mockDB.
 		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(1)\\E").
 		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(2)\\E"). // Failed due to the non-retryable error.
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Skip the previous error and continue writing the rest.
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(4)\\E"). // Failed due to the non-retryable error.
-		WillReturnResult(sqlmock.NewResult(1, 1))
-	// Skip the previous error and continue writing the rest.
-	s.mockDB.
-		ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(5)\\E").
-		WillReturnResult(sqlmock.NewResult(1, 1))
+	// TODO: skip the previous error and continue writing the rest.
+	// s.mockDB.
+	// 	ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(2)\\E").
+	// 	WillReturnResult(sqlmock.NewResult(1, 1))
+	// s.mockDB.
+	// 	ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(3)\\E").
+	// 	WillReturnResult(sqlmock.NewResult(1, 1))
+	// s.mockDB.
+	// 	ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(4)\\E").
+	// 	WillReturnResult(sqlmock.NewResult(1, 1))
+	// s.mockDB.
+	// 	ExpectExec("\\QINSERT INTO `foo`.`bar`(`a`) VALUES(5)\\E").
+	// 	WillReturnResult(sqlmock.NewResult(1, 1))
 
 	ctx := context.Background()
 	logger := log.L()
@@ -467,7 +465,7 @@ func (s *mysqlSuite) TestWriteRowsErrorSkip(c *C) {
 	writer, err := engine.LocalWriter(ctx, nil)
 	c.Assert(err, IsNil)
 	err = writer.WriteRows(ctx, []string{"a"}, dataRows)
-	c.Assert(err, IsNil)
+	c.Assert(err, NotNil)
 	st, err := writer.Close(ctx)
 	c.Assert(err, IsNil)
 	c.Assert(st, IsNil)

@@ -31,7 +31,6 @@ import (
 	"github.com/pingcap/tidb/sessionctx"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/types"
-	"go.uber.org/atomic"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -77,20 +76,9 @@ type tidbEncoder struct {
 	columnCnt int
 }
 
-// Max tolerable error count, once it's exceeded, stop the import.
-// Just treat maxErrorCount = 0 always for now. Define it as a variable rather than const is for test purpose.
-// Please check TestWriteRowsErrorSkip test for more details.
-// TODO: make the maxErrorCount can be counted and reused in different backends.
-var maxErrorCount = 0
-
 type tidbBackend struct {
 	db          *sql.DB
 	onDuplicate string
-
-	// Currently, this will only count the error happens inside the TiDB Backend,
-	// as for the errors occur before the inserting, e.g, parsing CSV files, KV conversion,
-	// are not being considered yet.
-	curErrorCount atomic.Uint64
 }
 
 // NewTiDBBackend creates a new TiDB backend using the given database.
@@ -401,10 +389,11 @@ rowLoop:
 				// retry next loop
 			default:
 				// WriteBatchRowsToDB failed in the batch mode and can not be retried,
-				// we need to redo the writing row-by-row to find where the error locates and skip it correctly.
+				// we need to redo the writing row-by-row to find where the error locates (and skip it correctly in future).
 				if err = be.WriteRowsToDB(ctx, tableName, columnNames, r); err != nil {
 					// If the error is not nil, it means we reach the max error count in the non-batch mode.
-					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, maxErrorCount)
+					// TODO: implement the max error count.
+					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, 0)
 				}
 			}
 		}
@@ -500,14 +489,8 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 			_, err := be.db.ExecContext(ctx, stmt)
 
 			failpoint.Inject("mockNonRetryableError", func() {
-				maxErrorCount = 3
-				// To mock the non-retryable error for TestWriteRowsErrorSkip test, we will fail the execStmts when:
-				//   1. It's in batch mode.
-				//   2. It's inserting the row ("1").
-				//   3. It's inserting the row ("3").
-				if batch || stmtTask.rows[0] == tidbRow("1") || stmtTask.rows[0] == tidbRow("3") {
-					err = stderrors.New("mock non-retryable error")
-				}
+				// To mock the non-retryable error for TestWriteRowsErrorSkip test
+				err = stderrors.New("mock non-retryable error")
 			})
 
 			if err != nil {
@@ -523,12 +506,10 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 				if common.IsRetryableError(err) {
 					continue
 				}
-				// TODO: record the error.
-				// Check the error count.
-				be.curErrorCount.Inc()
-				if be.curErrorCount.Load() >= uint64(maxErrorCount) {
-					return errors.Trace(err)
-				}
+				// TODO: count, record and skip the error.
+				// For now, we will treat like maxErrorCount = 0 always.
+				// So just return if any error occurs.
+				return errors.Trace(err)
 			}
 			// No error, contine the next stmtTask.
 			break
