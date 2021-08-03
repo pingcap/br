@@ -2028,7 +2028,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
 	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl, local.duplicateDB); err != nil {
-		return errors.Annotate(err, "collect local duplicate keys failed")
+		return errors.Annotate(err, "collect local duplicate rows failed")
 	}
 	return local.reportDuplicateRows(tbl, local.duplicateDB)
 }
@@ -2055,7 +2055,7 @@ func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Ta
 		return errors.Annotate(err, "open duplicatemanager failed")
 	}
 	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
-		return errors.Annotate(err, "duplicate table failed")
+		return errors.Annotate(err, "collect remote duplicate rows failed")
 	}
 	err = local.reportDuplicateRows(tbl, duplicateDB)
 	duplicateDB.Close()

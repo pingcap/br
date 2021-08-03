@@ -24,8 +24,12 @@ import (
 
 	split "github.com/pingcap/br/pkg/restore"
 
+	"github.com/cockroachdb/pebble"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/distsql"
@@ -43,12 +47,6 @@ import (
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/logutil"
-
-	"github.com/cockroachdb/pebble"
-	"github.com/pingcap/errors"
-	sst "github.com/pingcap/kvproto/pkg/import_sstpb"
-	kvrpc "github.com/pingcap/kvproto/pkg/kvrpcpb"
-	tikv "github.com/pingcap/kvproto/pkg/tikvpb"
 )
 
 const (
@@ -140,7 +138,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 			return errors.Errorf("retry time exceed limit")
 		}
 		unfinishedRegions := make([]*split.RegionInfo, 0)
-		waitingClients := make([]sst.ImportSST_DuplicateDetectClient, 0)
+		waitingClients := make([]import_sstpb.ImportSST_DuplicateDetectClient, 0)
 		watingRegions := make([]*split.RegionInfo, 0)
 		for idx, region := range regions {
 			if len(waitingClients) > manager.regionConcurrency {
@@ -248,7 +246,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 
 func (manager *DuplicateManager) storeDuplicateData(
 	ctx context.Context,
-	resp *sst.DuplicateDetectResponse,
+	resp *import_sstpb.DuplicateDetectResponse,
 	decoder *backendkv.TableKVDecoder,
 	req *DuplicateRequest,
 ) ([][]byte, error) {
@@ -448,7 +446,7 @@ func (manager *DuplicateManager) getValuesFromRegion(
 		Peer:        region.Leader,
 	}
 
-	req := &kvrpc.BatchGetRequest{
+	req := &kvrpcpb.BatchGetRequest{
 		Context: reqCtx,
 		Keys:    handles,
 		Version: manager.ts,
@@ -501,7 +499,7 @@ func (manager *DuplicateManager) getValuesFromRegion(
 
 func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
 	region *split.RegionInfo,
-	start []byte, end []byte) (sst.ImportSST_DuplicateDetectClient, error) {
+	start []byte, end []byte) (import_sstpb.ImportSST_DuplicateDetectClient, error) {
 	leader := region.Leader
 	if leader == nil {
 		leader = region.Region.GetPeers()[0]
@@ -517,7 +515,7 @@ func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
 		RegionEpoch: region.Region.GetRegionEpoch(),
 		Peer:        leader,
 	}
-	req := &sst.DuplicateDetectRequest{
+	req := &import_sstpb.DuplicateDetectRequest{
 		Context:  reqCtx,
 		StartKey: start,
 		EndKey:   end,
@@ -527,24 +525,24 @@ func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
 	return stream, err
 }
 
-func (manager *DuplicateManager) getKvClient(ctx context.Context, peer *metapb.Peer) (tikv.TikvClient, error) {
+func (manager *DuplicateManager) getKvClient(ctx context.Context, peer *metapb.Peer) (tikvpb.TikvClient, error) {
 	conn, err := manager.connPool.GetGrpcConn(ctx, peer.GetStoreId(), 1, func(ctx context.Context) (*grpc.ClientConn, error) {
 		return manager.makeConn(ctx, peer.GetStoreId())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return tikv.NewTikvClient(conn), nil
+	return tikvpb.NewTikvClient(conn), nil
 }
 
-func (manager *DuplicateManager) getImportClient(ctx context.Context, peer *metapb.Peer) (sst.ImportSSTClient, error) {
+func (manager *DuplicateManager) getImportClient(ctx context.Context, peer *metapb.Peer) (import_sstpb.ImportSSTClient, error) {
 	conn, err := manager.connPool.GetGrpcConn(ctx, peer.GetStoreId(), 1, func(ctx context.Context) (*grpc.ClientConn, error) {
 		return manager.makeConn(ctx, peer.GetStoreId())
 	})
 	if err != nil {
 		return nil, err
 	}
-	return sst.NewImportSSTClient(conn), nil
+	return import_sstpb.NewImportSSTClient(conn), nil
 }
 
 func (manager *DuplicateManager) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
