@@ -92,10 +92,7 @@ func NewTiDBBackend(db *sql.DB, onDuplicate string) backend.Backend {
 		log.L().Warn("unsupported action on duplicate, overwrite with `replace`")
 		onDuplicate = config.ReplaceOnDup
 	}
-	return backend.MakeBackend(&tidbBackend{
-		db:          db,
-		onDuplicate: onDuplicate,
-	})
+	return backend.MakeBackend(&tidbBackend{db: db, onDuplicate: onDuplicate})
 }
 
 func (row tidbRow) Size() uint64 {
@@ -392,6 +389,7 @@ rowLoop:
 				// we need to redo the writing row-by-row to find where the error locates (and skip it correctly in future).
 				if err = be.WriteRowsToDB(ctx, tableName, columnNames, r); err != nil {
 					// If the error is not nil, it means we reach the max error count in the non-batch mode.
+					// For now, we will treat like maxErrorCount is always 0. So we will just return if any error occurs.
 					// TODO: implement the max error count.
 					return errors.Annotatef(err, "[%s] write rows reach max error count %d", tableName, 0)
 				}
@@ -489,7 +487,7 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 			_, err := be.db.ExecContext(ctx, stmt)
 
 			failpoint.Inject("mockNonRetryableError", func() {
-				// To mock the non-retryable error for TestWriteRowsErrorSkip test
+				// To mock the non-retryable error for TestWriteRowsErrorDowngrading test
 				err = stderrors.New("mock non-retryable error")
 			})
 
@@ -507,8 +505,7 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 					continue
 				}
 				// TODO: count, record and skip the error.
-				// For now, we will treat like maxErrorCount = 0 always.
-				// So just return if any error occurs.
+				// Just return if any error occurs for now.
 				return errors.Trace(err)
 			}
 			// No error, contine the next stmtTask.
