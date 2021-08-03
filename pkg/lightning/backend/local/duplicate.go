@@ -58,7 +58,6 @@ const (
 
 type DuplicateRequest struct {
 	tableID   int64
-	indexID   int64 // 0 represent it is a table request
 	start     kv.Key
 	end       kv.Key
 	indexInfo *model.IndexInfo
@@ -604,10 +603,10 @@ func buildTableRequest(tableID int64) []*DuplicateRequest {
 	reqs := make([]*DuplicateRequest, 0)
 	for _, r := range keysRanges {
 		r := &DuplicateRequest{
-			start:   r.StartKey,
-			end:     r.EndKey,
-			indexID: 0,
-			tableID: tableID,
+			start:     r.StartKey,
+			end:       r.EndKey,
+			tableID:   tableID,
+			indexInfo: nil,
 		}
 		reqs = append(reqs, r)
 	}
@@ -625,7 +624,6 @@ func buildIndexRequest(tableID int64, indexInfo *model.IndexInfo) ([]*DuplicateR
 		r := &DuplicateRequest{
 			start:     r.StartKey,
 			end:       r.EndKey,
-			indexID:   indexInfo.ID,
 			tableID:   tableID,
 			indexInfo: indexInfo,
 		}
