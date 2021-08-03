@@ -22,12 +22,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/pingcap/br/pkg/lightning/backend/kv"
-	"github.com/pingcap/br/pkg/lightning/common"
-	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/logutil"
-	"github.com/pingcap/br/pkg/restore"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
@@ -46,6 +40,12 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/restore"
 )
 
 const (
