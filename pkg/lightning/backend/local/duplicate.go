@@ -22,7 +22,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	split "github.com/pingcap/br/pkg/restore"
+	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/restore"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/pingcap/errors"
@@ -33,7 +37,7 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/distsql"
-	"github.com/pingcap/tidb/kv"
+	tidbkv "github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/ranger"
@@ -42,11 +46,6 @@ import (
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-
-	backendkv "github.com/pingcap/br/pkg/lightning/backend/kv"
-	"github.com/pingcap/br/pkg/lightning/common"
-	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/logutil"
 )
 
 const (
@@ -56,15 +55,15 @@ const (
 
 type DuplicateRequest struct {
 	tableID   int64
-	start     kv.Key
-	end       kv.Key
+	start     tidbkv.Key
+	end       tidbkv.Key
 	indexInfo *model.IndexInfo
 }
 
 type DuplicateManager struct {
 	// TODO: Remote the member `db` and store the result in another place.
 	db                *pebble.DB
-	splitCli          split.SplitClient
+	splitCli          restore.SplitClient
 	regionConcurrency int
 	connPool          common.GRPCConns
 	tls               *common.TLS
@@ -74,7 +73,7 @@ type DuplicateManager struct {
 
 func NewDuplicateManager(
 	db *pebble.DB,
-	splitCli split.SplitClient,
+	splitCli restore.SplitClient,
 	ts uint64,
 	tls *common.TLS,
 	regionConcurrency int) (*DuplicateManager, error) {
@@ -96,7 +95,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromTiKV(ctx context.Contex
 		return err
 	}
 
-	decoder, err := backendkv.NewTableKVDecoder(tbl, &backendkv.SessionOptions{
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
 		SQLMode: mysql.ModeStrictAllTables,
 	})
 	if err != nil {
@@ -119,7 +118,7 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromTiKV(ctx context.Contex
 }
 
 func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
-	decoder *backendkv.TableKVDecoder,
+	decoder *kv.TableKVDecoder,
 	req *DuplicateRequest) error {
 	startKey := codec.EncodeBytes([]byte{}, req.start)
 	endKey := codec.EncodeBytes([]byte{}, req.end)
@@ -137,9 +136,9 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 		if tryTimes > maxRetryTimes {
 			return errors.Errorf("retry time exceed limit")
 		}
-		unfinishedRegions := make([]*split.RegionInfo, 0)
+		unfinishedRegions := make([]*restore.RegionInfo, 0)
 		waitingClients := make([]import_sstpb.ImportSST_DuplicateDetectClient, 0)
-		watingRegions := make([]*split.RegionInfo, 0)
+		watingRegions := make([]*restore.RegionInfo, 0)
 		for idx, region := range regions {
 			if len(waitingClients) > manager.regionConcurrency {
 				r := regions[idx:]
@@ -247,7 +246,7 @@ func (manager *DuplicateManager) sendRequestToTiKV(ctx context.Context,
 func (manager *DuplicateManager) storeDuplicateData(
 	ctx context.Context,
 	resp *import_sstpb.DuplicateDetectResponse,
-	decoder *backendkv.TableKVDecoder,
+	decoder *kv.TableKVDecoder,
 	req *DuplicateRequest,
 ) ([][]byte, error) {
 	opts := &pebble.WriteOptions{Sync: false}
@@ -307,14 +306,14 @@ func (manager *DuplicateManager) CollectDuplicateRowsFromLocalIndex(
 	tbl table.Table,
 	db *pebble.DB,
 ) error {
-	decoder, err := backendkv.NewTableKVDecoder(tbl, &backendkv.SessionOptions{
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
 		SQLMode: mysql.ModeStrictAllTables,
 	})
 	if err != nil {
 		return err
 	}
 	handles := make([][]byte, 0)
-	allRanges := make([]kv.KeyRange, 0)
+	allRanges := make([]tidbkv.KeyRange, 0)
 	for _, indexInfo := range tbl.Meta().Indices {
 		if indexInfo.State != model.StatePublic {
 			continue
@@ -433,7 +432,7 @@ func (manager *DuplicateManager) getValues(
 
 func (manager *DuplicateManager) getValuesFromRegion(
 	ctx context.Context,
-	region *split.RegionInfo,
+	region *restore.RegionInfo,
 	handles [][]byte,
 ) error {
 	kvclient, err := manager.getKvClient(ctx, region.Leader)
@@ -498,7 +497,7 @@ func (manager *DuplicateManager) getValuesFromRegion(
 }
 
 func (manager *DuplicateManager) getDuplicateStream(ctx context.Context,
-	region *split.RegionInfo,
+	region *restore.RegionInfo,
 	start []byte, end []byte) (import_sstpb.ImportSST_DuplicateDetectClient, error) {
 	leader := region.Leader
 	if leader == nil {
