@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -26,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	pd "github.com/tikv/pd/client"
+	"github.com/tikv/pd/server/api"
 
 	"github.com/BurntSushi/toml"
 	"github.com/docker/go-units"
@@ -69,7 +70,7 @@ const (
 	ErrorOnDup = "error"
 
 	defaultDistSQLScanConcurrency     = 15
-	distSQLScanConcurrencyPerStore    = 15
+	DistSQLScanConcurrencyPerStore    = 4
 	defaultBuildStatsConcurrency      = 20
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
@@ -89,7 +90,8 @@ const (
 	defaultLocalWriterMemCacheSize         = 128 * units.MiB
 
 	maxRetryTimes           = 4
-	defaultRetryBackoffTime = 3 * time.Second
+	defaultRetryBackoffTime = 1 * time.Second
+	pdStores                = "/pd/api/v1/stores"
 )
 
 var (
@@ -432,6 +434,7 @@ func NewConfig() *Config {
 			MaxKVPairs:      4096,
 			SendKVPairs:     32768,
 			RegionSplitSize: SplitRegionSize,
+			DiskQuota:       ByteSize(math.MaxInt64),
 		},
 		PostRestore: PostRestore{
 			Checksum:          OpLevelRequired,
@@ -673,26 +676,6 @@ func (cfg *Config) CheckAndAdjustForLocalBackend() error {
 		return errors.Annotate(err, "invalid tikv-importer.sorted-kv-dir")
 	}
 
-	// we need to calculate quota if disk-quota == 0
-	if cfg.TikvImporter.DiskQuota == 0 {
-		enginesCount := uint64(cfg.App.TableConcurrency)
-		writeAmount := uint64(cfg.App.RegionConcurrency) * uint64(cfg.Cron.CheckDiskQuota.Milliseconds())
-		reservedSize := enginesCount*uint64(cfg.TikvImporter.EngineMemCacheSize) + writeAmount*autoDiskQuotaLocalReservedSpeed
-
-		storageSize, err := common.GetStorageSize(storageSizeDir)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		if storageSize.Available <= reservedSize {
-			return errors.Errorf(
-				"insufficient disk free space on `%s` (only %s, expecting >%s), please use a storage with enough free space, or specify `tikv-importer.disk-quota`",
-				cfg.TikvImporter.SortedKVDir,
-				units.BytesSize(float64(storageSize.Available)),
-				units.BytesSize(float64(reservedSize)))
-		}
-		cfg.TikvImporter.DiskQuota = ByteSize(storageSize.Available - reservedSize)
-	}
-
 	return nil
 }
 
@@ -707,17 +690,16 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	pdCli, err := pd.NewClientWithContext(ctx, []string{cfg.TiDB.PdAddr}, tls.ToPDSecurityOption())
+	result := &api.StoresInfo{}
+	fmt.Printf("Begin get stores")
+	err = tls.WithHost(cfg.TiDB.PdAddr).GetJSON(ctx, pdStores, result)
 	if err != nil {
-		return err
+		fmt.Printf("get stores err")
+		return errors.Trace(err)
 	}
-	stores, err := pdCli.GetAllStores(ctx)
-	if err != nil {
-		return err
-	}
-	cfg.TiDB.DistSQLScanConcurrency = len(stores) * distSQLScanConcurrencyPerStore
+	fmt.Printf("get stores succ")
+	cfg.TiDB.DistSQLScanConcurrency = len(result.Stores) * DistSQLScanConcurrencyPerStore
 	log.L().Info("adjust scan concurrency success", zap.Int("DistSQLScanConcurrency", cfg.TiDB.DistSQLScanConcurrency))
-	pdCli.Close()
 	return nil
 }
 

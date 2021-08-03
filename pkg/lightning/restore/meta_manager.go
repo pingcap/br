@@ -576,27 +576,11 @@ func (m *dbTaskMetaMgr) CheckClusterSource(ctx context.Context) (int64, error) {
 	}
 
 	source := int64(0)
-	err = exec.Transact(ctx, "calculate the whole resource of all lightning instance", func(ctx context.Context, tx *sql.Tx) error {
-		query := fmt.Sprintf("SELECT task_id, source_bytes from %s", m.tableName)
-		rows, err := tx.QueryContext(ctx, query)
-		if err != nil {
-			return errors.Annotate(err, "fetch task meta failed")
-		}
-		var (
-			taskID      int64
-			sourceBytes int64
-		)
-		for rows.Next() {
-			if err = rows.Scan(&taskID, &sourceBytes); err != nil {
-				rows.Close()
-				return errors.Trace(err)
-			}
-			source += sourceBytes
-		}
-		err = rows.Close()
-		return errors.Trace(err)
-	})
-	return source, err
+	query := fmt.Sprintf("SELECT SUM(source_bytes) from %s", m.tableName)
+	if err := exec.QueryRow(ctx, "query total source size", query, &source); err != nil {
+		return 0, errors.Annotate(err, "fetch task meta failed")
+	}
+	return source, nil
 }
 
 func (m *dbTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.UndoFunc, error) {

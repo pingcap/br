@@ -22,30 +22,25 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/pingcap/tidb/table/tables"
-
+	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
-	verify "github.com/pingcap/br/pkg/lightning/verification"
-
-	"github.com/pingcap/failpoint"
-
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/br/pkg/lightning/verification"
+	"github.com/pingcap/br/pkg/storage"
 
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/failpoint"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/table/tables"
 	"github.com/tikv/pd/pkg/typeutil"
 	"github.com/tikv/pd/server/api"
 	pdconfig "github.com/tikv/pd/server/config"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/lightning/backend"
-	"github.com/pingcap/br/pkg/lightning/checkpoints"
-	"github.com/pingcap/br/pkg/lightning/common"
-	md "github.com/pingcap/br/pkg/lightning/mydump"
-	"github.com/pingcap/br/pkg/storage"
 )
 
 const (
@@ -81,7 +76,7 @@ func (rc *Controller) getReplicaCount(ctx context.Context) (uint64, error) {
 }
 
 // ClusterResource check cluster has enough resource to import data. this test can by skipped.
-func (rc *Controller) ClusterResource(ctx context.Context) error {
+func (rc *Controller) ClusterResource(ctx context.Context, localSource int64) error {
 	passed := true
 	message := "Cluster resources are rich for this import task"
 	defer func() {
@@ -93,23 +88,30 @@ func (rc *Controller) ClusterResource(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	totalAvailable := typeutil.ByteSize(0)
+	totalCapacity := typeutil.ByteSize(0)
 	for _, store := range result.Stores {
-		totalAvailable += store.Status.Capacity
+		totalCapacity += store.Status.Capacity
 	}
-	sourceSize, err := rc.taskMgr.CheckClusterSource(ctx)
-	if err != nil {
-		return errors.Trace(err)
+	clusterSource := localSource
+	if rc.taskMgr != nil {
+		clusterSource, err = rc.taskMgr.CheckClusterSource(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
+
 	replicaCount, err := rc.getReplicaCount(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	estimateSize := uint64(sourceSize) * replicaCount
-	if typeutil.ByteSize(estimateSize) > totalAvailable {
+	estimateSize := uint64(clusterSource) * replicaCount
+	if typeutil.ByteSize(estimateSize) > totalCapacity {
 		passed = false
-		message = fmt.Sprintf("Cluster doesn't have enough space, %s is avaiable, but we need %s",
-			units.BytesSize(float64(totalAvailable)), units.BytesSize(float64(estimateSize)))
+		message = fmt.Sprintf("Cluster doesn't have enough space, capacity is %s, but we need %s",
+			units.BytesSize(float64(totalCapacity)), units.BytesSize(float64(estimateSize)))
+	} else {
+		message = fmt.Sprintf("Cluster capacity is rich, capacity is %s, we need %s",
+			units.BytesSize(float64(totalCapacity)), units.BytesSize(float64(estimateSize)))
 	}
 	return nil
 }
@@ -165,7 +167,7 @@ func (rc *Controller) StoragePermission(ctx context.Context) error {
 // HasLargeCSV checks whether input csvs is fit for Lightning import.
 // If strictFormat is false, and csv file is large. Lightning will have performance issue.
 // this test cannot be skipped.
-func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
+func (rc *Controller) HasLargeCSV(dbMetas []*mydump.MDDatabaseMeta) error {
 	passed := true
 	message := "Source csv files size is proper"
 	defer func() {
@@ -189,12 +191,12 @@ func (rc *Controller) HasLargeCSV(dbMetas []*md.MDDatabaseMeta) error {
 }
 
 // LocalResource checks the local node has enough resources for this import when local backend enabled;
-func (rc *Controller) LocalResource(ctx context.Context) error {
+func (rc *Controller) LocalResource(ctx context.Context) (int64, error) {
 	if rc.isSourceInLocal() {
 		sourceDir := strings.TrimPrefix(rc.cfg.Mydumper.SourceDir, storage.LocalURIPrefix)
 		same, err := common.SameDisk(sourceDir, rc.cfg.TikvImporter.SortedKVDir)
 		if err != nil {
-			return errors.Trace(err)
+			return 0, errors.Trace(err)
 		}
 		if same {
 			rc.checkTemplate.Collect(Warn, false,
@@ -213,8 +215,7 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 			tableInfo, ok := info.Tables[tbl.Name]
 			if ok {
 				if err := rc.SampleDataFromTable(ctx, db.Name, tbl, tableInfo.Core); err != nil {
-					return errors.Trace(err)
-					return err
+					return sourceSize, errors.Trace(err)
 				}
 				sourceSize += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
 				originSource += tbl.TotalSize
@@ -224,11 +225,11 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 
 	storageSize, err := common.GetStorageSize(rc.cfg.TikvImporter.SortedKVDir)
 	if err != nil {
-		return errors.Trace(err)
+		return 0, errors.Trace(err)
 	}
 	localAvailable := storageSize.Available
 	if err = rc.taskMgr.InitTask(ctx, sourceSize); err != nil {
-		return errors.Trace(err)
+		return 0, errors.Trace(err)
 	}
 
 	var message string
@@ -240,20 +241,32 @@ func (rc *Controller) LocalResource(ctx context.Context) error {
 			units.BytesSize(float64(sourceSize)), units.BytesSize(float64(localAvailable)))
 		passed = true
 	default:
-		message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, estimate sorted data size is %s, but local available is %s,"+
-			"we may use disk-quota(%s) to finish imports",
-			units.BytesSize(float64(originSource)),
-			units.BytesSize(float64(sourceSize)),
-			units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
-		log.L().Error(message)
-		passed = true
+		if int64(rc.cfg.TikvImporter.DiskQuota) > int64(localAvailable) {
+			message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, "+
+				"estimate sorted data size is %s, but local available is %s,"+
+				"you need a smaller number for tikv-importer.disk-quota (%s) to finish imports",
+				units.BytesSize(float64(originSource)),
+				units.BytesSize(float64(sourceSize)),
+				units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
+			passed = false
+			log.L().Error(message)
+		} else {
+			message = fmt.Sprintf("local disk space may not enough to finish import, source dir has %s, "+
+				"estimate sorted data size is %s, but local available is %s,"+
+				"we will use disk-quota (size: %s) to finish imports, which may slow down import",
+				units.BytesSize(float64(originSource)),
+				units.BytesSize(float64(sourceSize)),
+				units.BytesSize(float64(localAvailable)), units.BytesSize(float64(rc.cfg.TikvImporter.DiskQuota)))
+			passed = true
+			log.L().Warn(message)
+		}
 	}
 	rc.checkTemplate.Collect(Critical, passed, message)
-	return nil
+	return sourceSize, nil
 }
 
 // CheckpointIsValid checks whether we can start this import with this checkpoint.
-func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *md.MDTableMeta) ([]string, bool, error) {
+func (rc *Controller) CheckpointIsValid(ctx context.Context, tableInfo *mydump.MDTableMeta) ([]string, bool, error) {
 	msgs := make([]string, 0)
 	uniqueName := common.UniqueTable(tableInfo.DB, tableInfo.Name)
 	tableCheckPoint, err := rc.checkpointsDB.Get(ctx, uniqueName)
@@ -306,10 +319,10 @@ func hasDefault(col *model.ColumnInfo) bool {
 		col.IsGenerated() || mysql.HasAutoIncrementFlag(col.Flag)
 }
 
-func (rc *Controller) readColumnsAndCount(ctx context.Context, dataFileMeta md.SourceFileMeta) (cols []string, colCnt int, err error) {
+func (rc *Controller) readColumnsAndCount(ctx context.Context, dataFileMeta mydump.SourceFileMeta) (cols []string, colCnt int, err error) {
 	var reader storage.ReadSeekCloser
-	if dataFileMeta.Type == md.SourceTypeParquet {
-		reader, err = md.OpenParquetReader(ctx, rc.store, dataFileMeta.Path, dataFileMeta.FileSize)
+	if dataFileMeta.Type == mydump.SourceTypeParquet {
+		reader, err = mydump.OpenParquetReader(ctx, rc.store, dataFileMeta.Path, dataFileMeta.FileSize)
 	} else {
 		reader, err = rc.store.Open(ctx, dataFileMeta.Path)
 	}
@@ -317,16 +330,16 @@ func (rc *Controller) readColumnsAndCount(ctx context.Context, dataFileMeta md.S
 		return nil, 0, errors.Trace(err)
 	}
 
-	var parser md.Parser
+	var parser mydump.Parser
 	blockBufSize := int64(rc.cfg.Mydumper.ReadBlockSize)
 	switch dataFileMeta.Type {
-	case md.SourceTypeCSV:
+	case mydump.SourceTypeCSV:
 		hasHeader := rc.cfg.Mydumper.CSV.Header
-		parser = md.NewCSVParser(&rc.cfg.Mydumper.CSV, reader, blockBufSize, rc.ioWorkers, hasHeader)
-	case md.SourceTypeSQL:
-		parser = md.NewChunkParser(rc.cfg.TiDB.SQLMode, reader, blockBufSize, rc.ioWorkers)
-	case md.SourceTypeParquet:
-		parser, err = md.NewParquetParser(ctx, rc.store, reader, dataFileMeta.Path)
+		parser = mydump.NewCSVParser(&rc.cfg.Mydumper.CSV, reader, blockBufSize, rc.ioWorkers, hasHeader)
+	case mydump.SourceTypeSQL:
+		parser = mydump.NewChunkParser(rc.cfg.TiDB.SQLMode, reader, blockBufSize, rc.ioWorkers)
+	case mydump.SourceTypeParquet:
+		parser, err = mydump.NewParquetParser(ctx, rc.store, reader, dataFileMeta.Path)
 		if err != nil {
 			return nil, 0, errors.Trace(err)
 		}
@@ -343,7 +356,7 @@ func (rc *Controller) readColumnsAndCount(ctx context.Context, dataFileMeta md.S
 }
 
 // SchemaIsValid checks the import file and cluster schema is match.
-func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMeta) ([]string, error) {
+func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *mydump.MDTableMeta) ([]string, error) {
 	msgs := make([]string, 0)
 	info, ok := rc.dbInfos[tableInfo.DB].Tables[tableInfo.Name]
 	if !ok {
@@ -362,7 +375,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 	}
 
 	if len(tableInfo.DataFiles) == 0 {
-		log.Info("no data files detected", zap.String("db", tableInfo.DB), zap.String("table", tableInfo.Name))
+		log.L().Info("no data files detected", zap.String("db", tableInfo.DB), zap.String("table", tableInfo.Name))
 		return nil, nil
 	}
 
@@ -382,7 +395,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 		// get columns name from data file.
 		dataFileMeta := dataFile.FileMeta
 
-		if tp := dataFileMeta.Type; tp != md.SourceTypeCSV && tp != md.SourceTypeSQL && tp != md.SourceTypeParquet {
+		if tp := dataFileMeta.Type; tp != mydump.SourceTypeCSV && tp != mydump.SourceTypeSQL && tp != mydump.SourceTypeParquet {
 			msgs = append(msgs, fmt.Sprintf("file '%s' with unknown source type '%s'", dataFileMeta.Path, dataFileMeta.Type.String()))
 			return msgs, nil
 		}
@@ -391,7 +404,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			return nil, errors.Trace(err)
 		}
 		if colsFromDataFile == nil && colCountFromDataFile == 0 {
-			log.Info("file contains no data, skip checking against schema validity", zap.String("path", dataFileMeta.Path))
+			log.L().Info("file contains no data, skip checking against schema validity", zap.String("path", dataFileMeta.Path))
 			continue
 		}
 
@@ -432,7 +445,7 @@ func (rc *Controller) SchemaIsValid(ctx context.Context, tableInfo *md.MDTableMe
 			for _, col := range colsFromDataFile {
 				if _, ok := colMap[col]; !ok {
 					checkMsg := "please check table schema"
-					if dataFileMeta.Type == md.SourceTypeCSV && rc.cfg.Mydumper.CSV.Header {
+					if dataFileMeta.Type == mydump.SourceTypeCSV && rc.cfg.Mydumper.CSV.Header {
 						checkMsg += " and csv file header"
 					}
 					msgs = append(msgs, fmt.Sprintf("TiDB schema `%s`.`%s` doesn't have column %s, "+
@@ -496,11 +509,12 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	case mydump.SourceTypeParquet:
 		parser, err = mydump.NewParquetParser(ctx, rc.store, reader, sampleFile.Path)
 		if err != nil {
-			errors.Trace(err)
+			return errors.Trace(err)
 		}
 	default:
 		panic(fmt.Sprintf("file '%s' with unknown source type '%s'", sampleFile.Path, sampleFile.Type.String()))
 	}
+	defer parser.Close()
 	logTask := log.With(zap.String("table", tableMeta.Name)).Begin(zap.InfoLevel, "sample file")
 	igCols, err := rc.cfg.Mydumper.IgnoreColumns.GetIgnoreColumns(dbName, tableMeta.Name, rc.cfg.Mydumper.CaseSensitive)
 	if err != nil {
@@ -537,13 +551,10 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 			continue
 		}
 		lastRow := parser.LastRow()
-		// sql -> kv
-		for _, r := range lastRow.Row {
-			rowSize += uint64(r.Length())
-		}
+		rowSize += uint64(lastRow.Length)
 		rowCount += 1
 
-		var dataChecksum, indexChecksum verify.KVChecksum
+		var dataChecksum, indexChecksum verification.KVChecksum
 		kvs, encodeErr := kvEncoder.Encode(logTask.Logger, lastRow.Row, lastRow.RowID, columnPermutation, offset)
 		parser.RecycleRow(lastRow)
 		if encodeErr != nil {
@@ -579,6 +590,5 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 		tableMeta.IndexRatio = 1.0
 	}
 	log.L().Info("Sample source data", zap.String("table", tableMeta.Name), zap.Float64("IndexRatio", tableMeta.IndexRatio), zap.Bool("IsSourceOrder", tableMeta.IsRowOrdered))
-	parser.Close()
 	return nil
 }

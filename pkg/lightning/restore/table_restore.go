@@ -162,9 +162,8 @@ func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.Chu
 	colPerm, err := createColumnPermutation(columns, tr.ignoreColumns, tr.tableInfo.Core)
 	if err != nil {
 		return err
-	} else {
-		ccp.ColumnPermutation = colPerm
 	}
+	ccp.ColumnPermutation = colPerm
 	return nil
 }
 

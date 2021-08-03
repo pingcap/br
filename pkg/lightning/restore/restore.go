@@ -1779,10 +1779,13 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		}
 		if !hasStarted {
 			firstStarted = true
-			if err := rc.LocalResource(ctx); err != nil {
+			source, err := rc.LocalResource(ctx)
+			if err != nil {
+				rc.taskMgr.CleanupTask(ctx)
 				return errors.Trace(err)
 			}
-			if err := rc.ClusterResource(ctx); err != nil {
+			if err := rc.ClusterResource(ctx, source); err != nil {
+				rc.taskMgr.CleanupTask(ctx)
 				return errors.Trace(err)
 			}
 		}
@@ -1792,7 +1795,7 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		log.L().Info(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
 			if firstStarted && rc.taskMgr != nil {
-				rc.taskMgr.Cleanup(ctx)
+				rc.taskMgr.CleanupTask(ctx)
 			}
 			return errors.Errorf("tidb-lightning pre-check failed." +
 				" Please fix the failed check(s) or set --check-requirements=false to skip checks")

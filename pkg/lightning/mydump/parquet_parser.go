@@ -346,6 +346,7 @@ func (pp *ParquetParser) Close() error {
 
 func (pp *ParquetParser) ReadRow() error {
 	pp.lastRow.RowID++
+	pp.lastRow.Length = 0
 	if pp.curIndex >= len(pp.rows) {
 		if pp.readRows >= pp.Reader.GetNumRows() {
 			return io.EOF
@@ -376,6 +377,7 @@ func (pp *ParquetParser) ReadRow() error {
 		pp.lastRow.Row = pp.lastRow.Row[:length]
 	}
 	for i := 0; i < length; i++ {
+		pp.lastRow.Length += v.Field(i).Len()
 		if err := setDatumValue(&pp.lastRow.Row[i], v.Field(i), pp.columnMetas[i]); err != nil {
 			return err
 		}

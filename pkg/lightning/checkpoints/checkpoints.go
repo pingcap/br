@@ -147,8 +147,7 @@ const (
 		SELECT task_id, source_dir, backend, importer_addr, tidb_host, tidb_port, pd_addr, sorted_kv_dir, lightning_ver FROM %s.%s WHERE id = 1;`
 	ReadEngineTemplate = `
 		SELECT engine_id, status FROM %s.%s WHERE table_name = ? ORDER BY engine_id DESC;`
-	ReadEngineCountTemplate = `SELECT count(*) FROM %s.%s;`
-	ReadChunkTemplate       = `
+	ReadChunkTemplate = `
 		SELECT
 			engine_id, path, offset, type, compression, sort_key, file_size, columns,
 			pos, end_offset, prev_rowid_max, rowid_max,
@@ -486,7 +485,6 @@ type DB interface {
 	Initialize(ctx context.Context, cfg *config.Config, dbInfo map[string]*TidbDBInfo) error
 	TaskCheckpoint(ctx context.Context) (*TaskCheckpoint, error)
 	Get(ctx context.Context, tableName string) (*TableCheckpoint, error)
-	IsEmpty(ctx context.Context) (bool, error)
 	Close() error
 	// InsertEngineCheckpoints initializes the checkpoints related to a table.
 	// It assumes the entire table has not been imported before and will fill in
@@ -595,10 +593,6 @@ func (*NullCheckpointsDB) Get(_ context.Context, _ string) (*TableCheckpoint, er
 		Status:  CheckpointStatusLoaded,
 		Engines: map[int32]*EngineCheckpoint{},
 	}, nil
-}
-
-func (cpdb *NullCheckpointsDB) IsEmpty(_ context.Context) (bool, error) {
-	return false, nil
 }
 
 func (*NullCheckpointsDB) InsertEngineCheckpoints(_ context.Context, _ string, _ map[int32]*EngineCheckpoint) error {
@@ -721,19 +715,6 @@ func (cpdb *MySQLCheckpointsDB) TaskCheckpoint(ctx context.Context) (*TaskCheckp
 
 func (cpdb *MySQLCheckpointsDB) Close() error {
 	return errors.Trace(cpdb.db.Close())
-}
-
-func (cpdb *MySQLCheckpointsDB) IsEmpty(ctx context.Context) (bool, error) {
-	s := common.SQLWithRetry{
-		DB:     cpdb.db,
-		Logger: log.With(zap.String("CheckEmpty", "IsEmpty")),
-	}
-	engineQuery := fmt.Sprintf(ReadEngineCountTemplate, cpdb.schema, CheckpointTableNameEngine)
-	var cnt int
-	if err := s.QueryRow(ctx, "fetch engine count", engineQuery, &cnt); err != nil {
-		return false, err
-	}
-	return cnt == 0, nil
 }
 
 func (cpdb *MySQLCheckpointsDB) Get(ctx context.Context, tableName string) (*TableCheckpoint, error) {
@@ -1143,13 +1124,6 @@ func (cpdb *FileCheckpointsDB) Get(_ context.Context, tableName string) (*TableC
 	}
 
 	return cp, nil
-}
-
-func (cpdb *FileCheckpointsDB) IsEmpty(_ context.Context) (bool, error) {
-	if cpdb.checkpoints.Checkpoints == nil {
-		return true, nil
-	}
-	return len(cpdb.checkpoints.Checkpoints) == 0, nil
 }
 
 func (cpdb *FileCheckpointsDB) InsertEngineCheckpoints(_ context.Context, tableName string, checkpoints map[int32]*EngineCheckpoint) error {
