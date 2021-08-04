@@ -1862,13 +1862,20 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 	var allErrLock sync.Mutex
 	var allErr error
 	var wg sync.WaitGroup
+	metErr := atomic.NewBool(false)
 
 	wg.Add(len(ranges))
 
-	for _, r := range ranges {
+	for i, r := range ranges {
 		startKey := r.start
 		endKey := r.end
 		w := local.rangeConcurrency.Apply()
+		// if meet error here, skip try more here to allow fail fast.
+		if metErr.Load() {
+			wg.Add(i - len(ranges))
+			local.rangeConcurrency.Recycle(w)
+			break
+		}
 		go func(w *worker.Worker) {
 			defer func() {
 				local.rangeConcurrency.Recycle(w)
@@ -1895,6 +1902,9 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 			allErrLock.Lock()
 			allErr = multierr.Append(allErr, err)
 			allErrLock.Unlock()
+			if err != nil {
+				metErr.Store(true)
+			}
 		}(w)
 	}
 
@@ -2020,10 +2030,14 @@ func sortAndMergeRanges(ranges []Range) []Range {
 	return ranges[:i+1]
 }
 
-func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
+func filterOverlapRange(rawRanges []Range, finishedRanges []Range) []Range {
 	if len(finishedRanges) == 0 {
-		return ranges
+		return rawRanges
 	}
+
+	// copy the ranges because we may change its values
+	ranges := make([]Range, 0, len(rawRanges))
+	ranges = append(ranges, rawRanges...)
 
 	result := make([]Range, 0, len(ranges))
 	rIdx := 0
