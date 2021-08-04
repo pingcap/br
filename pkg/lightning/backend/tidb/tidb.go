@@ -395,7 +395,7 @@ rowLoop:
 				}
 			}
 		}
-		return errors.Annotatef(err, "[%s] write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
+		return errors.Annotatef(err, "[%s] batch write rows reach max retry %d and still failed", tableName, writeRowsMaxRetryTimes)
 	}
 	return nil
 }
@@ -500,8 +500,8 @@ func (be *tidbBackend) execStmts(ctx context.Context, stmtTasks []stmtTask, batc
 				if batch {
 					return errors.Trace(err)
 				}
-				// Retry the non-batch insert here.
-				if common.IsRetryableError(err) {
+				// Retry the non-batch insert here if this is not the last retry.
+				if common.IsRetryableError(err) && i != writeRowsMaxRetryTimes-1 {
 					continue
 				}
 				// TODO: count, record and skip the error.
