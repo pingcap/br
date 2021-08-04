@@ -74,6 +74,8 @@ const (
 	defaultBuildStatsConcurrency      = 20
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
+	defaultTableConcurrency           = 6
+	defaultIndexConcurrency           = 2
 
 	// defaultMetaSchemaName is the default database name used to store lightning metadata
 	defaultMetaSchemaName = "lightning_metadata"
@@ -721,6 +723,13 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
 		if e != nil {
 			log.L().Error("failed to adjust scan concurrency", zap.Error(e))
 		}
+	}
+
+	if cfg.App.IndexConcurrency == 0 {
+		cfg.App.IndexConcurrency = defaultIndexConcurrency
+	}
+	if cfg.App.TableConcurrency == 0 {
+		cfg.App.TableConcurrency = defaultTableConcurrency
 	}
 
 	if len(cfg.App.MetaSchemaName) == 0 {

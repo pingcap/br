@@ -222,19 +222,11 @@ func (rc *Controller) EstimateSourceData(ctx context.Context) (int64, error) {
 	}
 
 	// Do not import with too large concurrency because these data may be all unsorted.
-	if rc.cfg.App.TableConcurrency == 0 && rc.cfg.App.IndexConcurrency == 0 {
-		if bigTableCount > 0 && unSortedTableCount > 0 {
-			rc.cfg.App.IndexConcurrency = 2
+	if bigTableCount > 0 && unSortedTableCount > 0 {
+		if rc.cfg.App.TableConcurrency > rc.cfg.App.IndexConcurrency {
 			rc.cfg.App.TableConcurrency = rc.cfg.App.IndexConcurrency
 		}
 	}
-	if rc.cfg.App.TableConcurrency == 0 {
-		rc.cfg.App.TableConcurrency = 6
-	}
-	if rc.cfg.App.IndexConcurrency == 0 {
-		rc.cfg.App.IndexConcurrency = 2
-	}
-
 	return sourceSize, nil
 }
 

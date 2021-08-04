@@ -576,8 +576,8 @@ func (s *configTestSuite) TestDefaultImporterBackendValue(c *C) {
 	cfg.TiDB.DistSQLScanConcurrency = 1
 	err := cfg.Adjust(context.Background())
 	c.Assert(err, IsNil)
-	c.Assert(cfg.App.IndexConcurrency, Equals, 0)
-	c.Assert(cfg.App.TableConcurrency, Equals, 0)
+	c.Assert(cfg.App.IndexConcurrency, Equals, 2)
+	c.Assert(cfg.App.TableConcurrency, Equals, 6)
 }
 
 func (s *configTestSuite) TestDefaultTidbBackendValue(c *C) {
