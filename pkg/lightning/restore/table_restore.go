@@ -293,7 +293,8 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 				// If the number of chunks is small, it means that this engine may be finished in a few times.
 				// We do not limit it in TableConcurrency
 				var restoreWorker *worker.Worker = nil
-				if len(engine.Chunks)*rc.cfg.App.TableConcurrency > rc.cfg.App.RegionConcurrency {
+				if len(engine.Chunks)*rc.cfg.App.TableConcurrency >= rc.cfg.App.RegionConcurrency ||
+					tr.tableMeta.TotalSize > int64(config.DefaultBatchSize) {
 					restoreWorker = rc.tableWorkers.Apply()
 				}
 
