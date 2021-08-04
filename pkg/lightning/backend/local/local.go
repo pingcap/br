@@ -802,7 +802,6 @@ func (e *File) loadEngineMeta() error {
 type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
-
 	pdCtl    *pdutil.PdController
 	conns    common.GRPCConns
 	splitCli split.SplitClient
@@ -973,7 +972,7 @@ func NewLocalBackend(
 		duplicateDB:             duplicateDB,
 	}
 	local.conns = common.NewGRPCConns()
-	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
+	if err = local.checkMultiIngestSupport(ctx, pdCtl.GetPDClient()); err != nil {
 		return backend.MakeBackend(nil), err
 	}
 
@@ -2038,7 +2037,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 		return nil
 	}
 	log.L().Info("Begin collect duplicate local keys", zap.String("table", tbl.Meta().Name.String()))
-	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
+	physicalTS, logicalTS, err := local.pdCtl.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return err
 	}
@@ -2057,7 +2056,7 @@ func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Tab
 
 func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
 	log.L().Info("Begin collect remote duplicate keys", zap.String("table", tbl.Meta().Name.String()))
-	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
+	physicalTS, logicalTS, err := local.pdCtl.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return err
 	}

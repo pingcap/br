@@ -699,6 +699,9 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	cfg.TiDB.DistSQLScanConcurrency = len(result.Stores) * DistSQLScanConcurrencyPerStore
+	if cfg.TiDB.DistSQLScanConcurrency < defaultDistSQLScanConcurrency {
+		cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
+	}
 	log.L().Info("adjust scan concurrency success", zap.Int("DistSQLScanConcurrency", cfg.TiDB.DistSQLScanConcurrency))
 	return nil
 }
