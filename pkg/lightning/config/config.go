@@ -160,6 +160,7 @@ func (cfg *Config) ToTLS() (*common.TLS, error) {
 
 type Lightning struct {
 	TableConcurrency  int    `toml:"table-concurrency" json:"table-concurrency"`
+	IndexConcurrency  int    `toml:"index-concurrency" json:"index-concurrency"`
 	RegionConcurrency int    `toml:"region-concurrency" json:"region-concurrency"`
 	IOConcurrency     int    `toml:"io-concurrency" json:"io-concurrency"`
 	CheckRequirements bool   `toml:"check-requirements" json:"check-requirements"`
@@ -391,6 +392,7 @@ func NewConfig() *Config {
 		App: Lightning{
 			RegionConcurrency: runtime.NumCPU(),
 			TableConcurrency:  0,
+			IndexConcurrency:  0,
 			IOConcurrency:     5,
 			CheckRequirements: true,
 		},
@@ -404,7 +406,7 @@ func NewConfig() *Config {
 			StrSQLMode:                 "ONLY_FULL_GROUP_BY,NO_AUTO_CREATE_USER",
 			MaxAllowedPacket:           defaultMaxAllowedPacket,
 			BuildStatsConcurrency:      defaultBuildStatsConcurrency,
-			DistSQLScanConcurrency:     0,
+			DistSQLScanConcurrency:     defaultDistSQLScanConcurrency,
 			IndexSerialScanConcurrency: defaultIndexSerialScanConcurrency,
 			ChecksumTableConcurrency:   defaultChecksumTableConcurrency,
 		},
@@ -707,7 +709,7 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 }
 
 func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
-	if cfg.TiDB.DistSQLScanConcurrency == 0 {
+	if cfg.TiDB.DistSQLScanConcurrency == defaultDistSQLScanConcurrency {
 		var e error
 		for i := 0; i < maxRetryTimes; i++ {
 			e = cfg.adjustDistSQLConcurrency(ctx)
@@ -718,13 +720,9 @@ func (cfg *Config) DefaultVarsForImporterAndLocalBackend(ctx context.Context) {
 		}
 		if e != nil {
 			log.L().Error("failed to adjust scan concurrency", zap.Error(e))
-			cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
 		}
 	}
 
-	if cfg.App.TableConcurrency == 0 {
-		cfg.App.TableConcurrency = 2
-	}
 	if len(cfg.App.MetaSchemaName) == 0 {
 		cfg.App.MetaSchemaName = defaultMetaSchemaName
 	}

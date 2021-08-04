@@ -215,6 +215,9 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 		TableInfo: tr.tableInfo,
 	}
 	if indexEngineCp.Status < checkpoints.CheckpointStatusClosed {
+		indexWorker := rc.indexWorkers.Apply()
+		defer rc.indexWorkers.Recycle(indexWorker)
+
 		if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 			// for index engine, the estimate factor is non-clustered index count
 			idxCnt := len(tr.tableInfo.Core.Indices)
@@ -398,6 +401,11 @@ func (tr *TableRestore) restoreEngine(
 	dataEngineCfg := &backend.EngineConfig{
 		TableInfo: tr.tableInfo,
 		Local:     &backend.LocalEngineConfig{},
+	}
+	if !tr.tableMeta.IsRowOrdered {
+		dataEngineCfg.Local.Compact = true
+		dataEngineCfg.Local.CompactConcurrency = 4
+		dataEngineCfg.Local.CompactThreshold = compactionUpperThreshold
 	}
 	dataEngine, err := rc.backend.OpenEngine(ctx, dataEngineCfg, tr.tableName, engineID)
 	if err != nil {

@@ -29,8 +29,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/pdutil"
-
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/sstable"
 	"github.com/coreos/go-semver/semver"
@@ -52,7 +50,6 @@ import (
 	"github.com/pingcap/tidb/util/hack"
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/tikv/client-go/v2/oracle"
-	pd "github.com/tikv/pd/client"
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -78,6 +75,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/membuf"
+	"github.com/pingcap/br/pkg/pdutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -972,15 +970,15 @@ func NewLocalBackend(
 		duplicateDB:             duplicateDB,
 	}
 	local.conns = common.NewGRPCConns()
-	if err = local.checkMultiIngestSupport(ctx, pdCtl.GetPDClient()); err != nil {
+	if err = local.checkMultiIngestSupport(ctx, pdCtl); err != nil {
 		return backend.MakeBackend(nil), err
 	}
 
 	return backend.MakeBackend(local), nil
 }
 
-func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
-	stores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
+func (local *local) checkMultiIngestSupport(ctx context.Context, pdCtl *pdutil.PdController) error {
+	stores, err := conn.GetAllTiKVStores(ctx, pdCtl.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}

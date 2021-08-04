@@ -229,6 +229,7 @@ type Controller struct {
 	dbMetas       []*mydump.MDDatabaseMeta
 	dbInfos       map[string]*checkpoints.TidbDBInfo
 	tableWorkers  *worker.Pool
+	indexWorkers  *worker.Pool
 	regionWorkers *worker.Pool
 	ioWorkers     *worker.Pool
 	checksumWorks *worker.Pool
@@ -357,7 +358,8 @@ func NewRestoreControllerWithPauser(
 	rc := &Controller{
 		cfg:           cfg,
 		dbMetas:       dbMetas,
-		tableWorkers:  worker.NewPool(ctx, cfg.App.TableConcurrency, "table"),
+		tableWorkers:  nil,
+		indexWorkers:  nil,
 		regionWorkers: worker.NewPool(ctx, cfg.App.RegionConcurrency, "region"),
 		ioWorkers:     worker.NewPool(ctx, cfg.App.IOConcurrency, "io"),
 		checksumWorks: worker.NewPool(ctx, cfg.TiDB.ChecksumTableConcurrency, "checksum"),
@@ -1187,6 +1189,12 @@ var checksumManagerKey struct{}
 
 func (rc *Controller) restoreTables(ctx context.Context) error {
 	logTask := log.L().Begin(zap.InfoLevel, "restore all tables data")
+	if rc.tableWorkers == nil {
+		rc.tableWorkers = worker.NewPool(ctx, rc.cfg.App.TableConcurrency, "table")
+	}
+	if rc.indexWorkers == nil {
+		rc.indexWorkers = worker.NewPool(ctx, rc.cfg.App.IndexConcurrency, "index")
+	}
 
 	// for local backend, we should disable some pd scheduler and change some settings, to
 	// make split region and ingest sst more stable
@@ -1273,7 +1281,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 
 	defer close(stopPeriodicActions)
 
-	taskCh := make(chan task, rc.cfg.App.RegionConcurrency)
+	taskCh := make(chan task, rc.cfg.App.IndexConcurrency)
 	defer close(taskCh)
 
 	manager, err := newChecksumManager(ctx, rc)
@@ -1281,7 +1289,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 		return errors.Trace(err)
 	}
 	ctx2 := context.WithValue(ctx, &checksumManagerKey, manager)
-	for i := 0; i < rc.cfg.App.RegionConcurrency; i++ {
+	for i := 0; i < rc.cfg.App.IndexConcurrency; i++ {
 		go func() {
 			for task := range taskCh {
 				tableLogTask := task.tr.logger.Begin(zap.InfoLevel, "restore table")
@@ -1764,14 +1772,14 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if err := rc.metaMgrBuilder.Init(ctx); err != nil {
 		return err
 	}
-	firstStarted := false
-
-	source, err := rc.EstimateSourceData(ctx)
-	if err != nil {
-		return errors.Trace(err)
-	}
+	taskExist := false
 
 	if rc.isLocalBackend() {
+		source, err := rc.EstimateSourceData(ctx)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
 			rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption())
@@ -1780,11 +1788,11 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		}
 
 		rc.taskMgr = rc.metaMgrBuilder.TaskMetaMgr(pdController)
-		exist, err := rc.taskMgr.CheckTaskExist(ctx)
+		taskExist, err = rc.taskMgr.CheckTaskExist(ctx)
 		if err != nil {
 			return errors.Trace(err)
 		}
-		if !exist {
+		if !taskExist {
 			err = rc.LocalResource(ctx, source)
 			if err != nil {
 				rc.taskMgr.CleanupTask(ctx)
@@ -1800,7 +1808,7 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		// print check template only if check requirements is true.
 		fmt.Print(rc.checkTemplate.Output())
 		if !rc.checkTemplate.Success() {
-			if firstStarted && rc.taskMgr != nil {
+			if !taskExist && rc.taskMgr != nil {
 				rc.taskMgr.CleanupTask(ctx)
 			}
 			return errors.Errorf("tidb-lightning pre-check failed." +

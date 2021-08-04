@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/config"
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/lightning/verification"
@@ -193,6 +194,9 @@ func (rc *Controller) HasLargeCSV(dbMetas []*mydump.MDDatabaseMeta) error {
 func (rc *Controller) EstimateSourceData(ctx context.Context) (int64, error) {
 	sourceSize := int64(0)
 	originSource := int64(0)
+	bigTableCount := 0
+	tableCount := 0
+	unSortedTableCount := 0
 	for _, db := range rc.dbMetas {
 		info, ok := rc.dbInfos[db.Name]
 		if !ok {
@@ -206,9 +210,31 @@ func (rc *Controller) EstimateSourceData(ctx context.Context) (int64, error) {
 				}
 				sourceSize += int64(float64(tbl.TotalSize) * tbl.IndexRatio)
 				originSource += tbl.TotalSize
+				if tbl.TotalSize > int64(config.DefaultBatchSize)*2 {
+					bigTableCount += 1
+					if !tbl.IsRowOrdered {
+						unSortedTableCount += 1
+					}
+				}
+				tableCount += 1
 			}
 		}
 	}
+
+	// Do not import with too large concurrency because these data may be all unsorted.
+	if rc.cfg.App.TableConcurrency == 0 && rc.cfg.App.IndexConcurrency == 0 {
+		if bigTableCount > 0 && unSortedTableCount > 0 {
+			rc.cfg.App.IndexConcurrency = 2
+			rc.cfg.App.TableConcurrency = rc.cfg.App.IndexConcurrency
+		}
+	}
+	if rc.cfg.App.TableConcurrency == 0 {
+		rc.cfg.App.TableConcurrency = 6
+	}
+	if rc.cfg.App.IndexConcurrency == 0 {
+		rc.cfg.App.IndexConcurrency = 2
+	}
+
 	return sourceSize, nil
 }
 
