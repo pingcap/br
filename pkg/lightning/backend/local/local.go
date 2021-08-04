@@ -42,10 +42,13 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
+	"github.com/pingcap/tidb/util/ranger"
 	"github.com/tikv/client-go/v2/oracle"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/atomic"
@@ -60,7 +63,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -101,7 +103,9 @@ const (
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 
-	duplicateDBName = "duplicates"
+	duplicateDBName       = "duplicates"
+	remoteDuplicateDBName = "remote_duplicates"
+	scanRegionLimit       = 128
 )
 
 var (
@@ -793,25 +797,11 @@ func (e *File) loadEngineMeta() error {
 	return nil
 }
 
-type gRPCConns struct {
-	mu    sync.Mutex
-	conns map[uint64]*connPool
-}
-
-func (conns *gRPCConns) Close() {
-	conns.mu.Lock()
-	defer conns.mu.Unlock()
-
-	for _, cp := range conns.conns {
-		cp.Close()
-	}
-}
-
 type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
-	conns    gRPCConns
 	pdCli    pd.Client
+	conns    common.GRPCConns
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -979,7 +969,7 @@ func NewLocalBackend(
 		duplicateDetection:      cfg.DuplicateDetection,
 		duplicateDB:             duplicateDB,
 	}
-	local.conns.conns = make(map[uint64]*connPool)
+	local.conns = common.NewGRPCConns()
 	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
 		return backend.MakeBackend(nil), err
 	}
@@ -1103,13 +1093,11 @@ func (local *local) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientC
 	return conn, nil
 }
 
-func (local *local) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	if _, ok := local.conns.conns[storeID]; !ok {
-		local.conns.conns[storeID] = newConnPool(local.tcpConcurrency, func(ctx context.Context) (*grpc.ClientConn, error) {
+func (local *local) getGrpcConn(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
+	return local.conns.GetGrpcConn(ctx, storeID, local.tcpConcurrency,
+		func(ctx context.Context) (*grpc.ClientConn, error) {
 			return local.makeConn(ctx, storeID)
 		})
-	}
-	return local.conns.conns[storeID].get(ctx)
 }
 
 // Close the local backend.
@@ -1357,10 +1345,7 @@ func (local *local) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, 
 }
 
 func (local *local) getImportClient(ctx context.Context, storeID uint64) (sst.ImportSSTClient, error) {
-	local.conns.mu.Lock()
-	defer local.conns.mu.Unlock()
-
-	conn, err := local.getGrpcConnLocked(ctx, storeID)
+	conn, err := local.getGrpcConn(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1714,7 +1699,7 @@ WriteAndIngest:
 		}
 		startKey := codec.EncodeBytes([]byte{}, pairStart)
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
-		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, 128)
+		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, scanRegionLimit)
 		if err != nil || len(regions) == 0 {
 			log.L().Warn("scan region failed", log.ShortError(err), zap.Int("region_len", len(regions)),
 				logutil.Key("startKey", startKey), logutil.Key("endKey", endKey), zap.Int("retry", retry))
@@ -2016,12 +2001,116 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		log.L().Warn("duplicate detected during import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
-		return berrors.ErrDuplicateDetected
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
 		zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength),
 		zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
+	return nil
+}
+
+func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
+	if local.duplicateDB == nil {
+		return nil
+	}
+	log.L().Info("Begin collect duplicate local keys", zap.String("table", tbl.Meta().Name.String()))
+	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	// TODO: Here we use this db to store the duplicate rows. We shall remove this parameter and store the result in
+	//  a TiDB table.
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl, local.duplicateDB); err != nil {
+		return errors.Annotate(err, "collect local duplicate rows failed")
+	}
+	return local.reportDuplicateRows(tbl, local.duplicateDB)
+}
+
+func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
+	log.L().Info("Begin collect remote duplicate keys", zap.String("table", tbl.Meta().Name.String()))
+	physicalTS, logicalTS, err := local.pdCli.GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	dbPath := filepath.Join(local.localStoreDir, remoteDuplicateDBName)
+	// TODO: Optimize the opts for better write.
+	opts := &pebble.Options{}
+	duplicateDB, err := pebble.Open(dbPath, opts)
+	if err != nil {
+		return errors.Annotate(err, "open duplicate db failed")
+	}
+
+	// TODO: Here we use the temp created db to store the duplicate rows. We shall remove this parameter and store the
+	//  result in a TiDB table.
+	duplicateManager, err := NewDuplicateManager(duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
+		return errors.Annotate(err, "collect remote duplicate rows failed")
+	}
+	err = local.reportDuplicateRows(tbl, duplicateDB)
+	duplicateDB.Close()
+	return err
+}
+
+func (local *local) reportDuplicateRows(tbl table.Table, db *pebble.DB) error {
+	log.L().Info("Begin report duplicate rows", zap.String("table", tbl.Meta().Name.String()))
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
+		SQLMode: mysql.ModeStrictAllTables,
+	})
+	if err != nil {
+		return errors.Annotate(err, "create decoder failed")
+	}
+
+	ranges := ranger.FullIntRange(false)
+	keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	keyAdapter := duplicateKeyAdapter{}
+	var nextUserKey []byte = nil
+	for _, r := range keysRanges {
+		startKey := codec.EncodeBytes([]byte{}, r.StartKey)
+		endKey := codec.EncodeBytes([]byte{}, r.EndKey)
+		opts := &pebble.IterOptions{
+			LowerBound: startKey,
+			UpperBound: endKey,
+		}
+		iter := db.NewIter(opts)
+		for iter.SeekGE(startKey); iter.Valid(); iter.Next() {
+			nextUserKey, _, _, err = keyAdapter.Decode(nextUserKey[:0], iter.Key())
+			if err != nil {
+				log.L().Error("decode key error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+
+			h, err := decoder.DecodeHandleFromTable(nextUserKey)
+			if err != nil {
+				log.L().Error("decode handle error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+			rows, _, err := decoder.DecodeRawRowData(h, iter.Value())
+			if err != nil {
+				log.L().Error("decode row error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+			// TODO: We need to output the duplicate rows into files or database.
+			//  Here I just output them for debug.
+			r := "row "
+			for _, row := range rows {
+				r += "," + row.String()
+			}
+			log.L().Info(r)
+		}
+		iter.Close()
+	}
 	return nil
 }
 
