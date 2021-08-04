@@ -516,6 +516,8 @@ func (worker *restoreSchemaWorker) makeJobs(
 				// we already has this table in TiDB.
 				// we should skip ddl job and let SchemaValid check.
 				continue
+			} else if tblMeta.SchemaFile.FileMeta.Path == "" {
+				return errors.Errorf("table `%s`.`%s` schema not found", dbMeta.Name, tblMeta.Name)
 			}
 			sql, err := tblMeta.GetSchema(worker.ctx, worker.store)
 			if sql != "" {

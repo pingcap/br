@@ -785,7 +785,9 @@ func (s *tableRestoreSuite) TestCompareChecksumSuccess(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(1234567, 12345, 1234567890))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(1234567, 12345, 1234567890))
 	c.Assert(err, IsNil)
 
 	c.Assert(db.Close(), IsNil)
@@ -812,7 +814,9 @@ func (s *tableRestoreSuite) TestCompareChecksumFailure(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(9876543, 54321, 1357924680))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(9876543, 54321, 1357924680))
 	c.Assert(err, ErrorMatches, "checksum mismatched.*")
 
 	c.Assert(db.Close(), IsNil)
@@ -1523,6 +1527,33 @@ func (s *restoreSchemaSuite) TestRestoreSchemaFailed(c *C) {
 	err := s.rc.restoreSchema(s.ctx)
 	c.Assert(err, NotNil)
 	c.Assert(errors.ErrorEqual(err, injectErr), IsTrue)
+}
+
+// When restoring a CSV with `-no-schema` and the target table doesn't exist
+// then we can't restore the schema as the `Path` is empty. This is to make
+// sure this results in the correct error.
+// https://github.com/pingcap/br/issues/1394
+func (s *restoreSchemaSuite) TestNoSchemaPath(c *C) {
+	fakeTable := mydump.MDTableMeta{
+		DB:   "fakedb",
+		Name: "fake1",
+		SchemaFile: mydump.FileInfo{
+			TableName: filter.Table{
+				Schema: "fakedb",
+				Name:   "fake1",
+			},
+			FileMeta: mydump.SourceFileMeta{
+				Path: "",
+			},
+		},
+		DataFiles: []mydump.FileInfo{},
+		TotalSize: 0,
+	}
+	s.rc.dbMetas[0].Tables = append(s.rc.dbMetas[0].Tables, &fakeTable)
+	err := s.rc.restoreSchema(s.ctx)
+	c.Assert(err, NotNil)
+	c.Assert(err, ErrorMatches, `table .* schema not found`)
+	s.rc.dbMetas[0].Tables = s.rc.dbMetas[0].Tables[:len(s.rc.dbMetas[0].Tables)-1]
 }
 
 func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {

@@ -586,6 +586,7 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		mustHaveInternalConnections = false
 		cfg.PostRestore.Checksum = OpLevelOff
 		cfg.PostRestore.Analyze = OpLevelOff
+		cfg.TikvImporter.DuplicateDetection = false
 	case BackendImporter, BackendLocal:
 		// RegionConcurrency > NumCPU is meaningless.
 		cpuCount := runtime.NumCPU()
@@ -609,6 +610,8 @@ func (cfg *Config) Adjust(ctx context.Context) error {
 		if err := cfg.CheckAndAdjustForLocalBackend(); err != nil {
 			return err
 		}
+	} else if cfg.TikvImporter.DuplicateDetection {
+		return errors.Errorf("invalid config: unsupported backend (%s) for duplicate-detection", cfg.TikvImporter.Backend)
 	}
 
 	if cfg.TikvImporter.Backend == BackendTiDB {
