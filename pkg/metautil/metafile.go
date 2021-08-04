@@ -384,8 +384,6 @@ type sizedMetaFile struct {
 	size      int
 	itemNum   int
 	sizeLimit int
-
-	storage storage.ExternalStorage
 }
 
 // NewSizedMetaFile represents the sizedMetaFile.
@@ -406,11 +404,8 @@ func (f *sizedMetaFile) append(file interface{}, op AppendOp) bool {
 	size, itemCount := op.appendFile(f.root, file)
 	f.itemNum += itemCount
 	f.size += size
-	if f.size > f.sizeLimit {
-		// f.size would reset outside
-		return true
-	}
-	return false
+	// f.size would reset outside
+	return f.size > f.sizeLimit
 }
 
 // MetaWriter represents wraps a writer, and the MetaWriter should be compatible with old version of backupmeta.
@@ -550,7 +545,7 @@ func (writer *MetaWriter) FinishWriteMetas(ctx context.Context, op AppendOp) err
 	if err != nil {
 		return errors.Trace(err)
 	}
-	costs := time.Now().Sub(writer.start)
+	costs := time.Since(writer.start)
 	if op == AppendDataFile {
 		summary.CollectSuccessUnit("backup ranges", writer.flushedItemNum, costs)
 	}

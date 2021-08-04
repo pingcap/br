@@ -19,6 +19,7 @@ import (
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/testutils"
 	"github.com/tikv/client-go/v2/tikv"
+	"github.com/tikv/client-go/v2/txnkv/txnlock"
 	pd "github.com/tikv/pd/client"
 
 	"github.com/pingcap/br/pkg/backup"
@@ -195,7 +196,7 @@ func (r *testBackup) TestOnBackupRegionErrorResponse(c *C) {
 		storeID           uint64
 		bo                *tikv.Backoffer
 		backupTS          uint64
-		lockResolver      *tikv.LockResolver
+		lockResolver      *txnlock.LockResolver
 		resp              *backuppb.BackupResponse
 		exceptedBackoffMs int
 		exceptedErr       bool

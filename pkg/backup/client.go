@@ -32,6 +32,7 @@ import (
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/tikv/client-go/v2/oracle"
 	"github.com/tikv/client-go/v2/tikv"
+	"github.com/tikv/client-go/v2/txnkv/txnlock"
 	pd "github.com/tikv/pd/client"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -53,7 +54,7 @@ type ClientMgr interface {
 	GetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error)
 	ResetBackupClient(ctx context.Context, storeID uint64) (backuppb.BackupClient, error)
 	GetPDClient() pd.Client
-	GetLockResolver() *tikv.LockResolver
+	GetLockResolver() *txnlock.LockResolver
 	Close()
 }
 
@@ -411,7 +412,7 @@ func (bc *Client) BackupRanges(
 	progressCallBack func(ProgressUnit),
 ) error {
 	init := time.Now()
-	defer log.Info("Backup Ranges", zap.Duration("take", time.Now().Sub(init)))
+	defer log.Info("Backup Ranges", zap.Duration("take", time.Since(init)))
 
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("Client.BackupRanges", opentracing.ChildOf(span.Context()))
@@ -683,7 +684,7 @@ func OnBackupResponse(
 	storeID uint64,
 	bo *tikv.Backoffer,
 	backupTS uint64,
-	lockResolver *tikv.LockResolver,
+	lockResolver *txnlock.LockResolver,
 	resp *backuppb.BackupResponse,
 ) (*backuppb.BackupResponse, int, error) {
 	log.Debug("OnBackupResponse", zap.Reflect("resp", resp))
@@ -697,7 +698,7 @@ func OnBackupResponse(
 			// Try to resolve lock.
 			log.Warn("backup occur kv error", zap.Reflect("error", v))
 			msBeforeExpired, _, err1 := lockResolver.ResolveLocks(
-				bo, backupTS, []*tikv.Lock{tikv.NewLock(lockErr)})
+				bo, backupTS, []*txnlock.Lock{txnlock.NewLock(lockErr)})
 			if err1 != nil {
 				return nil, 0, errors.Trace(err1)
 			}
