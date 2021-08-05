@@ -1378,7 +1378,8 @@ func (local *local) WriteToTiKV(
 				// The available disk percent of TiKV
 				ratio := store.Status.Available * 100 / store.Status.Capacity
 				if ratio < 10 {
-					return nil, Range{}, rangeStats{}, errors.Errorf("The available disk of TiKV only left %d, and capacity is %d", store.Status.Available, store.Status.Capacity)
+					return nil, Range{}, rangeStats{}, errors.Errorf("The available disk of TiKV (%s) only left %d, and capacity is %d",
+						store.Store.Address, store.Status.Available, store.Status.Capacity)
 				}
 			}
 			break
