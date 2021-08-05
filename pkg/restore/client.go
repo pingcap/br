@@ -580,14 +580,13 @@ func drainFilesByRange(files []*backuppb.File, supportMulti bool) ([]*backuppb.F
 	return files[:idx], files[idx:]
 }
 
-// RestoreFilesAndThen tries to restore the files.
-func (rc *Client) RestoreFilesAndThen(
+// RestoreFiles tries to restore the files.
+func (rc *Client) RestoreFiles(
 	ctx context.Context,
 	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
-	callback func(error),
-) {
+) error {
 	var err error
 	start := time.Now()
 	defer func() {
@@ -609,8 +608,7 @@ func (rc *Client) RestoreFilesAndThen(
 	eg, ectx := errgroup.WithContext(ctx)
 	err = rc.setSpeedLimit(ctx)
 	if err != nil {
-		callback(errors.Trace(err))
-		return
+		return errors.Trace(err)
 	}
 
 	var rangeFiles []*backuppb.File
@@ -635,10 +633,9 @@ func (rc *Client) RestoreFilesAndThen(
 			"restore files failed",
 			zap.Error(err),
 		)
-		callback(errors.Trace(err))
-		return
+		return errors.Trace(err)
 	}
-	callback(nil)
+	return nil
 }
 
 // RestoreRaw tries to restore raw keys in the specified range.

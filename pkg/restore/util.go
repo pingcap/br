@@ -386,11 +386,11 @@ func SplitRanges(
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
 ) error {
-	ch := make(chan error)
+	var e error
 	go SplitRangesAndThen(ctx, client, ranges, rewriteRules, updateCh, func(err error) {
-		ch <- err
+		e = err
 	})
-	return <-ch
+	return e
 }
 
 func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
