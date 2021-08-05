@@ -27,8 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tikv/pd/server/api"
-
 	"github.com/BurntSushi/toml"
 	"github.com/docker/go-units"
 	gomysql "github.com/go-sql-driver/mysql"
@@ -37,6 +35,7 @@ import (
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	router "github.com/pingcap/tidb-tools/pkg/table-router"
 	tidbcfg "github.com/pingcap/tidb/config"
+	"github.com/tikv/pd/server/api"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/lightning/common"

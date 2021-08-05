@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/pingcap/br/pkg/metautil"
-
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -19,6 +17,7 @@ import (
 	"github.com/pingcap/br/pkg/backup"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"

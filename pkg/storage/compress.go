@@ -7,9 +7,9 @@ import (
 	"context"
 	"io"
 
-	berrors "github.com/pingcap/br/pkg/errors"
-
 	"github.com/pingcap/errors"
+
+	berrors "github.com/pingcap/br/pkg/errors"
 )
 
 type withCompression struct {

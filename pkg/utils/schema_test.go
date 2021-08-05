@@ -9,9 +9,8 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/pingcap/br/pkg/storage"
-
 	"github.com/pingcap/br/pkg/metautil"
+	"github.com/pingcap/br/pkg/storage"
 
 	. "github.com/pingcap/check"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"

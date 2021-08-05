@@ -8,12 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/metautil"
-
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/restore"
 
 	. "github.com/pingcap/check"

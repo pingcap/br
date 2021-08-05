@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/metautil"
-
 	"github.com/google/btree"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
@@ -42,6 +40,7 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/rtree"
 	"github.com/pingcap/br/pkg/storage"

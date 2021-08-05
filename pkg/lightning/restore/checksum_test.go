@@ -10,22 +10,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pingcap/tidb/util/memory"
-
-	"github.com/pingcap/parser"
-	"github.com/pingcap/parser/ast"
-	"github.com/pingcap/tidb/ddl"
-	tmock "github.com/pingcap/tidb/util/mock"
-	"github.com/tikv/client-go/v2/oracle"
-
-	"github.com/pingcap/tidb/kv"
-	"github.com/pingcap/tipb/go-tipb"
-
-	pd "github.com/tikv/pd/client"
-
 	"github.com/DATA-DOG/go-sqlmock"
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/parser"
+	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/tidb/ddl"
+	"github.com/pingcap/tidb/kv"
+	"github.com/pingcap/tidb/util/memory"
+	tmock "github.com/pingcap/tidb/util/mock"
+	"github.com/pingcap/tipb/go-tipb"
+	"github.com/tikv/client-go/v2/oracle"
+	pd "github.com/tikv/pd/client"
 
 	. "github.com/pingcap/br/pkg/lightning/checkpoints"
 )

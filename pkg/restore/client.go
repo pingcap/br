@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/br/pkg/metautil"
-
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
@@ -43,6 +41,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/redact"
 	"github.com/pingcap/br/pkg/storage"

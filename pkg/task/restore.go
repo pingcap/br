@@ -6,10 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/pingcap/br/pkg/metautil"
-
-	"github.com/pingcap/br/pkg/version"
-
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -23,11 +19,13 @@ import (
 	"github.com/pingcap/br/pkg/conn"
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"
+	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/summary"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 )
 
 const (

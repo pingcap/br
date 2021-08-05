@@ -5,12 +5,12 @@ package task
 import (
 	"context"
 
-	"github.com/pingcap/br/pkg/metautil"
-
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/pingcap/br/pkg/metautil"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/glue"

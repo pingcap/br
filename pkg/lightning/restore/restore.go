@@ -24,15 +24,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pingcap/br/pkg/version"
-
-	"github.com/pingcap/tidb/meta/autoid"
-
 	"github.com/docker/go-units"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	sstpb "github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/util/collate"
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
@@ -58,6 +55,7 @@ import (
 	"github.com/pingcap/br/pkg/pdutil"
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
+	"github.com/pingcap/br/pkg/version"
 	"github.com/pingcap/br/pkg/version/build"
 )
 

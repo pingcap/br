@@ -19,10 +19,10 @@ import (
 	"os"
 	"path/filepath"
 
-	mockstorage "github.com/pingcap/br/pkg/mock/storage"
-
 	"github.com/golang/mock/gomock"
 	. "github.com/pingcap/check"
+
+	mockstorage "github.com/pingcap/br/pkg/mock/storage"
 
 	. "github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/br/pkg/storage"

@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	. "github.com/pingcap/check"
-
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/pingcap/br/pkg/lightning/metric"
