@@ -1778,7 +1778,6 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 			return errors.Trace(err)
 		}
 
-		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
 			rc.tls.TLSConfig(), rc.tls.ToPDSecurityOption())
 		if err != nil {

@@ -69,7 +69,7 @@ const (
 	ErrorOnDup = "error"
 
 	defaultDistSQLScanConcurrency     = 15
-	DistSQLScanConcurrencyPerStore    = 4
+	distSQLScanConcurrencyPerStore    = 4
 	defaultBuildStatsConcurrency      = 20
 	defaultIndexSerialScanConcurrency = 20
 	defaultChecksumTableConcurrency   = 2
@@ -704,7 +704,7 @@ func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	cfg.TiDB.DistSQLScanConcurrency = len(result.Stores) * DistSQLScanConcurrencyPerStore
+	cfg.TiDB.DistSQLScanConcurrency = len(result.Stores) * distSQLScanConcurrencyPerStore
 	if cfg.TiDB.DistSQLScanConcurrency < defaultDistSQLScanConcurrency {
 		cfg.TiDB.DistSQLScanConcurrency = defaultDistSQLScanConcurrency
 	}
