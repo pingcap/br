@@ -690,6 +690,9 @@ func (cfg *Config) DefaultVarsForTiDBBackend() {
 	if cfg.App.TableConcurrency == 0 {
 		cfg.App.TableConcurrency = cfg.App.RegionConcurrency
 	}
+	if cfg.App.IndexConcurrency == 0 {
+		cfg.App.IndexConcurrency = cfg.App.RegionConcurrency
+	}
 }
 
 func (cfg *Config) adjustDistSQLConcurrency(ctx context.Context) error {
