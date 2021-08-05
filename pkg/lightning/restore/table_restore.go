@@ -292,25 +292,16 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 
 				// If the number of chunks is small, it means that this engine may be finished in a few times.
 				// We do not limit it in TableConcurrency
-				var restoreWorker *worker.Worker = nil
-				if len(engine.Chunks)*rc.cfg.App.TableConcurrency >= rc.cfg.App.RegionConcurrency ||
-					tr.tableMeta.TotalSize > int64(config.DefaultBatchSize) {
-					restoreWorker = rc.tableWorkers.Apply()
-				}
-
+				restoreWorker := rc.tableWorkers.Apply()
 				go func(w *worker.Worker, eid int32, ecp *checkpoints.EngineCheckpoint) {
 					defer wg.Done()
 					engineLogTask := tr.logger.With(zap.Int32("engineNumber", eid)).Begin(zap.InfoLevel, "restore engine")
 					dataClosedEngine, err := tr.restoreEngine(ctx, rc, indexEngine, eid, ecp)
 					engineLogTask.End(zap.ErrorLevel, err)
-					if w != nil {
-						rc.tableWorkers.Recycle(w)
+					rc.tableWorkers.Recycle(w)
+					if err == nil {
 						dataWorker := rc.closedEngineLimit.Apply()
 						defer rc.closedEngineLimit.Recycle(dataWorker)
-						if err == nil {
-							err = tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp)
-						}
-					} else if err == nil {
 						err = tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp)
 					}
 					if err != nil {
