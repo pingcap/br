@@ -15,6 +15,8 @@ import (
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/tikv/pd/server/core"
 	"github.com/tikv/pd/server/schedule/placement"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/rtree"
@@ -26,6 +28,8 @@ type TestClient struct {
 	regions      map[uint64]*restore.RegionInfo
 	regionsInfo  *core.RegionsInfo // For now it's only used in ScanRegions
 	nextRegionID uint64
+
+	scattered map[uint64]bool
 }
 
 func NewTestClient(
@@ -42,6 +46,7 @@ func NewTestClient(
 		regions:      regions,
 		regionsInfo:  regionsInfo,
 		nextRegionID: nextRegionID,
+		scattered:    map[uint64]bool{},
 	}
 }
 
@@ -160,6 +165,11 @@ func (c *TestClient) BatchSplitRegions(
 }
 
 func (c *TestClient) ScatterRegion(ctx context.Context, regionInfo *restore.RegionInfo) error {
+	if _, ok := c.scattered[regionInfo.Region.Id]; !ok {
+		c.scattered[regionInfo.Region.Id] = false
+		return status.Errorf(codes.Unknown, "region %d is not fully replicated", regionInfo.Region.Id)
+	}
+	c.scattered[regionInfo.Region.Id] = true
 	return nil
 }
 
@@ -197,13 +207,22 @@ func (c *TestClient) SetStoresLabel(ctx context.Context, stores []uint64, labelK
 	return nil
 }
 
+func (c *TestClient) checkScatter(check *C) {
+	regions := c.GetAllRegions()
+	for key := range regions {
+		if !c.scattered[key] {
+			check.Fatalf("region %d has not been scattered: %#v", key, regions[key])
+		}
+	}
+}
+
 // region: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )
 // range: [aaa, aae), [aae, aaz), [ccd, ccf), [ccf, ccj)
 // rewrite rules: aa -> xx,  cc -> bb
 // expected regions after split:
 //   [, aay), [aay, bb), [bb, bba), [bba, bbf), [bbf, bbh), [bbh, bbj),
 //   [bbj, cca), [cca, xx), [xx, xxe), [xxe, xxz), [xxz, )
-func (s *testRangeSuite) TestSplit(c *C) {
+func (s *testRangeSuite) TestSplitAndScatter(c *C) {
 	client := initTestClient()
 	ranges := initRanges()
 	rewriteRules := initRewriteRules()
@@ -222,6 +241,12 @@ func (s *testRangeSuite) TestSplit(c *C) {
 		c.Log("get wrong result")
 		c.Fail()
 	}
+	regionInfos := make([]*restore.RegionInfo, 0, len(regions))
+	for _, info := range regions {
+		regionInfos = append(regionInfos, info)
+	}
+	regionSplitter.ScatterRegions(ctx, regionInfos)
+	client.checkScatter(c)
 }
 
 // region: [, aay), [aay, bba), [bba, bbh), [bbh, cca), [cca, )

@@ -21,6 +21,7 @@ import (
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/rtree"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 // Constants for split retry machinery.
@@ -272,14 +273,26 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+	rs.ScatterRegions(ctx, newRegions)
+	return newRegions, nil
+}
+
+// ScatterRegions scatter the regions.
+func (rs *RegionSplitter) ScatterRegions(ctx context.Context, newRegions []*RegionInfo) {
 	for _, region := range newRegions {
 		// Wait for a while until the regions successfully split.
 		rs.waitForSplit(ctx, region.Region.Id)
-		if err = rs.client.ScatterRegion(ctx, region); err != nil {
-			log.Warn("scatter region failed", logutil.Region(region.Region), zap.Error(err))
+		if err := utils.WithRetry(ctx,
+			func() error { return rs.client.ScatterRegion(ctx, region) },
+			// backoff about 6s, or we give up scattering this region.
+			&scatterBackoffer{
+				attempt:     7,
+				baseBackoff: 100 * time.Millisecond,
+			},
+		); err != nil {
+			log.Warn("scatter region failed, stop retry", logutil.Region(region.Region), zap.Error(err))
 		}
 	}
-	return newRegions, nil
 }
 
 // PaginateScanRegion scan regions with a limit pagination and
