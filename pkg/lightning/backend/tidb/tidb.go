@@ -445,10 +445,11 @@ func (be *tidbBackend) WriteRowsToDB(ctx context.Context, tableName string, colu
 	if insertStmt == nil {
 		return nil
 	}
+	is := insertStmt.String()
 	stmtTasks := make([]stmtTask, 0, len(rows))
 	for _, row := range rows {
 		var finalInsertStmt strings.Builder
-		finalInsertStmt.WriteString(insertStmt.String())
+		finalInsertStmt.WriteString(is)
 		finalInsertStmt.WriteString(string(row))
 		stmtTasks = append(stmtTasks, stmtTask{[]tidbRow{row}, finalInsertStmt.String()})
 	}
