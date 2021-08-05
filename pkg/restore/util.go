@@ -353,32 +353,9 @@ func truncateTS(key []byte) []byte {
 	return key[:len(key)-8]
 }
 
-// SplitRangesAndThen splits region by
+// SplitRanges splits region by
 // 1. data range after rewrite.
 // 2. rewrite rules.
-func SplitRangesAndThen(
-	ctx context.Context,
-	client *Client,
-	ranges []rtree.Range,
-	rewriteRules *RewriteRules,
-	updateCh glue.Progress,
-	callback func(error),
-) {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		summary.CollectDuration("split region", elapsed)
-	}()
-	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
-
-	callback(splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
-		for range keys {
-			updateCh.Inc()
-		}
-	}))
-}
-
-// SplitRanges is the synchronous version of SplitRangesAndThen.
 func SplitRanges(
 	ctx context.Context,
 	client *Client,
@@ -386,11 +363,18 @@ func SplitRanges(
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
 ) error {
-	var e error
-	go SplitRangesAndThen(ctx, client, ranges, rewriteRules, updateCh, func(err error) {
-		e = err
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		summary.CollectDuration("split region", elapsed)
+	}()
+	splitter := NewRegionSplitter(NewSplitClient(client.GetPDClient(), client.GetTLSConfig()))
+
+	return splitter.Split(ctx, ranges, rewriteRules, func(keys [][]byte) {
+		for range keys {
+			updateCh.Inc()
+		}
 	})
-	return e
 }
 
 func rewriteFileKeys(file *backuppb.File, rewriteRules *RewriteRules) (startKey, endKey []byte, err error) {
