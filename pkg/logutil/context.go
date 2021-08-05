@@ -22,11 +22,9 @@ func ResetGlobalLogger(l *zap.Logger) {
 	globalLogger = l
 }
 
-type loggingContextKey int8
+type loggingContextKey struct{}
 
-const (
-	keyLogger loggingContextKey = iota
-)
+var keyLogger loggingContextKey = loggingContextKey{}
 
 // ContextWithField wrap a context with a logger with some fields.
 func ContextWithField(c context.Context, fields ...zap.Field) context.Context {

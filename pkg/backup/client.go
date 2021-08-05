@@ -427,7 +427,7 @@ func (bc *Client) BackupRanges(
 		id := id
 		sk, ek := r.StartKey, r.EndKey
 		workerPool.ApplyOnErrorGroup(eg, func() error {
-			elctx := logutil.ContextWithField(ectx, zap.Int("range-sn", id))
+			elctx := logutil.ContextWithField(ectx, logutil.RedactAny("range-sn", id))
 			err := bc.BackupRange(elctx, sk, ek, req, metaWriter, progressCallBack)
 			if err != nil {
 				return errors.Trace(err)
