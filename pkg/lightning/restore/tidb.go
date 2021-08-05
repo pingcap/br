@@ -21,15 +21,6 @@ import (
 	"strings"
 
 	tmysql "github.com/go-sql-driver/mysql"
-	"github.com/pingcap/errors"
-	"github.com/pingcap/parser"
-	"github.com/pingcap/parser/ast"
-	"github.com/pingcap/parser/format"
-	"github.com/pingcap/parser/model"
-	"github.com/pingcap/parser/mysql"
-	"github.com/pingcap/parser/terror"
-	"github.com/pingcap/tidb/sessionctx/binloginfo"
-
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/config"
@@ -37,6 +28,13 @@ import (
 	"github.com/pingcap/br/pkg/lightning/log"
 	"github.com/pingcap/br/pkg/lightning/metric"
 	"github.com/pingcap/br/pkg/lightning/mydump"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/parser"
+	"github.com/pingcap/parser/ast"
+	"github.com/pingcap/parser/format"
+	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/parser/terror"
 
 	"go.uber.org/zap"
 )
@@ -198,7 +196,7 @@ func createTableIfNotExistsStmt(p *parser.Parser, createTable, dbName, tblName s
 	}
 
 	var res strings.Builder
-	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags, &res)
+	ctx := format.NewRestoreCtx(format.DefaultRestoreFlags|format.RestoreTiDBSpecialComment, &res)
 
 	retStmts := make([]string, 0, len(stmts))
 	for _, stmt := range stmts {
@@ -219,7 +217,7 @@ func createTableIfNotExistsStmt(p *parser.Parser, createTable, dbName, tblName s
 			return []string{}, err
 		}
 		ctx.WritePlain(";")
-		retStmts = append(retStmts, binloginfo.AddSpecialComment(res.String()))
+		retStmts = append(retStmts, res.String())
 		res.Reset()
 	}
 
