@@ -5,6 +5,8 @@ package checksum
 import (
 	"context"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/gogo/protobuf/proto"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
@@ -16,8 +18,6 @@ import (
 	"github.com/pingcap/tidb/util/ranger"
 	"github.com/pingcap/tipb/go-tipb"
 	"go.uber.org/zap"
-
-	"github.com/pingcap/br/pkg/metautil"
 )
 
 // ExecutorBuilder is used to build a "kv.Request".

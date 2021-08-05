@@ -5,9 +5,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/pingcap/tidb/util/slice"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb-tools/pkg/filter"
-	"github.com/pingcap/tidb/util/slice"
 
 	"github.com/pingcap/br/pkg/lightning/config"
 )
