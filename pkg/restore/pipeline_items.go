@@ -325,7 +325,6 @@ func (b *tikvSender) waitTablesDone(ts []CreatedTable) {
 }
 
 func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan drainResultAndDone) {
-	restoreWorks := new(sync.WaitGroup)
 	eg, ectx := errgroup.WithContext(ctx)
 	defer func() {
 		log.Debug("restore worker closed")
@@ -356,7 +355,6 @@ func (b *tikvSender) restoreWorker(ctx context.Context, ranges <-chan drainResul
 				r.done()
 				b.waitTablesDone(r.result.BlankTablesAfterSend)
 				b.sink.EmitTables(r.result.BlankTablesAfterSend...)
-				restoreWorks.Done()
 				return nil
 			})
 		}
