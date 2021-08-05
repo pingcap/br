@@ -19,9 +19,10 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pingcap/parser/charset"
+
 	"github.com/DATA-DOG/go-sqlmock"
 	. "github.com/pingcap/check"
-	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/table"

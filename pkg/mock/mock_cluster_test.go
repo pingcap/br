@@ -7,6 +7,7 @@ import (
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/tidb/util/testleak"
+
 	"github.com/pingcap/br/pkg/mock"
 )
 

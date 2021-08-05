@@ -9,10 +9,11 @@ import (
 	"os"
 	"sync"
 
-	"github.com/pingcap/errors"
 	tidbutils "github.com/pingcap/tidb-tools/pkg/utils"
 
 	berrors "github.com/pingcap/br/pkg/errors"
+
+	"github.com/pingcap/errors"
 
 	// #nosec
 	// register HTTP handler for /debug/pprof

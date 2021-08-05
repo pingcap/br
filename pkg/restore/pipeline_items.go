@@ -6,13 +6,14 @@ import (
 	"context"
 	"sync"
 
+	"github.com/pingcap/br/pkg/metautil"
+
 	"github.com/pingcap/errors"
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
 
 	"github.com/pingcap/br/pkg/glue"
-	"github.com/pingcap/br/pkg/metautil"
 	"github.com/pingcap/br/pkg/rtree"
 )
 
