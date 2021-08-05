@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -29,6 +30,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/httputil"
@@ -497,4 +499,53 @@ func checkRegionEpoch(new, old *RegionInfo) bool {
 	return new.Region.GetId() == old.Region.GetId() &&
 		new.Region.GetRegionEpoch().GetVersion() == old.Region.GetRegionEpoch().GetVersion() &&
 		new.Region.GetRegionEpoch().GetConfVer() == old.Region.GetRegionEpoch().GetConfVer()
+}
+
+type scatterBackoffer struct {
+	attempt     int
+	baseBackoff time.Duration
+}
+
+func (b *scatterBackoffer) exponentialBackoff() time.Duration {
+	bo := b.baseBackoff
+	b.attempt--
+	if b.attempt == 0 {
+		return 0
+	}
+	b.baseBackoff *= 2
+	return bo
+}
+
+func (b *scatterBackoffer) giveUp() time.Duration {
+	b.attempt = 0
+	return 0
+}
+
+// NextBackoff returns a duration to wait before retrying again
+func (b *scatterBackoffer) NextBackoff(err error) time.Duration {
+	// There are 3 type of reason that PD would reject a `scatter` request:
+	// (1) region %d has no leader
+	// (2) region %d is hot
+	// (3) region %d is not fully replicated
+	//
+	// (2) shouldn't happen in a recently splitted region.
+	// (1) and (3) might happen, and should be retried.
+	grpcErr := status.Convert(err)
+	if grpcErr == nil {
+		return b.giveUp()
+	}
+	if strings.Contains(grpcErr.Message(), "is not fully replicated") {
+		log.Info("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
+		return b.exponentialBackoff()
+	}
+	if strings.Contains(grpcErr.Message(), "has no leader") {
+		log.Info("scatter region failed, retring", logutil.ShortError(err), zap.Int("attempt-remain", b.attempt))
+		return b.exponentialBackoff()
+	}
+	return b.giveUp()
+}
+
+// Attempt returns the remain attempt times
+func (b *scatterBackoffer) Attempt() int {
+	return b.attempt
 }

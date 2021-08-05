@@ -4,14 +4,17 @@ package logutil_test
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/pingcap/check"
 	"github.com/pingcap/errors"
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -48,6 +51,46 @@ func newFile(j int) *backuppb.File {
 		Cf:           "write",
 		Size_:        uint64(j),
 	}
+}
+
+type isAbout struct{}
+
+func (isAbout) Info() *CheckerInfo {
+	return &CheckerInfo{
+		Name: "isAbout",
+		Params: []string{
+			"actual",
+			"expect",
+		},
+	}
+}
+
+func (isAbout) Check(params []interface{}, names []string) (result bool, error string) {
+	actual := params[0].(float64)
+	expect := params[1].(float64)
+
+	if diff := math.Abs(1 - (actual / expect)); diff > 0.1 {
+		return false, fmt.Sprintf("The diff(%.2f) between actual(%.2f) and expect(%.2f) is too huge.", diff, actual, expect)
+	}
+	return true, ""
+}
+
+func (s *testLoggingSuite) TestRater(c *C) {
+	m := prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: "testing",
+		Name:      "rater",
+		Help:      "A testing counter for the rater",
+	})
+	m.Add(42)
+
+	rater := logutil.TraceRateOver(m)
+	timePass := time.Now()
+	rater.Inc()
+	c.Assert(rater.RateAt(timePass.Add(100*time.Millisecond)), isAbout{}, 10.0)
+	rater.Inc()
+	c.Assert(rater.RateAt(timePass.Add(150*time.Millisecond)), isAbout{}, 13.0)
+	rater.Add(18)
+	c.Assert(rater.RateAt(timePass.Add(200*time.Millisecond)), isAbout{}, 100.0)
 }
 
 func (s *testLoggingSuite) TestFile(c *C) {
