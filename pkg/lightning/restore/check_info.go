@@ -549,6 +549,8 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 	indexKVs := rc.backend.MakeEmptyRows()
 	lastKey := make([]byte, 0)
 	tableMeta.IsRowOrdered = true
+	tableMeta.IndexRatio = 1.0
+outloop:
 	for !reachEOF {
 		offset, _ := parser.Pos()
 		err = parser.ReadRow()
@@ -559,15 +561,18 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 			if !initializedColumns {
 				if len(columnPermutation) == 0 {
 					columnPermutation, err = createColumnPermutation(columnNames, igCols.Columns, tableInfo)
+					if err != nil {
+						return errors.Trace(err)
+					}
 				}
 				initializedColumns = true
 			}
 		case io.EOF:
 			reachEOF = true
-			break
+			break outloop
 		default:
-			err = errors.Annotatef(err, "in file  offset %d", offset)
-			continue
+			err = errors.Annotatef(err, "in file offset %d", offset)
+			return errors.Trace(err)
 		}
 		lastRow := parser.LastRow()
 		rowSize += uint64(lastRow.Length)
@@ -578,7 +583,7 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 		parser.RecycleRow(lastRow)
 		if encodeErr != nil {
 			err = errors.Annotatef(encodeErr, "in file at offset %d", offset)
-			continue
+			return errors.Trace(err)
 		}
 		if tableMeta.IsRowOrdered {
 			kvs.ClassifyAndAppend(&dataKVs, &dataChecksum, &indexKVs, &indexChecksum)
@@ -605,8 +610,6 @@ func (rc *Controller) SampleDataFromTable(ctx context.Context, dbName string, ta
 
 	if rowSize > 0 && kvSize > rowSize {
 		tableMeta.IndexRatio = float64(kvSize) / float64(rowSize)
-	} else {
-		tableMeta.IndexRatio = 1.0
 	}
 	log.L().Info("Sample source data", zap.String("table", tableMeta.Name), zap.Float64("IndexRatio", tableMeta.IndexRatio), zap.Bool("IsSourceOrder", tableMeta.IsRowOrdered))
 	return nil
