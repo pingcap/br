@@ -2159,46 +2159,53 @@ func sortAndMergeRanges(ranges []Range) []Range {
 	return ranges[:i+1]
 }
 
-func filterOverlapRange(rawRanges []Range, finishedRanges []Range) []Range {
-	if len(finishedRanges) == 0 {
-		return rawRanges
+func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
+	if len(ranges) == 0 || len(finishedRanges) == 0 {
+		return ranges
 	}
-
-	// copy the ranges because we may change its values
-	ranges := make([]Range, 0, len(rawRanges))
-	ranges = append(ranges, rawRanges...)
 
 	result := make([]Range, 0, len(ranges))
 	rIdx := 0
 	fIdx := 0
+	rStart := ranges[rIdx].start
+	incRIdx := func() {
+		rIdx++
+		if rIdx < len(ranges) {
+			rStart = ranges[rIdx].start
+		}
+	}
 	for rIdx < len(ranges) && fIdx < len(finishedRanges) {
 		if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].start) <= 0 {
-			result = append(result, ranges[rIdx])
-			rIdx++
-		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].end) >= 0 {
+			result = append(result, Range{start: rStart, end: ranges[rIdx].end})
+			incRIdx()
+		} else if bytes.Compare(rStart, finishedRanges[fIdx].end) >= 0 {
 			fIdx++
-		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].start) < 0 {
-			result = append(result, Range{start: ranges[rIdx].start, end: finishedRanges[fIdx].start})
+		} else if bytes.Compare(rStart, finishedRanges[fIdx].start) < 0 {
+			result = append(result, Range{start: rStart, end: finishedRanges[fIdx].start})
 			switch bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) {
 			case -1:
-				rIdx++
+				incRIdx()
 			case 0:
-				rIdx++
+				incRIdx()
 				fIdx++
 			case 1:
-				ranges[rIdx].start = finishedRanges[fIdx].end
+				rStart = finishedRanges[fIdx].end
 				fIdx++
 			}
 		} else if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) > 0 {
-			ranges[rIdx].start = finishedRanges[fIdx].end
+			rStart = finishedRanges[fIdx].end
 			fIdx++
 		} else {
-			rIdx++
+			incRIdx()
 		}
 	}
 
 	if rIdx < len(ranges) {
-		result = append(result, ranges[rIdx:]...)
+		result = append(result, Range{start: rStart, end: ranges[rIdx].end})
+		rIdx++
+		if rIdx < len(ranges) {
+			result = append(result, ranges[rIdx:]...)
+		}
 	}
 
 	return result
