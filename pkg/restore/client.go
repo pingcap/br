@@ -586,8 +586,7 @@ func (rc *Client) RestoreFiles(
 	files []*backuppb.File,
 	rewriteRules *RewriteRules,
 	updateCh glue.Progress,
-) error {
-	var err error
+) (err error) {
 	start := time.Now()
 	defer func() {
 		elapsed := time.Since(start)
