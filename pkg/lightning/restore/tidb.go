@@ -21,13 +21,6 @@ import (
 	"strings"
 
 	tmysql "github.com/go-sql-driver/mysql"
-	"github.com/pingcap/br/pkg/lightning/checkpoints"
-	"github.com/pingcap/br/pkg/lightning/common"
-	"github.com/pingcap/br/pkg/lightning/config"
-	"github.com/pingcap/br/pkg/lightning/glue"
-	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/lightning/metric"
-	"github.com/pingcap/br/pkg/lightning/mydump"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/parser"
 	"github.com/pingcap/parser/ast"
@@ -35,8 +28,15 @@ import (
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/parser/terror"
-
 	"go.uber.org/zap"
+
+	"github.com/pingcap/br/pkg/lightning/checkpoints"
+	"github.com/pingcap/br/pkg/lightning/common"
+	"github.com/pingcap/br/pkg/lightning/config"
+	"github.com/pingcap/br/pkg/lightning/glue"
+	"github.com/pingcap/br/pkg/lightning/log"
+	"github.com/pingcap/br/pkg/lightning/metric"
+	"github.com/pingcap/br/pkg/lightning/mydump"
 )
 
 // defaultImportantVariables is used in ObtainImportantVariables to retrieve the system
