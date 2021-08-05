@@ -26,7 +26,6 @@ import (
 	"github.com/pingcap/tidb/table"
 	"go.uber.org/zap"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
 	"github.com/pingcap/br/pkg/lightning/common"
@@ -197,6 +196,14 @@ type AbstractBackend interface {
 
 	// LocalWriter obtains a thread-local EngineWriter for writing rows into the given engine.
 	LocalWriter(ctx context.Context, cfg *LocalWriterConfig, engineUUID uuid.UUID) (EngineWriter, error)
+
+	// CollectLocalDuplicateRows collect duplicate keys from local db. We will store the duplicate keys which
+	//  may be repeated with other keys in local data source.
+	CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error
+
+	// CollectLocalDuplicateRows collect duplicate keys from remote TiKV storage. This keys may be duplicate with
+	//  the data import by other lightning.
+	CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error
 }
 
 // Backend is the delivery target for Lightning
@@ -313,7 +320,7 @@ func (be Backend) UnsafeImportAndReset(ctx context.Context, engineUUID uuid.UUID
 			uuid:    engineUUID,
 		},
 	}
-	if err := closedEngine.Import(ctx); err != nil && !berrors.Is(err, berrors.ErrDuplicateDetected) {
+	if err := closedEngine.Import(ctx); err != nil {
 		return err
 	}
 	return be.abstract.ResetEngine(ctx, engineUUID)
@@ -350,6 +357,14 @@ func (be Backend) OpenEngine(ctx context.Context, config *EngineConfig, tableNam
 		},
 		tableName: tableName,
 	}, nil
+}
+
+func (be Backend) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
+	return be.abstract.CollectLocalDuplicateRows(ctx, tbl)
+}
+
+func (be Backend) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
+	return be.abstract.CollectRemoteDuplicateRows(ctx, tbl)
 }
 
 // Close the opened engine to prepare it for importing.
@@ -427,9 +442,6 @@ func (engine *ClosedEngine) Import(ctx context.Context) error {
 	for i := 0; i < importMaxRetryTimes; i++ {
 		task := engine.logger.With(zap.Int("retryCnt", i)).Begin(zap.InfoLevel, "import")
 		err = engine.backend.ImportEngine(ctx, engine.uuid)
-		if berrors.Is(err, berrors.ErrDuplicateDetected) {
-			return err
-		}
 		if !common.IsRetryableError(err) {
 			task.End(zap.ErrorLevel, err)
 			return err
