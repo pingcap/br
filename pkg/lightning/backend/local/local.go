@@ -1864,18 +1864,16 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 	var wg sync.WaitGroup
 	metErr := atomic.NewBool(false)
 
-	wg.Add(len(ranges))
-
-	for i, r := range ranges {
+	for _, r := range ranges {
 		startKey := r.start
 		endKey := r.end
 		w := local.rangeConcurrency.Apply()
 		// if meet error here, skip try more here to allow fail fast.
 		if metErr.Load() {
-			wg.Add(i - len(ranges))
 			local.rangeConcurrency.Recycle(w)
 			break
 		}
+		wg.Add(1)
 		go func(w *worker.Worker) {
 			defer func() {
 				local.rangeConcurrency.Recycle(w)
