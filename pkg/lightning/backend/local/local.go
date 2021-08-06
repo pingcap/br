@@ -2033,50 +2033,27 @@ func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
 		return ranges
 	}
 
-	result := make([]Range, 0, len(ranges))
-	rIdx := 0
-	fIdx := 0
-	rStart := ranges[rIdx].start
-	incRIdx := func() {
-		rIdx++
-		if rIdx < len(ranges) {
-			rStart = ranges[rIdx].start
-		}
-	}
-	for rIdx < len(ranges) && fIdx < len(finishedRanges) {
-		if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].start) <= 0 {
-			result = append(result, Range{start: rStart, end: ranges[rIdx].end})
-			incRIdx()
-		} else if bytes.Compare(rStart, finishedRanges[fIdx].end) >= 0 {
-			fIdx++
-		} else if bytes.Compare(rStart, finishedRanges[fIdx].start) < 0 {
-			result = append(result, Range{start: rStart, end: finishedRanges[fIdx].start})
-			switch bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) {
-			case -1:
-				incRIdx()
-			case 0:
-				incRIdx()
-				fIdx++
-			case 1:
-				rStart = finishedRanges[fIdx].end
-				fIdx++
+	result := make([]Range, 0)
+	for _, r := range ranges {
+		start := r.start
+		end := r.end
+		for len(finishedRanges) > 0 && bytes.Compare(finishedRanges[0].start, end) < 0 {
+			fr := finishedRanges[0]
+			if bytes.Compare(fr.start, start) > 0 {
+				result = append(result, Range{start: start, end: fr.start})
 			}
-		} else if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) > 0 {
-			rStart = finishedRanges[fIdx].end
-			fIdx++
-		} else {
-			incRIdx()
+			if bytes.Compare(fr.end, start) > 0 {
+				start = fr.end
+			}
+			if bytes.Compare(fr.end, end) > 0 {
+				break
+			}
+			finishedRanges = finishedRanges[1:]
+		}
+		if bytes.Compare(start, end) < 0 {
+			result = append(result, Range{start: start, end: r.end})
 		}
 	}
-
-	if rIdx < len(ranges) {
-		result = append(result, Range{start: rStart, end: ranges[rIdx].end})
-		rIdx++
-		if rIdx < len(ranges) {
-			result = append(result, ranges[rIdx:]...)
-		}
-	}
-
 	return result
 }
 
