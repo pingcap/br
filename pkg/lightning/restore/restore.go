@@ -105,6 +105,11 @@ const (
 		task_id BIGINT(20) UNSIGNED NOT NULL,
 		pd_cfgs VARCHAR(2048) NOT NULL DEFAULT '',
 		status  VARCHAR(32) NOT NULL,
+<<<<<<< HEAD
+=======
+		state   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0: normal, 1: exited before finish',
+		source_bytes BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+>>>>>>> 1b0e54c2 (lightning: check and restore pd scheduler even if our task failed (#1336))
 		PRIMARY KEY (task_id)
 	);`
 
@@ -1163,6 +1168,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// we do not do switch back automatically
 	cleanupFunc := func() {}
 	switchBack := false
+	taskFinished := false
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
@@ -1183,7 +1189,11 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			if restoreFn != nil {
 				// use context.Background to make sure this restore function can still be executed even if ctx is canceled
 				restoreCtx := context.Background()
+<<<<<<< HEAD
 				needSwitchBack, err := mgr.CheckAndFinishRestore(restoreCtx)
+=======
+				needSwitchBack, needCleanup, err := rc.taskMgr.CheckAndFinishRestore(restoreCtx, taskFinished)
+>>>>>>> 1b0e54c2 (lightning: check and restore pd scheduler even if our task failed (#1336))
 				if err != nil {
 					logTask.Warn("check restore pd schedulers failed", zap.Error(err))
 					return
@@ -1193,7 +1203,10 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 					if restoreE := restoreFn(restoreCtx); restoreE != nil {
 						logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 					}
+
+					logTask.Info("add back PD leader&region schedulers")
 					// clean up task metas
+<<<<<<< HEAD
 					if cleanupErr := mgr.Cleanup(restoreCtx); cleanupErr != nil {
 						logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
 					}
@@ -1201,11 +1214,21 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 					cleanupFunc = func() {
 						if e := mgr.CleanupAllMetas(restoreCtx); err != nil {
 							logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(e))
+=======
+					if needCleanup {
+						logTask.Info("cleanup task metas")
+						if cleanupErr := rc.taskMgr.Cleanup(restoreCtx); cleanupErr != nil {
+							logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
+						}
+						// cleanup table meta and schema db if needed.
+						cleanupFunc = func() {
+							if e := rc.taskMgr.CleanupAllMetas(restoreCtx); err != nil {
+								logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(e))
+							}
+>>>>>>> 1b0e54c2 (lightning: check and restore pd scheduler even if our task failed (#1336))
 						}
 					}
 				}
-
-				logTask.Info("add back PD leader&region schedulers")
 			}
 
 			pdController.Close()
@@ -1403,6 +1426,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// finishSchedulers()
 	// cancelFunc(switchBack)
 	// finishFuncCalled = true
+	taskFinished = true
 
 	close(postProcessTaskChan)
 	// otherwise, we should run all tasks in the post-process task chan
