@@ -1024,7 +1024,7 @@ func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Cli
 				zap.Int("retry", i))
 		}
 		if err != nil {
-			log.L().Warn("check multi failed all retry, fallback to false")
+			log.L().Warn("check multi failed all retry, fallback to false", log.ShortError(err))
 			local.supportMultiIngest = false
 			return nil
 		}
