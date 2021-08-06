@@ -144,8 +144,8 @@ func (s *checksumSuite) TestIncreaseGCLifeTimeFail(c *C) {
 	wg.Add(5)
 	for i := 0; i < 5; i++ {
 		go func() {
-			_, err = DoChecksum(ctx, &TidbTableInfo{DB: "test", Name: "t"})
-			c.Assert(err, ErrorMatches, "update GC lifetime failed: update gc error: context canceled")
+			_, errChecksum := DoChecksum(ctx, &TidbTableInfo{DB: "test", Name: "t"})
+			c.Assert(errChecksum, ErrorMatches, "update GC lifetime failed: update gc error: context canceled")
 			wg.Done()
 		}()
 	}

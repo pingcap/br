@@ -785,7 +785,9 @@ func (s *tableRestoreSuite) TestCompareChecksumSuccess(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(1234567, 12345, 1234567890))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(1234567, 12345, 1234567890))
 	c.Assert(err, IsNil)
 
 	c.Assert(db.Close(), IsNil)
@@ -812,7 +814,9 @@ func (s *tableRestoreSuite) TestCompareChecksumFailure(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(9876543, 54321, 1357924680))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(9876543, 54321, 1357924680))
 	c.Assert(err, ErrorMatches, "checksum mismatched.*")
 
 	c.Assert(db.Close(), IsNil)
@@ -944,8 +948,8 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 			s.tableInfo.DB: s.dbInfo,
 		},
 		tableWorkers:      worker.NewPool(ctx, 6, "table"),
-		indexWorkers:      worker.NewPool(ctx, 2, "index"),
 		ioWorkers:         worker.NewPool(ctx, 5, "io"),
+		indexWorkers:      worker.NewPool(ctx, 2, "index"),
 		regionWorkers:     worker.NewPool(ctx, 10, "region"),
 		checksumWorks:     worker.NewPool(ctx, 2, "region"),
 		saveCpCh:          chptCh,
@@ -1526,6 +1530,33 @@ func (s *restoreSchemaSuite) TestRestoreSchemaFailed(c *C) {
 	c.Assert(errors.ErrorEqual(err, injectErr), IsTrue)
 }
 
+// When restoring a CSV with `-no-schema` and the target table doesn't exist
+// then we can't restore the schema as the `Path` is empty. This is to make
+// sure this results in the correct error.
+// https://github.com/pingcap/br/issues/1394
+func (s *restoreSchemaSuite) TestNoSchemaPath(c *C) {
+	fakeTable := mydump.MDTableMeta{
+		DB:   "fakedb",
+		Name: "fake1",
+		SchemaFile: mydump.FileInfo{
+			TableName: filter.Table{
+				Schema: "fakedb",
+				Name:   "fake1",
+			},
+			FileMeta: mydump.SourceFileMeta{
+				Path: "",
+			},
+		},
+		DataFiles: []mydump.FileInfo{},
+		TotalSize: 0,
+	}
+	s.rc.dbMetas[0].Tables = append(s.rc.dbMetas[0].Tables, &fakeTable)
+	err := s.rc.restoreSchema(s.ctx)
+	c.Assert(err, NotNil)
+	c.Assert(err, ErrorMatches, `table .* schema not found`)
+	s.rc.dbMetas[0].Tables = s.rc.dbMetas[0].Tables[:len(s.rc.dbMetas[0].Tables)-1]
+}
+
 func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	childCtx, cancel := context.WithCancel(s.ctx)
 	mockSession := mock.NewMockSession(s.controller)
@@ -1567,7 +1598,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 							"id": 2
 						},
 						"status": {
-							"available": "24"
+							"capacity": "24"
 						}
 					}
 				]
@@ -1575,7 +1606,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 			[]byte(`{
 				"max-replicas": 1
 			}`),
-			"(.*)Cluster resources are rich for this import task(.*)",
+			"(.*)Cluster capacity is rich(.*)",
 			true,
 			0,
 		},
@@ -1588,7 +1619,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 							"id": 2
 						},
 						"status": {
-							"available": "23"
+							"capacity": "15"
 						}
 					}
 				]
@@ -1633,7 +1664,12 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 		url := strings.TrimPrefix(server.URL, "https://")
 		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
 		rc := &Controller{cfg: cfg, tls: tls, store: mockStore, checkTemplate: template}
-		err := rc.ClusterResource(ctx)
+		var sourceSize int64
+		err = rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
+			sourceSize += size
+			return nil
+		})
+		err = rc.ClusterResource(ctx, sourceSize)
 		c.Assert(err, IsNil)
 
 		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
