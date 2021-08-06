@@ -2051,7 +2051,7 @@ func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
 			finishedRanges = finishedRanges[1:]
 		}
 		if bytes.Compare(start, end) < 0 {
-			result = append(result, Range{start: start, end: r.end})
+			result = append(result, Range{start: start, end: end})
 		}
 	}
 	return result
