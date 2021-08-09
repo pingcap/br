@@ -99,109 +99,125 @@ func (db *DB) CreateDatabase(ctx context.Context, schema *model.DBInfo) error {
 }
 
 // CreateTable executes a CREATE TABLE SQL.
-func (db *DB) CreateTable(ctx context.Context, table *metautil.Table) error {
-	err := db.se.CreateTable(ctx, table.DB.Name, table.Info)
-	if err != nil {
-		log.Error("create table failed",
-			zap.Stringer("db", table.DB.Name),
-			zap.Stringer("table", table.Info.Name),
-			zap.Error(err))
-		return errors.Trace(err)
-	}
-
-	var restoreMetaSQL string
-	if table.Info.IsSequence() {
-		setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
-			utils.EncloseName(table.DB.Name.O),
-			utils.EncloseName(table.Info.Name.O))
-		if table.Info.Sequence.Cycle {
-			increment := table.Info.Sequence.Increment
-			// TiDB sequence's behaviour is designed to keep the same pace
-			// among all nodes within the same cluster. so we need restore round.
-			// Here is a hack way to trigger sequence cycle round > 0 according to
-			// https://github.com/pingcap/br/pull/242#issuecomment-631307978
-			// TODO use sql to set cycle round
-			nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
-				utils.EncloseName(table.DB.Name.O),
-				utils.EncloseName(table.Info.Name.O))
-			var setValSQL string
-			if increment < 0 {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
-			} else {
-				setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
-			}
-			err = db.se.Execute(ctx, setValSQL)
+func (db *DB) CreateTable(ctx context.Context, tables []*metautil.Table) error {
+	if bse, ok := db.se.(glue.BulkCreateTableSession); ok {
+		log.Info("session supports bulk create table.")
+		m := map[string][]*model.TableInfo{}
+		for _, table := range tables {
+			m[table.DB.Name.L] = append(m[table.DB.Name.L], table.Info)
+		}
+		if err := bse.CreateTables(ctx, m); err != nil {
+			return err
+		}
+	} else {
+		for _, table := range tables {
+			err := db.se.CreateTable(ctx, table.DB.Name, table.Info)
 			if err != nil {
-				log.Error("restore meta sql failed",
-					zap.String("query", setValSQL),
-					zap.Stringer("db", table.DB.Name),
-					zap.Stringer("table", table.Info.Name),
-					zap.Error(err))
-				return errors.Trace(err)
-			}
-
-			// trigger cycle round > 0
-			err = db.se.Execute(ctx, nextSeqSQL)
-			if err != nil {
-				log.Error("restore meta sql failed",
-					zap.String("query", nextSeqSQL),
+				log.Error("create table failed",
 					zap.Stringer("db", table.DB.Name),
 					zap.Stringer("table", table.Info.Name),
 					zap.Error(err))
 				return errors.Trace(err)
 			}
 		}
-		restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
-		err = db.se.Execute(ctx, restoreMetaSQL)
 	}
-	// else {
-	// 	var alterAutoIncIDFormat string
-	// 	switch {
-	// 	case table.Info.IsView():
-	// 		return nil
-	// 	default:
-	// 		alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
-	// 	}
-	// 	restoreMetaSQL = fmt.Sprintf(
-	// 		alterAutoIncIDFormat,
-	// 		utils.EncloseName(table.DB.Name.O),
-	// 		utils.EncloseName(table.Info.Name.O),
-	// 		table.Info.AutoIncID)
-	// 	if utils.NeedAutoID(table.Info) {
-	// 		err = db.se.Execute(ctx, restoreMetaSQL)
-	// 	}
-	// }
+	for _, table := range tables {
+		var restoreMetaSQL string
+		var err error
+		if table.Info.IsSequence() {
+			setValFormat := fmt.Sprintf("do setval(%s.%s, %%d);",
+				utils.EncloseName(table.DB.Name.O),
+				utils.EncloseName(table.Info.Name.O))
+			if table.Info.Sequence.Cycle {
+				increment := table.Info.Sequence.Increment
+				// TiDB sequence's behaviour is designed to keep the same pace
+				// among all nodes within the same cluster. so we need restore round.
+				// Here is a hack way to trigger sequence cycle round > 0 according to
+				// https://github.com/pingcap/br/pull/242#issuecomment-631307978
+				// TODO use sql to set cycle round
+				nextSeqSQL := fmt.Sprintf("do nextval(%s.%s);",
+					utils.EncloseName(table.DB.Name.O),
+					utils.EncloseName(table.Info.Name.O))
+				var setValSQL string
+				if increment < 0 {
+					setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MinValue)
+				} else {
+					setValSQL = fmt.Sprintf(setValFormat, table.Info.Sequence.MaxValue)
+				}
+				err = db.se.Execute(ctx, setValSQL)
+				if err != nil {
+					log.Error("restore meta sql failed",
+						zap.String("query", setValSQL),
+						zap.Stringer("db", table.DB.Name),
+						zap.Stringer("table", table.Info.Name),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
 
-	if err != nil {
-		log.Error("restore meta sql failed",
-			zap.String("query", restoreMetaSQL),
-			zap.Stringer("db", table.DB.Name),
-			zap.Stringer("table", table.Info.Name),
-			zap.Error(err))
+				// trigger cycle round > 0
+				err = db.se.Execute(ctx, nextSeqSQL)
+				if err != nil {
+					log.Error("restore meta sql failed",
+						zap.String("query", nextSeqSQL),
+						zap.Stringer("db", table.DB.Name),
+						zap.Stringer("table", table.Info.Name),
+						zap.Error(err))
+					return errors.Trace(err)
+				}
+			}
+			restoreMetaSQL = fmt.Sprintf(setValFormat, table.Info.AutoIncID)
+			err = db.se.Execute(ctx, restoreMetaSQL)
+		}
+		// else {
+		// 	var alterAutoIncIDFormat string
+		// 	switch {
+		// 	case table.Info.IsView():
+		// 		return nil
+		// 	default:
+		// 		alterAutoIncIDFormat = "alter table %s.%s auto_increment = %d;"
+		// 	}
+		// 	restoreMetaSQL = fmt.Sprintf(
+		// 		alterAutoIncIDFormat,
+		// 		utils.EncloseName(table.DB.Name.O),
+		// 		utils.EncloseName(table.Info.Name.O),
+		// 		table.Info.AutoIncID)
+		// 	if utils.NeedAutoID(table.Info) {
+		// 		err = db.se.Execute(ctx, restoreMetaSQL)
+		// 	}
+		// }
+
+		if err != nil {
+			log.Error("restore meta sql failed",
+				zap.String("query", restoreMetaSQL),
+				zap.Stringer("db", table.DB.Name),
+				zap.Stringer("table", table.Info.Name),
+				zap.Error(err))
+			return errors.Trace(err)
+		}
+		// if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
+		// 	// this table has auto random id, we need rebase it
+
+		// 	// we can't merge two alter query, because
+		// 	// it will cause Error: [ddl:8200]Unsupported multi schema change
+		// 	alterAutoRandIDSQL := fmt.Sprintf(
+		// 		"alter table %s.%s auto_random_base = %d",
+		// 		utils.EncloseName(table.DB.Name.O),
+		// 		utils.EncloseName(table.Info.Name.O),
+		// 		table.Info.AutoRandID)
+
+		// 	err = db.se.Execute(ctx, alterAutoRandIDSQL)
+		// 	if err != nil {
+		// 		log.Error("alter AutoRandID failed",
+		// 			zap.String("query", alterAutoRandIDSQL),
+		// 			zap.Stringer("db", table.DB.Name),
+		// 			zap.Stringer("table", table.Info.Name),
+		// 			zap.Error(err))
+		// 	}
+		// }
+
 		return errors.Trace(err)
 	}
-	// if table.Info.PKIsHandle && table.Info.ContainsAutoRandomBits() {
-	// 	// this table has auto random id, we need rebase it
-
-	// 	// we can't merge two alter query, because
-	// 	// it will cause Error: [ddl:8200]Unsupported multi schema change
-	// 	alterAutoRandIDSQL := fmt.Sprintf(
-	// 		"alter table %s.%s auto_random_base = %d",
-	// 		utils.EncloseName(table.DB.Name.O),
-	// 		utils.EncloseName(table.Info.Name.O),
-	// 		table.Info.AutoRandID)
-
-	// 	err = db.se.Execute(ctx, alterAutoRandIDSQL)
-	// 	if err != nil {
-	// 		log.Error("alter AutoRandID failed",
-	// 			zap.String("query", alterAutoRandIDSQL),
-	// 			zap.Stringer("db", table.DB.Name),
-	// 			zap.Stringer("table", table.Info.Name),
-	// 			zap.Error(err))
-	// 	}
-	// }
-
-	return errors.Trace(err)
+	return nil
 }
 
 // Close closes the connection.

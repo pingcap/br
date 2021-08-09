@@ -11,6 +11,11 @@ import (
 	pd "github.com/tikv/pd/client"
 )
 
+type BulkCreateTableSession interface {
+	Session
+	CreateTables(ctx context.Context, tables map[string][]*model.TableInfo) error
+}
+
 // Glue is an abstraction of TiDB function calls used in BR.
 type Glue interface {
 	GetDomain(store kv.Storage) (*domain.Domain, error)

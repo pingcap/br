@@ -396,35 +396,40 @@ func (rc *Client) createTable(
 	ctx context.Context,
 	db *DB,
 	dom *domain.Domain,
-	table *metautil.Table,
+	tables []*metautil.Table,
 	newTS uint64,
-) (CreatedTable, error) {
+) ([]CreatedTable, error) {
 	if rc.IsSkipCreateSQL() {
-		log.Info("skip create table and alter autoIncID", zap.Stringer("table", table.Info.Name))
+		log.Info("skip create table and alter autoIncID" /* TODO, log tables */)
 	} else {
-		err := db.CreateTable(ctx, table)
+		err := db.CreateTable(ctx, tables)
 		if err != nil {
-			return CreatedTable{}, errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 	}
-	newTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
-	if err != nil {
-		return CreatedTable{}, errors.Trace(err)
+	ets := make([]CreatedTable, 0, len(tables))
+	for _, table := range tables {
+		newTableInfo, err := rc.GetTableSchema(dom, table.DB.Name, table.Info.Name)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
+			return nil, errors.Annotatef(berrors.ErrRestoreModeMismatch,
+				"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
+				transferBoolToValue(table.Info.IsCommonHandle),
+				table.Info.IsCommonHandle,
+				newTableInfo.IsCommonHandle)
+		}
+		rules := GetRewriteRules(newTableInfo, table.Info, newTS)
+		ct := CreatedTable{
+			RewriteRule: rules,
+			Table:       newTableInfo,
+			OldTable:    table,
+		}
+		log.Debug("new created tables", zap.Any("table", ct))
+		ets = append(ets, ct)
 	}
-	if newTableInfo.IsCommonHandle != table.Info.IsCommonHandle {
-		return CreatedTable{}, errors.Annotatef(berrors.ErrRestoreModeMismatch,
-			"Clustered index option mismatch. Restored cluster's @@tidb_enable_clustered_index should be %v (backup table = %v, created table = %v).",
-			transferBoolToValue(table.Info.IsCommonHandle),
-			table.Info.IsCommonHandle,
-			newTableInfo.IsCommonHandle)
-	}
-	rules := GetRewriteRules(newTableInfo, table.Info, newTS)
-	et := CreatedTable{
-		RewriteRule: rules,
-		Table:       newTableInfo,
-		OldTable:    table,
-	}
-	return et, nil
+	return ets, nil
 }
 
 // GoCreateTables create tables, and generate their information.
@@ -448,38 +453,25 @@ func (rc *Client) GoCreateTables(
 	}
 	outCh := make(chan CreatedTable, len(tables))
 	rater := logutil.NewTrivialRater()
-	createOneTable := func(c context.Context, db *DB, t *metautil.Table) error {
-		select {
-		case <-c.Done():
-			return c.Err()
-		default:
-		}
-		rt, err := rc.createTable(c, db, dom, t, newTS)
-		if err != nil {
-			log.Error("create table failed",
-				zap.Error(err),
-				zap.Stringer("db", t.DB.Name),
-				zap.Stringer("table", t.Info.Name))
-			return errors.Trace(err)
-		}
-		log.Debug("table created and send to next",
-			zap.Int("output chan size", len(outCh)),
-			zap.Stringer("table", t.Info.Name),
-			zap.Stringer("database", t.DB.Name))
-		outCh <- rt
-		rater.Success(1)
-		rater.L().Info("table created",
-			zap.Stringer("table", t.Info.Name),
-			zap.Stringer("database", t.DB.Name))
-		return nil
-	}
+
 	go func() {
 		defer close(outCh)
 		defer log.Debug("all tables are created")
-		var err error
-		err = rc.createTablesWithSoleDB(ctx, createOneTable, tables)
+		rts, err := rc.createTable(ctx, rc.db, dom, tables, newTS)
 		if err != nil {
 			errCh <- err
+		}
+		rater.Success(uint64(len(tables)))
+		for _, rt := range rts {
+			log.Debug("table created and send to next",
+				zap.Int("output chan size", len(outCh)),
+				zap.Stringer("table", rt.OldTable.Info.Name),
+				zap.Stringer("database", rt.OldTable.DB.Name))
+			outCh <- rt
+			rater.Success(1)
+			rater.L().Info("table created",
+				zap.Stringer("table", rt.OldTable.Info.Name),
+				zap.Stringer("database", rt.OldTable.DB.Name))
 		}
 	}()
 	return outCh

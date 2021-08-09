@@ -5,6 +5,7 @@ package gluetidb
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pingcap/errors"
@@ -132,11 +133,19 @@ func (gs *tidbSession) CreateDatabase(ctx context.Context, schema *model.DBInfo)
 }
 
 func (gs *tidbSession) generateTableID() (int64, error) {
-	var ret int64
+	ids, err := gs.generateTableIDs(1)
+	if err != nil {
+		return 0, err
+	}
+	return ids[0], err
+}
+
+func (gs *tidbSession) generateTableIDs(num int) ([]int64, error) {
+	var ret []int64
 	err := kv.RunInNewTxn(context.Background(), gs.store, true, func(ctx context.Context, txn kv.Transaction) error {
 		m := meta.NewMeta(txn)
 		var err error
-		ret, err = m.GenGlobalID()
+		ret, err = m.GenGlobalIDs(num)
 		return err
 	})
 	return ret, err
@@ -157,6 +166,30 @@ func (gs *tidbSession) setInfoSchemaDiff(m *meta.Meta, schemaID int64, tableID i
 		return 0, err
 	}
 	return diff.Version, nil
+}
+
+func (gs *tidbSession) setInfoSchemaDiffs(m *meta.Meta, tables map[int64][]*model.TableInfo) (int64, error) {
+	diffs := make([]*model.SchemaDiff, 0, len(tables))
+	for db, table := range tables {
+		for _, t := range table {
+			schemaVersion, err := m.GenSchemaVersion()
+			if err != nil {
+				return 0, err
+			}
+			diffs = append(diffs, &model.SchemaDiff{
+				Version:  schemaVersion,
+				Type:     model.ActionCreateTable,
+				SchemaID: db,
+				TableID:  t.ID,
+			})
+		}
+	}
+	for _, diff := range diffs {
+		if err := m.SetSchemaDiff(diff); err != nil {
+			return 0, err
+		}
+	}
+	return diffs[len(diffs)-1].Version, nil
 }
 
 func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
@@ -185,8 +218,8 @@ func (gs *tidbSession) waitSchemaDiff(ctx context.Context, target int64) {
 		zap.Duration("take time", time.Since(timeStart)))
 }
 
-func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
-	newID, err := gs.generateTableID()
+func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo, alloc func() (int64, error)) error {
+	newID, err := alloc()
 	if err != nil {
 		return err
 	}
@@ -199,7 +232,7 @@ func (gs *tidbSession) createTableViaMetaWithNewID(m *meta.Meta, table *model.Ta
 	if table.Partition != nil {
 		for i := range table.Partition.Definitions {
 			// todo: batch it
-			table.Partition.Definitions[i].ID, err = gs.generateTableID()
+			table.Partition.Definitions[i].ID, err = alloc()
 			if err != nil {
 				return nil
 			}
@@ -220,26 +253,6 @@ func (gs *tidbSession) hackyRebaseGlobalID(m *meta.Meta, target int64) error {
 	return err
 }
 
-func (gs *tidbSession) createTableViaMeta(m *meta.Meta, table *model.TableInfo, schemaInfo *model.DBInfo) error {
-	// TODO partition and check.
-
-	if table.ID == 0 {
-		return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
-	}
-
-	if tableInfo, _ := m.GetTable(schemaInfo.ID, table.ID); tableInfo != nil {
-		return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
-	}
-
-	if err := m.CreateTableAndSetAutoID(schemaInfo.ID, table, table.AutoIncID, table.AutoRandID); err != nil {
-		if meta.ErrTableExists.Equal(err) {
-			return gs.createTableViaMetaWithNewID(m, table, schemaInfo)
-		}
-		return err
-	}
-	return errors.Annotate(gs.hackyRebaseGlobalID(m, table.ID), "failed to rebase global ID")
-}
-
 func (gs *tidbSession) tableNotExists(ctx context.Context, tableID int64) error {
 	txn, err := gs.store.Begin()
 	defer txn.Commit(ctx)
@@ -258,6 +271,83 @@ func (gs *tidbSession) tableNotExists(ctx context.Context, tableID int64) error 
 	if i.Valid() {
 		return errors.Annotatef(meta.ErrTableExists, "find table key %s", i.Key())
 	}
+	return nil
+}
+
+func countGlobalIDRequirement(tables []*model.TableInfo) int {
+	result := 0
+	for _, table := range tables {
+		result += 1
+		if table.Partition != nil {
+			result += len(table.Partition.Definitions)
+		}
+	}
+	return result
+}
+
+func (gs *tidbSession) CreateTables(ctx context.Context, tables map[string][]*model.TableInfo) error {
+	dom := domain.GetDomain(gs.se)
+	is := dom.InfoSchema()
+	var version int64
+	needID := 0
+	for _, ts := range tables {
+		needID += countGlobalIDRequirement(ts)
+	}
+	ids, err := gs.generateTableIDs(needID)
+	if err != nil {
+		return err
+	}
+	offset := 0
+	allocID := func() (int64, error) {
+		if offset < len(ids) {
+			offset++
+			return ids[offset-1], nil
+		}
+		return 0, fmt.Errorf("Index out of range (%d:%d)", offset, len(ids))
+	}
+	err = gs.WithMeta(ctx, func(ctx context.Context, m *meta.Meta) error {
+		for db, tablesInDB := range tables {
+			for _, table := range tablesInDB {
+				table = table.Clone()
+				// Clone() does not clone partitions yet :(
+				if table.Partition != nil {
+					newPartition := *table.Partition
+					newPartition.Definitions = append([]model.PartitionDefinition{}, table.Partition.Definitions...)
+					table.Partition = &newPartition
+				}
+				if table.State != model.StatePublic {
+					log.Warn("table backed up with non-public state", zap.Stringer("table", table.Name), zap.String("database", db))
+					table.State = model.StatePublic
+				}
+				dbName := model.NewCIStr(db)
+				if is.TableExists(dbName, table.Name) {
+					log.Warn("table exists, skipping creat table.",
+						zap.Stringer("table", table.Name),
+						zap.String("database", db))
+					continue
+				}
+				schemaInfo, ok := is.SchemaByName(dbName)
+				if !ok {
+					return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
+				}
+				if err := gs.createTableViaMetaWithNewID(m, table, schemaInfo, allocID); err != nil {
+					return err
+				}
+				var err error
+				version, err = gs.setInfoSchemaDiff(m, schemaInfo.ID, table.ID)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, dom.DDL().GetLease()*2)
+	gs.waitSchemaDiff(cctx, version)
+	cancel()
 	return nil
 }
 
@@ -290,7 +380,7 @@ func (gs *tidbSession) CreateTable(ctx context.Context, dbName model.CIStr, tabl
 		if !ok {
 			return errors.Annotatef(infoschema.ErrDatabaseNotExists, "database %s not exist", dbName)
 		}
-		if errCreateTable := gs.createTableViaMetaWithNewID(m, table, schemaInfo); errCreateTable != nil {
+		if errCreateTable := gs.createTableViaMetaWithNewID(m, table, schemaInfo, gs.generateTableID); errCreateTable != nil {
 			return errCreateTable
 		}
 		version, err = gs.setInfoSchemaDiff(m, schemaInfo.ID, table.ID)
