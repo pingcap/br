@@ -85,10 +85,4 @@ for BACKEND in 'local' 'tidb' 'importer'; do
     run_sql 'SELECT * FROM gencol.virtual_only WHERE id_plus_2 = 42'
     check_contains 'id: 40'
     check_contains 'id_plus_1: 41'
-
-    run_sql 'ADMIN CHECK TABLE gencol.expr_index'
-    run_sql 'SELECT /*+ use_index(gencol.expr_index, idx_lower_b) */ * FROM gencol.expr_index WHERE lower(b) = "cdsfds"'
-    check_contains 'id: 2'
-    check_contains 'a: ABC'
-    check_contains 'b: CDSFDS'
 done
