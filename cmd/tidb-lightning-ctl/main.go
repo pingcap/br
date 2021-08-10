@@ -190,22 +190,24 @@ func checkpointRemove(ctx context.Context, cfg *config.Config, tableName string)
 		return errors.Trace(err)
 	}
 	defer cpdb.Close()
-	if err = cpdb.RemoveCheckpoint(ctx, tableName); err != nil {
-		return errors.Trace(err)
-	}
 
+	// try to remove the metadata first.
 	taskCp, err := cpdb.TaskCheckpoint(ctx)
 	if err != nil {
 		return errors.Trace(err)
 	}
-
 	// a empty id means this task is not inited, we needn't further check metas.
-	if taskCp.TaskID == 0 {
-		return nil
+	if taskCp != nil && taskCp.TaskID != 0 {
+		// try to clean up table metas if exists
+		if err = cleanupMetas(ctx, cfg, tableName); err != nil {
+			return errors.Trace(err)
+		}
 	}
 
-	// try to clean up table metas if exists
-	return cleanupMetas(ctx, cfg, tableName)
+	if err = cpdb.RemoveCheckpoint(ctx, tableName); err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func cleanupMetas(ctx context.Context, cfg *config.Config, tableName string) error {
@@ -218,27 +220,22 @@ func cleanupMetas(ctx context.Context, cfg *config.Config, tableName string) err
 		return errors.Trace(err)
 	}
 
-	exist, err := common.TableExists(ctx, db, cfg.App.MetaSchemaName, restore.TableMetaTableName)
+	tableMetaExist, err := common.TableExists(ctx, db, cfg.App.MetaSchemaName, restore.TableMetaTableName)
 	if err != nil {
 		return errors.Trace(err)
 	}
-	if !exist {
-		return nil
-	}
-	metaTableName := common.UniqueTable(cfg.App.MetaSchemaName, restore.TableMetaTableName)
-	err = restore.RemoveTableMetaByTableName(ctx, db, metaTableName, tableName)
-	if !exist {
-		return nil
+	if tableMetaExist {
+		metaTableName := common.UniqueTable(cfg.App.MetaSchemaName, restore.TableMetaTableName)
+		if err = restore.RemoveTableMetaByTableName(ctx, db, metaTableName, tableName); err != nil {
+			return errors.Trace(err)
+		}
 	}
 
-	exist, err = common.TableExists(ctx, db, cfg.App.MetaSchemaName, restore.TaskMetaTableName)
-	if err != nil {
+	exist, err := common.TableExists(ctx, db, cfg.App.MetaSchemaName, restore.TaskMetaTableName)
+	if err != nil || !exist {
 		return errors.Trace(err)
 	}
-	if !exist {
-		return nil
-	}
-	return errors.Trace(restore.MaybeCleanupAllMetas(ctx, db, cfg.App.MetaSchemaName))
+	return errors.Trace(restore.MaybeCleanupAllMetas(ctx, db, cfg.App.MetaSchemaName, tableMetaExist))
 }
 
 func checkpointErrorIgnore(ctx context.Context, cfg *config.Config, tableName string) error {

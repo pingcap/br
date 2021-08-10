@@ -741,25 +741,27 @@ func (m *dbTaskMetaMgr) Cleanup(ctx context.Context) error {
 }
 
 func (m *dbTaskMetaMgr) CleanupAllMetas(ctx context.Context) error {
-	return MaybeCleanupAllMetas(ctx, m.session, m.schemaName)
+	return MaybeCleanupAllMetas(ctx, m.session, m.schemaName, true)
 }
 
 // MaybeCleanupAllMetas remote the meta schema if there is no unfinished tables
-func MaybeCleanupAllMetas(ctx context.Context, db *sql.DB, schemaName string) error {
+func MaybeCleanupAllMetas(ctx context.Context, db *sql.DB, schemaName string, tableMetaExist bool) error {
 	exec := &common.SQLWithRetry{
 		DB:     db,
 		Logger: log.L(),
 	}
 
 	// check if all tables are finished
-	query := fmt.Sprintf("SELECT COUNT(*) from %s", common.UniqueTable(schemaName, TableMetaTableName))
-	var cnt int
-	if err := exec.QueryRow(ctx, "fetch table meta row count", query, &cnt); err != nil {
-		return errors.Trace(err)
-	}
-	if cnt > 0 {
-		log.L().Warn("there are unfinished table in table meta table, cleanup skipped.")
-		return nil
+	if tableMetaExist {
+		query := fmt.Sprintf("SELECT COUNT(*) from %s", common.UniqueTable(schemaName, TableMetaTableName))
+		var cnt int
+		if err := exec.QueryRow(ctx, "fetch table meta row count", query, &cnt); err != nil {
+			return errors.Trace(err)
+		}
+		if cnt > 0 {
+			log.L().Warn("there are unfinished table in table meta table, cleanup skipped.")
+			return nil
+		}
 	}
 
 	// avoid override existing metadata if the meta is already inserted.
