@@ -182,6 +182,9 @@ func (rc *Client) InitBackupMeta(c context.Context, backupMeta *backuppb.BackupM
 		var ddlJobs []*model.Job
 		// ddls is the bytes of json.Marshal
 		ddls, err := reader.ReadDDLs(c)
+		if err != nil {
+			return errors.Trace(err)
+		}
 		if len(ddls) != 0 {
 			err = json.Unmarshal(ddls, &ddlJobs)
 			if err != nil {
@@ -443,8 +446,8 @@ func (rc *Client) GoCreateTables(
 		defer span1.Finish()
 		ctx = opentracing.ContextWithSpan(ctx, span1)
 	}
-
 	outCh := make(chan CreatedTable, len(tables))
+	rater := logutil.TraceRateOver(logutil.MetricTableCreatedCounter)
 	createOneTable := func(c context.Context, db *DB, t *metautil.Table) error {
 		select {
 		case <-c.Done():
@@ -464,6 +467,10 @@ func (rc *Client) GoCreateTables(
 			zap.Stringer("table", t.Info.Name),
 			zap.Stringer("database", t.DB.Name))
 		outCh <- rt
+		rater.Inc()
+		rater.L().Info("table created",
+			zap.Stringer("table", t.Info.Name),
+			zap.Stringer("database", t.DB.Name))
 		return nil
 	}
 	go func() {

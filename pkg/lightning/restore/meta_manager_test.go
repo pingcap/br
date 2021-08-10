@@ -4,7 +4,6 @@ package restore
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -25,7 +24,6 @@ import (
 var _ = Suite(&metaMgrSuite{})
 
 type metaMgrSuite struct {
-	dbHandle    *sql.DB
 	mockDB      sqlmock.Sqlmock
 	tr          *TableRestore
 	mgr         *dbTableMetaMgr
