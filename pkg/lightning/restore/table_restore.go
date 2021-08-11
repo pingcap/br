@@ -28,7 +28,6 @@ import (
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -40,6 +39,7 @@ import (
 	"github.com/pingcap/br/pkg/lightning/mydump"
 	verify "github.com/pingcap/br/pkg/lightning/verification"
 	"github.com/pingcap/br/pkg/lightning/worker"
+	"github.com/pingcap/br/pkg/utils"
 )
 
 type TableRestore struct {
@@ -158,13 +158,22 @@ func (tr *TableRestore) RebaseChunkRowIDs(cp *checkpoints.TableCheckpoint, rowID
 //
 // The argument `columns` _must_ be in lower case.
 func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.ChunkCheckpoint) error {
+	colPerm, err := createColumnPermutation(columns, tr.ignoreColumns, tr.tableInfo.Core)
+	if err != nil {
+		return err
+	}
+	ccp.ColumnPermutation = colPerm
+	return nil
+}
+
+func createColumnPermutation(columns []string, ignoreColumns []string, tableInfo *model.TableInfo) ([]int, error) {
 	var colPerm []int
 	if len(columns) == 0 {
-		colPerm = make([]int, 0, len(tr.tableInfo.Core.Columns)+1)
-		shouldIncludeRowID := common.TableHasAutoRowID(tr.tableInfo.Core)
+		colPerm = make([]int, 0, len(tableInfo.Columns)+1)
+		shouldIncludeRowID := common.TableHasAutoRowID(tableInfo)
 
 		// no provided columns, so use identity permutation.
-		for i := range tr.tableInfo.Core.Columns {
+		for i := range tableInfo.Columns {
 			colPerm = append(colPerm, i)
 		}
 		if shouldIncludeRowID {
@@ -172,14 +181,12 @@ func (tr *TableRestore) initializeColumns(columns []string, ccp *checkpoints.Chu
 		}
 	} else {
 		var err error
-		colPerm, err = parseColumnPermutations(tr.tableInfo.Core, columns, tr.ignoreColumns)
+		colPerm, err = parseColumnPermutations(tableInfo, columns, ignoreColumns)
 		if err != nil {
-			return errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 	}
-
-	ccp.ColumnPermutation = colPerm
-	return nil
+	return colPerm, nil
 }
 
 func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp *checkpoints.TableCheckpoint) error {
@@ -294,26 +301,21 @@ func (tr *TableRestore) restoreEngines(pCtx context.Context, rc *Controller, cp 
 			if engine.Status < checkpoints.CheckpointStatusImported {
 				wg.Add(1)
 
-				// Note: We still need tableWorkers to control the concurrency of tables.
-				// In the future, we will investigate more about
-				// the difference between restoring tables concurrently and restoring tables one by one.
+				// If the number of chunks is small, it means that this engine may be finished in a few times.
+				// We do not limit it in TableConcurrency
 				restoreWorker := rc.tableWorkers.Apply()
-
 				go func(w *worker.Worker, eid int32, ecp *checkpoints.EngineCheckpoint) {
 					defer wg.Done()
-
 					engineLogTask := tr.logger.With(zap.Int32("engineNumber", eid)).Begin(zap.InfoLevel, "restore engine")
 					dataClosedEngine, err := tr.restoreEngine(ctx, rc, indexEngine, eid, ecp)
 					engineLogTask.End(zap.ErrorLevel, err)
 					rc.tableWorkers.Recycle(w)
-					if err != nil {
-						setError(err)
-						return
+					if err == nil {
+						dataWorker := rc.closedEngineLimit.Apply()
+						defer rc.closedEngineLimit.Recycle(dataWorker)
+						err = tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp)
 					}
-
-					dataWorker := rc.closedEngineLimit.Apply()
-					defer rc.closedEngineLimit.Recycle(dataWorker)
-					if err := tr.importEngine(ctx, dataClosedEngine, rc, eid, ecp); err != nil {
+					if err != nil {
 						setError(err)
 					}
 				}(restoreWorker, engineID, engine)
@@ -404,6 +406,11 @@ func (tr *TableRestore) restoreEngine(
 	dataEngineCfg := &backend.EngineConfig{
 		TableInfo: tr.tableInfo,
 		Local:     &backend.LocalEngineConfig{},
+	}
+	if !tr.tableMeta.IsRowOrdered {
+		dataEngineCfg.Local.Compact = true
+		dataEngineCfg.Local.CompactConcurrency = 4
+		dataEngineCfg.Local.CompactThreshold = compactionUpperThreshold
 	}
 	dataEngine, err := rc.backend.OpenEngine(ctx, dataEngineCfg, tr.tableName, engineID)
 	if err != nil {
@@ -705,7 +712,11 @@ func (tr *TableRestore) postProcess(
 		} else {
 			if forcePostProcess || !rc.cfg.PostRestore.PostProcessAtLast {
 				tr.logger.Info("local checksum", zap.Object("checksum", &localChecksum))
-
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectLocalDuplicateRows(ctx, tr.encTable); err != nil {
+						tr.logger.Error("collect local duplicate keys failed", log.ShortError(err))
+					}
+				}
 				needChecksum, baseTotalChecksum, err := metaMgr.CheckAndUpdateLocalChecksum(ctx, &localChecksum)
 				if err != nil {
 					return false, err
@@ -713,13 +724,21 @@ func (tr *TableRestore) postProcess(
 				if !needChecksum {
 					return false, nil
 				}
+				if rc.cfg.TikvImporter.DuplicateDetection {
+					if err := rc.backend.CollectRemoteDuplicateRows(ctx, tr.encTable); err != nil {
+						tr.logger.Error("collect remote duplicate keys failed", log.ShortError(err))
+						err = nil
+					}
+				}
 				if cp.Checksum.SumKVS() > 0 || baseTotalChecksum.SumKVS() > 0 {
 					localChecksum.Add(&cp.Checksum)
 					localChecksum.Add(baseTotalChecksum)
 					tr.logger.Info("merged local checksum", zap.Object("checksum", &localChecksum))
 				}
 
-				err = tr.compareChecksum(ctx, localChecksum)
+				remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
+				// TODO: If there are duplicate keys, do not set the `ChecksumMismatch` error
+				err = tr.compareChecksum(remoteChecksum, localChecksum)
 				// with post restore level 'optional', we will skip checksum error
 				if rc.cfg.PostRestore.Checksum == config.OpLevelOptional {
 					if err != nil {
@@ -853,12 +872,10 @@ func (tr *TableRestore) importKV(
 
 	err := closedEngine.Import(ctx)
 	saveCpErr := rc.saveStatusCheckpoint(ctx, tr.tableName, engineID, err, checkpoints.CheckpointStatusImported)
-	// Also cleanup engine when encountered ErrDuplicateDetected, since all duplicates kv pairs are recorded.
 	// Don't cleanup when save checkpoint failed, because we will verifyLocalFile and import engine again after restart.
-	if saveCpErr == nil && (err == nil || berrors.Is(err, berrors.ErrDuplicateDetected)) {
+	if saveCpErr == nil && err == nil {
 		err = multierr.Append(err, closedEngine.Cleanup(ctx))
 	}
-
 	err = firstErr(err, saveCpErr)
 
 	dur := task.End(zap.ErrorLevel, err)
@@ -875,12 +892,7 @@ func (tr *TableRestore) importKV(
 }
 
 // do checksum for each table.
-func (tr *TableRestore) compareChecksum(ctx context.Context, localChecksum verify.KVChecksum) error {
-	remoteChecksum, err := DoChecksum(ctx, tr.tableInfo)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
+func (tr *TableRestore) compareChecksum(remoteChecksum *RemoteChecksum, localChecksum verify.KVChecksum) error {
 	if remoteChecksum.Checksum != localChecksum.Sum() ||
 		remoteChecksum.TotalKVs != localChecksum.SumKVS() ||
 		remoteChecksum.TotalBytes != localChecksum.SumSize() {
@@ -900,4 +912,41 @@ func (tr *TableRestore) analyzeTable(ctx context.Context, g glue.SQLExecutor) er
 	err := g.ExecuteWithLog(ctx, "ANALYZE TABLE "+tr.tableName, "analyze table", tr.logger)
 	task.End(zap.ErrorLevel, err)
 	return err
+}
+
+// estimate SST files compression threshold by total row file size
+// with a higher compression threshold, the compression time increases, but the iteration time decreases.
+// Try to limit the total SST files number under 500. But size compress 32GB SST files cost about 20min,
+// we set the upper bound to 32GB to avoid too long compression time.
+// factor is the non-clustered(1 for data engine and number of non-clustered index count for index engine).
+func estimateCompactionThreshold(cp *checkpoints.TableCheckpoint, factor int64) int64 {
+	totalRawFileSize := int64(0)
+	var lastFile string
+	for _, engineCp := range cp.Engines {
+		for _, chunk := range engineCp.Chunks {
+			if chunk.FileMeta.Path == lastFile {
+				continue
+			}
+			size := chunk.FileMeta.FileSize
+			if chunk.FileMeta.Type == mydump.SourceTypeParquet {
+				// parquet file is compressed, thus estimates with a factor of 2
+				size *= 2
+			}
+			totalRawFileSize += size
+			lastFile = chunk.FileMeta.Path
+		}
+	}
+	totalRawFileSize *= factor
+
+	// try restrict the total file number within 512
+	threshold := totalRawFileSize / 512
+	threshold = utils.NextPowerOfTwo(threshold)
+	if threshold < compactionLowerThreshold {
+		// disable compaction if threshold is smaller than lower bound
+		threshold = 0
+	} else if threshold > compactionUpperThreshold {
+		threshold = compactionUpperThreshold
+	}
+
+	return threshold
 }
