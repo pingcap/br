@@ -288,8 +288,8 @@ func ValidateFileRewriteRule(file *backuppb.File, rewriteRules *RewriteRules) er
 		)
 		return errors.Annotate(berrors.ErrRestoreInvalidRewrite, "cannot find rewrite rule")
 	}
-	// the new prefix of the start rule must equal or less than the new prefix of the end rule
-	if bytes.Compare(startRule.GetNewKeyPrefix(), endRule.GetNewKeyPrefix()) > 0 {
+	// the rewrite rule of the start key and the end key should be equaled.
+	if bytes.Compare(startRule.GetNewKeyPrefix(), endRule.GetNewKeyPrefix()) != 0 {
 		startTableID := tablecodec.DecodeTableID(file.GetStartKey())
 		endTableID := tablecodec.DecodeTableID(file.GetEndKey())
 		log.Error(
