@@ -272,6 +272,63 @@ func (rs *RegionSplitter) splitAndScatterRegions(
 	return newRegions, nil
 }
 
+// PaginateScanRegion scan regions with a limit pagination and
+// return all regions at once.
+// It reduces max gRPC message size.
+func PaginateScanRegion(
+	ctx context.Context, client SplitClient, startKey, endKey []byte, limit int,
+) ([]*RegionInfo, error) {
+	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
+		return nil, errors.Annotatef(berrors.ErrRestoreInvalidRange, "startKey >= endKey, startKey: %s, endkey: %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
+
+	regions := []*RegionInfo{}
+	scanStartKey := startKey
+	for {
+		batch, err := client.ScanRegions(ctx, scanStartKey, endKey, limit)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		regions = append(regions, batch...)
+		if len(batch) < limit {
+			// No more region
+			break
+		}
+		scanStartKey = batch[len(batch)-1].Region.GetEndKey()
+		if len(scanStartKey) == 0 ||
+			(len(endKey) > 0 && bytes.Compare(scanStartKey, endKey) >= 0) {
+			// All key space have scanned
+			break
+		}
+	}
+
+	// current pd can't guarantee the consistency of returned regions
+	if len(regions) == 0 {
+		return nil, errors.Annotatef(berrors.ErrPDBatchScanRegion, "scan region return empty result, startKey: %s, endkey: %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(endKey))
+	}
+
+	if bytes.Compare(regions[0].Region.StartKey, startKey) > 0 {
+		return nil, errors.Annotatef(berrors.ErrPDBatchScanRegion, "first region's startKey > startKey, startKey: %s, regionStartKey: %s",
+			hex.EncodeToString(startKey), hex.EncodeToString(regions[0].Region.StartKey))
+	} else if len(regions[len(regions)-1].Region.EndKey) != 0 && bytes.Compare(regions[len(regions)-1].Region.EndKey, endKey) < 0 {
+		return nil, errors.Annotatef(berrors.ErrPDBatchScanRegion, "last region's endKey < startKey, startKey: %s, regionStartKey: %s",
+			hex.EncodeToString(endKey), hex.EncodeToString(regions[len(regions)-1].Region.EndKey))
+	}
+
+	cur := regions[0]
+	for _, r := range regions[1:] {
+		if !bytes.Equal(cur.Region.EndKey, r.Region.StartKey) {
+			return nil, errors.Annotatef(berrors.ErrPDBatchScanRegion, "region endKey not equal to next region startKey, endKey: %s, startKey: %s",
+				hex.EncodeToString(cur.Region.EndKey), hex.EncodeToString(r.Region.StartKey))
+		}
+		cur = r
+	}
+
+	return regions, nil
+}
+
 // GetSplitKeys checks if the regions should be split by the new prefix of the rewrites rule and the end key of
 // the ranges, groups the split keys by region id.
 func GetSplitKeys(rewriteRules *RewriteRules, ranges []rtree.Range, regions []*RegionInfo) map[uint64][][]byte {

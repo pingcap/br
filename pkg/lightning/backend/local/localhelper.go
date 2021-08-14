@@ -91,17 +91,13 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 			}
 		}
 		var regions []*split.RegionInfo
-		regions, err = paginateScanRegion(ctx, local.splitCli, minKey, maxKey, 128)
+		regions, err = split.PaginateScanRegion(ctx, local.splitCli, minKey, maxKey, 128)
+		log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
+			logutil.Key("start", minKey), logutil.Key("end", maxKey))
 		if err != nil {
 			log.L().Warn("paginate scan region failed", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
 				log.ShortError(err), zap.Int("retry", i))
 			continue
-		}
-
-		if len(regions) == 0 {
-			log.L().Warn("paginate scan region returns empty result", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
-				zap.Int("retry", i))
-			return errors.New("paginate scan region returns empty result")
 		}
 
 		log.L().Info("paginate scan region finished", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
@@ -274,40 +270,33 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	return nil
 }
 
-func paginateScanRegion(
-	ctx context.Context, client split.SplitClient, startKey, endKey []byte, limit int,
-) ([]*split.RegionInfo, error) {
-	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		log.L().Error("startKey > endKey when paginating scan region",
-			logutil.Key("startKey", startKey),
-			logutil.Key("endKey", endKey))
-		return nil, errors.Errorf("startKey > endKey when paginating scan region")
+func fetchTableRegionSizeStats(ctx context.Context, db *sql.DB, tableID int64) (map[uint64]int64, error) {
+	exec := &common.SQLWithRetry{
+		DB:     db,
+		Logger: log.L(),
 	}
 
-	var regions []*split.RegionInfo
-	for {
-		batch, err := client.ScanRegions(ctx, startKey, endKey, limit)
+	stats := make(map[uint64]int64)
+	err := exec.Transact(ctx, "fetch region approximate sizes", func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, "SELECT REGION_ID, APPROXIMATE_SIZE FROM information_schema.TIKV_REGION_STATUS WHERE TABLE_ID = ?", tableID)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return errors.Trace(err)
 		}
-		regions = append(regions, batch...)
-		if len(batch) < limit {
-			// No more region
-			break
+
+		defer rows.Close()
+		var (
+			regionID uint64
+			size     int64
+		)
+		for rows.Next() {
+			if err = rows.Scan(&regionID, &size); err != nil {
+				return errors.Trace(err)
+			}
+			stats[regionID] = size * units.MiB
 		}
-		startKey = batch[len(batch)-1].Region.GetEndKey()
-		if len(startKey) == 0 ||
-			(len(endKey) > 0 && bytes.Compare(startKey, endKey) >= 0) {
-			// All key space have scanned
-			break
-		}
-	}
-	sort.Slice(regions, func(i, j int) bool {
-		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
+		return rows.Err()
 	})
-	log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
-		logutil.Key("start", startKey), logutil.Key("end", endKey))
-	return regions, nil
+	return stats, errors.Trace(err)
 }
 
 func (local *local) BatchSplitRegions(ctx context.Context, region *split.RegionInfo, keys [][]byte) (*split.RegionInfo, []*split.RegionInfo, error) {
