@@ -534,13 +534,8 @@ func (m *dbTaskMetaMgr) InitTask(ctx context.Context) error {
 		Logger: log.L(),
 	}
 	// avoid override existing metadata if the meta is already inserted.
-<<<<<<< HEAD
-	stmt := fmt.Sprintf(`INSERT IGNORE INTO %s (task_id, status) values (?, ?)`, m.tableName)
-	err := exec.Exec(ctx, "init task meta", stmt, m.taskID, taskMetaStatusInitial.String())
-=======
-	stmt := fmt.Sprintf(`INSERT INTO %s (task_id, status, source_bytes) values (?, ?, ?) ON DUPLICATE KEY UPDATE state = ?`, m.tableName)
-	err := exec.Exec(ctx, "init task meta", stmt, m.taskID, taskMetaStatusInitial.String(), source, taskStateNormal)
->>>>>>> 1b0e54c2 (lightning: check and restore pd scheduler even if our task failed (#1336))
+	stmt := fmt.Sprintf(`INSERT INTO %s (task_id, status) values (?, ?) ON DUPLICATE KEY UPDATE state = ?`, m.tableName)
+	err := exec.Exec(ctx, "init task meta", stmt, m.taskID, taskMetaStatusInitial.String(), taskStateNormal)
 	return errors.Trace(err)
 }
 
@@ -813,21 +808,8 @@ func (m noopTaskMetaMgr) CheckAndPausePdSchedulers(ctx context.Context) (pdutil.
 	}, nil
 }
 
-<<<<<<< HEAD
-func (m noopTaskMetaMgr) CheckAndFinishRestore(ctx context.Context) (bool, error) {
-	return false, nil
-=======
-func (m noopTaskMetaMgr) CheckTaskExist(ctx context.Context) (bool, error) {
-	return false, nil
-}
-
-func (m noopTaskMetaMgr) CheckClusterSource(ctx context.Context) (int64, error) {
-	return 0, nil
-}
-
 func (m noopTaskMetaMgr) CheckAndFinishRestore(context.Context, bool) (bool, bool, error) {
 	return false, true, nil
->>>>>>> 1b0e54c2 (lightning: check and restore pd scheduler even if our task failed (#1336))
 }
 
 func (m noopTaskMetaMgr) Cleanup(ctx context.Context) error {
