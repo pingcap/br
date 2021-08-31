@@ -5,6 +5,7 @@ package restore
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"strings"
 	"time"
 

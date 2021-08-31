@@ -270,35 +270,6 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 	return nil
 }
 
-func fetchTableRegionSizeStats(ctx context.Context, db *sql.DB, tableID int64) (map[uint64]int64, error) {
-	exec := &common.SQLWithRetry{
-		DB:     db,
-		Logger: log.L(),
-	}
-
-	stats := make(map[uint64]int64)
-	err := exec.Transact(ctx, "fetch region approximate sizes", func(ctx context.Context, tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, "SELECT REGION_ID, APPROXIMATE_SIZE FROM information_schema.TIKV_REGION_STATUS WHERE TABLE_ID = ?", tableID)
-		if err != nil {
-			return errors.Trace(err)
-		}
-
-		defer rows.Close()
-		var (
-			regionID uint64
-			size     int64
-		)
-		for rows.Next() {
-			if err = rows.Scan(&regionID, &size); err != nil {
-				return errors.Trace(err)
-			}
-			stats[regionID] = size * units.MiB
-		}
-		return rows.Err()
-	})
-	return stats, errors.Trace(err)
-}
-
 func (local *local) BatchSplitRegions(ctx context.Context, region *split.RegionInfo, keys [][]byte) (*split.RegionInfo, []*split.RegionInfo, error) {
 	region, newRegions, err := local.splitCli.BatchSplitRegionsWithOrigin(ctx, region, keys)
 	if err != nil {
