@@ -39,15 +39,9 @@ func GetSystemRLimit() (uint64, error) {
 // VerifyRLimit checks whether the open-file limit is large enough.
 // In Local-backend, we need to read and write a lot of L0 SST files, so we need
 // to check system max open files limit.
-<<<<<<< HEAD
 func VerifyRLimit(estimateMaxFiles uint64) error {
-	if estimateMaxFiles < minRLimit {
-		estimateMaxFiles = minRLimit
-=======
-func VerifyRLimit(estimateMaxFiles Rlim_t) error {
 	if estimateMaxFiles > maxRLimit {
 		estimateMaxFiles = maxRLimit
->>>>>>> 92fc8b0e (lightning: better estimate of the max-open-files (#1414))
 	}
 	var rLimit syscall.Rlimit
 	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
