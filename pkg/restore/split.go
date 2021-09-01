@@ -14,7 +14,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/pdpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/tablecodec"
-	"github.com/pingcap/tidb/util/codec"
+	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/zap"
 
 	berrors "github.com/pingcap/br/pkg/errors"
@@ -111,7 +111,7 @@ SplitRegions:
 						log.Error("split regions no valid key",
 							logutil.Key("startKey", region.Region.StartKey),
 							logutil.Key("endKey", region.Region.EndKey),
-							logutil.Key("key", codec.EncodeBytes([]byte{}, key)),
+							logutil.Key("key", codec.EncodeBytes(key)),
 							rtree.ZapRanges(ranges))
 					}
 					return errors.Trace(errSplit)
@@ -308,7 +308,7 @@ func NeedSplit(splitKey []byte, regions []*RegionInfo) *RegionInfo {
 	if len(splitKey) == 0 {
 		return nil
 	}
-	splitKey = codec.EncodeBytes([]byte{}, splitKey)
+	splitKey = codec.EncodeBytes(splitKey)
 	for _, region := range regions {
 		// If splitKey is the boundary of the region
 		if bytes.Equal(splitKey, region.Region.GetStartKey()) {
