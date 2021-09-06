@@ -249,7 +249,7 @@ func (importer *FileImporter) Import(
 					e = errors.Annotate(e, msg)
 				})
 				return errors.Trace(e)
-			}, newDownloadSSTBackoffer())
+			}, utils.NewDownloadSSTBackoffer())
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
 					switch errors.Cause(e) { // nolint:errorlint
@@ -341,7 +341,7 @@ func (importer *FileImporter) Import(
 		summary.CollectSuccessUnit(summary.TotalKV, 1, file.TotalKvs)
 		summary.CollectSuccessUnit(summary.TotalBytes, 1, file.TotalBytes)
 		return nil
-	}, newImportSSTBackoffer())
+	}, utils.NewImportSSTBackoffer())
 	return errors.Trace(err)
 }
 
