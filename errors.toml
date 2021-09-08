@@ -106,6 +106,11 @@ error = '''
 unknown error occur on tikv
 '''
 
+["BR:PD:ErrPDBatchScanRegion"]
+error = '''
+batch scan region
+'''
+
 ["BR:PD:ErrPDInvalidResponse"]
 error = '''
 PD invalid response
