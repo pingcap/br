@@ -44,10 +44,12 @@ func NewBackoffer(attempt int, delayTime, maxDelayTime time.Duration) Backoffer 
 	}
 }
 
+// NewImportSSTBackoffer create a BackOffer for ImportSST
 func NewImportSSTBackoffer() Backoffer {
 	return NewBackoffer(importSSTRetryTimes, importSSTWaitInterval, importSSTMaxWaitInterval)
 }
 
+// NewDownloadSSTBackoffer create a BackOffer for DownLoadSST
 func NewDownloadSSTBackoffer() Backoffer {
 	return NewBackoffer(downloadSSTRetryTimes, downloadSSTWaitInterval, downloadSSTMaxWaitInterval)
 }
@@ -94,6 +96,7 @@ type pdReqBackoffer struct {
 	maxDelayTime time.Duration
 }
 
+// NewPDReqBackoffer create a BackOffer for pd request
 func NewPDReqBackoffer() Backoffer {
 	return &pdReqBackoffer{
 		attempt:      resetTSRetryTime,

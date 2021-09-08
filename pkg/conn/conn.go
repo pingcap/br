@@ -106,6 +106,7 @@ func GetAllTiKVStores(
 	return stores[:j], nil
 }
 
+// GetAllTiKVStoresWithRetry call GetAllTiKVStores and to retry when meet errors
 func GetAllTiKVStoresWithRetry(ctx context.Context,
 	pdClient pd.Client,
 	storeBehavior StoreBehavior,
