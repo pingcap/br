@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/rtree"
