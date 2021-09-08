@@ -16,7 +16,6 @@ import (
 	"github.com/pingcap/kvproto/pkg/import_sstpb"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/log"
-	"github.com/tikv/pd/pkg/codec"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
@@ -362,18 +361,14 @@ func (importer *FileImporter) downloadSST(
 ) (*import_sstpb.SSTMeta, error) {
 	uid := uuid.New()
 	id := uid[:]
-	// Assume one region reflects to one rewrite rule
-	_, key, err := codec.DecodeBytes(regionInfo.Region.GetStartKey())
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	regionRule := matchNewPrefix(key, rewriteRules)
-	if regionRule == nil {
+	// Get the rewrite rule for the file.
+	fileRule := findMatchedRewriteRule(file, rewriteRules)
+	if fileRule == nil {
 		return nil, errors.Trace(berrors.ErrKVRewriteRuleNotFound)
 	}
 	rule := import_sstpb.RewriteRule{
-		OldKeyPrefix: encodeKeyPrefix(regionRule.GetOldKeyPrefix()),
-		NewKeyPrefix: encodeKeyPrefix(regionRule.GetNewKeyPrefix()),
+		OldKeyPrefix: encodeKeyPrefix(fileRule.GetOldKeyPrefix()),
+		NewKeyPrefix: encodeKeyPrefix(fileRule.GetNewKeyPrefix()),
 	}
 	sstMeta := GetSSTMetaFromFile(id, file, regionInfo.Region, &rule)
 
@@ -390,6 +385,7 @@ func (importer *FileImporter) downloadSST(
 	)
 	var resp *import_sstpb.DownloadResponse
 	for _, peer := range regionInfo.Region.GetPeers() {
+		var err error
 		resp, err = importer.importClient.DownloadSST(ctx, peer.GetStoreId(), req)
 		if err != nil {
 			return nil, errors.Trace(err)
