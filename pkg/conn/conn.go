@@ -24,7 +24,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-
 	"google.golang.org/grpc/status"
 
 	berrors "github.com/pingcap/br/pkg/errors"
