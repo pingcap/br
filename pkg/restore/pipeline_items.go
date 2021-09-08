@@ -316,12 +316,13 @@ func (b *tikvSender) registerTableIsRestoring(ts []CreatedTable) func() {
 // till all tables provided are no more ‘current restoring’.
 func (b *tikvSender) waitTablesDone(ts []CreatedTable) {
 	for _, t := range ts {
-		wg, ok := b.tableWaiters.LoadAndDelete(t.Table.ID)
+		wg, ok := b.tableWaiters.Load(t.Table.ID)
 		if !ok {
 			log.Panic("bug! table done before register!",
 				zap.Any("wait-table-map", b.tableWaiters),
 				zap.Stringer("table", t.Table.Name))
 		}
+		b.tableWaiters.Delete(t.Table.ID)
 		wg.(*sync.WaitGroup).Wait()
 	}
 }
