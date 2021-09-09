@@ -260,6 +260,8 @@ func (importer *FileImporter) Import(
 							logutil.Region(info.Region),
 							logutil.Key("startKey", startKey),
 							logutil.Key("endKey", endKey),
+							logutil.Key("file-simple-start", file.StartKey),
+							logutil.Key("file-simple-end", file.EndKey),
 							logutil.ShortError(e))
 						continue regionLoop
 					}
