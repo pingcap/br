@@ -35,7 +35,7 @@ bin/locker \
 
 # backup table
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE
 
 run_sql "DROP TABLE $DB.$TABLE;"
 

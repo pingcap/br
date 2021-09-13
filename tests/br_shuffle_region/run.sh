@@ -29,7 +29,7 @@ run_pd_ctl -u https://$PD_ADDR sched add shuffle-region-scheduler
 
 # backup with shuffle region
 echo "backup start..."
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE --ratelimit 1 --concurrency 4
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB" --db $DB -t $TABLE
 
 run_sql "DROP TABLE $DB.$TABLE;"
 
