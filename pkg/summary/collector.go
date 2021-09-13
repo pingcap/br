@@ -195,17 +195,14 @@ func (tc *logCollector) Summary(name string) {
 		log.Info(name+" failed summary", logFields...)
 		return
 	}
-	totalCost := time.Duration(0)
-	for _, cost := range tc.successCosts {
-		totalCost += cost
-	}
 
-	logFields = append(logFields, zap.Duration("total-take", time.Since(tc.startTime)))
+	totalDureTime := time.Since(tc.startTime)
+	logFields = append(logFields, zap.Duration("total-take", totalDureTime))
 	for name, data := range tc.successData {
 		if name == TotalBytes {
 			logFields = append(logFields,
 				zap.String("total-kv-size", units.HumanSize(float64(data))),
-				zap.String("average-speed", units.HumanSize(float64(data)/totalCost.Seconds())+"/s"))
+				zap.String("average-speed", units.HumanSize(float64(data)/totalDureTime.Seconds())+"/s"))
 			continue
 		}
 		if name == BackupDataSize {
