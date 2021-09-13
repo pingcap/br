@@ -2349,9 +2349,6 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
 		return errors.Trace(err)
 	}
-	if err := rc.ClusterIsOnline(ctx); err != nil {
-		return errors.Trace(err)
-	}
 
 	if err := rc.StoragePermission(ctx); err != nil {
 		return errors.Trace(err)
