@@ -135,6 +135,8 @@ func (manager *recordCurrentTableManager) Has(tables ...restore.TableWithRange) 
 }
 
 func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
 	for _, rule := range sender.rewriteRules.Data {
 		if bytes.Equal([]byte(prefix), rule.OldKeyPrefix) {
 			return true
@@ -144,6 +146,8 @@ func (sender *drySender) HasRewriteRuleOfKey(prefix string) bool {
 }
 
 func (sender *drySender) RangeLen() int {
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
 	return len(sender.ranges)
 }
 

@@ -31,7 +31,7 @@ import (
 
 	"github.com/pingcap/br/pkg/lightning/common"
 	"github.com/pingcap/br/pkg/lightning/log"
-	"github.com/pingcap/br/pkg/manual"
+	"github.com/pingcap/br/pkg/lightning/manual"
 	"github.com/pingcap/br/pkg/utils"
 
 	"go.uber.org/zap"
@@ -61,7 +61,7 @@ func (b *bytesBuf) add(v []byte) []byte {
 	start := b.idx
 	copy(b.buf[start:], v)
 	b.idx += len(v)
-	return b.buf[start:b.idx]
+	return b.buf[start:b.idx:b.idx]
 }
 
 func newBytesBuf(size int) *bytesBuf {
@@ -84,7 +84,6 @@ type kvMemBuf struct {
 	buf           *bytesBuf
 	availableBufs []*bytesBuf
 	kvPairs       *KvPairs
-	capacity      int
 	size          int
 }
 
@@ -318,6 +317,12 @@ func (se *session) StmtAddDirtyTableOP(op int, physicalID int64, handle kv.Handl
 // GetInfoSchema implements the sessionctx.Context interface.
 func (se *session) GetInfoSchema() sessionctx.InfoschemaMetaVersion {
 	return nil
+}
+
+// GetBuiltinFunctionUsage returns the BuiltinFunctionUsage of current Context, which is not thread safe.
+// Use primitive map type to prevent circular import. Should convert it to telemetry.BuiltinFunctionUsage before using.
+func (se *session) GetBuiltinFunctionUsage() map[string]uint32 {
+	return make(map[string]uint32)
 }
 
 func (se *session) Close() {

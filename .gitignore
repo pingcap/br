@@ -11,3 +11,4 @@
 # for the web interface
 web/node_modules/
 web/dist/
+.vscode/

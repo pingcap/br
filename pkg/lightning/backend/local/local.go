@@ -42,12 +42,14 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/parser/model"
+	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/distsql"
 	"github.com/pingcap/tidb/table"
 	"github.com/pingcap/tidb/tablecodec"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/pingcap/tidb/util/hack"
+	"github.com/pingcap/tidb/util/ranger"
 	"github.com/tikv/client-go/v2/oracle"
-	pd "github.com/tikv/pd/client"
 	"go.uber.org/atomic"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -60,7 +62,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pingcap/br/pkg/conn"
-	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/lightning/backend"
 	"github.com/pingcap/br/pkg/lightning/backend/kv"
 	"github.com/pingcap/br/pkg/lightning/checkpoints"
@@ -73,6 +74,8 @@ import (
 	"github.com/pingcap/br/pkg/lightning/tikv"
 	"github.com/pingcap/br/pkg/lightning/worker"
 	"github.com/pingcap/br/pkg/logutil"
+	"github.com/pingcap/br/pkg/membuf"
+	"github.com/pingcap/br/pkg/pdutil"
 	split "github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
@@ -100,7 +103,9 @@ const (
 	// the lower threshold of max open files for pebble db.
 	openFilesLowerThreshold = 128
 
-	duplicateDBName = "duplicates"
+	duplicateDBName       = "duplicates"
+	remoteDuplicateDBName = "remote_duplicates"
+	scanRegionLimit       = 128
 )
 
 var (
@@ -792,25 +797,11 @@ func (e *File) loadEngineMeta() error {
 	return nil
 }
 
-type gRPCConns struct {
-	mu    sync.Mutex
-	conns map[uint64]*connPool
-}
-
-func (conns *gRPCConns) Close() {
-	conns.mu.Lock()
-	defer conns.mu.Unlock()
-
-	for _, cp := range conns.conns {
-		cp.Close()
-	}
-}
-
 type local struct {
 	engines sync.Map // sync version of map[uuid.UUID]*File
 
-	conns    gRPCConns
-	pdCli    pd.Client
+	pdCtl    *pdutil.PdController
+	conns    common.GRPCConns
 	splitCli split.SplitClient
 	tls      *common.TLS
 	pdAddr   string
@@ -894,6 +885,8 @@ func newConnPool(cap int, newConn func(ctx context.Context) (*grpc.ClientConn, e
 	}
 }
 
+var bufferPool = membuf.NewPool(1024, manual.Allocator{})
+
 func openDuplicateDB(storeDir string) (*pebble.DB, error) {
 	dbPath := filepath.Join(storeDir, duplicateDBName)
 	// TODO: Optimize the opts for better write.
@@ -914,11 +907,11 @@ func NewLocalBackend(
 	localFile := cfg.SortedKVDir
 	rangeConcurrency := cfg.RangeConcurrency
 
-	pdCli, err := pd.NewClientWithContext(ctx, []string{pdAddr}, tls.ToPDSecurityOption())
+	pdCtl, err := pdutil.NewPdController(ctx, pdAddr, tls.TLSConfig(), tls.ToPDSecurityOption())
 	if err != nil {
 		return backend.MakeBackend(nil), errors.Annotate(err, "construct pd client failed")
 	}
-	splitCli := split.NewSplitClient(pdCli, tls.TLSConfig())
+	splitCli := split.NewSplitClient(pdCtl.GetPDClient(), tls.TLSConfig())
 
 	shouldCreate := true
 	if enableCheckpoint {
@@ -954,7 +947,7 @@ func NewLocalBackend(
 
 	local := &local{
 		engines:  sync.Map{},
-		pdCli:    pdCli,
+		pdCtl:    pdCtl,
 		splitCli: splitCli,
 		tls:      tls,
 		pdAddr:   pdAddr,
@@ -976,16 +969,16 @@ func NewLocalBackend(
 		duplicateDetection:      cfg.DuplicateDetection,
 		duplicateDB:             duplicateDB,
 	}
-	local.conns.conns = make(map[uint64]*connPool)
-	if err = local.checkMultiIngestSupport(ctx, pdCli); err != nil {
+	local.conns = common.NewGRPCConns()
+	if err = local.checkMultiIngestSupport(ctx, pdCtl); err != nil {
 		return backend.MakeBackend(nil), err
 	}
 
 	return backend.MakeBackend(local), nil
 }
 
-func (local *local) checkMultiIngestSupport(ctx context.Context, pdClient pd.Client) error {
-	stores, err := conn.GetAllTiKVStores(ctx, pdClient, conn.SkipTiFlash)
+func (local *local) checkMultiIngestSupport(ctx context.Context, pdCtl *pdutil.PdController) error {
+	stores, err := conn.GetAllTiKVStores(ctx, pdCtl.GetPDClient(), conn.SkipTiFlash)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -1123,13 +1116,11 @@ func (local *local) makeConn(ctx context.Context, storeID uint64) (*grpc.ClientC
 	return conn, nil
 }
 
-func (local *local) getGrpcConnLocked(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
-	if _, ok := local.conns.conns[storeID]; !ok {
-		local.conns.conns[storeID] = newConnPool(local.tcpConcurrency, func(ctx context.Context) (*grpc.ClientConn, error) {
+func (local *local) getGrpcConn(ctx context.Context, storeID uint64) (*grpc.ClientConn, error) {
+	return local.conns.GetGrpcConn(ctx, storeID, local.tcpConcurrency,
+		func(ctx context.Context) (*grpc.ClientConn, error) {
 			return local.makeConn(ctx, storeID)
 		})
-	}
-	return local.conns.conns[storeID].get(ctx)
 }
 
 // Close the local backend.
@@ -1311,7 +1302,7 @@ func (local *local) allocateTSIfNotExists(ctx context.Context, engine *File) err
 	if engine.TS > 0 {
 		return nil
 	}
-	physical, logical, err := local.pdCli.GetTS(ctx)
+	physical, logical, err := local.pdCtl.GetPDClient().GetTS(ctx)
 	if err != nil {
 		return err
 	}
@@ -1377,10 +1368,7 @@ func (local *local) CloseEngine(ctx context.Context, cfg *backend.EngineConfig, 
 }
 
 func (local *local) getImportClient(ctx context.Context, storeID uint64) (sst.ImportSSTClient, error) {
-	local.conns.mu.Lock()
-	defer local.conns.mu.Unlock()
-
-	conn, err := local.getGrpcConnLocked(ctx, storeID)
+	conn, err := local.getGrpcConn(ctx, storeID)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,6 +1389,28 @@ func (local *local) WriteToTiKV(
 	region *split.RegionInfo,
 	start, end []byte,
 ) ([]*sst.SSTMeta, Range, rangeStats, error) {
+	for _, peer := range region.Region.GetPeers() {
+		var e error
+		for i := 0; i < maxRetryTimes; i++ {
+			store, err := local.pdCtl.GetStoreInfo(ctx, peer.StoreId)
+			if err != nil {
+				e = err
+				continue
+			}
+			if store.Status.Capacity > 0 {
+				// The available disk percent of TiKV
+				ratio := store.Status.Available * 100 / store.Status.Capacity
+				if ratio < 10 {
+					return nil, Range{}, rangeStats{}, errors.Errorf("The available disk of TiKV (%s) only left %d, and capacity is %d",
+						store.Store.Address, store.Status.Available, store.Status.Capacity)
+				}
+			}
+			break
+		}
+		if e != nil {
+			log.L().Error("failed to get StoreInfo from pd http api", zap.Error(e))
+		}
+	}
 	begin := time.Now()
 	regionRange := intersectRange(region.Region, Range{start: start, end: end})
 	opt := &pebble.IterOptions{LowerBound: regionRange.start, UpperBound: regionRange.end}
@@ -1469,8 +1479,8 @@ func (local *local) WriteToTiKV(
 		requests = append(requests, req)
 	}
 
-	bytesBuf := newBytesBuffer()
-	defer bytesBuf.destroy()
+	bytesBuf := bufferPool.NewBuffer()
+	defer bytesBuf.Destroy()
 	pairs := make([]*sst.Pair, 0, local.batchWriteKVPairs)
 	count := 0
 	size := int64(0)
@@ -1483,13 +1493,13 @@ func (local *local) WriteToTiKV(
 		// here we reuse the `*sst.Pair`s to optimize object allocation
 		if firstLoop {
 			pair := &sst.Pair{
-				Key:   bytesBuf.addBytes(iter.Key()),
-				Value: bytesBuf.addBytes(iter.Value()),
+				Key:   bytesBuf.AddBytes(iter.Key()),
+				Value: bytesBuf.AddBytes(iter.Value()),
 			}
 			pairs = append(pairs, pair)
 		} else {
-			pairs[count].Key = bytesBuf.addBytes(iter.Key())
-			pairs[count].Value = bytesBuf.addBytes(iter.Value())
+			pairs[count].Key = bytesBuf.AddBytes(iter.Key())
+			pairs[count].Value = bytesBuf.AddBytes(iter.Value())
 		}
 		count++
 		totalCount++
@@ -1502,7 +1512,7 @@ func (local *local) WriteToTiKV(
 				}
 			}
 			count = 0
-			bytesBuf.reset()
+			bytesBuf.Reset()
 			firstLoop = false
 		}
 		if size >= regionMaxSize || totalCount >= local.regionSplitKeys {
@@ -1550,7 +1560,7 @@ func (local *local) WriteToTiKV(
 	log.L().Debug("write to kv", zap.Reflect("region", region), zap.Uint64("leader", leaderID),
 		zap.Reflect("meta", meta), zap.Reflect("return metas", leaderPeerMetas),
 		zap.Int64("kv_pairs", totalCount), zap.Int64("total_bytes", size),
-		zap.Int64("buf_size", bytesBuf.totalSize()),
+		zap.Int64("buf_size", bytesBuf.TotalSize()),
 		zap.Stringer("takeTime", time.Since(begin)))
 
 	finishedRange := regionRange
@@ -1687,101 +1697,6 @@ func (local *local) readAndSplitIntoRange(ctx context.Context, engineFile *File)
 	return ranges, nil
 }
 
-type bytesRecycleChan struct {
-	ch chan []byte
-}
-
-// recycleChan is used for reusing allocated []byte so we can use memory more efficiently
-//
-// NOTE: we don't used a `sync.Pool` because when will sync.Pool release is depending on the
-// garbage collector which always release the memory so late. Use a fixed size chan to reuse
-// can decrease the memory usage to 1/3 compare with sync.Pool.
-var recycleChan = &bytesRecycleChan{
-	ch: make(chan []byte, 1024),
-}
-
-func (c *bytesRecycleChan) Acquire() []byte {
-	select {
-	case b := <-c.ch:
-		return b
-	default:
-		return manual.New(1 << 20) // 1M
-	}
-}
-
-func (c *bytesRecycleChan) Release(w []byte) {
-	select {
-	case c.ch <- w:
-		return
-	default:
-		manual.Free(w)
-	}
-}
-
-type bytesBuffer struct {
-	bufs      [][]byte
-	curBuf    []byte
-	curIdx    int
-	curBufIdx int
-	curBufLen int
-}
-
-func newBytesBuffer() *bytesBuffer {
-	return &bytesBuffer{bufs: make([][]byte, 0, 128), curBufIdx: -1}
-}
-
-func (b *bytesBuffer) addBuf() {
-	if b.curBufIdx < len(b.bufs)-1 {
-		b.curBufIdx++
-		b.curBuf = b.bufs[b.curBufIdx]
-	} else {
-		buf := recycleChan.Acquire()
-		b.bufs = append(b.bufs, buf)
-		b.curBuf = buf
-		b.curBufIdx = len(b.bufs) - 1
-	}
-
-	b.curBufLen = len(b.curBuf)
-	b.curIdx = 0
-}
-
-func (b *bytesBuffer) reset() {
-	if len(b.bufs) > 0 {
-		b.curBuf = b.bufs[0]
-		b.curBufLen = len(b.bufs[0])
-		b.curBufIdx = 0
-		b.curIdx = 0
-	}
-}
-
-func (b *bytesBuffer) destroy() {
-	for _, buf := range b.bufs {
-		recycleChan.Release(buf)
-	}
-	b.bufs = b.bufs[:0]
-}
-
-func (b *bytesBuffer) totalSize() int64 {
-	return int64(len(b.bufs)) * int64(1<<20)
-}
-
-func (b *bytesBuffer) requireBytes(n int) []byte {
-	if n > bigValueSize {
-		return make([]byte, n)
-	}
-	if b.curIdx+n > b.curBufLen {
-		b.addBuf()
-	}
-	idx := b.curIdx
-	b.curIdx += n
-	return b.curBuf[idx:b.curIdx]
-}
-
-func (b *bytesBuffer) addBytes(bytes []byte) []byte {
-	buf := b.requireBytes(len(bytes))
-	return append(buf[:0], bytes...)
-}
-
 func (local *local) writeAndIngestByRange(
 	ctxt context.Context,
 	engineFile *File,
@@ -1829,7 +1744,7 @@ WriteAndIngest:
 		}
 		startKey := codec.EncodeBytes([]byte{}, pairStart)
 		endKey := codec.EncodeBytes([]byte{}, nextKey(pairEnd))
-		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, 128)
+		regions, err = paginateScanRegion(ctx, local.splitCli, startKey, endKey, scanRegionLimit)
 		if err != nil || len(regions) == 0 {
 			log.L().Warn("scan region failed", log.ShortError(err), zap.Int("region_len", len(regions)),
 				logutil.Key("startKey", startKey), logutil.Key("endKey", endKey), zap.Int("retry", retry))
@@ -2008,13 +1923,18 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 	var allErrLock sync.Mutex
 	var allErr error
 	var wg sync.WaitGroup
-
-	wg.Add(len(ranges))
+	metErr := atomic.NewBool(false)
 
 	for _, r := range ranges {
 		startKey := r.start
 		endKey := r.end
 		w := local.rangeConcurrency.Apply()
+		// if meet error here, skip try more here to allow fail fast.
+		if metErr.Load() {
+			local.rangeConcurrency.Recycle(w)
+			break
+		}
+		wg.Add(1)
 		go func(w *worker.Worker) {
 			defer func() {
 				local.rangeConcurrency.Recycle(w)
@@ -2041,6 +1961,9 @@ func (local *local) writeAndIngestByRanges(ctx context.Context, engineFile *File
 			allErrLock.Lock()
 			allErr = multierr.Append(allErr, err)
 			allErrLock.Unlock()
+			if err != nil {
+				metErr.Store(true)
+			}
 		}(w)
 	}
 
@@ -2131,12 +2054,116 @@ func (local *local) ImportEngine(ctx context.Context, engineUUID uuid.UUID) erro
 		log.L().Warn("duplicate detected during import engine", zap.Stringer("uuid", engineUUID),
 			zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength), zap.Int64("duplicate-kvs", lf.Duplicates.Load()),
 			zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
-		return berrors.ErrDuplicateDetected
 	}
 
 	log.L().Info("import engine success", zap.Stringer("uuid", engineUUID),
 		zap.Int64("size", lfTotalSize), zap.Int64("kvs", lfLength),
 		zap.Int64("importedSize", lf.importedKVSize.Load()), zap.Int64("importedCount", lf.importedKVCount.Load()))
+	return nil
+}
+
+func (local *local) CollectLocalDuplicateRows(ctx context.Context, tbl table.Table) error {
+	if local.duplicateDB == nil {
+		return nil
+	}
+	log.L().Info("Begin collect duplicate local keys", zap.String("table", tbl.Meta().Name.String()))
+	physicalTS, logicalTS, err := local.pdCtl.GetPDClient().GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	// TODO: Here we use this db to store the duplicate rows. We shall remove this parameter and store the result in
+	//  a TiDB table.
+	duplicateManager, err := NewDuplicateManager(local.duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	if err := duplicateManager.CollectDuplicateRowsFromLocalIndex(ctx, tbl, local.duplicateDB); err != nil {
+		return errors.Annotate(err, "collect local duplicate rows failed")
+	}
+	return local.reportDuplicateRows(tbl, local.duplicateDB)
+}
+
+func (local *local) CollectRemoteDuplicateRows(ctx context.Context, tbl table.Table) error {
+	log.L().Info("Begin collect remote duplicate keys", zap.String("table", tbl.Meta().Name.String()))
+	physicalTS, logicalTS, err := local.pdCtl.GetPDClient().GetTS(ctx)
+	if err != nil {
+		return err
+	}
+	ts := oracle.ComposeTS(physicalTS, logicalTS)
+	dbPath := filepath.Join(local.localStoreDir, remoteDuplicateDBName)
+	// TODO: Optimize the opts for better write.
+	opts := &pebble.Options{}
+	duplicateDB, err := pebble.Open(dbPath, opts)
+	if err != nil {
+		return errors.Annotate(err, "open duplicate db failed")
+	}
+
+	// TODO: Here we use the temp created db to store the duplicate rows. We shall remove this parameter and store the
+	//  result in a TiDB table.
+	duplicateManager, err := NewDuplicateManager(duplicateDB, local.splitCli, ts, local.tls, local.tcpConcurrency)
+	if err != nil {
+		return errors.Annotate(err, "open duplicatemanager failed")
+	}
+	if err = duplicateManager.CollectDuplicateRowsFromTiKV(ctx, tbl); err != nil {
+		return errors.Annotate(err, "collect remote duplicate rows failed")
+	}
+	err = local.reportDuplicateRows(tbl, duplicateDB)
+	duplicateDB.Close()
+	return err
+}
+
+func (local *local) reportDuplicateRows(tbl table.Table, db *pebble.DB) error {
+	log.L().Info("Begin report duplicate rows", zap.String("table", tbl.Meta().Name.String()))
+	decoder, err := kv.NewTableKVDecoder(tbl, &kv.SessionOptions{
+		SQLMode: mysql.ModeStrictAllTables,
+	})
+	if err != nil {
+		return errors.Annotate(err, "create decoder failed")
+	}
+
+	ranges := ranger.FullIntRange(false)
+	keysRanges := distsql.TableRangesToKVRanges(tbl.Meta().ID, ranges, nil)
+	keyAdapter := duplicateKeyAdapter{}
+	var nextUserKey []byte = nil
+	for _, r := range keysRanges {
+		startKey := codec.EncodeBytes([]byte{}, r.StartKey)
+		endKey := codec.EncodeBytes([]byte{}, r.EndKey)
+		opts := &pebble.IterOptions{
+			LowerBound: startKey,
+			UpperBound: endKey,
+		}
+		iter := db.NewIter(opts)
+		for iter.SeekGE(startKey); iter.Valid(); iter.Next() {
+			nextUserKey, _, _, err = keyAdapter.Decode(nextUserKey[:0], iter.Key())
+			if err != nil {
+				log.L().Error("decode key error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+
+			h, err := decoder.DecodeHandleFromTable(nextUserKey)
+			if err != nil {
+				log.L().Error("decode handle error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+			rows, _, err := decoder.DecodeRawRowData(h, iter.Value())
+			if err != nil {
+				log.L().Error("decode row error from index for duplicatedb",
+					zap.Error(err), logutil.Key("key", iter.Key()))
+				continue
+			}
+			// TODO: We need to output the duplicate rows into files or database.
+			//  Here I just output them for debug.
+			r := "row "
+			for _, row := range rows {
+				r += "," + row.String()
+			}
+			log.L().Info(r)
+		}
+		iter.Close()
+	}
 	return nil
 }
 
@@ -2178,43 +2205,31 @@ func sortAndMergeRanges(ranges []Range) []Range {
 }
 
 func filterOverlapRange(ranges []Range, finishedRanges []Range) []Range {
-	if len(finishedRanges) == 0 {
+	if len(ranges) == 0 || len(finishedRanges) == 0 {
 		return ranges
 	}
 
-	result := make([]Range, 0, len(ranges))
-	rIdx := 0
-	fIdx := 0
-	for rIdx < len(ranges) && fIdx < len(finishedRanges) {
-		if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].start) <= 0 {
-			result = append(result, ranges[rIdx])
-			rIdx++
-		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].end) >= 0 {
-			fIdx++
-		} else if bytes.Compare(ranges[rIdx].start, finishedRanges[fIdx].start) < 0 {
-			result = append(result, Range{start: ranges[rIdx].start, end: finishedRanges[fIdx].start})
-			switch bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) {
-			case -1:
-				rIdx++
-			case 0:
-				rIdx++
-				fIdx++
-			case 1:
-				ranges[rIdx].start = finishedRanges[fIdx].end
-				fIdx++
+	result := make([]Range, 0)
+	for _, r := range ranges {
+		start := r.start
+		end := r.end
+		for len(finishedRanges) > 0 && bytes.Compare(finishedRanges[0].start, end) < 0 {
+			fr := finishedRanges[0]
+			if bytes.Compare(fr.start, start) > 0 {
+				result = append(result, Range{start: start, end: fr.start})
 			}
-		} else if bytes.Compare(ranges[rIdx].end, finishedRanges[fIdx].end) > 0 {
-			ranges[rIdx].start = finishedRanges[fIdx].end
-			fIdx++
-		} else {
-			rIdx++
+			if bytes.Compare(fr.end, start) > 0 {
+				start = fr.end
+			}
+			if bytes.Compare(fr.end, end) > 0 {
+				break
+			}
+			finishedRanges = finishedRanges[1:]
+		}
+		if bytes.Compare(start, end) < 0 {
+			result = append(result, Range{start: start, end: end})
 		}
 	}
-
-	if rIdx < len(ranges) {
-		result = append(result, ranges[rIdx:]...)
-	}
-
 	return result
 }
 
@@ -2401,7 +2416,7 @@ func openLocalWriter(ctx context.Context, cfg *backend.LocalWriterConfig, f *Fil
 	w := &Writer{
 		local:              f,
 		memtableSizeLimit:  cacheSize,
-		kvBuffer:           newBytesBuffer(),
+		kvBuffer:           bufferPool.NewBuffer(),
 		isKVSorted:         cfg.IsKVSorted,
 		isWriteBatchSorted: true,
 	}
@@ -2709,7 +2724,6 @@ type sstMeta struct {
 type Writer struct {
 	sync.Mutex
 	local             *File
-	sstDir            string
 	memtableSizeLimit int64
 
 	// if the KVs are append in order, we can directly write the into SST file,
@@ -2718,7 +2732,7 @@ type Writer struct {
 	writer     *sstWriter
 
 	// bytes buffer for writeBatch
-	kvBuffer   *bytesBuffer
+	kvBuffer   *membuf.Buffer
 	writeBatch []common.KvPair
 	// if the kvs in writeBatch are in order, we can avoid doing a `sort.Slice` which
 	// is quite slow. in our bench, the sort operation eats about 5% of total CPU
@@ -2773,9 +2787,9 @@ func (w *Writer) appendRowsUnsorted(ctx context.Context, kvs []common.KvPair) er
 		}
 		lastKey = pair.Key
 		w.batchSize += int64(len(pair.Key) + len(pair.Val))
-		buf := w.kvBuffer.requireBytes(w.local.keyAdapter.EncodedLen(pair.Key))
+		buf := w.kvBuffer.AllocBytes(w.local.keyAdapter.EncodedLen(pair.Key))
 		key := w.local.keyAdapter.Encode(buf, pair.Key, pair.RowID, pair.Offset)
-		val := w.kvBuffer.addBytes(pair.Val)
+		val := w.kvBuffer.AddBytes(pair.Val)
 		if cnt < l {
 			w.writeBatch[cnt].Key = key
 			w.writeBatch[cnt].Val = val
@@ -2871,7 +2885,7 @@ func (f flushStatus) Flushed() bool {
 }
 
 func (w *Writer) Close(ctx context.Context) (backend.ChunkFlushStatus, error) {
-	defer w.kvBuffer.destroy()
+	defer w.kvBuffer.Destroy()
 	defer w.local.localWriters.Delete(w)
 	err := w.flush(ctx)
 	// FIXME: in theory this line is useless, but In our benchmark with go1.15
@@ -2914,7 +2928,7 @@ func (w *Writer) flushKVs(ctx context.Context) error {
 	w.totalSize += w.batchSize
 	w.batchSize = 0
 	w.batchCount = 0
-	w.kvBuffer.reset()
+	w.kvBuffer.Reset()
 	return nil
 }
 

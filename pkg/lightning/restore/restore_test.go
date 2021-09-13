@@ -785,7 +785,9 @@ func (s *tableRestoreSuite) TestCompareChecksumSuccess(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(1234567, 12345, 1234567890))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(1234567, 12345, 1234567890))
 	c.Assert(err, IsNil)
 
 	c.Assert(db.Close(), IsNil)
@@ -812,7 +814,9 @@ func (s *tableRestoreSuite) TestCompareChecksumFailure(c *C) {
 	mock.ExpectClose()
 
 	ctx := MockDoChecksumCtx(db)
-	err = s.tr.compareChecksum(ctx, verification.MakeKVChecksum(9876543, 54321, 1357924680))
+	remoteChecksum, err := DoChecksum(ctx, s.tr.tableInfo)
+	c.Assert(err, IsNil)
+	err = s.tr.compareChecksum(remoteChecksum, verification.MakeKVChecksum(9876543, 54321, 1357924680))
 	c.Assert(err, ErrorMatches, "checksum mismatched.*")
 
 	c.Assert(db.Close(), IsNil)
@@ -944,8 +948,8 @@ func (s *tableRestoreSuite) TestTableRestoreMetrics(c *C) {
 			s.tableInfo.DB: s.dbInfo,
 		},
 		tableWorkers:      worker.NewPool(ctx, 6, "table"),
-		indexWorkers:      worker.NewPool(ctx, 2, "index"),
 		ioWorkers:         worker.NewPool(ctx, 5, "io"),
+		indexWorkers:      worker.NewPool(ctx, 2, "index"),
 		regionWorkers:     worker.NewPool(ctx, 10, "region"),
 		checksumWorks:     worker.NewPool(ctx, 2, "region"),
 		saveCpCh:          chptCh,
@@ -1256,6 +1260,7 @@ func (s *chunkRestoreSuite) TestEncodeLoopDeliverLimit(c *C) {
 	c.Assert(failpoint.Enable(
 		"github.com/pingcap/br/pkg/lightning/restore/mock-kv-size", "return(110000000)"), IsNil)
 	_, _, err = s.cr.encodeLoop(ctx, kvsCh, s.tr, s.tr.logger, kvEncoder, deliverCompleteCh, rc)
+	c.Assert(err, IsNil)
 
 	// we have 3 kvs total. after the failpoint injected.
 	// we will send one kv each time.
@@ -1525,6 +1530,33 @@ func (s *restoreSchemaSuite) TestRestoreSchemaFailed(c *C) {
 	c.Assert(errors.ErrorEqual(err, injectErr), IsTrue)
 }
 
+// When restoring a CSV with `-no-schema` and the target table doesn't exist
+// then we can't restore the schema as the `Path` is empty. This is to make
+// sure this results in the correct error.
+// https://github.com/pingcap/br/issues/1394
+func (s *restoreSchemaSuite) TestNoSchemaPath(c *C) {
+	fakeTable := mydump.MDTableMeta{
+		DB:   "fakedb",
+		Name: "fake1",
+		SchemaFile: mydump.FileInfo{
+			TableName: filter.Table{
+				Schema: "fakedb",
+				Name:   "fake1",
+			},
+			FileMeta: mydump.SourceFileMeta{
+				Path: "",
+			},
+		},
+		DataFiles: []mydump.FileInfo{},
+		TotalSize: 0,
+	}
+	s.rc.dbMetas[0].Tables = append(s.rc.dbMetas[0].Tables, &fakeTable)
+	err := s.rc.restoreSchema(s.ctx)
+	c.Assert(err, NotNil)
+	c.Assert(err, ErrorMatches, `table .* schema not found`)
+	s.rc.dbMetas[0].Tables = s.rc.dbMetas[0].Tables[:len(s.rc.dbMetas[0].Tables)-1]
+}
+
 func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	childCtx, cancel := context.WithCancel(s.ctx)
 	mockSession := mock.NewMockSession(s.controller)
@@ -1549,70 +1581,6 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	c.Assert(err, Equals, childCtx.Err())
 }
 
-func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
-	cases := []struct {
-		mockHttpResponse []byte
-		expectMsg        string
-		expectResult     bool
-		expectWarnCount  int
-		expectErrorCount int
-	}{
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1,
-						"written_bytes": 11000000
-					}
-				]
-			}`),
-			"(.*)write flow(.*)",
-			false,
-			1,
-			0,
-		},
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1
-					}
-				]
-			}`),
-			"(.*)Cluster has no other loads(.*)",
-			true,
-			0,
-			0,
-		},
-	}
-
-	ctx := context.Background()
-	for _, ca := range cases {
-		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			_, err := w.Write(ca.mockHttpResponse)
-			c.Assert(err, IsNil)
-		}))
-
-		tls := common.NewTLSFromMockServer(server)
-		template := NewSimpleTemplate()
-
-		url := strings.TrimPrefix(server.URL, "https://")
-		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
-		rc := &Controller{cfg: cfg, tls: tls, checkTemplate: template}
-		err := rc.ClusterIsOnline(ctx)
-		c.Assert(err, IsNil)
-
-		c.Assert(template.FailedCount(Warn), Equals, ca.expectWarnCount)
-		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
-		c.Assert(template.Success(), Equals, ca.expectResult)
-		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
-
-		server.Close()
-	}
-}
-
 func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 	cases := []struct {
 		mockStoreResponse   []byte
@@ -1630,7 +1598,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 							"id": 2
 						},
 						"status": {
-							"available": "24"
+							"capacity": "24"
 						}
 					}
 				]
@@ -1638,7 +1606,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 			[]byte(`{
 				"max-replicas": 1
 			}`),
-			"(.*)Cluster resources are rich for this import task(.*)",
+			"(.*)Cluster capacity is rich(.*)",
 			true,
 			0,
 		},
@@ -1651,7 +1619,7 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 							"id": 2
 						},
 						"status": {
-							"available": "23"
+							"capacity": "15"
 						}
 					}
 				]
@@ -1696,7 +1664,12 @@ func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {
 		url := strings.TrimPrefix(server.URL, "https://")
 		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
 		rc := &Controller{cfg: cfg, tls: tls, store: mockStore, checkTemplate: template}
-		err := rc.ClusterResource(ctx)
+		var sourceSize int64
+		err = rc.store.WalkDir(ctx, &storage.WalkOption{}, func(path string, size int64) error {
+			sourceSize += size
+			return nil
+		})
+		err = rc.ClusterResource(ctx, sourceSize)
 		c.Assert(err, IsNil)
 
 		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)

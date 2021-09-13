@@ -110,7 +110,9 @@ func (s *mysqlSuite) TestWriteRowsReplaceOnDup(c *C) {
 		types.NewFloat32Datum(7.5),
 		types.NewFloat64Datum(5e-324),
 		types.NewFloat64Datum(1.7976931348623157e+308),
-		types.NewFloat64Datum(-0.0),
+		types.NewFloat64Datum(0.0),
+		// In Go, the floating-point literal '-0.0' is the same as '0.0', it does not produce a negative zero.
+		// types.NewFloat64Datum(-0.0),
 		types.NewStringDatum("甲乙丙\r\n\x00\x1a'\"\\`"),
 		types.NewBinaryLiteralDatum(types.NewBinaryLiteralFromUint(0xabcdef, 6)),
 		types.NewMysqlBitDatum(types.NewBinaryLiteralFromUint(0x98765432, 4)),
