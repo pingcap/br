@@ -324,11 +324,7 @@ func (importer *FileImporter) Import(
 					}
 					downloadMetas = append(downloadMetas, downloadMeta)
 				}
-<<<<<<< HEAD
 
-				return nil
-			}, newDownloadSSTBackoffer())
-=======
 				failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
 					msg := val.(string)
 					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
@@ -336,7 +332,7 @@ func (importer *FileImporter) Import(
 				})
 				return errors.Trace(e)
 			}, utils.NewDownloadSSTBackoffer())
->>>>>>> 54a83770 (BR: retry for PD request error and TiKV IO error (#27803) (#1433))
+
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
 					switch errors.Cause(e) { // nolint:errorlint
