@@ -315,7 +315,7 @@ func (importer *FileImporter) Import(
 					}
 					failpoint.Inject("download-sst-error", func(val failpoint.Value) {
 						msg := val.(string)
-						log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
+						log.Debug("failpoint download-sst-error injected.", zap.String("msg", msg))
 						e = errors.Annotate(e, msg)
 					})
 					if e != nil {
