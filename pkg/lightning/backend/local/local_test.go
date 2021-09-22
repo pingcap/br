@@ -78,10 +78,16 @@ func (s *localSuite) TestNextKey(c *C) {
 
 	// test recode key
 	// key with int handle
-	for _, handleID := range []int64{1, 255, math.MaxInt32} {
+	for _, handleID := range []int64{math.MinInt64, 1, 255, math.MaxInt32 - 1} {
 		key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID))
 		c.Assert(nextKey(key), DeepEquals, []byte(tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(handleID+1))))
 	}
+
+	// overflowed
+	key := tablecodec.EncodeRowKeyWithHandle(1, tidbkv.IntHandle(math.MaxInt64))
+	next = tablecodec.EncodeTablePrefix(2)
+	c.Assert([]byte(key), Less, next)
+	c.Assert(nextKey(key), DeepEquals, next)
 
 	testDatums := [][]types.Datum{
 		{types.NewIntDatum(1), types.NewIntDatum(2)},
