@@ -240,3 +240,43 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	c.Assert(schemas2[0].Info, DeepEquals, schemas[0].Info)
 	c.Assert(schemas2[0].DB, DeepEquals, schemas[0].DB)
 }
+
+func (s *testBackupSchemaSuite) TestBackupSchemasForSystemTable(c *C) {
+	tk := testkit.NewTestKit(c, s.mock.Storage)
+	es2 := s.GetRandomStorage(c)
+
+	systemTablesCount := 32
+	tablePrefix := "systable"
+	tk.MustExec("use mysql")
+	for i := 1; i <= systemTablesCount; i++ {
+		query := fmt.Sprintf("create table %s%d (a char(1));", tablePrefix, i)
+		tk.MustExec(query)
+	}
+
+	f, err := filter.Parse([]string{"mysql.systable*"})
+	c.Assert(err, IsNil)
+	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(s.mock.Storage, f, math.MaxUint64)
+	c.Assert(err, IsNil)
+	c.Assert(backupSchemas.Len(), Equals, systemTablesCount)
+
+	ctx := context.Background()
+	cipher := backuppb.CipherInfo{
+		CipherType: encryptionpb.EncryptionMethod_PLAINTEXT,
+	}
+	updateCh := new(simpleProgress)
+
+	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false, &cipher)
+	err = backupSchemas.BackupSchemas(ctx, metaWriter2, s.mock.Storage, nil,
+		math.MaxUint64, 1, variable.DefChecksumTableConcurrency, true, updateCh)
+	c.Assert(err, IsNil)
+	err = metaWriter2.FlushBackupMeta(ctx)
+	c.Assert(err, IsNil)
+
+	schemas2 := s.GetSchemasFromMeta(c, es2)
+	c.Assert(schemas2, HasLen, systemTablesCount)
+	for _, schema := range schemas2 {
+		c.Assert(schema.DB.Name, Equals, utils.TemporaryDBName("mysql"))
+		c.Assert(strings.HasPrefix(schema.Info.Name.O, tablePrefix), Equals, true)
+	}
+}
+
