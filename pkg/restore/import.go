@@ -20,8 +20,10 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/logutil"
