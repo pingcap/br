@@ -313,9 +313,9 @@ func (importer *FileImporter) Import(
 					} else {
 						downloadMeta, e = importer.downloadSST(ctx, info, f, rewriteRules)
 					}
-					failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
+					failpoint.Inject("download-sst-error", func(val failpoint.Value) {
 						msg := val.(string)
-						log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
+						log.Debug("failpoint download-sst-error injected.", zap.String("msg", msg))
 						e = errors.Annotate(e, msg)
 					})
 					if e != nil {
@@ -325,8 +325,14 @@ func (importer *FileImporter) Import(
 					downloadMetas = append(downloadMetas, downloadMeta)
 				}
 
-				return nil
-			}, newDownloadSSTBackoffer())
+				failpoint.Inject("restore-storage-error", func(val failpoint.Value) {
+					msg := val.(string)
+					log.Debug("failpoint restore-storage-error injected.", zap.String("msg", msg))
+					e = errors.Annotate(e, msg)
+				})
+				return errors.Trace(e)
+			}, utils.NewDownloadSSTBackoffer())
+
 			if errDownload != nil {
 				for _, e := range multierr.Errors(errDownload) {
 					switch errors.Cause(e) { // nolint:errorlint
@@ -421,7 +427,7 @@ func (importer *FileImporter) Import(
 		}
 
 		return nil
-	}, newImportSSTBackoffer())
+	}, utils.NewImportSSTBackoffer())
 	return errors.Trace(err)
 }
 
