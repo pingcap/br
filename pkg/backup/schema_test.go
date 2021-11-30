@@ -273,7 +273,7 @@ func (s *testBackupSchemaSuite) TestBackupSchemasForSystemTable(c *C) {
 	ctx := context.Background()
 	updateCh := new(simpleProgress)
 
-	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false, &cipher)
+	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false)
 	err = backupSchemas.BackupSchemas(ctx, metaWriter2, s.mock.Storage, nil,
 		math.MaxUint64, 1, variable.DefChecksumTableConcurrency, true, updateCh)
 	c.Assert(err, IsNil)
