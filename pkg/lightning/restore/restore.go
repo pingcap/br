@@ -15,6 +15,7 @@ package restore
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"math"
@@ -104,6 +105,7 @@ const (
 		task_id BIGINT(20) UNSIGNED NOT NULL,
 		pd_cfgs VARCHAR(2048) NOT NULL DEFAULT '',
 		status  VARCHAR(32) NOT NULL,
+		state   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '0: normal, 1: exited before finish',
 		PRIMARY KEY (task_id)
 	);`
 
@@ -555,10 +557,10 @@ func (worker *restoreSchemaWorker) makeJobs(
 }
 
 func (worker *restoreSchemaWorker) doJob() {
-	var session checkpoints.Session
+	var session *sql.Conn
 	defer func() {
 		if session != nil {
-			session.Close()
+			_ = session.Close()
 		}
 	}()
 loop:
@@ -576,7 +578,14 @@ loop:
 			}
 			var err error
 			if session == nil {
-				session, err = worker.glue.GetSession(worker.ctx)
+				session, err = func() (*sql.Conn, error) {
+					// TODO: support lightning in SQL
+					db, err := worker.glue.GetDB()
+					if err != nil {
+						return nil, errors.Trace(err)
+					}
+					return db.Conn(worker.ctx)
+				}()
 				if err != nil {
 					worker.wg.Done()
 					worker.throw(err)
@@ -585,9 +594,13 @@ loop:
 				}
 			}
 			logger := log.With(zap.String("db", job.dbName), zap.String("table", job.tblName))
+			sqlWithRetry := common.SQLWithRetry{
+				Logger: log.L(),
+				DB:     session,
+			}
 			for _, stmt := range job.stmts {
 				task := logger.Begin(zap.DebugLevel, fmt.Sprintf("execute SQL: %s", stmt.sql))
-				_, err = session.Execute(worker.ctx, stmt.sql)
+				err = sqlWithRetry.Exec(worker.ctx, "run create schema job", stmt.sql)
 				task.End(zap.ErrorLevel, err)
 				if err != nil {
 					err = errors.Annotatef(err, "%s %s failed", job.stmtType.String(), common.UniqueTable(job.dbName, job.tblName))
@@ -1151,6 +1164,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// we do not do switch back automatically
 	cleanupFunc := func() {}
 	switchBack := false
+	taskFinished := false
 	if rc.cfg.TikvImporter.Backend == config.BackendLocal {
 		// disable some pd schedulers
 		pdController, err := pdutil.NewPdController(ctx, rc.cfg.TiDB.PdAddr,
@@ -1171,7 +1185,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 			if restoreFn != nil {
 				// use context.Background to make sure this restore function can still be executed even if ctx is canceled
 				restoreCtx := context.Background()
-				needSwitchBack, err := mgr.CheckAndFinishRestore(restoreCtx)
+				needSwitchBack, needCleanup, err := mgr.CheckAndFinishRestore(restoreCtx, taskFinished)
 				if err != nil {
 					logTask.Warn("check restore pd schedulers failed", zap.Error(err))
 					return
@@ -1181,19 +1195,22 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 					if restoreE := restoreFn(restoreCtx); restoreE != nil {
 						logTask.Warn("failed to restore removed schedulers, you may need to restore them manually", zap.Error(restoreE))
 					}
+
+					logTask.Info("add back PD leader&region schedulers")
 					// clean up task metas
-					if cleanupErr := mgr.Cleanup(restoreCtx); cleanupErr != nil {
-						logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
-					}
-					// cleanup table meta and schema db if needed.
-					cleanupFunc = func() {
-						if e := mgr.CleanupAllMetas(restoreCtx); err != nil {
-							logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(e))
+					if needCleanup {
+						logTask.Info("cleanup task metas")
+						if cleanupErr := mgr.Cleanup(restoreCtx); cleanupErr != nil {
+							logTask.Warn("failed to clean task metas, you may need to restore them manually", zap.Error(cleanupErr))
+						}
+						// cleanup table meta and schema db if needed.
+						cleanupFunc = func() {
+							if e := mgr.CleanupAllMetas(restoreCtx); err != nil {
+								logTask.Warn("failed to clean table task metas, you may need to restore them manually", zap.Error(e))
+							}
 						}
 					}
 				}
-
-				logTask.Info("add back PD leader&region schedulers")
 			}
 
 			pdController.Close()
@@ -1391,6 +1408,7 @@ func (rc *Controller) restoreTables(ctx context.Context) error {
 	// finishSchedulers()
 	// cancelFunc(switchBack)
 	// finishFuncCalled = true
+	taskFinished = true
 
 	close(postProcessTaskChan)
 	// otherwise, we should run all tasks in the post-process task chan
@@ -2329,9 +2347,6 @@ func (rc *Controller) preCheckRequirements(ctx context.Context) error {
 		return nil
 	}
 	if err := rc.ClusterIsAvailable(ctx); err != nil {
-		return errors.Trace(err)
-	}
-	if err := rc.ClusterIsOnline(ctx); err != nil {
 		return errors.Trace(err)
 	}
 

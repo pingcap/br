@@ -1389,29 +1389,14 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		Return(s.tableInfos, nil)
 	mockBackend.EXPECT().Close()
 	s.rc.backend = backend.MakeBackend(mockBackend)
-	mockSQLExecutor := mock.NewMockSQLExecutor(s.controller)
-	mockSQLExecutor.EXPECT().
-		ExecuteWithLog(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil)
-	mockSession := mock.NewMockSession(s.controller)
-	mockSession.EXPECT().
-		Close().
-		AnyTimes().
-		Return()
-	mockSession.EXPECT().
-		Execute(gomock.Any(), gomock.Any()).
-		AnyTimes().
-		Return(nil, nil)
+
+	mockDB, sqlMock, err := sqlmock.New()
+	c.Assert(err, IsNil)
+	for i := 0; i < 17; i++ {
+		sqlMock.ExpectExec(".*").WillReturnResult(sqlmock.NewResult(int64(i), 1))
+	}
 	mockTiDBGlue := mock.NewMockGlue(s.controller)
-	mockTiDBGlue.EXPECT().
-		GetSQLExecutor().
-		AnyTimes().
-		Return(mockSQLExecutor)
-	mockTiDBGlue.EXPECT().
-		GetSession(gomock.Any()).
-		AnyTimes().
-		Return(mockSession, nil)
+	mockTiDBGlue.EXPECT().GetDB().AnyTimes().Return(mockDB, nil)
 	mockTiDBGlue.EXPECT().
 		OwnsSQLExecutor().
 		AnyTimes().
@@ -1421,7 +1406,6 @@ func (s *restoreSchemaSuite) SetUpTest(c *C) {
 		GetParser().
 		AnyTimes().
 		Return(parser)
-	mockSQLExecutor.EXPECT().Close()
 	s.rc.tidbGlue = mockTiDBGlue
 }
 
@@ -1479,70 +1463,6 @@ func (s *restoreSchemaSuite) TestRestoreSchemaContextCancel(c *C) {
 	cancel()
 	c.Assert(err, NotNil)
 	c.Assert(err, Equals, childCtx.Err())
-}
-
-func (s *tableRestoreSuite) TestCheckClusterIsOnline(c *C) {
-	cases := []struct {
-		mockHttpResponse []byte
-		expectMsg        string
-		expectResult     bool
-		expectWarnCount  int
-		expectErrorCount int
-	}{
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1,
-						"written_bytes": 11000000
-					}
-				]
-			}`),
-			"(.*)write flow(.*)",
-			false,
-			1,
-			0,
-		},
-		{
-			[]byte(`{
-				"count": 1,
-				"regions": [
-					{
-						"id": 1
-					}
-				]
-			}`),
-			"(.*)Cluster has no other loads(.*)",
-			true,
-			0,
-			0,
-		},
-	}
-
-	ctx := context.Background()
-	for _, ca := range cases {
-		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			_, err := w.Write(ca.mockHttpResponse)
-			c.Assert(err, IsNil)
-		}))
-
-		tls := common.NewTLSFromMockServer(server)
-		template := NewSimpleTemplate()
-
-		url := strings.TrimPrefix(server.URL, "https://")
-		cfg := &config.Config{TiDB: config.DBStore{PdAddr: url}}
-		rc := &Controller{cfg: cfg, tls: tls, checkTemplate: template}
-		err := rc.ClusterIsOnline(ctx)
-		c.Assert(err, IsNil)
-
-		c.Assert(template.FailedCount(Warn), Equals, ca.expectWarnCount)
-		c.Assert(template.FailedCount(Critical), Equals, ca.expectErrorCount)
-		c.Assert(template.Success(), Equals, ca.expectResult)
-		c.Assert(strings.ReplaceAll(template.Output(), "\n", ""), Matches, ca.expectMsg)
-
-		server.Close()
-	}
 }
 
 func (s *tableRestoreSuite) TestCheckClusterResource(c *C) {

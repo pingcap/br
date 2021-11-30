@@ -92,6 +92,8 @@ func (local *local) SplitAndScatterRegionByRanges(ctx context.Context, ranges []
 		}
 		var regions []*split.RegionInfo
 		regions, err = paginateScanRegion(ctx, local.splitCli, minKey, maxKey, 128)
+		log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
+			logutil.Key("start", minKey), logutil.Key("end", maxKey))
 		if err != nil {
 			log.L().Warn("paginate scan region failed", logutil.Key("minKey", minKey), logutil.Key("maxKey", maxKey),
 				log.ShortError(err), zap.Int("retry", i))
@@ -303,10 +305,10 @@ func paginateScanRegion(
 	ctx context.Context, client split.SplitClient, startKey, endKey []byte, limit int,
 ) ([]*split.RegionInfo, error) {
 	if len(endKey) != 0 && bytes.Compare(startKey, endKey) >= 0 {
-		log.L().Error("startKey > endKey when paginating scan region",
+		log.L().Error("startKey >= endKey when paginating scan region",
 			logutil.Key("startKey", startKey),
 			logutil.Key("endKey", endKey))
-		return nil, errors.Errorf("startKey > endKey when paginating scan region")
+		return nil, errors.Errorf("startKey >= endKey when paginating scan region")
 	}
 
 	var regions []*split.RegionInfo
@@ -330,8 +332,6 @@ func paginateScanRegion(
 	sort.Slice(regions, func(i, j int) bool {
 		return bytes.Compare(regions[i].Region.StartKey, regions[j].Region.StartKey) < 0
 	})
-	log.L().Info("paginate scan regions", zap.Int("count", len(regions)),
-		logutil.Key("start", startKey), logutil.Key("end", endKey))
 	return regions, nil
 }
 

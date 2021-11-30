@@ -32,7 +32,7 @@ done
 # full backup
 echo "backup full start..."
 run_sql "CREATE INDEX idx_c1 ON ${DB}.${TABLE}(c1)"
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/full" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB/full"
 wait
 # run ddls
 echo "run ddls..."
@@ -42,7 +42,7 @@ run_sql "ALTER TABLE ${DB}.${TABLE} DROP COLUMN c3;";
 # incremental backup
 echo "incremental backup start..."
 last_backup_ts=$(run_br validate decode --field="end-version" -s "local://$TEST_DIR/$DB/full" | grep -oE "^[0-9]+")
-run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --ratelimit 5 --concurrency 4 --lastbackupts $last_backup_ts
+run_br --pd $PD_ADDR backup table -s "local://$TEST_DIR/$DB/inc" --db $DB -t $TABLE --lastbackupts $last_backup_ts
 
 run_sql "DROP DATABASE $DB;"
 # full restore

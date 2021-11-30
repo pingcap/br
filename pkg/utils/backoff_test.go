@@ -1,6 +1,6 @@
 // Copyright 2020 PingCAP, Inc. Licensed under Apache-2.0.
 
-package restore_test
+package utils_test
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 
 	berrors "github.com/pingcap/br/pkg/errors"
 	"github.com/pingcap/br/pkg/mock"
-	"github.com/pingcap/br/pkg/restore"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -36,7 +35,7 @@ func (s *testBackofferSuite) TearDownSuite(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 	var counter int
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := utils.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		switch counter {
@@ -55,7 +54,7 @@ func (s *testBackofferSuite) TestBackoffWithSuccess(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 	var counter int
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := utils.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	gRPCError := status.Error(codes.Unavailable, "transport is closing")
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
@@ -83,7 +82,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalError(c *C) {
 func (s *testBackofferSuite) TestBackoffWithFatalRawGRPCError(c *C) {
 	var counter int
 	canceledError := status.Error(codes.Canceled, "context canceled")
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := utils.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		return canceledError // nolint:wrapcheck
@@ -96,7 +95,7 @@ func (s *testBackofferSuite) TestBackoffWithFatalRawGRPCError(c *C) {
 
 func (s *testBackofferSuite) TestBackoffWithRetryableError(c *C) {
 	var counter int
-	backoffer := restore.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
+	backoffer := utils.NewBackoffer(10, time.Nanosecond, time.Nanosecond)
 	err := utils.WithRetry(context.Background(), func() error {
 		defer func() { counter++ }()
 		return berrors.ErrKVEpochNotMatch

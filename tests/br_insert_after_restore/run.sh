@@ -41,7 +41,7 @@ row_count_ori=$(run_sql "SELECT COUNT(*) FROM $DB.$TABLE;" | awk '/COUNT/{print 
 
 # backup full
 echo "backup start..."
-run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB" --ratelimit 5 --concurrency 4
+run_br --pd $PD_ADDR backup full -s "local://$TEST_DIR/$DB"
 
 run_sql "DROP DATABASE $DB;"
 
