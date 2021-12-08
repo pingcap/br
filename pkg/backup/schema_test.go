@@ -17,11 +17,8 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"
-<<<<<<< HEAD
-=======
 	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
->>>>>>> 0ef8d4c8 (br: Remove statement from closure to prevent concurrent operation during backup system table (#1449))
 )
 
 var _ = Suite(&testBackupSchemaSuite{})
