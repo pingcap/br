@@ -4,7 +4,9 @@ package backup_test
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"sync/atomic"
 
 	. "github.com/pingcap/check"
@@ -15,6 +17,11 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"
+<<<<<<< HEAD
+=======
+	"github.com/pingcap/br/pkg/storage"
+	"github.com/pingcap/br/pkg/utils"
+>>>>>>> 0ef8d4c8 (br: Remove statement from closure to prevent concurrent operation during backup system table (#1449))
 )
 
 var _ = Suite(&testBackupSchemaSuite{})
@@ -183,4 +190,38 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 	c.Assert(schemas2[0].TotalBytes, Equals, schemas[0].TotalBytes)
 	c.Assert(schemas2[0].Table, DeepEquals, schemas[0].Table)
 	c.Assert(schemas2[0].Db, DeepEquals, schemas[0].Db)
+}
+
+func (s *testBackupSchemaSuite) TestBackupSchemasForSystemTable(c *C) {
+	tk := testkit.NewTestKit(c, s.mock.Storage)
+	es2 := s.GetRandomStorage(c)
+
+	systemTablesCount := 32
+	tablePrefix := "systable"
+	tk.MustExec("use mysql")
+	for i := 1; i <= systemTablesCount; i++ {
+		query := fmt.Sprintf("create table %s%d (a char(1));", tablePrefix, i)
+		tk.MustExec(query)
+	}
+
+	f, err := filter.Parse([]string{"mysql.systable*"})
+	c.Assert(err, IsNil)
+	_, backupSchemas, err := backup.BuildBackupRangeAndSchema(s.mock.Storage, f, math.MaxUint64)
+	c.Assert(err, IsNil)
+	c.Assert(backupSchemas.Len(), Equals, systemTablesCount)
+
+	ctx := context.Background()
+	updateCh := new(simpleProgress)
+
+	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false)
+	err = backupSchemas.BackupSchemas(ctx, metaWriter2, s.mock.Storage, nil,
+		math.MaxUint64, 1, variable.DefChecksumTableConcurrency, true, updateCh)
+	c.Assert(err, IsNil)
+
+	schemas2 := s.GetSchemasFromMeta(c, es2)
+	c.Assert(schemas2, HasLen, systemTablesCount)
+	for _, schema := range schemas2 {
+		c.Assert(schema.DB.Name, Equals, utils.TemporaryDBName("mysql"))
+		c.Assert(strings.HasPrefix(schema.Info.Name.O, tablePrefix), Equals, true)
+	}
 }

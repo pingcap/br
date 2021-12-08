@@ -86,6 +86,12 @@ func (ss *Schemas) BackupSchemas(
 	startAll := time.Now()
 	for _, s := range ss.schemas {
 		schema := s
+		// Because schema.dbInfo is a pointer that many tables point to.
+		// Remove "add Temporary-prefix into dbName" from closure to prevent concurrent operations.
+		if utils.IsSysDB(schema.dbInfo.Name.L) {
+			schema.dbInfo.Name = utils.TemporaryDBName(schema.dbInfo.Name.O)
+		}
+
 		workerPool.ApplyOnErrorGroup(errg, func() error {
 			logger := log.With(
 				zap.String("db", schema.dbInfo.Name.O),
