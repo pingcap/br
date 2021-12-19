@@ -21,8 +21,10 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 
 	backuppb "github.com/pingcap/kvproto/pkg/backup"
 	"github.com/pingcap/kvproto/pkg/metapb"
@@ -31,6 +33,7 @@ import (
 	"github.com/pingcap/br/pkg/glue"
 	"github.com/pingcap/br/pkg/logutil"
 	"github.com/pingcap/br/pkg/pdutil"
+	"github.com/pingcap/br/pkg/utils"
 	"github.com/pingcap/br/pkg/version"
 )
 
@@ -162,6 +165,32 @@ func GetAllTiKVStores(
 		j++
 	}
 	return stores[:j], nil
+}
+
+// GetAllTiKVStoresWithRetry call GetAllTiKVStores and to retry when meet errors
+func GetAllTiKVStoresWithRetry(ctx context.Context,
+	pdClient pd.Client,
+	storeBehavior StoreBehavior,
+) ([]*metapb.Store, error) {
+	stores := make([]*metapb.Store, 0)
+	var err error
+
+	errRetry := utils.WithRetry(
+		ctx,
+		func() error {
+			stores, err = GetAllTiKVStores(ctx, pdClient, storeBehavior)
+			failpoint.Inject("hint-GetAllTiKVStores-error", func(val failpoint.Value) {
+				if val.(bool) {
+					err = status.Error(codes.Unknown, "Retryable error")
+				}
+			})
+
+			return errors.Trace(err)
+		},
+		utils.NewPDReqBackoffer(),
+	)
+
+	return stores, errors.Trace(errRetry)
 }
 
 // NewMgr creates a new Mgr.
