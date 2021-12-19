@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	// mininum max open files value
-	minRLimit = 1024
+	// maximum max open files value
+	maxRLimit = 1000000
 )
 
 func GetSystemRLimit() (uint64, error) {
@@ -40,8 +40,8 @@ func GetSystemRLimit() (uint64, error) {
 // In Local-backend, we need to read and write a lot of L0 SST files, so we need
 // to check system max open files limit.
 func VerifyRLimit(estimateMaxFiles uint64) error {
-	if estimateMaxFiles < minRLimit {
-		estimateMaxFiles = minRLimit
+	if estimateMaxFiles > maxRLimit {
+		estimateMaxFiles = maxRLimit
 	}
 	var rLimit syscall.Rlimit
 	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
