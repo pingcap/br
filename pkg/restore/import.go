@@ -167,6 +167,8 @@ func (ic *importClient) GetImportClient(
 		ctx,
 		addr,
 		opt,
+		grpc.WithBlock(),
+		grpc.FailOnNonTempDialError(true),
 		grpc.WithConnectParams(grpc.ConnectParams{Backoff: bfConf}),
 		grpc.WithKeepaliveParams(ic.keepaliveConf),
 	)
