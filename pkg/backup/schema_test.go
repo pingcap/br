@@ -4,12 +4,14 @@ package backup_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 	"sync/atomic"
 
 	. "github.com/pingcap/check"
+	"github.com/pingcap/parser/model"
 	filter "github.com/pingcap/tidb-tools/pkg/table-filter"
 	"github.com/pingcap/tidb/sessionctx/variable"
 	"github.com/pingcap/tidb/util/testkit"
@@ -17,7 +19,6 @@ import (
 
 	"github.com/pingcap/br/pkg/backup"
 	"github.com/pingcap/br/pkg/mock"
-	"github.com/pingcap/br/pkg/storage"
 	"github.com/pingcap/br/pkg/utils"
 )
 
@@ -191,8 +192,6 @@ func (s *testBackupSchemaSuite) TestBuildBackupRangeAndSchemaWithBrokenStats(c *
 
 func (s *testBackupSchemaSuite) TestBackupSchemasForSystemTable(c *C) {
 	tk := testkit.NewTestKit(c, s.mock.Storage)
-	es2 := s.GetRandomStorage(c)
-
 	systemTablesCount := 32
 	tablePrefix := "systable"
 	tk.MustExec("use mysql")
@@ -209,16 +208,28 @@ func (s *testBackupSchemaSuite) TestBackupSchemasForSystemTable(c *C) {
 
 	ctx := context.Background()
 	updateCh := new(simpleProgress)
-
-	metaWriter2 := metautil.NewMetaWriter(es2, metautil.MetaFileSize, false)
-	err = backupSchemas.BackupSchemas(ctx, metaWriter2, s.mock.Storage, nil,
-		math.MaxUint64, 1, variable.DefChecksumTableConcurrency, true, updateCh)
+	schemas2, err := backupSchemas.BackupSchemas(
+		ctx,
+		s.mock.Storage,
+		nil,
+		math.MaxUint64,
+		1,
+		variable.DefChecksumTableConcurrency,
+		true,
+		updateCh,
+	)
 	c.Assert(err, IsNil)
-
-	schemas2 := s.GetSchemasFromMeta(c, es2)
 	c.Assert(schemas2, HasLen, systemTablesCount)
+
 	for _, schema := range schemas2 {
-		c.Assert(schema.DB.Name, Equals, utils.TemporaryDBName("mysql"))
-		c.Assert(strings.HasPrefix(schema.Info.Name.O, tablePrefix), Equals, true)
+		var db model.DBInfo
+		err = json.Unmarshal(schema.GetDb(), &db)
+		c.Assert(err, IsNil)
+		c.Assert(db.Name, Equals, utils.TemporaryDBName("mysql"))
+
+		var table model.TableInfo
+		err = json.Unmarshal(schema.GetTable(), &table)
+		c.Assert(err, IsNil)
+		c.Assert(strings.HasPrefix(table.Name.O, tablePrefix), Equals, true)
 	}
 }
