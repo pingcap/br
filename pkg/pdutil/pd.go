@@ -124,9 +124,7 @@ var (
 		"max-merge-region-size":       20,
 		"leader-schedule-limit":       4,
 		"region-schedule-limit":       2048,
-		"max-snapshot-count":          3,
 		"enable-location-replacement": "true",
-		"max-pending-peer-count":      16,
 	}
 )
 
