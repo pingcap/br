@@ -155,8 +155,41 @@ func (s *gcsStorage) Open(ctx context.Context, path string) (ExternalFileReader,
 // function; the second argument is the size in byte of the file determined
 // by path.
 func (s *gcsStorage) WalkDir(ctx context.Context, opt *WalkOption, fn func(string, int64) error) error {
+<<<<<<< HEAD
 	// TODO, implement this if needed
 	panic("Unsupported Operation")
+=======
+	if opt == nil {
+		opt = &WalkOption{}
+	}
+
+	prefix := path.Join(s.gcs.Prefix, opt.SubDir)
+	if len(prefix) > 0 && !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	query := &storage.Query{Prefix: prefix}
+	// only need each object's name and size
+	query.SetAttrSelection([]string{"Name", "Size"})
+	iter := s.bucket.Objects(ctx, query)
+	for {
+		attrs, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		// when walk on specify directory, the result include storage.Prefix,
+		// which can not be reuse in other API(Open/Read) directly.
+		// so we use TrimPrefix to filter Prefix for next Open/Read.
+		path := strings.TrimPrefix(attrs.Name, s.gcs.Prefix)
+		if err = fn(path, attrs.Size); err != nil {
+			return errors.Trace(err)
+		}
+	}
+	return nil
+>>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))
 }
 
 func (s *gcsStorage) URI() string {
