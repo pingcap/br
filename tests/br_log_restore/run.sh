@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# skip log restore test because ticdc doesn't support this feature anymore.
+exit 0
+
 set -eux
 DB="$TEST_NAME"
 TABLE="usertable"
