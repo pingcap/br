@@ -292,57 +292,6 @@ func (s *testMydumpRegionSuite) TestSplitLargeFileNoNewLine(c *C) {
 		c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
 	}
 }
-<<<<<<< HEAD
-=======
-
-func (s *testMydumpRegionSuite) TestSplitLargeFileWithCustomTerminator(c *C) {
-	meta := &MDTableMeta{
-		DB:   "csv",
-		Name: "large_csv_with_custom_terminator",
-	}
-	cfg := &config.Config{
-		Mydumper: config.MydumperRuntime{
-			ReadBlockSize: config.ReadBlockSize,
-			CSV: config.CSVConfig{
-				Separator:  "|+|",
-				Terminator: "|+|\n",
-			},
-			StrictFormat:  true,
-			Filter:        []string{"*.*"},
-			MaxRegionSize: 1,
-		},
-	}
-
-	dir := c.MkDir()
-
-	fileName := "test2.csv"
-	filePath := filepath.Join(dir, fileName)
-
-	content := []byte("5|+|abc\ndef\nghi|+|6|+|\n7|+|xyz|+|8|+|\n9|+||+|10")
-	err := os.WriteFile(filePath, content, 0o644)
-	c.Assert(err, IsNil)
-
-	dataFileInfo, err := os.Stat(filePath)
-	c.Assert(err, IsNil)
-	fileSize := dataFileInfo.Size()
-	fileInfo := FileInfo{FileMeta: SourceFileMeta{Path: fileName, Type: SourceTypeCSV, FileSize: fileSize}}
-	colCnt := int64(3)
-	prevRowIdxMax := int64(0)
-	ioWorker := worker.NewPool(context.Background(), 4, "io")
-
-	store, err := storage.NewLocalStorage(dir)
-	c.Assert(err, IsNil)
-
-	offsets := [][]int64{{0, 23}, {23, 38}, {38, 47}}
-
-	_, regions, _, err := SplitLargeFile(context.Background(), meta, cfg, fileInfo, colCnt, prevRowIdxMax, ioWorker, store)
-	c.Assert(err, IsNil)
-	c.Assert(regions, HasLen, len(offsets))
-	for i := range offsets {
-		c.Assert(regions[i].Chunk.Offset, Equals, offsets[i][0])
-		c.Assert(regions[i].Chunk.EndOffset, Equals, offsets[i][1])
-	}
-}
 
 func (s *testMydumpRegionSuite) TestSplitLargeFileOnlyOneChunk(c *C) {
 	meta := &MDTableMeta{
@@ -399,4 +348,3 @@ func (s *testMydumpRegionSuite) TestSplitLargeFileOnlyOneChunk(c *C) {
 		c.Assert(regions[i].Chunk.Columns, DeepEquals, columns)
 	}
 }
->>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))

@@ -4,12 +4,7 @@ package storage
 
 import (
 	"context"
-<<<<<<< HEAD
 	"io/ioutil"
-=======
-	"fmt"
-	"io"
->>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))
 	"os"
 
 	"github.com/fsouza/fake-gcs-server/fakestorage"
@@ -64,95 +59,6 @@ func (r *testStorageSuite) TestGCS(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(exist, IsFalse)
 
-<<<<<<< HEAD
-=======
-	list := ""
-	var totalSize int64 = 0
-	err = stg.WalkDir(ctx, nil, func(name string, size int64) error {
-		list += name
-		totalSize += size
-		return nil
-	})
-	c.Assert(err, IsNil)
-	c.Assert(list, Equals, "keykey1key2")
-	c.Assert(totalSize, Equals, int64(42))
-
-	// test 1003 files
-	totalSize = 0
-	for i := 0; i < 1000; i += 1 {
-		err = stg.WriteFile(ctx, fmt.Sprintf("f%d", i), []byte("data"))
-		c.Assert(err, IsNil)
-	}
-	filesSet := make(map[string]struct{}, 1003)
-	err = stg.WalkDir(ctx, nil, func(name string, size int64) error {
-		filesSet[name] = struct{}{}
-		totalSize += size
-		return nil
-	})
-	c.Assert(err, IsNil)
-	c.Assert(totalSize, Equals, int64(42+4000))
-	_, ok := filesSet["key"]
-	c.Assert(ok, IsTrue)
-	_, ok = filesSet["key1"]
-	c.Assert(ok, IsTrue)
-	_, ok = filesSet["key2"]
-	c.Assert(ok, IsTrue)
-	for i := 0; i < 1000; i += 1 {
-		_, ok = filesSet[fmt.Sprintf("f%d", i)]
-		c.Assert(ok, IsTrue)
-	}
-
-	efr, err := stg.Open(ctx, "key2")
-	c.Assert(err, IsNil)
-
-	p := make([]byte, 10)
-	n, err := efr.Read(p)
-	c.Assert(err, IsNil)
-	c.Assert(n, Equals, 10)
-	c.Assert(string(p), Equals, "data222233")
-
-	p = make([]byte, 40)
-	n, err = efr.Read(p)
-	c.Assert(err, IsNil)
-	c.Assert(n, Equals, 23)
-	c.Assert(string(p[:23]), Equals, "46757222222222289722222")
-
-	p = make([]byte, 5)
-	offs, err := efr.Seek(3, io.SeekStart)
-	c.Assert(err, IsNil)
-	c.Assert(offs, Equals, int64(3))
-
-	n, err = efr.Read(p)
-	c.Assert(err, IsNil)
-	c.Assert(n, Equals, 5)
-	c.Assert(string(p), Equals, "a2222")
-
-	p = make([]byte, 5)
-	offs, err = efr.Seek(3, io.SeekCurrent)
-	c.Assert(err, IsNil)
-	c.Assert(offs, Equals, int64(11))
-
-	n, err = efr.Read(p)
-	c.Assert(err, IsNil)
-	c.Assert(n, Equals, 5)
-	c.Assert(string(p), Equals, "67572")
-
-	/* Since fake_gcs_server hasn't support for negative offset yet.
-	p = make([]byte, 5)
-	offs, err = efr.Seek(int64(-7), io.SeekEnd)
-	c.Assert(err, IsNil)
-	c.Assert(offs, Equals, int64(-7))
-
-	n, err = efr.Read(p)
-	c.Assert(err, IsNil)
-	c.Assert(n, Equals, 5)
-	c.Assert(string(p), Equals, "97222")
-	*/
-
-	err = efr.Close()
-	c.Assert(err, IsNil)
-
->>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))
 	c.Assert(stg.URI(), Equals, "gcs://testbucket/a/b/")
 }
 

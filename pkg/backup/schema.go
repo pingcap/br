@@ -95,10 +95,7 @@ func (ss *Schemas) BackupSchemas(
 		if utils.IsSysDB(schema.dbInfo.Name.L) {
 			schema.dbInfo.Name = utils.TemporaryDBName(schema.dbInfo.Name.O)
 		}
-<<<<<<< HEAD
 
-=======
->>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))
 		workerPool.ApplyOnErrorGroup(errg, func() error {
 			logger := log.With(
 				zap.String("db", schema.dbInfo.Name.O),
