@@ -131,8 +131,12 @@ default_pd_values='{
   "max-merge-region-keys": 200000,
   "max-merge-region-size": 20,
   "leader-schedule-limit": 4,
+<<<<<<< HEAD
   "region-schedule-limit": 2048,
   "max-snapshot-count":    3
+=======
+  "region-schedule-limit": 2048
+>>>>>>> ec59c7b6 (lightning: cherry-pick some PRs  (#1458))
 }'
 
 for key in $(echo $default_pd_values | jq 'keys[]'); do
