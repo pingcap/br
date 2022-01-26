@@ -37,12 +37,6 @@ done
 # start oauth server
 bin/oauth &
 
-stop_gcs() {
-    killall -9 fake-gcs-server || true
-    killall -9 oauth || true
-}
-trap stop_gcs EXIT
-
 rm -rf "$TEST_DIR/$DB"
 mkdir -p "$TEST_DIR/$DB"
 
