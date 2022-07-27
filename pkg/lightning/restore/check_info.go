@@ -120,7 +120,7 @@ func (rc *Controller) ClusterResource(ctx context.Context, localSource int64) er
 // ClusterIsAvailable check cluster is available to import data. this test can be skipped.
 func (rc *Controller) ClusterIsAvailable(ctx context.Context) error {
 	passed := true
-	message := "Cluster is available"
+	message := "Cluster is available and correct"
 	defer func() {
 		rc.checkTemplate.Collect(Critical, passed, message)
 	}()
