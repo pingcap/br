@@ -24,11 +24,13 @@ type DB struct {
 	se glue.Session
 }
 
+// UniqueTableName identifies a unique table
 type UniqueTableName struct {
 	DB    string
 	Table string
 }
 
+// DDLJobFilterRule judges whether a ddl job should be ignored
 type DDLJobFilterRule func(ddlJob *model.Job) bool
 
 var incrementalRestoreActionBlockList = map[model.ActionType]struct{}{
